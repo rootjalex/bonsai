@@ -148,7 +148,17 @@ cmake --build "$BONSAI_BUILD_DIR" -j
 build_schedule() {
   local schedule="$1"
   local flags=(-p ssa --no-heap --ffp-contract)
-  local inputs=(-i $PREFIX/wosx.bonsai -i "$PREFIX/schedules/$schedule.bonsai")
+  # The arithmetic of the FCPW build the schedule's tree is compared
+  # against, compiled before the program as apps/rtq compiles it before
+  # rtq.bonsai: metrics/fcpw.bonsai, the vectorized build's (enoki's
+  # reciprocal estimate), for the four-wide tree; metrics/fcpw_scalar.bonsai,
+  # the scalar build's and the GPU's (true divisions), for the binary tree.
+  local metric="fcpw"
+  if [[ "$schedule" == fcpwb* ]]; then
+    metric="fcpw_scalar"
+  fi
+  local inputs=(-i apps/rtq/elements.bonsai -i "apps/rtq/metrics/$metric.bonsai"
+                -i $PREFIX/wosx.bonsai -i "$PREFIX/schedules/$schedule.bonsai")
   "./$BONSAI_BUILD_DIR/compiler" -p ssa "${inputs[@]}" -o $PREFIX/wosx.bir
   "./$BONSAI_BUILD_DIR/compiler" "${flags[@]}" "${inputs[@]}" -b llvm -o $PREFIX/wosx.ll
   "./$BONSAI_BUILD_DIR/compiler" "${flags[@]}" "${inputs[@]}" -b cpp -o $PREFIX/wosx

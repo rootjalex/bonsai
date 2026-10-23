@@ -3,17 +3,25 @@
 // tree declaration and the layout that is its bytes: fcpw::Bvh<3,
 // BvhNode<3>, Triangle> (deps/fcpw/include/fcpw/aggregates/bvh.h; on the
 // GPU fcpw/gpu/bvh.slang's Bvh<BvhNode, Triangle, NoSilhouette> over the
-// same rows, GPUBvhNode). A node is its own box (BoundingBox<3>: pMin,
-// pMax, two Vector3f of 12 bytes), one int that is the second child's
-// offset for an interior node and the first reference's index for a leaf
-// (a union), and the leaf's reference count, zero for an interior node: 32
-// bytes, a binary tree whose left child is the next row and whose leaves
-// reference FCPW's primitives in the order its build left them
-// (Bvh::primitives). The primitives are copied into a plain array of
-// triangles by the driver (apps/wosx/fcpw_bvh.h), each its three corners
-// and FCPW's pIndex, the fields apps/rtq's Triangle element reads as the
-// four-wide layout's packets provide them
-// (apps/rtq/schedules/layouts/fcpw4w16.bonsai).
+// same rows). A node is its own box (BoundingBox<3>: pMin, pMax, two
+// Vector3f of 12 bytes), one int that is the second child's offset for an
+// interior node and the first reference's index for a leaf (a union), and
+// the leaf's reference count, zero for an interior node: 32 bytes
+// (GPUBvhNode on the GPU, the same bytes), a binary tree whose left child
+// is the next row and whose leaves reference FCPW's primitives in the
+// order its build left them (Bvh::primitives).
+//
+// The triangles are FCPW's GPU rows: GPUTriangle (fcpw/gpu/
+// bvh_interop_structures.h, what extractTriangles copies to the GPU), the
+// three corners and the primitive index, 40 bytes a row, in the order of
+// FCPW's primitive array, which a leaf's offset indexes; the program's
+// element fields -- a corner, two edges, two ids, apps/rtq's Triangle --
+// are derived from the row's as apps/rtq/schedules/layouts/fcpw4w16.bonsai
+// derives them from FCPW's packets (`e1 = pa - pb` is `-(pb - pa)` to the
+// bit, FCPW's `ab` negated; `e2 = pc - pa` its `ac`), a tile of one
+// element each. FCPW's CPU build reads the corners through the triangle's
+// indices into the polygon soup; the GPU build and this layout hold them
+// in the row.
 //
 // FCPW's traversal tests both children's boxes at the parent, lowers the
 // radius to each box's far corner, and enters the nearer first (bvh.inl,
@@ -35,14 +43,22 @@ schedule {
     triangles : BVH2;
 
     layout triangles {
-        // The primitives in the order FCPW's build left them
-        // (Bvh::primitives), one Triangle element each, which the driver
-        // fills from FCPW's: FCPW's scalar leaf reads each triangle's three
-        // corners through its indices into the polygon soup, which no
-        // element array can be the bytes of, so the corners are copied out
-        // once (as FCPW's own vectorized leaf copies them into its packets).
+        // FCPW: GPUTriangle, one row a triangle.
         pCount : u32;
-        prims : array[Triangle, pCount];
+        indirect group prims[pCount] {
+            group[1] {
+                pa : vec3f;
+                pb : vec3f;
+                pc : vec3f;
+                primitiveIndex : u32;
+                v0 = pa;
+                e1 = pa - pb;
+                e2 = pc - pa;
+                geomID = 0u;
+                primID = primitiveIndex;
+            };
+        };
+        // FCPW: BvhNode / GPUBvhNode.
         nNodes : u32;
         group[nNodes] index : u32 {
             low : vec3f;
@@ -55,12 +71,12 @@ schedule {
                     right = index + cast[[u32]](offset);
                     children = vector[u32, 2]{left, right};
                     // The children's boxes, read from the children's rows.
-                    lo = vector[vec3f, 2]{vector[f32, 2]{this[left].low[0], this[right].low[0]},
-                                          vector[f32, 2]{this[left].low[1], this[right].low[1]},
-                                          vector[f32, 2]{this[left].low[2], this[right].low[2]}};
-                    hi = vector[vec3f, 2]{vector[f32, 2]{this[left].high[0], this[right].high[0]},
-                                          vector[f32, 2]{this[left].high[1], this[right].high[1]},
-                                          vector[f32, 2]{this[left].high[2], this[right].high[2]}};
+                    lo = vector[vec3f, 2]{vector[f32, 2]{this[left].low.x, this[right].low.x},
+                                          vector[f32, 2]{this[left].low.y, this[right].low.y},
+                                          vector[f32, 2]{this[left].low.z, this[right].low.z}};
+                    hi = vector[vec3f, 2]{vector[f32, 2]{this[left].high.x, this[right].high.x},
+                                          vector[f32, 2]{this[left].high.y, this[right].high.y},
+                                          vector[f32, 2]{this[left].high.z, this[right].high.z}};
                 };
                 _ => Leaf {
                     data = range(prims, cast[[u32]](offset), cast[[u32]](nReferences));

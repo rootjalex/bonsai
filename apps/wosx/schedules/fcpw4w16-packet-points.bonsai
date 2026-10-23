@@ -23,9 +23,9 @@ schedule {
     // FCPW's traversal order -- the children sorted by the point's distance
     // to their boxes, FCPW's stack of 96 -- for the gang: the order a
     // majority vote, each child visited by the lanes that reach it.
-    closest.sort(triangles.Interior,
-                 |i : u32, q : Point, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
-                 distmin(q, AABB{lo[i], hi[i]}))
-           .loopify(96);
-    closest.skip(closest_point_fcpw);
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+                        distmin(s, AABB{lo[i], hi[i]}))
+                  .loopify(96);
+    closest_within.skip(closest_point_fcpw);
 }

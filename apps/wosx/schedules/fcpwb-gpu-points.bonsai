@@ -8,7 +8,7 @@
 // long as the longest of its neighbours' sixty-four walks takes -- and
 // leaves most of the card's threads with no point to claim at all when
 // the points are fewer than the workers.
-import apps/wosx/schedules/fcpwb;
+import apps/wosx/schedules/kernel/fcpwb;
 
 schedule {
     solve_all.persistent(i, t, 131072);

@@ -1,42 +1,17 @@
-// WoSX's GPU tree: FCPW's binary BVH over triangles -- the one tree FCPW
-// has on the GPU (fcpw/gpu/bvh.slang; GPUScene::transferToGPU takes the
-// non-vectorized Bvh and nothing else), and so the tree WoSX's GPU solver
-// walks -- declared as a tree whose interior node bounds its two children,
-// with the layout that holds it.
-//
-// FCPW's GPU traversal (bvh.slang, Bvh::findClosestPoint; the same order as
-// the CPU's bvh.inl, processSubtreeForClosestPoint): pop a node, skip it if
-// its box is now farther than the best, test a leaf's triangles one by one,
-// and at an interior node test BOTH children's boxes -- the radius lowered
-// to each box's far corner -- and push the farther, then the nearer. In the
-// tree language that shape is a node bounding its children (`with AABB(lo,
-// hi) on children`): the children are tested at the node, the schedule's
-// sort key orders them by their distance, and the best is lowered to the
-// farthest a child's box can be (apps/rtq's `closest`, and FCPW's
-// enqueueNodes); a node that bounds itself (layouts/fcpwb.bonsai) can only
-// be tested as it is entered, and the children go left then right with no
-// key, which is why that layout's matching schedule is far behind FCPW.
-//
-// The node bytes depart from FCPW's here, and only they. FCPW's node is its
-// own box (GPUBvhNode: pMin, pMax, nPrimitives, offset; 32 bytes) and its
-// traversal reads the two children's boxes out of the two children's rows;
-// the layout language has no field that reads another row (`Nodes[index +
-// 1u].pMin`, the extension PLAN.md put to the user on 2026-10-09), so the
-// driver (fcpw_bvh2.h) writes each interior node's children's boxes into
-// the node itself -- the two boxes component by component, two floats
-// each, as FCPW's own four-wide MbvhNode holds its four -- then the two
-// children's rows: 56 bytes, read as one row where FCPW reads three rows of
-// 32. The same tree: FCPW's build, its splits, its leaves, its primitive
-// order. A leaf row holds, as FCPW's Mbvh leaf rows do, a negative first
-// slot that says which triangle the leaf starts at and a count in the
-// second. The triangles are the program's Triangle elements in a plain
-// array, in the order FCPW's build left its primitives, copied out of the
-// polygon soup once as layouts/fcpwb.bonsai copies them (FCPW's GPU
-// triangle is its three corners and index, 40 bytes, one row a triangle;
-// the layout language's rows of elements come in tiles of more than one,
-// so a row of one triangle with the edges derived from its corners is not
-// a layout it can say, and the element array -- the corner, the two edges,
-// the two ids, 44 bytes -- stands in for it).
+// FCPW's binary BVH -- the tree of layouts/fcpwb.bonsai -- in another
+// layout of its interior nodes, kept as a variant to measure against that
+// one: each interior node's row holds its two children's boxes and rows,
+// so that a visit reads one row where FCPW's layout reads the node's and
+// its two children's (three rows of 32 bytes). The same tree -- FCPW's
+// build, its splits, its leaves, its primitive order -- the same
+// traversal order (the node bounds its children, as fcpwb's does through
+// its reads of the children's rows), the same triangles (FCPW's GPU rows,
+// as fcpwb's), the bytes of the nodes the one difference: 56 a row, the
+// two boxes component by component (two floats each, as FCPW's own
+// four-wide MbvhNode holds its four) then the two children's rows, built
+// by the driver (fcpw_bvh2.h) from FCPW's rows at copy time. A leaf row is
+// FCPW's Mbvh convention, a negative first slot `-(first + 1)` and the
+// count in the second.
 schedule {
     tree[[Triangle]] BVH2 =
     | Interior(children : array[BVH2, 2], lo hi : vector[vec3f, 2])
@@ -46,15 +21,23 @@ schedule {
     triangles : BVH2;
 
     layout triangles {
-        // The primitives in the order FCPW's build left them
-        // (Bvh::primitives, which a leaf's offset indexes), one Triangle
-        // element each, filled by the driver from FCPW's soup.
+        // FCPW: GPUTriangle, one row a triangle, as layouts/fcpwb.bonsai.
         pCount : u32;
-        prims : array[Triangle, pCount];
+        indirect group prims[pCount] {
+            group[1] {
+                pa : vec3f;
+                pb : vec3f;
+                pc : vec3f;
+                primitiveIndex : u32;
+                v0 = pa;
+                e1 = pa - pb;
+                e2 = pc - pa;
+                geomID = 0u;
+                primID = primitiveIndex;
+            };
+        };
         // The nodes, the root at row 0, each interior row holding its two
-        // children's boxes and rows (the left child is FCPW's next row, the
-        // right its `offset` rows on); a leaf row `child0 = -(first + 1)`,
-        // `child1` the count, as FCPW's Mbvh writes its leaf rows.
+        // children's boxes and rows.
         nNodes : u32;
         group[nNodes] index : u32 {
             boxMin_x : vector[f32, 2];

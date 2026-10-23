@@ -21,11 +21,11 @@ schedule {
     // squared distance to their boxes and pushed farthest first, the four
     // tested at once, the packet as sixteen lanes, FCPW's stack of 96, and
     // the leaf's exit once every lane has its Voronoi region.
-    closest.sort(triangles.Interior,
-                 |i : u32, q : Point, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
-                 distmin(q, AABB{lo[i], hi[i]}))
-           .vectorize(triangles.Interior.children)
-           .vectorize(triangles.Leaf.data)
-           .loopify(96);
-    closest.skip(closest_point_fcpw);
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+                        distmin(s, AABB{lo[i], hi[i]}))
+                  .vectorize(triangles.Interior.children)
+                  .vectorize(triangles.Leaf.data)
+                  .loopify(96);
+    closest_within.skip(closest_point_fcpw);
 }

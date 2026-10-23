@@ -4,17 +4,21 @@
 // a gang of neighbouring points, whose first queries are neighbours on the
 // slice -- then the closest-point traversal sorted and put on a stack, the
 // gang sharing one node, the two children ordered by the majority of the
-// lanes' distances to their boxes, each child entered by the lanes whose
-// query reaches its box. Single-threaded, pinned, as fcpwb is run.
+// lanes' keys -- FCPW's CPU rule, as fcpwb.bonsai writes it -- each child
+// entered by the lanes whose query reaches its box. Single-threaded,
+// pinned, as fcpwb is run.
 import apps/wosx/schedules/layouts/fcpwb;
 
 schedule {
     walk.loopify();
     solve_all.split(i, i_gang, i_lane, 32, true)
              .vectorize(i_lane);
-    closest.sort(triangles.Interior,
-                 |i : u32, q : Point, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
-                 distmin(q, AABB{lo[i], hi[i]}))
-           .loopify(64);
-    closest.skip(closest_point_fcpw);
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        select(distmin(s, AABB{lo[0u], hi[0u]}) == 0.0 &&
+                               distmin(s, AABB{lo[1u], hi[1u]}) == 0.0,
+                               distmax(s, AABB{lo[i], hi[i]}),
+                               distmin(s, AABB{lo[i], hi[i]})))
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
 }

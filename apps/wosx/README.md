@@ -234,11 +234,17 @@ in question (PLAN.md, the persistent schedule).
 - `wosx.bonsai`: the walk (`walk`, WoSX's `WalkOnSpheres::walk` as a tail
   recursion over the walk's position and its distance, in WoSX's order: a
   step, the escape test, the length limit, a query; `terminal`, its
-  projection query at the end), the problem's record (`Problem`: the
-  shell, the length limit, the domain's box), the Dirichlet data, the
-  sphere sampler, and the exported `solve_all` over a batch of points with
-  their first distances. Imports apps/rtq's elements, FCPW's arithmetic
-  and the `closest` query.
+  projection query at the end), the query (`closest_within`, FCPW's
+  findClosestPoint with a BoundingSphere: the argmin over the triangles
+  within the sphere's radius, which shrinks to each closer one found), the
+  problem's record (`Problem`: the shell, the length limit, the domain's
+  box, and `query_bound`, the factor of the step just taken that bounds
+  the next query's radius -- WoSX's GPU walk's 2.002, its CPU walk's
+  infinity; the driver sets it after the reference it runs, `--query-bound`
+  overrides), the Dirichlet data, the sphere sampler, and the exported
+  `solve_all` over a batch of points with their first distances. Compiled
+  over apps/rtq's elements and one of its FCPW metrics, which compare.sh
+  passes before it, as apps/rtq's compare.sh does for rtq.bonsai.
 - `rng.bonsai`: WoSX's pcg32 -- the generator apps/pbrt/rng.bonsai already
   transcribed, since pbrt's RNG is the same header, with pcg32's seeding
   order and its float.
@@ -260,31 +266,45 @@ in question (PLAN.md, the persistent schedule).
   sample points instead, each lane's walks a loop inside.
 - `schedules/layouts/fcpwb.bonsai`: WoSX's default tree, FCPW's scalar
   binary BVH (FCPW_USE_ENOKI off; the one tree FCPW puts on a GPU), in
-  FCPW's node bytes, the primitives copied out of FCPW's polygon soup into
-  an array of Triangle elements by the driver (`fcpw_bvh.h`). The node is
+  FCPW's bytes: its 32-byte node rows, and its triangles as FCPW's own
+  GPU rows (GPUTriangle: three corners and an index, 40 bytes, a tile of
+  one element each with the program's edges derived), written by the
+  driver (`fcpw_bvh.h`) as FCPW's GPU transfer writes them. The node is
   declared bounding its children, as FCPW traverses it, and the layout
   reads the children's boxes out of the children's own rows
-  (`this[left].low`), so the parent holds them logically while its bytes
-  stay FCPW's -- the device the PLDI 2026 paper's closest-point benchmark
-  used for this tree. `schedules/fcpwb.bonsai`: the matching schedule on
-  it, nothing vectorized, the two children tested at their parent and the
-  nearer entered first; `fcpwb-threads` and `fcpwb-persistent`: the
-  threads and the persistent workers on it; `schedules/fcpwb-packet.bonsai`
-  and `schedules/fcpwb-packet-points.bonsai`: the two packets over it. The
-  comparison builds FCPW scalar for these (`compare.sh --schedule fcpwb,
-  fcpwb-packet`), so WoSX's side runs as it ships.
+  (`this[left].low.x`...), so the parent holds them logically while its
+  bytes stay FCPW's -- the device the PLDI 2026 paper's closest-point
+  benchmark used for this tree. `schedules/fcpwb.bonsai`: the matching
+  schedule on it, nothing vectorized, the two children tested at their
+  parent and the nearer entered first in FCPW's CPU order (by the
+  distance to the box; where both children contain the point, by the far
+  corner's; the left child on a tie); `fcpwb-threads` and
+  `fcpwb-persistent`: the threads and the persistent workers on it;
+  `schedules/fcpwb-packet.bonsai` and `schedules/fcpwb-packet-points.bonsai`:
+  the two packets over it. The comparison builds FCPW scalar for these
+  (`compare.sh --schedule fcpwb,fcpwb-packet`), so WoSX's side runs as it
+  ships, and compiles the program over `apps/rtq/metrics/fcpw_scalar.bonsai`,
+  the scalar build's arithmetic (true divisions, FCPW's GPU kernels'
+  too), where the `fcpw4w16*` schedules take `metrics/fcpw.bonsai`, the
+  vectorized build's.
   `schedules/fcpwb-gpu.bonsai`: the schedule matching WoSX's GPU solver
   (above), and its variants `fcpwb-gpu-flat` (every walk a thread of one
   launch, no persistent workers), `fcpwb-gpu-walks` (the walks fastest: a
   warp's claims are one point's walks) and `fcpwb-gpu-points` (a point a
-  claim, its walks in sequence).
+  claim, its walks in sequence). All four take their traversal from
+  `schedules/kernel/fcpwb.bonsai`, which orders the children as WoSX's GPU
+  kernel does (bvh.slang: by the distance to the box alone, the left
+  child on a tie) where the CPU schedules order as FCPW's CPU traversal
+  does -- each platform's comparison against that platform's reference.
 - `schedules/layouts/fcpwb2.bonsai`: the same binary tree in another
   layout, each interior node's row holding its two children's boxes and
   rows (56 bytes, built from FCPW's rows by the driver, `fcpw_bvh2.h`), so
   that a visit reads one row where FCPW's layout reads three; the
   triangles as for fcpwb. `schedules/fcpwb2.bonsai`: the matching
-  schedule's traversal on it on one thread; `schedules/fcpwb2-gpu.bonsai`:
-  WoSX's GPU kernel over it, a candidate for the optimized schedule.
+  schedule's traversal on it on one thread, in FCPW's CPU order;
+  `schedules/fcpwb2-gpu.bonsai`: WoSX's GPU kernel over it, in the
+  kernel's order (`schedules/kernel/fcpwb2.bonsai`), a candidate for the
+  optimized schedule.
   `schedules/fcpw4w16-gpu.bonsai`: the same kernel over FCPW's four-wide
   tree, which FCPW cannot put on a GPU.
 - `gpu/wosx-pde-definition.slang`: the PDE WoSX's GPU solver is given,

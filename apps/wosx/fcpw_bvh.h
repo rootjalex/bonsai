@@ -1,21 +1,22 @@
-// FCPW's scalar BVH -- the tree WoSX builds by default, FCPW_USE_ENOKI off --
-// copied into the layout that is its nodes' bytes, for the driver that
-// compares the program against WoSX on WoSX's own default tree
-// (wosx_hook.cpp built with WOSX_BINARY_BVH; apps/rtq/fcpw_tree.h is the
-// same for the vectorized Mbvh).
+// FCPW's scalar BVH -- the tree WoSX builds by default, FCPW_USE_ENOKI off,
+// and the one tree FCPW puts on a GPU -- copied into the layout that is its
+// bytes, for the driver that compares the program against WoSX on that
+// tree (wosx_hook.cpp built with WOSX_BINARY_BVH; compare.sh does so for
+// the schedules named fcpwb*; apps/rtq/fcpw_tree.h is the same for the
+// vectorized Mbvh, fcpw_bvh2.h for the layout storing the children's boxes
+// in the parent).
 //
 // Included after the program's generated header and <fcpw/fcpw.h>: the
 // layout's structs are the generated header's, as the compiler spells them
 // for apps/wosx/schedules/layouts/fcpwb.bonsai -- `_tree_layout0` the
-// layout, `_tree_layout1` a node row -- and FCPW's node is BvhNode<3>. The
-// rows are the same bytes, which the copy relies on and the asserts check.
-// The primitives are not: FCPW's scalar leaf reads a triangle's corners
-// through its indices into the polygon soup, so the corners are copied out
-// once into the layout's array of Triangle elements, in the order FCPW's
-// build left its primitives (Bvh::primitives, which a leaf's referenceOffset
-// indexes) and with the element's fields as apps/rtq's four-wide layout
-// derives them from FCPW's packets (v0 = pa, e1 = pa - pb, e2 = pc - pa,
-// primID = pIndex).
+// layout, `_tree_layout1` a triangle row, `_tree_layout2` a node row -- and
+// FCPW's node is BvhNode<3>. The node rows are the same bytes, which the
+// copy relies on and the asserts check. The triangle rows are the bytes
+// FCPW's own GPU transfer makes (fcpw/gpu/bvh_interop_structures.h,
+// GPUTriangle, extractTriangles: the three corners out of the polygon
+// soup, then pIndex; 40 bytes), made here the same way, in the order
+// FCPW's build left its primitives (Bvh::primitives, which a leaf's
+// referenceOffset indexes), checked by size and offset.
 #pragma once
 
 #include <fcpw/fcpw.h>
@@ -32,7 +33,8 @@ namespace wosx_bvh {
 
 using FcpwBvh = fcpw::Bvh<3, fcpw::BvhNode<3>, fcpw::Triangle>;
 using FcpwNode = fcpw::BvhNode<3>;
-using LayoutNode = _tree_layout1;
+using TriangleRow = _tree_layout1;
+using LayoutNode = _tree_layout2;
 
 // The tree's rows are a protected member of FCPW's Bvh, read through a
 // derived class that names them -- the one way to read them without editing
@@ -53,9 +55,13 @@ static_assert(offsetof(LayoutNode, low) == offsetof(FcpwNode, box) &&
                   offsetof(LayoutNode, offset) == offsetof(FcpwNode, secondChildOffset) &&
                   offsetof(LayoutNode, nReferences) == offsetof(FcpwNode, nReferences),
               "the box, the offset and the count sit where FCPW's BvhNode puts them");
+static_assert(sizeof(TriangleRow) == 40, "a triangle row is FCPW's GPUTriangle: 40 bytes");
+static_assert(offsetof(TriangleRow, pa) == 0 && offsetof(TriangleRow, pb) == 12 &&
+                  offsetof(TriangleRow, pc) == 24 && offsetof(TriangleRow, primitiveIndex) == 36,
+              "the corners and the index sit where FCPW's GPUTriangle puts them");
 
 // FCPW's tree in the layout: the rows copied byte for byte into an allocation
-// of the same alignment as FCPW's vector's, the triangles made once.
+// of the same alignment as FCPW's vector's, the triangle rows made once.
 struct Tree {
     _tree_layout0 layout{};
     void *nodes = nullptr;
@@ -76,8 +82,8 @@ struct Tree {
         leaf_count = other.leaf_count;
         prim_count = other.prim_count;
         max_leaf = other.max_leaf;
-        layout.group0_index = &nodes_buffer;
-        layout.prims = &prims_buffer;
+        layout.group1_index = &nodes_buffer;
+        layout.group0_prims = &prims_buffer;
         return *this;
     }
     ~Tree() {
@@ -85,6 +91,27 @@ struct Tree {
         std::free(prims);
     }
 };
+
+// FCPW's GPUTriangle row for one of its triangles: the corners out of the
+// soup through the triangle's indices, then its pIndex -- extractTriangles'
+// bytes. The row's fields are one-lane vectors (a tile of one: a corner is
+// three one-float arrays x, y, z; the index a one-element array), written
+// component by component, which is the same twelve bytes a float3 is.
+inline void write_triangle_row(TriangleRow &row, const fcpw::Triangle &t) {
+    const fcpw::Vector3 &pa = t.soup->positions[t.indices[0]];
+    const fcpw::Vector3 &pb = t.soup->positions[t.indices[1]];
+    const fcpw::Vector3 &pc = t.soup->positions[t.indices[2]];
+    row.pa.x[0] = pa.x();
+    row.pa.y[0] = pa.y();
+    row.pa.z[0] = pa.z();
+    row.pb.x[0] = pb.x();
+    row.pb.y[0] = pb.y();
+    row.pb.z[0] = pb.z();
+    row.pc.x[0] = pc.x();
+    row.pc.y[0] = pc.y();
+    row.pc.z[0] = pc.z();
+    row.primitiveIndex[0] = uint32_t(t.pIndex);
+}
 
 // The tree of a built FCPW scene, which has to be the scalar one. (The scene
 // is not const because FCPW's getSceneData is not.)
@@ -120,7 +147,7 @@ inline Tree copy_fcpw_bvh(fcpw::Scene<3> &scene) {
         }
     }
     const size_t nodes_bytes = rows.size() * sizeof(LayoutNode);
-    const size_t prims_bytes = prims.size() * sizeof(Triangle);
+    const size_t prims_bytes = prims.size() * sizeof(TriangleRow);
     tree.nodes = std::aligned_alloc(alignof(FcpwNode) > 16 ? alignof(FcpwNode) : 16,
                                     (nodes_bytes + 63) / 64 * 64);
     tree.prims = std::aligned_alloc(64, (prims_bytes + 63) / 64 * 64);
@@ -129,24 +156,16 @@ inline Tree copy_fcpw_bvh(fcpw::Scene<3> &scene) {
         std::exit(1);
     }
     std::memcpy(tree.nodes, rows.data(), nodes_bytes);
-    Triangle *out = static_cast<Triangle *>(tree.prims);
+    TriangleRow *out = static_cast<TriangleRow *>(tree.prims);
     for (size_t k = 0; k < prims.size(); k++) {
-        const fcpw::Triangle &t = *prims[k];
-        const fcpw::Vector3 &pa = t.soup->positions[t.indices[0]];
-        const fcpw::Vector3 &pb = t.soup->positions[t.indices[1]];
-        const fcpw::Vector3 &pc = t.soup->positions[t.indices[2]];
-        out[k].v0 = float3{pa.x(), pa.y(), pa.z()};
-        out[k].e1 = float3{pa.x() - pb.x(), pa.y() - pb.y(), pa.z() - pb.z()};
-        out[k].e2 = float3{pc.x() - pa.x(), pc.y() - pa.y(), pc.z() - pa.z()};
-        out[k].geomID = 0;
-        out[k].primID = uint32_t(t.pIndex);
+        write_triangle_row(out[k], *prims[k]);
     }
     tree.nodes_buffer = bonsai_buffer_wrap(tree.nodes, nodes_bytes);
     tree.prims_buffer = bonsai_buffer_wrap(tree.prims, prims_bytes);
     tree.layout.nNodes = uint32_t(rows.size());
-    tree.layout.group0_index = &tree.nodes_buffer;
+    tree.layout.group1_index = &tree.nodes_buffer;
     tree.layout.pCount = uint32_t(prims.size());
-    tree.layout.prims = &tree.prims_buffer;
+    tree.layout.group0_prims = &tree.prims_buffer;
     return tree;
 }
 
@@ -154,8 +173,8 @@ inline void describe(const Tree &tree) {
     std::cout << "tree: FCPW's scalar BVH, " << tree.node_count << " binary nodes ("
               << tree.node_count * sizeof(LayoutNode) << " bytes), " << tree.leaf_count
               << " of them leaves of at most " << tree.max_leaf << " triangles, "
-              << tree.prim_count << " triangles copied out of the soup ("
-              << tree.prim_count * sizeof(Triangle) << " bytes)\n";
+              << tree.prim_count << " triangles as FCPW's GPUTriangle rows ("
+              << tree.prim_count * sizeof(TriangleRow) << " bytes)\n";
 }
 
 } // namespace wosx_bvh

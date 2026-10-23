@@ -347,6 +347,11 @@ void usage() {
                  "  --wosx-dir D  the WoSX checkout whose shaders the reference loads "
                  "(default deps/wosx); --pde-dir D the directory of "
                  "wosx-pde-definition.slang (default apps/wosx/gpu)\n"
+                 "  --query-bound F  the factor of the step just taken that bounds "
+                 "the program's next distance query (the sphere FCPW searches "
+                 "within); default what the reference does: 2.002 under --gpu, "
+                 "WoSX's GPU walk's RADIUS_EXPAND_PERCENTAGE * 2, and infinite "
+                 "otherwise, its CPU walk's unbounded query\n"
                  "The mesh is a PLY (plain or gzipped) or an OBJ. Without --threads "
                  "both sides solve on the calling thread; compare.sh pins the run "
                  "either way.\n";
@@ -366,6 +371,7 @@ int main(int argc, char **argv) {
     std::string gpu_reference = "persistent";
     uint32_t gpu_threads = 131072;
     std::string wosx_dir = "deps/wosx", pde_dir = "apps/wosx/gpu";
+    float query_bound = -1.0f; // < 0: the reference's
     int closed = -1; // -1: as the mesh says; 0: --open; 1: --closed
     std::string image, path;
     for (int i = 1; i < argc; i++) {
@@ -406,6 +412,8 @@ int main(int argc, char **argv) {
             wosx_dir = argv[++i];
         } else if (arg == "--pde-dir" && i + 1 < argc) {
             pde_dir = argv[++i];
+        } else if (arg == "--query-bound" && i + 1 < argc) {
+            query_bound = float(std::atof(argv[++i]));
         } else if (!arg.empty() && arg[0] == '-') {
             usage();
         } else {
@@ -441,6 +449,19 @@ int main(int argc, char **argv) {
     } else {
         std::cout << "one thread on both sides; cpus allowed: " << allowed_cpus() << "\n";
     }
+    // The one thing WoSX's two walks do differently (wosx.bonsai, Problem):
+    // the GPU walk bounds each step's distance query by 1.001 * 2 times the
+    // step just taken (walk-on-spheres.slang, RADIUS_EXPAND_PERCENTAGE), the
+    // CPU walk by nothing. The program does what the reference it runs
+    // against does, unless told otherwise.
+    if (query_bound < 0.0f) {
+        query_bound = gpu ? 1.001f * 2.0f : std::numeric_limits<float>::infinity();
+    }
+    std::cout << "the program's query radius bound: "
+              << (std::isinf(query_bound) ? std::string("none (WoSX's CPU walk's)")
+                                          : std::to_string(query_bound) +
+                                                " times the step (WoSX's GPU walk's)")
+              << "\n";
 
     const Boundary boundary = load_boundary(path);
     const bool open = closed == 0 || (closed < 0 && boundary.open_edges > 0);
@@ -696,6 +717,7 @@ int main(int argc, char **argv) {
     problem.max_steps = max_steps;
     problem.lo = float3{boundary.lo.x(), boundary.lo.y(), boundary.lo.z()};
     problem.hi = float3{boundary.hi.x(), boundary.hi.y(), boundary.hi.z()};
+    problem.query_bound = query_bound;
     std::vector<float> solution(n), mean_steps(n);
     std::vector<uint32_t> walks_ended(n);
     bonsai_buffer b_points = bonsai_buffer_wrap(points.data(), uint64_t(n) * sizeof(Point));

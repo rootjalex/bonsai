@@ -582,12 +582,17 @@ backend, demo_apps/basic_2d/gpu_demo.cpp):
 - **Where it differs from WoSX's CPU walk.** The GPU walk bounds each
   step's query by `1.001 * 2 * dist` -- the walk stepped `dist`, so the
   next distance is at most twice that -- where the CPU asks with an
-  infinite radius; the triangle test divides (`d1 / (d1 - d3)`, Slang's
-  float division) where FCPW's vectorized build uses enoki's reciprocal
-  with one Newton step, which apps/rtq's metric transcribes; pcg32 one per
-  thread, seeded from the clock with the thread as the stream. slang-rhi
-  compiles with Slang's default floating-point mode (no fast math), and
-  so is our GPU build compiled exact.
+  infinite radius (walk_on_spheres.h:304 calls the two-argument
+  `computeDistToAbsorbingBoundary`, whose FCPW implementation makes a
+  `BoundingSphere(x, maxFloat)`); pcg32 one per thread, seeded from the
+  clock with the thread as the stream, where the CPU has one per point.
+  The arithmetic is the CPU scalar build's: the triangle test divides
+  (`d1 / (d1 - d3)`, geometry.slang:297 and triangles.inl:420 alike) where
+  FCPW's *vectorized* build, the CPU comparison's other tree, uses enoki's
+  reciprocal with one Newton step. slang-rhi compiles with Slang's default
+  floating-point mode (no fast math), and so is our GPU build compiled
+  exact. The section "The baseline made exact" below says how the program
+  follows each of these.
 
 ### The matching schedule, by directives alone
 
@@ -668,20 +673,193 @@ layout. The same change goes to `fcpwb-packet` and `fcpwb-packet-points`
 trees; the user asked that every schedule on this tree carry the fix and
 that both CPU tables (this app's and apps/rtq's) be measured fresh.
 
-The triangles stay the program's elements (44 bytes, the edges
-precomputed) on this tree: FCPW's 40-byte GPUTriangle rows with the edges
-derived would need a one-element tile, which the layout language's tiles
-do not allow (IR/Layout.cpp, tile_width: more than one), and that is a
-language change for the user to call.
-
 `layouts/fcpwb2.bonsai` is the same tree in another layout, kept as a
 variant: each interior row holds its two children's boxes component by
 component and their two rows, 56 bytes, built by the driver
 (`fcpw_bvh2.h`) from FCPW's rows at copy time, so a visit reads one row
 where FCPW's layout reads three. `schedules/fcpwb2.bonsai` is its CPU
-schedule (the whale: 0.57 against WoSX's 0.65 Msteps/s single-threaded,
-0.88x, under a different load than the 0.99x above), `fcpwb2-gpu` the GPU
-kernel over it.
+schedule, `fcpwb2-gpu` the GPU kernel over it.
+
+### The baseline made exact (2026-10-22, evening)
+
+The user, on the first whale numbers: "we must be comparing equivalent
+algorithms as well! We need exactly-matching algorithm/layout/schedule for
+the baseline", and three things to fix in the language. All four are in.
+
+1. **`this[left].low.x` lowers** (Lower/Layouts.cpp, fill): a layout's
+   materializations never pass through Lower/Canonicalize.cpp, which turns
+   a function body's `p.x` into an extract of the lane, so the fill makes
+   the same rewrite when the read has its vector type, and converts the
+   packed stored vector to the unpacked kind as the row's own fields are
+   converted. The two-lane boxes of layouts/fcpwb.bonsai are written with
+   `.x`, `.y`, `.z` now.
+2. **The paper's form validates** (Parser.cpp, parse_fields_expr): a
+   field read through `this[row]` is typed as the field the group declared
+   under that name, which is in scope where the arm reads it, so the arm
+   has a path IR/ValidateLayout.cpp matches -- the node bounding itself
+   with the children's boxes as extra Interior fields, as
+   apps/queries/cp/cp.bonsai wrote it, compiles (tests/bonsai/ssa/
+   layout-row-read.bonsai). The `on children` form stays the one the
+   schedules use, since it is what gives the children's test at the parent
+   and the far-corner tightening.
+3. **FCPW's 40-byte triangle rows** (IR/Layout.cpp, IR/Expr.cpp): a tile
+   may hold one element -- the structure of arrays degenerating to an
+   array of structures -- so `indirect group prims[pCount] { group[1] { pa
+   pb pc primitiveIndex; v0 = pa; e1 = pa - pb; e2 = pc - pa; ... } }` is
+   GPUTriangle row for row (fcpw/gpu/bvh_interop_structures.h,
+   extractTriangles' bytes), the program's edges derived at each read as
+   FCPW's own kernel computes `pb - pa` and `pc - pa` at each test (`-(pa -
+   pb)` is `pb - pa` to the bit). Both binary layouts store the triangles
+   so; the drivers (fcpw_bvh.h, fcpw_bvh2.h) write the rows as FCPW's GPU
+   transfer does and check them by size and offset. What the two triangle
+   types were: apps/rtq's `Triangle` element is Embree's slot -- a vertex,
+   two precomputed edges, two ids, 44 bytes -- and a plain `array[Triangle]`
+   stores exactly that; FCPW's GPU row is three corners and an index, 40
+   bytes; the layout language could derive one from the other only inside a
+   tile of two or more, hence the restriction lifted here. Tests:
+   tests/bonsai/ssa/tiled-elements-one.bonsai; an LLVM golden of the same
+   was dropped because the test runner's output differed between a ctest
+   run and a manual one (two value numbers, `%156` against `%158`) -- a
+   nondeterminism of the LLVM path to look into, not of this change.
+4. **The algorithm.** Two differences from the reference's own code were
+   in the program and the metric, and both are gone.
+   - *The query's radius.* WoSX's GPU walk bounds each step's query by
+     `RADIUS_EXPAND_PERCENTAGE * 2 * dist` (walk-on-spheres.slang) and
+     FCPW's sphere begins at that radius squared; its CPU walk asks with
+     no bound (walk_on_spheres.h:304; fcpw_geometric_queries.h:1068,
+     `BoundingSphere(queryPt, maxFloat)`). The program asked with no bound
+     on both. Now the query is FCPW's: a `Sphere` element (apps/rtq/
+     elements.bonsai, FCPW's BoundingSphere, a center and a squared
+     radius), `closest_within(s : Sphere)` in wosx.bonsai -- the argmin
+     over `distmin(s, t)` -- and the metric's Sphere forms: a box whose
+     `d2Min` is past `s.r2` has an infinite key, which never beats the
+     running best, so the traversal does not enter it (FCPW's `overlap`
+     returning false); a triangle past it is no answer (FCPW's `d * d <=
+     s.r2`); the far corner tightens the best as before. The walk sets the
+     radius from `Problem.query_bound`, the factor of the step just taken,
+     which the driver sets after the reference it runs against: 2.002
+     under --gpu, infinite otherwise (--query-bound overrides), and the
+     terminal projection's sphere is infinite on both solvers, as WoSX's
+     is. Both references compare `d2Min <= r2` at every box and `d * d <=
+     r2` at every triangle, so the compares are theirs too; with the radius
+     infinite they are what FCPW's CPU does with maxFloat.
+   - *The arithmetic.* apps/rtq/metrics/fcpw.bonsai is FCPW's vectorized
+     build (enoki's `rcp` estimate and Newton step for every division, one
+     root per packet), the build the four-wide tree is compared against.
+     The scalar build WoSX ships, and FCPW's GPU kernels, divide:
+     metrics/fcpw_scalar.bonsai is that arithmetic -- `d1 / (d1 - d3)`,
+     `1.0 / det`, `1.0 / (va + vb + vc)`, a root from the region returned
+     -- line for line otherwise the same, and compare.sh compiles it
+     before the program for every `fcpwb*` schedule, metrics/fcpw.bonsai
+     for the `fcpw4w16*` ones, as apps/rtq compiles a metric before
+     rtq.bonsai. The program no longer imports a metric.
+   Every schedule names `closest_within` now (the walk's one query; the
+   old `closest` is apps/rtq's and unused), with `s : Sphere` in the sort
+   key. What remains different from WoSX and cannot be matched: the
+   generators (WoSX's are seeded from the clock, ours from --seed), the
+   partition of the points over threads (TBB's against the schedule's),
+   and WoSX's GPU merge of a walk into its point's statistics under a
+   spinlock where the program adds atomically.
+
+   The whale, side 128, 64 walks, least of 3, the baseline exact: the
+   four-wide tree one thread against one thread 1.15x (1.77 against 1.54
+   Msteps/s; the compares against the radius are what FCPW does, and they
+   cost the 1.20x of 2026-10-08 a few percent); WoSX's default tree one
+   thread against one thread 0.83x (0.54 against 0.65); and the GPU
+   matching schedule 1.14x (210 against 185 Msteps/s). Every count agrees
+   on every cell.
+
+   **The binary tree's 0.83x, and what it is not.** The 0.99x measured
+   earlier the same evening on this cell (scratch/gpu/whale-fcpwb-cpu.log)
+   was not lost to the exactness changes: the program took 6.65 s there and
+   6.59 s here, while WoSX's own run took 6.62 s there and 5.45 s here --
+   the reference varied by a fifth between two runs an hour apart, the
+   program by one percent, so the earlier cell was a slow run of the
+   reference's (its other runs that day, 0.65 Msteps/s, agree with this
+   one). The gap that remains is the program's, and its machine code
+   says where (scratch/gpu/fcpwb-exact.{bir,ll,dis} beside FCPW's scalar
+   query compiled with the driver's flags, fcpw_scalar_ref.{cpp,rdis}):
+   the leaf is cheaper than FCPW's -- its triangle test is inlined with
+   the same seven branches and four divisions, where FCPW calls
+   findClosestPointTriangle out of line per triangle and constructs an
+   Interaction -- but the interior visit is dearer. The sort over the two
+   children (SSA/SortRecursion.cpp's peel chain at width two) writes each
+   child's test as a byte on the stack (`seta 0x6(%rsp)`, `seta
+   0x7(%rsp)`) and reads both back as one word (`movzwl 0x6(%rsp)`), which
+   the store buffer cannot forward -- a stall of ten cycles and more on
+   every interior node -- then stores the keys and carried bounds as two
+   small arrays and loads them back by lane index, so the next node's
+   address waits on a chain of selects and memory round trips, where
+   FCPW's loop compares in registers and branches, letting the core
+   speculate the next node's loads before the compares resolve. To be
+   confirmed with the store-forwarding counter (`perf stat -e
+   ld_blocks.store_forward`) once the machine is free; the fix is in the
+   compiler -- a sort of two is one comparator, and a lane's test belongs
+   in a register mask, not a byte -- and is the user's to call.
+
+### The user's three rulings on it (2026-10-22 night, 2026-10-23 morning)
+
+1. **"A mask should be bits in a scalar register."** A new SSA pass,
+   SSA/PackBoolArrays.cpp, holds every small local array of booleans
+   (`mut bool[N]`, N at most 64) as the bits of one word: an element
+   written is its bit set or cleared, an element read is its bit tested,
+   and the array read whole -- the mask the sort and the loopified descent
+   peel -- is the word's low N bits reinterpreted, which the peel turns
+   straight back into the word (MaskLanes) and the backend folds to
+   nothing. It runs after the directives (a vectorized children's loop has
+   made its array a vector by then) and before the allocations are
+   promoted; it leaves alone an array whose address escapes, one written
+   in a bound parallel loop from outside it, and one whose elements are a
+   gang's vectors (the packet traversal's per-lane tests, a different
+   shape). A two-lane mask is two bits now like a four-lane one is four
+   (MaskLanes and Simplify accept n = 2; runtime/u2.h for the C++
+   backend). On fcpwb the stall is gone from the machine code -- no byte
+   `seta` to the stack, no `movzwl` of two of them, six `tzcnt` where the
+   two-lane mask used to be a select over the lane ramp and a vector
+   minimum -- 1131 instructions to 1106, 114 branches to 108. Tests:
+   ssa/child-volumes-sorted-two, backends/llvm/child-volumes-sorted-two,
+   correctness/llvm/bool-array-word; thirty-two goldens of scalar
+   traversals changed by the word's shifts and ors and nothing else,
+   checked with the value numbers normalized. One bug on the way: the
+   type test was `is_bool()`, which is true of a vector of booleans too,
+   and packed a packet schedule's `boolx32[2]` masks; it is `is<Bool_t>()`.
+2. **"Tightening unconditionally."** Lower/Trees.cpp lowers the
+   argmin's accumulator by every child's far corner, tested in or out
+   (FCPW's `s.r2 = min(s.r2, d2Max)` on both children). It is sound
+   because a child tested out reaches no nearer than its bound, which is
+   no nearer than the best, or infinitely far where the volume holds
+   nothing the metric reaches -- every metric in apps/rtq answers `inf`
+   for a ray's `distmax` against a box it misses. The branch per child is
+   gone; the filtered extremum, where the bound would not hold, was and
+   is left alone (Carry::reach_of unset). lower/argmin-tighten-children
+   and lower/argmin-over-map show the `if` gone.
+3. **"Match the sort key per platform."** FCPW has three rules. Its CPU
+   traversal (bvh.inl) orders the two children by d2Min, and where both
+   contain the point -- both d2Min zero -- by d2Max, the nearer far corner
+   first; its GPU kernel (bvh.slang) by d2Min alone; and its four-wide
+   Mbvh (mbvh.inl, sortOrder4) by d2Min through a five-comparator network
+   whose order among tied children is the network's, not any key's. The
+   CPU binary schedules (fcpwb, fcpwb2, fcpwb-packet, fcpwb-packet-points,
+   and the threads and persistent ones that import fcpwb) carry the CPU
+   rule as one key -- the key sees both children's boxes, so it is exact
+   and division-free:
+   `select(distmin(s, b0) == 0 && distmin(s, b1) == 0, distmax(s, b_i),
+   distmin(s, b_i))`, a tie keeping the left child as FCPW's strict
+   compares do. The GPU schedules take their traversal from
+   schedules/kernel/fcpwb.bonsai and kernel/fcpwb2.bonsai, the d2Min key
+   (an import path cannot carry a hyphen, hence the directory). The
+   four-wide schedules keep d2Min: among children that both contain the
+   point FCPW's network visits, for two tied lanes 0 and 1, lane 1 first;
+   for three tied, 2, 0, 1; no per-child key reproduces that, and a
+   lowering of the network itself would be a new scheduling construct --
+   left for the user. Still unmatched on the GPU: FCPW's kernel pushes the
+   node index alone and re-tests the popped node's box against the radius,
+   where our kernels carry the bound with the index and test that.
+
+   **Measured** (after bonsai-f9's matrix, 2026-10-23): pending -- the
+   before-tables are apps/wosx/results/wosx-results.csv (CPU, 23:58),
+   wosx-gpu-results.csv (22:16) and apps/rtq/results/rtq-results.csv
+   (19:56), all with the exact baseline and the old compiler.
 
 ### The variants, for (b)
 

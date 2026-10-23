@@ -1,5 +1,5 @@
-// The schedule matching WoSX's GPU solver: fcpwb.bonsai's traversal of
-// FCPW's binary tree in FCPW's bytes, run as WoSX's
+// The schedule matching WoSX's GPU solver: kernel/fcpwb.bonsai's traversal
+// of FCPW's binary tree in FCPW's bytes, in the kernel's order, run as WoSX's
 // `runPersistentPointEstimator` runs its walks (include/wosx/gpu/
 // entrypoints/common-shaders/point-estimation.cs.slang, WoSX's default
 // when the backend is CUDA) -- 131072 resident threads in groups of 256,
@@ -22,7 +22,7 @@
 // split into groups of 256 bound to the GPU's blocks and threads. The two
 // distributed loops over the points stay where a `parfor` left unbound runs,
 // on the host, before and after the launch.
-import apps/wosx/schedules/fcpwb;
+import apps/wosx/schedules/kernel/fcpwb;
 
 schedule {
     solve_all.reorder(i, w);

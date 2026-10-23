@@ -7,7 +7,7 @@
 // is worth on the card -- a candidate for the optimized schedule, and one
 // WoSX's GPU solver has no counterpart for, since FCPW transfers its own
 // rows.
-import apps/wosx/schedules/fcpwb2;
+import apps/wosx/schedules/kernel/fcpwb2;
 
 schedule {
     solve_all.reorder(i, w);

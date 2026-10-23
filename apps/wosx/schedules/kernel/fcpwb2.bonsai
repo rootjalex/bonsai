@@ -1,0 +1,16 @@
+// kernel/fcpwb.bonsai's traversal -- WoSX's GPU kernel's order on FCPW's
+// binary tree, the key the child's d2Min and a tie keeping the left child
+// first -- over layouts/fcpwb2.bonsai, where each node holds its children's
+// boxes. The GPU schedule over that layout (fcpwb2-gpu.bonsai) imports this
+// file; fcpwb2.bonsai is the CPU traversal over it, with FCPW's CPU tie
+// rule.
+import apps/wosx/schedules/layouts/fcpwb2;
+
+schedule {
+    walk.loopify();
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        distmin(s, AABB{lo[i], hi[i]}))
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
+}

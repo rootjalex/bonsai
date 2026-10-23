@@ -5,7 +5,7 @@
 // worth over the plain launch on this workload: a warp of the plain launch
 // lives as long as its longest walk, with its finished lanes idle, where a
 // persistent worker's finished lane claims the next walk at once.
-import apps/wosx/schedules/fcpwb;
+import apps/wosx/schedules/kernel/fcpwb;
 
 schedule {
     solve_all.reorder(i, w);

@@ -4,19 +4,29 @@
 // the nearer entered first -- the children's boxes read from the children's
 // rows, as the layout says -- and the leaf's Voronoi arms skipped where the
 // point is not in them: the matching schedule against WoSX built as it
-// ships (FCPW_USE_ENOKI off), one thread against one thread, and the
-// traversal of WoSX's GPU solver, which the GPU schedules (fcpwb-gpu*.
-// bonsai) import this file for. Nothing is vectorized: FCPW's scalar
-// traversal and its GPU kernel test one box and one triangle at a time,
-// and so does this. The key is the child's squared distance to its box
-// (FCPW's d2Min, the order of its pushes).
+// ships (FCPW_USE_ENOKI off), one thread against one thread; the threads
+// and the persistent workers (fcpwb-threads, fcpwb-persistent) import it.
+// Nothing is vectorized: FCPW's scalar traversal tests one box and one
+// triangle at a time, and so does this.
+//
+// The order is FCPW's CPU traversal's (bvh.inl, processSubtreeForClosest
+// Point): the nearer child first by its squared distance to its box, d2Min
+// -- and where both children contain the point, both d2Min zero, by the
+// far corner's distance, d2Max, the nearer far corner first. A tie keeps
+// the left child first, as FCPW's strict compares do. The key reads both
+// children's boxes, which the children's loop reads anyway. WoSX's GPU
+// kernel orders by d2Min alone, and the GPU schedules take their traversal
+// from kernel/fcpwb.bonsai for that.
 import apps/wosx/schedules/layouts/fcpwb;
 
 schedule {
     walk.loopify();
-    closest.sort(triangles.Interior,
-                 |i : u32, q : Point, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
-                 distmin(q, AABB{lo[i], hi[i]}))
-           .loopify(64);
-    closest.skip(closest_point_fcpw);
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        select(distmin(s, AABB{lo[0u], hi[0u]}) == 0.0 &&
+                               distmin(s, AABB{lo[1u], hi[1u]}) == 0.0,
+                               distmax(s, AABB{lo[i], hi[i]}),
+                               distmin(s, AABB{lo[i], hi[i]})))
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
 }

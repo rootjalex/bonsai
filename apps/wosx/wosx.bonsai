@@ -29,24 +29,39 @@
 // reflecting boundary; each is an extension to add when the basic walk
 // measures right.
 //
-// Compiled from the repository root (compare.sh does so):
+// Compiled from the repository root (compare.sh does so) over apps/rtq's
+// elements and the arithmetic of the FCPW build the schedule's tree is
+// compared against -- metrics/fcpw.bonsai for the vectorized Mbvh, metrics/
+// fcpw_scalar.bonsai for the scalar binary BVH WoSX ships and runs on the
+// GPU, which divide where enoki's build takes a reciprocal estimate --
+// compiled before this file as rtq.bonsai has them compiled before it:
 //
 //     ./build/compiler -p ssa --no-heap --ffp-contract \
+//         -i apps/rtq/elements.bonsai -i apps/rtq/metrics/fcpw.bonsai \
 //         -i apps/wosx/wosx.bonsai -i apps/wosx/schedules/fcpw4w16.bonsai ...
 import stdlib/numerics;
-import apps/rtq/elements;
-import apps/rtq/metrics/fcpw;
 import apps/rtq/queries;
 import apps/wosx/rng;
 
 // WoSX: the part of WalkSettings and GeometricQueries the walk reads --
-// epsilonShellForAbsorbingBoundary, maxWalkLength, and the domain's box
-// (domainMin, domainMax) a walk is dropped for leaving. One record, so that
-// the driver and the program name the same settings.
+// epsilonShellForAbsorbingBoundary, maxWalkLength, the domain's box
+// (domainMin, domainMax) a walk is dropped for leaving -- and the one
+// thing WoSX's two solvers do differently: `query_bound`, the factor of
+// the step just taken that bounds the next distance query's radius. WoSX's
+// GPU walk (include/wosx/gpu/point-estimation/walk-on-spheres.slang) asks
+// `computeDistToAbsorbingBoundary(x, false, RADIUS_EXPAND_PERCENTAGE * 2 *
+// dist)` -- the walk moved `dist`, so the new distance is at most twice
+// that by the triangle inequality, and a thousandth more for the
+// arithmetic -- and FCPW's sphere begins at that radius squared; its CPU
+// walk (include/wosx/point_estimation/walk_on_spheres.h) asks with no
+// bound, and FCPW's sphere begins at maxFloat. The driver sets the factor
+// after the reference it runs against, 2.002 or infinity. One record, so
+// that the driver and the program name the same settings.
 element Problem {
     epsilon : Float;
     max_steps : u32;
     lo, hi : vec3f;
+    query_bound : Float;
 }
 
 // WoSX: PDE::dirichlet, the boundary data. A harmonic function of the
@@ -93,7 +108,10 @@ element Outcome {
 // again here, as WoSX asks it; the answer is the one the walk's last
 // query already held.
 func terminal(x : vec3f, steps : u32) -> option[Outcome] {
-    c = closest(Point{x});
+    // WoSX: projectToAbsorbingBoundary's sphere has an infinite radius on
+    // both of its solvers (fcpw_geometric_queries.h: maxFloat;
+    // fcpw-geometric-queries.slang: FLT_MAX).
+    c = closest_within(Sphere{x, inf});
     if !c {
         return {};
     }
@@ -101,6 +119,20 @@ func terminal(x : vec3f, steps : u32) -> option[Outcome] {
     boundary = found[1];
     done : Outcome = {dirichlet(boundary.p), steps};
     return done;
+}
+
+// FCPW: findClosestPoint with a BoundingSphere -- the query as both of
+// WoSX's solvers ask it (fcpw_geometric_queries.h and fcpw-geometric-
+// queries.slang: `BoundingSphere(x, r2)`, then `findClosestPoint`), the
+// sphere's radius the search's first bound: a child whose box is beyond it
+// is not entered, a triangle beyond it is no answer (the metric's Sphere
+// forms), and the radius shrinks to each closer triangle found, which is
+// the argmin's running best. apps/rtq's `closest` is the same query with
+// the radius infinite; the record of the triangle found is the point's, the
+// radius bounding the search and nothing recorded.
+func closest_within(s : Sphere) -> option[(Triangle, ClosestHit)] {
+    return argmin(|t : Triangle, c : ClosestHit| distmin(s, t),
+                  map(|t : Triangle| (t, closest_record(Point{s.c}, t)), triangles));
 }
 
 // WoSX: WalkOnSpheres::walk, one iteration of its loop per call, in its
@@ -112,10 +144,11 @@ func terminal(x : vec3f, steps : u32) -> option[Outcome] {
 // dropped if that took it out of the box (WalkCompletionCode::EscapedDomain:
 // no estimate), counts the step, ends at the boundary if the count reached
 // the limit (ExceededMaxWalkLength, which WoSX projects like a walk that
-// arrived), and asks the boundary how far it is now (`closest`: FCPW's
-// findClosestPoint, which WoSX's computeDistToAbsorbingBoundary calls with
-// an infinite radius and reads `d` of). Steps queries in the loop and one
-// at the end, on each side.
+// arrived), and asks the boundary how far it is now (`closest_within`:
+// FCPW's findClosestPoint, which WoSX's computeDistToAbsorbingBoundary
+// calls with a sphere of the bound's radius -- `problem.query_bound` times
+// the step just taken, infinite on the CPU -- and reads `d` of). Steps
+// queries in the loop and one at the end, on each side.
 func walk(x : vec3f, dist : Float, steps : u32, problem : Problem,
           rng : mut RNG) -> option[Outcome] {
     if dist <= problem.epsilon {
@@ -129,7 +162,12 @@ func walk(x : vec3f, dist : Float, steps : u32, problem : Problem,
     if taken >= problem.max_steps {
         return terminal(y, taken);
     }
-    c = closest(Point{y});
+    // WoSX GPU: `sphere.r2 = maxDistance < FLT_MAX ? maxDistance *
+    // maxDistance : FLT_MAX`; an infinite factor is the CPU's unbounded
+    // query.
+    bound = problem.query_bound * dist;
+    r2 = select(bound < inf, bound * bound, inf);
+    c = closest_within(Sphere{y, r2});
     if !c {
         return {};
     }

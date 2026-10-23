@@ -1,0 +1,21 @@
+// The traversal of WoSX's GPU kernel on its default tree: FCPW's binary BVH
+// in FCPW's bytes (layouts/fcpwb.bonsai), the walk a loop, the closest-point
+// traversal on a stack of FCPW's depth with the two children tested at their
+// parent and the nearer entered first, the leaf's Voronoi arms skipped where
+// the point is not in them. The key is the child's squared distance to its
+// box, FCPW's d2Min, and a tie keeps the left child first: bvh.slang's
+// `if (distToChildNodes[2] < distToChildNodes[0]) swap` and nothing else --
+// where FCPW's CPU traversal, which fcpwb.bonsai follows, orders two
+// children that both contain the point by their far corners instead. The
+// GPU schedules (fcpwb-gpu*.bonsai) import this file for the traversal and
+// add how the walks are run.
+import apps/wosx/schedules/layouts/fcpwb;
+
+schedule {
+    walk.loopify();
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        distmin(s, AABB{lo[i], hi[i]}))
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
+}

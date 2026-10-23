@@ -13,11 +13,11 @@ import apps/rtq/schedules/layouts/fcpw4w16;
 
 schedule {
     walk.loopify();
-    closest.sort(triangles.Interior,
-                 |i : u32, q : Point, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
-                 distmin(q, AABB{lo[i], hi[i]}))
-           .loopify(96);
-    closest.skip(closest_point_fcpw);
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+                        distmin(s, AABB{lo[i], hi[i]}))
+                  .loopify(96);
+    closest_within.skip(closest_point_fcpw);
 
     solve_all.reorder(i, w);
     solve_all.collapse(w, i, k);
