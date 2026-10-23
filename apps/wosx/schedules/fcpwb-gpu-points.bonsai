@@ -1,0 +1,18 @@
+// fcpwb-gpu.bonsai with a point as the unit of work: the persistent
+// workers claim a sample point and run its walks one after another, as the
+// CPU's persistent schedule has them (fcpw4w16-persistent.bonsai), so a
+// thread holds one point's sums in its own registers and the counter is
+// claimed once a point rather than once a walk. Against fcpwb-gpu this
+// measures the grain: a walk a claim keeps every lane of a warp busy while
+// a long walk runs beside it, a point a claim leaves a lane idle for as
+// long as the longest of its neighbours' sixty-four walks takes -- and
+// leaves most of the card's threads with no point to claim at all when
+// the points are fewer than the workers.
+import apps/wosx/schedules/fcpwb;
+
+schedule {
+    solve_all.persistent(i, t, 131072);
+    solve_all.split(t, t_blk, t_thr, 256, true);
+    solve_all.bind(t_blk, GPUBlock);
+    solve_all.bind(t_thr, GPUThread);
+}

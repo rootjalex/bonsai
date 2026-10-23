@@ -1,0 +1,13 @@
+// The schedule matching WoSX's parallel solve on its default tree:
+// fcpwb.bonsai -- FCPW's scalar binary BVH in FCPW's bytes, the children
+// ordered nearer first -- with the points spread over the CPU threads, as
+// fcpw4w16-threads.bonsai spreads them over the four-wide tree: WoSX's
+// tbb::parallel_for over the sample points against the parfor of solve_all
+// bound to the threads (the runtime's tbb::parallel_for, the same TBB).
+// compare.sh runs it with the driver's --threads, pinned to the performance
+// cores, and builds FCPW scalar on WoSX's side, as it ships.
+import apps/wosx/schedules/fcpwb;
+
+schedule {
+    solve_all.bind(i, CPUThread);
+}

@@ -1,0 +1,19 @@
+// WoSX's GPU kernel (fcpwb-gpu.bonsai) over the same binary tree in
+// another layout: layouts/fcpwb2.bonsai, where each interior node's row
+// holds its two children's boxes and rows (56 bytes), so that a visit
+// reads one row where FCPW's layout reads the node's and its two
+// children's (three rows of 32). The same tree, the same traversal order,
+// the same kernel; against fcpwb-gpu this measures what the layout alone
+// is worth on the card -- a candidate for the optimized schedule, and one
+// WoSX's GPU solver has no counterpart for, since FCPW transfers its own
+// rows.
+import apps/wosx/schedules/fcpwb2;
+
+schedule {
+    solve_all.reorder(i, w);
+    solve_all.collapse(w, i, k);
+    solve_all.persistent(k, t, 131072);
+    solve_all.split(t, t_blk, t_thr, 256, true);
+    solve_all.bind(t_blk, GPUBlock);
+    solve_all.bind(t_thr, GPUThread);
+}

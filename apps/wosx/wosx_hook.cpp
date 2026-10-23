@@ -40,17 +40,46 @@
 // headers (reflectance_boundary_bvh/geometry.h, reached when FCPW is built
 // without enoki) say `Triangle` unqualified for FCPW's, which the program's
 // would make ambiguous were it declared first.
+//
+// A third comparison, --gpu: WoSX's GPU solver against a schedule that runs
+// the program on the GPU. WoSX's GPU solver is its walk on spheres as a
+// Slang compute shader run through slang-rhi (include/wosx/gpu; the
+// driver asks for the CUDA backend by name, as WoSX's demos do for the
+// kernels below), over FCPW's binary BVH -- the one tree FCPW transfers to
+// a GPU -- built here by WoSX's own GPU boundary handler from the same
+// positions and indices, and the PDE is this directory's
+// gpu/wosx-pde-definition.slang, the same Dirichlet data. Two kernels, as
+// WoSX's demos choose between them (demo_apps/basic_2d/gpu_demo.cpp,
+// runWalkOnSpheres): --gpu-reference persistent (the default, as it is
+// WoSX's on CUDA) has a fixed number of resident threads claim one walk at
+// a time from a counter until the walks are gone; threads has one thread
+// per copy of a sample point run a walk per dispatch, the points copied
+// enough times to fill the card. The program's side is the schedule's: the
+// driver loads the program's kernels ahead of the clock
+// (bonsai_gpu_prepare), stages every buffer where the generated header says
+// the schedule reads it (solve_all_sides), and forbids a copy inside the
+// timed call. Built with WOSX_GPU, which compare.sh does for a schedule
+// named *-gpu*, against deps/slang-rhi-build (build_slang_rhi.sh); without
+// it --gpu stops with a sentence.
 #include <wosx/point_estimation/walk_on_spheres.h>
 #include <wosx/utils/fcpw_geometric_queries.h>
+#if defined(WOSX_GPU)
+#include <wosx/wosx_gpu.h>
+#endif
 
 #include "wosx.h"
 
 // The tree the schedule declared: FCPW's vectorized Mbvh in apps/rtq's
-// layouts (the default), or FCPW's scalar binary BVH -- WoSX's default,
+// layouts (the default); FCPW's scalar binary BVH -- WoSX's default,
 // FCPW_USE_ENOKI off -- in apps/wosx/schedules/layouts/fcpwb.bonsai when
-// built with WOSX_BINARY_BVH (compare.sh, for the schedules named fcpwb*).
+// built with WOSX_BINARY_BVH (compare.sh, for the schedules named fcpwb*);
+// or the same binary tree with each node holding its children's boxes, as
+// FCPW's traversal reads it, in layouts/fcpwb2.bonsai when built with
+// WOSX_BINARY_BVH2 (the schedules named fcpwb2*, the GPU comparison's).
 #if defined(WOSX_BINARY_BVH)
 #include "apps/wosx/fcpw_bvh.h"
+#elif defined(WOSX_BINARY_BVH2)
+#include "apps/wosx/fcpw_bvh2.h"
 #else
 #include "apps/rtq/fcpw_tree.h"
 #endif
@@ -65,9 +94,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <random>
 #include <string>
 #include <vector>
@@ -79,6 +110,21 @@ using wosx::Vector3;
 // wosx.bonsai: dirichlet -- the boundary data, harmonic, so the solution
 // inside is the same function. The two must agree.
 float dirichlet(const Vector3 &p) { return p.x() * p.x() - p.y() * p.y(); }
+
+#if defined(WOSX_GPU)
+// WoSX: the PDE handed to its GPU solver -- the host side of
+// gpu/wosx-pde-definition.slang's HarmonicPDE, which has no resources to
+// bind: the Dirichlet data is a function of the position alone, and there
+// is no source, no absorption and no reflecting boundary. WoSX finds the
+// Slang struct by this name and reads the PDE's kind off getType.
+class HarmonicGPUPDE : public wosx::GPUPDE {
+public:
+    void allocate(wosx::GPUContext &) override {}
+    void setResources(const wosx::ShaderCursor &, bool) const override {}
+    std::string getReflectionType() const override { return "HarmonicPDE"; }
+    wosx::GPUPDEType getType() const override { return wosx::GPUPDEType::Poisson; }
+};
+#endif
 
 // The CPUs this process may run on -- what numactl left it -- for the
 // record at the top of the output.
@@ -288,6 +334,19 @@ void usage() {
                  "balance when a schedule's gain is in question (the image is "
                  "unaffected)\n"
                  "  --fcpw-stats  have FCPW print its tree's statistics\n"
+                 "  --gpu         WoSX's GPU solver against the program on the GPU "
+                 "(a driver built with WOSX_GPU and a schedule that binds the GPU; "
+                 "compare.sh does both for a schedule named *-gpu*)\n"
+                 "  --gpu-reference persistent|threads  which of WoSX's two kernels "
+                 "the reference runs: persistent (default, WoSX's default on CUDA) "
+                 "has resident threads claim one walk at a time; threads has a thread "
+                 "per copy of a point run one walk per dispatch\n"
+                 "  --gpu-threads N  WoSX's resident threads for either kernel "
+                 "(default 131072, WoSX's)\n"
+                 "  --gpu-logs    have WoSX's GPU code print what it loads and binds\n"
+                 "  --wosx-dir D  the WoSX checkout whose shaders the reference loads "
+                 "(default deps/wosx); --pde-dir D the directory of "
+                 "wosx-pde-definition.slang (default apps/wosx/gpu)\n"
                  "The mesh is a PLY (plain or gzipped) or an OBJ. Without --threads "
                  "both sides solve on the calling thread; compare.sh pins the run "
                  "either way.\n";
@@ -303,6 +362,10 @@ int main(int argc, char **argv) {
     uint64_t seed = 1;
     bool shuffle = false;
     bool fcpw_stats = false, threads = false;
+    bool gpu = false, gpu_logs = false;
+    std::string gpu_reference = "persistent";
+    uint32_t gpu_threads = 131072;
+    std::string wosx_dir = "deps/wosx", pde_dir = "apps/wosx/gpu";
     int closed = -1; // -1: as the mesh says; 0: --open; 1: --closed
     std::string image, path;
     for (int i = 1; i < argc; i++) {
@@ -331,16 +394,48 @@ int main(int argc, char **argv) {
             threads = true;
         } else if (arg == "--shuffle") {
             shuffle = true;
+        } else if (arg == "--gpu") {
+            gpu = true;
+        } else if (arg == "--gpu-reference" && i + 1 < argc) {
+            gpu_reference = argv[++i];
+        } else if (arg == "--gpu-threads" && i + 1 < argc) {
+            gpu_threads = uint32_t(std::atoi(argv[++i]));
+        } else if (arg == "--gpu-logs") {
+            gpu_logs = true;
+        } else if (arg == "--wosx-dir" && i + 1 < argc) {
+            wosx_dir = argv[++i];
+        } else if (arg == "--pde-dir" && i + 1 < argc) {
+            pde_dir = argv[++i];
         } else if (!arg.empty() && arg[0] == '-') {
             usage();
         } else {
             path = arg;
         }
     }
-    if (path.empty() || side == 0 || walks == 0 || repeats < 1 || !(epsilon > 0)) {
+    if (path.empty() || side == 0 || walks == 0 || repeats < 1 || !(epsilon > 0) ||
+        gpu_threads == 0 || (gpu_reference != "persistent" && gpu_reference != "threads")) {
         usage();
     }
-    if (threads) {
+    if (gpu) {
+#if !defined(WOSX_GPU)
+        std::cerr << "--gpu needs a driver built with WOSX_GPU against slang-rhi "
+                     "(apps/wosx/build_slang_rhi.sh; compare.sh builds one for a "
+                     "schedule named *-gpu*)\n";
+        return 1;
+#endif
+#if !defined(BONSAI_HAS_GPU)
+        std::cerr << "--gpu against a program whose schedule binds nothing to the GPU: "
+                     "the program would run on the host. Name a *-gpu* schedule.\n";
+        return 1;
+#endif
+        if (threads) {
+            std::cerr << "--threads says nothing under --gpu and is ignored\n";
+            threads = false;
+        }
+        std::cout << "the GPU on both sides: WoSX's " << gpu_reference << " kernel with "
+                  << gpu_threads << " resident threads against the schedule's kernels; host cpus allowed: "
+                  << allowed_cpus() << "\n";
+    } else if (threads) {
         std::cout << "the threads on both sides: " << tbb::info::default_concurrency()
                   << " (TBB's default arena); cpus allowed: " << allowed_cpus() << "\n";
     } else {
@@ -362,8 +457,9 @@ int main(int argc, char **argv) {
     // it as WoSX's demos populate theirs. The domain is the box, as the
     // demos set it: a walk that leaves the box has escaped.
     // Vectorized for apps/rtq's four-wide layouts; scalar -- WoSX's default,
-    // FCPW's CMake leaving FCPW_USE_ENOKI off -- for the binary layout.
-#if defined(WOSX_BINARY_BVH)
+    // FCPW's CMake leaving FCPW_USE_ENOKI off, and the one tree FCPW puts on
+    // a GPU -- for the two binary layouts.
+#if defined(WOSX_BINARY_BVH) || defined(WOSX_BINARY_BVH2)
     constexpr bool kVectorized = false;
 #else
     constexpr bool kVectorized = true;
@@ -378,13 +474,20 @@ int main(int argc, char **argv) {
     wosx::GeometricQueries<3> queries(/*domainIsWatertight=*/!open, boundary.lo, boundary.hi);
     wosx::populateGeometricQueriesForDirichletBoundary<3>(handler, queries);
 
-    // Our side: the same tree in the layout.
+    // Our side: the same tree in the layout. (Not const: a schedule on the
+    // GPU stages the tree's buffers to the device, which marks them.)
 #if defined(WOSX_BINARY_BVH)
-    const wosx_bvh::Tree tree = wosx_bvh::copy_fcpw_bvh(handler.scene);
+    wosx_bvh::Tree tree = wosx_bvh::copy_fcpw_bvh(handler.scene);
     wosx_bvh::describe(tree);
+    bonsai_buffer *tree_buffers[2] = {&tree.prims_buffer, &tree.nodes_buffer};
+#elif defined(WOSX_BINARY_BVH2)
+    wosx_bvh2::Tree tree = wosx_bvh2::copy_fcpw_bvh2(handler.scene);
+    wosx_bvh2::describe(tree);
+    bonsai_buffer *tree_buffers[2] = {&tree.prims_buffer, &tree.nodes_buffer};
 #else
-    const rtq::FcpwTree tree = rtq::copy_fcpw_tree(handler.scene);
+    rtq::FcpwTree tree = rtq::copy_fcpw_tree(handler.scene);
     rtq::describe(tree);
+    bonsai_buffer *tree_buffers[2] = {&tree.packets_buffer, &tree.nodes_buffer};
 #endif
 
     std::vector<Sample> samples = sample_points(boundary, queries, side, epsilon);
@@ -431,35 +534,157 @@ int main(int argc, char **argv) {
         /*ignoreReflectingBoundaryContribution=*/true,
         /*ignoreSourceContribution=*/true,
         /*printLogs=*/false);
-    std::vector<wosx::SamplePoint<float, 3>> sample_pts;
-    sample_pts.reserve(n);
-    for (const Sample &s : samples) {
-        sample_pts.emplace_back(s.p, Vector3::Zero(), wosx::SampleType::InDomain,
-                                wosx::EstimationQuantity::Solution, /*pdf=*/1.0f, s.dist,
-                                /*distToReflectingBoundary=*/0.0f);
-    }
-    std::vector<wosx::SampleStatistics<float, 3>> stats(n);
-    const std::vector<int> walks_per_point(n, int(walks));
-    const wosx::WalkOnSpheres<float, 3> wos(queries);
-    // A solve adds to a point's running estimate, so each timed run starts
-    // the statistics and the generators afresh (SamplePoint::reset reseeds
-    // from the clock, as WoSX made them).
-    const double t_wosx = timed(
-        repeats,
-        [&] {
-            for (auto &pt : sample_pts) {
-                pt.reset();
+    // WoSX's answer, whichever of its solvers ran: each point's estimate,
+    // how many of its walks ended and their mean length, and -- from the CPU
+    // solver's statistics alone, the GPU's keep none -- the variance of its
+    // estimate, for `z` below.
+    std::vector<float> reference(n), ref_length(n);
+    std::vector<int> ref_count(n);
+    std::vector<double> ref_variance(n, 0.0);
+    double t_wosx = 0.0;
+    if (!gpu) {
+        std::vector<wosx::SamplePoint<float, 3>> sample_pts;
+        sample_pts.reserve(n);
+        for (const Sample &s : samples) {
+            sample_pts.emplace_back(s.p, Vector3::Zero(), wosx::SampleType::InDomain,
+                                    wosx::EstimationQuantity::Solution, /*pdf=*/1.0f, s.dist,
+                                    /*distToReflectingBoundary=*/0.0f);
+        }
+        std::vector<wosx::SampleStatistics<float, 3>> stats(n);
+        const std::vector<int> walks_per_point(n, int(walks));
+        const wosx::WalkOnSpheres<float, 3> wos(queries);
+        // A solve adds to a point's running estimate, so each timed run
+        // starts the statistics and the generators afresh (SamplePoint::reset
+        // reseeds from the clock, as WoSX made them).
+        t_wosx = timed(
+            repeats,
+            [&] {
+                for (auto &pt : sample_pts) {
+                    pt.reset();
+                }
+                stats.assign(n, wosx::SampleStatistics<float, 3>());
+            },
+            [&] {
+                wos.solve(pde, settings, walks_per_point, sample_pts, stats,
+                          /*runSingleThreaded=*/!threads);
+            });
+        for (uint32_t i = 0; i < n; i++) {
+            reference[i] = stats[i].getEstimatedSolution();
+            ref_count[i] = stats[i].getSolutionEstimateCount();
+            ref_length[i] = stats[i].getMeanWalkLength();
+            ref_variance[i] = stats[i].getEstimatedSolutionVariance();
+        }
+    } else {
+#if defined(WOSX_GPU)
+        // WoSX's GPU solver, set up as its demo sets it up
+        // (demo_apps/basic_2d/gpu_demo.cpp, runWalkOnSpheres): a task handle
+        // on the CUDA backend that loads FCPW's and WoSX's Slang modules and
+        // this directory's PDE; WoSX's GPU boundary handler, which has FCPW
+        // build the binary BVH over the same positions and indices (the same
+        // deterministic build the CPU handler above ran, so the same tree
+        // the layout holds) and transfers it; the queries over the same box;
+        // the walk settings as above. The solver's sample points carry the
+        // first distances the CPU computed, as the demo's do
+        // (computeBoundaryDistance false).
+        std::shared_ptr<wosx::GPUTaskHandle<float, 3>> handle =
+            std::make_shared<wosx::GPUTaskHandle<float, 3>>(
+                std::filesystem::absolute(wosx_dir).string(),
+                std::filesystem::absolute(pde_dir).string(), "cuda");
+        std::shared_ptr<wosx::GPUAbsorbingBoundaryHandler> absorbing =
+            std::make_shared<wosx::GPUFcpwDirichletBoundaryHandler<3>>(
+                boundary.positions, boundary.indices, fcpw_stats);
+        std::shared_ptr<wosx::GPUReflectingBoundaryHandler> reflecting =
+            std::make_shared<wosx::GPUEmptyReflectingBoundaryHandler>();
+        std::shared_ptr<wosx::GPUGeometricQueries<3>> gpu_queries =
+            std::make_shared<wosx::GPUGeometricQueries<3>>(absorbing, reflecting, boundary.lo,
+                                                           boundary.hi,
+                                                           /*domainIsWatertight=*/!open);
+        std::shared_ptr<wosx::GPUPDE> gpu_pde = std::make_shared<HarmonicGPUPDE>();
+        handle->setGeometricQueries(gpu_queries);
+        handle->setPDE(gpu_pde);
+        handle->init();
+        std::shared_ptr<wosx::GPUWalkSettings> gpu_settings =
+            std::make_shared<wosx::GPUWalkSettings>();
+        gpu_settings->epsilonShellForAbsorbingBoundary = epsilon;
+        gpu_settings->epsilonShellForReflectingBoundary = 0.0f;
+        gpu_settings->silhouettePrecision = 0.0f;
+        gpu_settings->russianRouletteThreshold = 0.0f;
+        gpu_settings->maxWalkLength = max_steps;
+        gpu_settings->stepsBeforeUsingMaximalSpheres = 0;
+        gpu_settings->solveDoubleSided = 0;
+        gpu_settings->useGradientControlVariates = 1;
+        gpu_settings->useGradientAntitheticVariates = 1;
+        gpu_settings->ignoreAbsorbingBoundaryContribution = 0;
+        gpu_settings->ignoreReflectingBoundaryContribution = 1;
+        gpu_settings->ignoreSourceContribution = 1;
+        const bool persistent = gpu_reference == "persistent";
+        wosx::GPUWalkOnSpheresSolver<float, 3> solver(handle, gpu_settings, gpu_threads,
+                                                      persistent, gpu_logs);
+        std::vector<wosx::GPUSamplePoint<3>> gpu_pts(n);
+        for (uint32_t i = 0; i < n; i++) {
+            gpu_pts[i].pt = wosx::float3{samples[i].p.x(), samples[i].p.y(), samples[i].p.z()};
+            gpu_pts[i].normal = wosx::float3{0.0f, 0.0f, 0.0f};
+            gpu_pts[i].type = wosx::SampleType::InDomain;
+            gpu_pts[i].estimationQuantity = wosx::EstimationQuantity::Solution;
+            gpu_pts[i].pdf = 1.0f;
+            gpu_pts[i].distToAbsorbingBoundary = samples[i].dist;
+            gpu_pts[i].distToReflectingBoundary = 0.0f;
+            gpu_pts[i].estimateBoundaryNormalAligned = 0;
+        }
+        // The threads kernel copies every point enough times to give the
+        // card its resident threads and runs one walk per copy per dispatch
+        // (computeWorkloadParameters), which can only round the walks per
+        // point up; both sides then run the rounded count, so that the work
+        // stays the same.
+        uint32_t copies = 1, dispatches = 1;
+        if (!persistent) {
+            const std::pair<uint32_t, uint32_t> load = solver.computeWorkloadParameters(n, walks);
+            copies = load.first;
+            dispatches = load.second;
+            if (copies * dispatches != walks) {
+                std::cout << "WoSX's threads kernel runs " << copies << " copies of each point "
+                          << dispatches << " walks each: " << copies * dispatches
+                          << " walks a point on both sides, not " << walks << "\n";
+                walks = copies * dispatches;
             }
-            stats.assign(n, wosx::SampleStatistics<float, 3>());
-        },
-        [&] {
-            wos.solve(pde, settings, walks_per_point, sample_pts, stats,
-                      /*runSingleThreaded=*/!threads);
-        });
+        }
+        // Each timed run starts from fresh statistics and generators
+        // (populateSamplePoints reseeds and resets, off the clock); the clock
+        // is around the solve alone -- the dispatch and the wait for it --
+        // as a user of WoSX's solver pays it.
+        t_wosx = timed(
+            repeats, [&] { solver.populateSamplePoints(gpu_pts, copies, false); },
+            [&] {
+                if (persistent) {
+                    solver.solve(walks);
+                } else {
+                    solver.solve(1, dispatches);
+                }
+            });
+        std::vector<wosx::GPUSampleStatistics<float, 3>> gpu_stats;
+        solver.getSampleStatistics(gpu_stats);
+        if (gpu_stats.size() != n) {
+            std::cerr << "WoSX's GPU solver returned " << gpu_stats.size()
+                      << " statistics for " << n << " points\n";
+            return 1;
+        }
+        for (uint32_t i = 0; i < n; i++) {
+            reference[i] = gpu_stats[i].getEstimatedSolution();
+            ref_count[i] = gpu_stats[i].getSolutionEstimateCount();
+            ref_length[i] = gpu_stats[i].getMeanWalkLength();
+        }
+#endif
+    }
 
     // The program: the same points with the same first distances (WoSX's
     // SamplePoint::distToAbsorbingBoundary, computed above off the clock,
-    // as its demo computes it), the problem as one record.
+    // as its demo computes it), the problem as one record. Its arrays as
+    // buffers, so that a schedule on the GPU finds each where the generated
+    // header says the schedule reads it (solve_all_sides: the points, the
+    // distances and the tree on the device; what the host's loops write on
+    // the host), staged before the clock starts, with a copy inside the
+    // timed call forbidden rather than timed (runtime/bonsai_buffer.h); a
+    // CPU schedule's buffers are on the host already and nothing moves.
     std::vector<Point> points(n);
     std::vector<float> dists(n);
     for (uint32_t i = 0; i < n; i++) {
@@ -473,48 +698,87 @@ int main(int argc, char **argv) {
     problem.hi = float3{boundary.hi.x(), boundary.hi.y(), boundary.hi.z()};
     std::vector<float> solution(n), mean_steps(n);
     std::vector<uint32_t> walks_ended(n);
-    const double t_bonsai = timed(repeats, [] {}, [&] {
-        solve_all(n, points.data(), dists.data(), problem, walks, seed, solution.data(),
-                  mean_steps.data(), walks_ended.data(), tree.layout);
-    });
+    bonsai_buffer b_points = bonsai_buffer_wrap(points.data(), uint64_t(n) * sizeof(Point));
+    bonsai_buffer b_dists = bonsai_buffer_wrap(dists.data(), uint64_t(n) * sizeof(float));
+    bonsai_buffer b_solution = bonsai_buffer_wrap(solution.data(), uint64_t(n) * sizeof(float));
+    bonsai_buffer b_mean_steps = bonsai_buffer_wrap(mean_steps.data(), uint64_t(n) * sizeof(float));
+    bonsai_buffer b_walks_ended =
+        bonsai_buffer_wrap(walks_ended.data(), uint64_t(n) * sizeof(uint32_t));
+    bonsai_buffer *buffers[] = {&b_points,     &b_dists,         &b_solution,     &b_mean_steps,
+                                &b_walks_ended, tree_buffers[0], tree_buffers[1]};
+    static_assert(sizeof(solve_all_sides) == sizeof(buffers) / sizeof(buffers[0]),
+                  "solve_all takes these seven buffers, in this order");
+#if defined(BONSAI_HAS_GPU)
+    // The program's kernels loaded ahead of the clock, as WoSX's shaders are.
+    bonsai_gpu_prepare();
+#endif
+    const double t_bonsai = timed(
+        repeats,
+        [&] {
+            bonsai_buffer_stage_all(buffers, solve_all_sides,
+                                    sizeof(buffers) / sizeof(buffers[0]));
+            bonsai_buffer_implicit_copies(0);
+        },
+        [&] {
+            solve_all(n, &b_points, &b_dists, problem, walks, seed, &b_solution, &b_mean_steps,
+                      &b_walks_ended, tree.layout);
+        });
+    bonsai_buffer_implicit_copies(1);
+    for (bonsai_buffer *out : {&b_solution, &b_mean_steps, &b_walks_ended}) {
+        bonsai_buffer_stage(out, BONSAI_HOST);
+    }
 
     // The work: steps (one distance query each, the one thing a walk costs)
     // per second on each side, from each side's own count of steps over the
     // walks that ended; the agreement: how many walks ended and how long
     // they were on each side, each side's root-mean-square error against the
-    // known solution, and `z`, the mean signed difference between the two
-    // estimates over all the points divided by its standard error (the two
-    // estimates independent, each with WoSX's variance over its walks,
-    // summed over the points): a number of order one when the two sides
-    // estimate the same thing, and large when one is biased against the
-    // other. Summed over the points rather than taken per point, since a
-    // point's own variance from a few dozen walks is too rough to divide by.
+    // known solution, and `z`, a test of a bias between the two sides, of
+    // order one when they estimate the same thing and large when one is
+    // biased against the other. Against WoSX's CPU solver `z` is the mean
+    // signed difference between the two estimates over all the points
+    // divided by its standard error (the two estimates independent, each
+    // with WoSX's variance over its walks, summed over the points -- summed
+    // rather than taken per point, since a point's own variance from a few
+    // dozen walks is too rough to divide by). WoSX's GPU statistics keep no
+    // variance, so against them `z` is the paired statistic: the mean of
+    // the per-point differences over the standard error estimated from the
+    // differences themselves, which under no bias have mean zero at every
+    // point. The table's heading says which.
     double steps_wosx = 0, steps_bonsai = 0, err_wosx = 0, err_bonsai = 0;
-    double difference = 0, difference_variance = 0;
-    size_t ended_wosx = 0, ended_bonsai = 0;
-    std::vector<float> exact(n), reference(n);
+    double difference = 0, difference_variance = 0, difference_squares = 0;
+    size_t ended_wosx = 0, ended_bonsai = 0, paired = 0;
+    std::vector<float> exact(n);
     for (uint32_t i = 0; i < n; i++) {
         exact[i] = dirichlet(samples[i].p);
-        reference[i] = stats[i].getEstimatedSolution();
-        ended_wosx += size_t(stats[i].getSolutionEstimateCount());
+        ended_wosx += size_t(ref_count[i]);
         ended_bonsai += walks_ended[i];
-        steps_wosx += double(stats[i].getMeanWalkLength()) * stats[i].getSolutionEstimateCount();
+        steps_wosx += double(ref_length[i]) * ref_count[i];
         steps_bonsai += double(mean_steps[i]) * walks_ended[i];
         err_wosx += std::pow(double(reference[i]) - exact[i], 2);
         err_bonsai += std::pow(double(solution[i]) - exact[i], 2);
-        const int count = stats[i].getSolutionEstimateCount();
-        if (count > 0 && walks_ended[i] > 0) {
-            const double variance = stats[i].getEstimatedSolutionVariance();
-            difference += double(solution[i]) - reference[i];
-            difference_variance += variance / count + variance / walks_ended[i];
+        if (ref_count[i] > 0 && walks_ended[i] > 0) {
+            const double d = double(solution[i]) - reference[i];
+            difference += d;
+            difference_squares += d * d;
+            difference_variance += ref_variance[i] / ref_count[i] + ref_variance[i] / walks_ended[i];
+            paired++;
         }
     }
-    const double z = difference_variance > 0 ? difference / std::sqrt(difference_variance) : 0.0;
+    double z = 0.0;
+    if (!gpu) {
+        z = difference_variance > 0 ? difference / std::sqrt(difference_variance) : 0.0;
+    } else if (paired > 1) {
+        const double mean = difference / double(paired);
+        const double variance = (difference_squares - double(paired) * mean * mean) / double(paired - 1);
+        z = variance > 0 ? mean / std::sqrt(variance / double(paired)) : 0.0;
+    }
     const double total_walks = double(n) * walks;
     std::printf("\n%8s %10s %12s %12s %10s  %s\n", "points", "walks", "WoSX Msteps/s",
                 "bonsai Msteps/s", "speedup",
-                "walks ended (WoSX, bonsai); their mean length (WoSX, bonsai); rms error "
-                "against the solution (WoSX, bonsai); z");
+                gpu ? "walks ended (WoSX, bonsai); their mean length (WoSX, bonsai); rms error "
+                      "against the solution (WoSX, bonsai); z (paired)"
+                    : "walks ended (WoSX, bonsai); their mean length (WoSX, bonsai); rms error "
+                      "against the solution (WoSX, bonsai); z");
     std::printf("%8u %10.0f %12.2f %12.2f %9.2fx  %zu, %zu; %.2f, %.2f; %.2e, %.2e; %.2f\n", n,
                 total_walks, steps_wosx / t_wosx * 1e-6, steps_bonsai / t_bonsai * 1e-6,
                 t_wosx / t_bonsai, ended_wosx, ended_bonsai,

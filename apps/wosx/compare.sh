@@ -22,17 +22,28 @@ set -euo pipefail
 # way. A schedule named fcpwb* runs over WoSX's default tree instead --
 # FCPW's scalar binary BVH, FCPW_USE_ENOKI off, the layout in
 # schedules/layouts/fcpwb.bonsai -- and the driver is built to have FCPW
-# build that tree for WoSX's side too (WOSX_BINARY_BVH). Each schedule
-# named is built and run in turn, its table under a `=== schedule` line;
-# the other arguments go to the driver (wosx_hook.cpp: --side, --walks,
-# --epsilon, --repeats, --open, --image ...).
+# build that tree for WoSX's side too (WOSX_BINARY_BVH). A schedule named
+# fcpwb2* runs over the same binary tree declared as FCPW traverses it,
+# each node holding its children's boxes (schedules/layouts/fcpwb2.bonsai,
+# WOSX_BINARY_BVH2). A schedule named *-gpu* is the GPU comparison: WoSX's
+# GPU solver -- its walk on spheres as a Slang compute shader through
+# slang-rhi, over FCPW's binary tree, the one tree FCPW puts on a GPU --
+# against the schedule's kernels, both on the card; the driver is built
+# with WOSX_GPU against slang-rhi (deps/slang-rhi-build, built once by
+# build_slang_rhi.sh) and run with --gpu, pinned like a single-thread run
+# (the host thread only; the GPU is the GPU). Each schedule named is built
+# and run in turn, its table under a `=== schedule` line; the other
+# arguments go to the driver (wosx_hook.cpp: --side, --walks, --epsilon,
+# --repeats, --open, --image, --gpu-reference ...).
 #
 # Run from the repository root, inside the `bonsai` conda environment. WoSX
 # is an optional dependency: a submodule at deps/wosx, header-only, with
 # FCPW (and FCPW's enoki and Eigen) and pcg32 as submodules of its own, so
 # there is nothing to build; TBB, which WoSX's solver includes, comes from
 # the conda environment. Without the checkout this stops and says so;
-# nothing else in the repository needs WoSX.
+# nothing else in the repository needs WoSX. The GPU comparison needs one
+# more thing built, slang-rhi (FCPW's submodule deps/slang-rhi, and the
+# Slang release it fetches): build_slang_rhi.sh, once.
 #
 # The measurement is single-threaded and pinned, as apps/rtq's is: both
 # sides solve their points as one plain loop on one core (WoSX's
@@ -145,38 +156,90 @@ build_schedule() {
   # The tree the schedule's name says: fcpw<branching>w<width> is FCPW's
   # vectorized Mbvh at that branching and width (apps/rtq's layouts), fcpwb
   # FCPW's scalar binary BVH -- WoSX's default, FCPW_USE_ENOKI off
-  # (apps/wosx/schedules/layouts/fcpwb.bonsai, the driver's WOSX_BINARY_BVH).
+  # (apps/wosx/schedules/layouts/fcpwb.bonsai, the driver's WOSX_BINARY_BVH),
+  # fcpwb2 the same binary tree with each node holding its children's boxes
+  # (layouts/fcpwb2.bonsai, WOSX_BINARY_BVH2). The suffixes say how it is
+  # run: -threads, -persistent and -packet* as above, -gpu* on the GPU.
   local branching width defines
-  if [[ "$schedule" =~ ^fcpw([48])w([0-9]+)t?(-threads|-persistent|-packet(-[a-z0-9]+)*)?$ ]]; then
+  local tail='(-threads|-persistent|-packet(-[a-z0-9]+)*|-gpu(-[a-z0-9]+)*)?'
+  if [[ "$schedule" =~ ^fcpw([48])w([0-9]+)t?$tail$ ]]; then
     branching="${BASH_REMATCH[1]}"
     width="${BASH_REMATCH[2]}"
     defines=(-DNDEBUG -DFCPW_USE_ENOKI "-DFCPW_SIMD_WIDTH=$width")
     if [[ "$branching" == 8 ]]; then
       defines+=(-DFCPW_USE_EIGHT_WIDE_BRANCHING)
     fi
-  elif [[ "$schedule" =~ ^fcpwb(-threads|-persistent|-packet(-[a-z0-9]+)*)?$ ]]; then
+  elif [[ "$schedule" =~ ^fcpwb2$tail$ ]]; then
+    branching=2
+    width=1
+    defines=(-DNDEBUG -DWOSX_BINARY_BVH2)
+  elif [[ "$schedule" =~ ^fcpwb$tail$ ]]; then
     branching=2
     width=1
     defines=(-DNDEBUG -DWOSX_BINARY_BVH)
   else
-    echo "a schedule is named fcpw<branching>w<width>[t] or fcpwb, then [-threads|-persistent|-packet[-variant...]], after FCPW's tree (fcpw4w16, fcpw4w16-threads, fcpw4w16-packet, fcpwb, fcpwb-packet, ...): $schedule" >&2
+    echo "a schedule is named fcpw<branching>w<width>[t], fcpwb or fcpwb2, then [-threads|-persistent|-packet[-variant...]|-gpu[-variant...]], after FCPW's tree (fcpw4w16, fcpw4w16-threads, fcpw4w16-packet, fcpwb, fcpwb-packet, fcpwb2-gpu, ...): $schedule" >&2
     exit 1
+  fi
+  # A schedule on the GPU: the driver runs WoSX's GPU solver as the
+  # reference, which is compiled against slang-rhi's headers and the Slang
+  # release slang-rhi fetched, and linked with both (the Slang library is
+  # found at run time through the rpath; Slang itself finds CUDA's NVRTC).
+  local gpu=0
+  local gpu_defines=() gpu_includes=() gpu_libs=()
+  if [[ "$schedule" == *-gpu* ]]; then
+    gpu=1
+    local rhi_src="$FCPW/deps/slang-rhi" rhi_build="deps/slang-rhi-build"
+    local slang_src="deps/slang-rhi-build/_deps/slang-src"
+    local rhi_lib slang_lib
+    rhi_lib="$(ls "$rhi_build"/libslang-rhi.a "$rhi_build"/libslang-rhi.so 2>/dev/null | head -n 1 || true)"
+    # The compiler library is libslang-compiler.so since Slang 2025.21 and
+    # libslang.so before; slang-rhi links whichever the release has, the
+    # newer name first, and so does this.
+    slang_lib="$(ls "$slang_src"/lib/libslang-compiler.so "$slang_src"/lib/libslang.so 2>/dev/null | head -n 1 || true)"
+    if [[ ! -f "$rhi_src/include/slang-rhi.h" || -z "$rhi_lib" || -z "$slang_lib" ||
+          ! -f "$slang_src/include/slang.h" ]]; then
+      echo "a GPU schedule compares against WoSX's GPU solver, which runs on slang-rhi:" >&2
+      echo "build it once with apps/wosx/build_slang_rhi.sh (into $rhi_build)" >&2
+      exit 1
+    fi
+    # WoSX's GPU headers reach its nearest-neighbour finder, which is
+    # nanoflann's, another header-only submodule of WoSX.
+    if [[ ! -f "$WOSX/deps/nanoflann/include/nanoflann.hpp" ]]; then
+      echo "WoSX's GPU headers need its nanoflann submodule:" >&2
+      echo "    git -C deps/wosx submodule update --init deps/nanoflann" >&2
+      exit 1
+    fi
+    gpu_defines=(-DWOSX_GPU -DWOSX_USE_GPU -DFCPW_USE_GPU)
+    # slang-rhi's headers, its configuration header the build generated,
+    # the Slang release's, and nanoflann's.
+    gpu_includes=(-isystem "$rhi_src/include" -isystem "$rhi_build/include"
+                  -isystem "$slang_src/include" -isystem "$WOSX/deps/nanoflann/include")
+    # slang-rhi's own library, then the resources its build embeds through
+    # CMakeRC (libslang-rhi-resources.a, which the first refers to), then
+    # Slang's shared library, found at run time through the rpath.
+    local rhi_resources
+    rhi_resources="$(ls "$rhi_build"/libslang-rhi-resources.a 2>/dev/null | head -n 1 || true)"
+    gpu_libs=("$rhi_lib" ${rhi_resources:+"$rhi_resources"} "$slang_lib"
+              -Wl,-rpath,"$(cd "$slang_src/lib" && pwd)" -ldl -lpthread)
   fi
   # The driver compiled once per (header, defines) within a run and linked
   # per schedule, keyed by the generated header's checksum: compiling it
   # against WoSX's and FCPW's headers takes longer than a measurement.
   local key
-  key="$(cat $PREFIX/wosx.h | md5sum | cut -c1-16)-$branching-$width"
+  key="$(cat $PREFIX/wosx.h | md5sum | cut -c1-16)-$branching-$width-$gpu"
   if [[ ! -f "$PREFIX/.wosx_hook-$key.o" ]]; then
     "$BONSAI_CXX" -std=c++20 -O3 -march=native -fno-math-errno -ffp-contract=fast \
-        "${defines[@]}" -I. -I$PREFIX \
+        "${defines[@]}" ${gpu_defines[@]+"${gpu_defines[@]}"} -I. -I$PREFIX \
         -isystem "$WOSX/include" -isystem "$WOSX/deps/pcg32" \
         -isystem "$FCPW/include" -isystem "$FCPW/deps/enoki/include" \
         -isystem "$FCPW/deps/eigen" -isystem "$TOOLCHAIN_PREFIX/include" \
+        ${gpu_includes[@]+"${gpu_includes[@]}"} \
         -c $PREFIX/wosx_hook.cpp -o "$PREFIX/.wosx_hook-$key.o"
   fi
   "$BONSAI_CXX" "$PREFIX/.wosx_hook-$key.o" $PREFIX/wosx.o \
       -L"$TOOLCHAIN_PREFIX/lib" -Wl,-rpath,"$TOOLCHAIN_PREFIX/lib" -ltbb -lz \
+      ${gpu_libs[@]+"${gpu_libs[@]}"} \
       -o $PREFIX/wosx.out
 }
 
@@ -229,7 +292,12 @@ STATUS=0
 for SCHEDULE in "${SCHEDULE_LIST[@]}"; do
   echo "=== schedule $SCHEDULE ($PREFIX/schedules/$SCHEDULE.bonsai)"
   build_schedule "$SCHEDULE"
-  if [[ "$SCHEDULE" == *-threads || "$SCHEDULE" == *-persistent ]]; then
+  if [[ "$SCHEDULE" == *-gpu* ]]; then
+    # Both sides on the GPU; the host thread pinned as a single-thread run
+    # is, so that what it does between the kernels is the same every time.
+    echo "pinned to cpu $CPU, memory of NUMA node ${NODE:-0}: $HOW (the host thread; both sides run on the GPU)"
+    numactl --physcpubind="$CPU" --membind="${NODE:-0}" ./$PREFIX/wosx.out --gpu "$@" || STATUS=$?
+  elif [[ "$SCHEDULE" == *-threads || "$SCHEDULE" == *-persistent ]]; then
     echo "pinned to cpus $CORES, memory of NUMA node ${NODE:-0}: $CORES_HOW"
     numactl --physcpubind="$CORES" --membind="${NODE:-0}" ./$PREFIX/wosx.out --threads "$@" || STATUS=$?
   else

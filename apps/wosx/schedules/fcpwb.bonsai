@@ -1,15 +1,22 @@
-// WoSX's default tree: FCPW's scalar binary BVH (layouts/fcpwb.bonsai), the
-// walk a loop, the closest-point traversal on a stack of FCPW's depth, the
-// leaf's Voronoi arms skipped where no lane needs them -- the matching
-// schedule against WoSX built as it ships (FCPW_USE_ENOKI off), one thread
-// against one thread. Nothing is vectorized: FCPW's scalar traversal tests
-// one box and one triangle at a time, and so does this. The children are
-// visited left then right where FCPW visits the nearer first (the layout
-// says why).
+// WoSX's default tree: FCPW's scalar binary BVH in FCPW's bytes
+// (layouts/fcpwb.bonsai), the walk a loop, the closest-point traversal on
+// a stack of FCPW's depth with the two children tested at their parent and
+// the nearer entered first -- the children's boxes read from the children's
+// rows, as the layout says -- and the leaf's Voronoi arms skipped where the
+// point is not in them: the matching schedule against WoSX built as it
+// ships (FCPW_USE_ENOKI off), one thread against one thread, and the
+// traversal of WoSX's GPU solver, which the GPU schedules (fcpwb-gpu*.
+// bonsai) import this file for. Nothing is vectorized: FCPW's scalar
+// traversal and its GPU kernel test one box and one triangle at a time,
+// and so does this. The key is the child's squared distance to its box
+// (FCPW's d2Min, the order of its pushes).
 import apps/wosx/schedules/layouts/fcpwb;
 
 schedule {
     walk.loopify();
-    closest.loopify(64);
+    closest.sort(triangles.Interior,
+                 |i : u32, q : Point, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                 distmin(q, AABB{lo[i], hi[i]}))
+           .loopify(64);
     closest.skip(closest_point_fcpw);
 }

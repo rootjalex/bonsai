@@ -1,0 +1,34 @@
+// The schedule matching WoSX's GPU solver: fcpwb.bonsai's traversal of
+// FCPW's binary tree in FCPW's bytes, run as WoSX's
+// `runPersistentPointEstimator` runs its walks (include/wosx/gpu/
+// entrypoints/common-shaders/point-estimation.cs.slang, WoSX's default
+// when the backend is CUDA) -- 131072 resident threads in groups of 256,
+// each claiming ONE WALK at a time from a global counter until the walks
+// are gone, the work item `k` naming the point as `k % points` and the
+// walk as `k / points` so that consecutive claims are consecutive points,
+// each thread's walk adding to its point's statistics (WoSX merges under a
+// per-point spinlock; here the walk's sums are atomic adds into the point's
+// slots).
+//
+// Derived from the program's two loops by four directives. `reorder(i, w)`
+// puts the walks outside the points: what the point's body did around its
+// walks -- the sums it starts, the mean it takes at the end -- is
+// distributed into a loop before the nest and one after it
+// (SSA/ReorderLoops.h), and the point's three sums become one slot per
+// point. `collapse(w, i, k)` makes the perfect nest one loop over every
+// (walk, point) pair, the point fastest. `persistent(k, t, 131072)` hands
+// its iterations to 131072 workers claiming from a counter (Aila and Laine's
+// persistent threads, WoSX's kernel's shape and count), and the workers are
+// split into groups of 256 bound to the GPU's blocks and threads. The two
+// distributed loops over the points stay where a `parfor` left unbound runs,
+// on the host, before and after the launch.
+import apps/wosx/schedules/fcpwb;
+
+schedule {
+    solve_all.reorder(i, w);
+    solve_all.collapse(w, i, k);
+    solve_all.persistent(k, t, 131072);
+    solve_all.split(t, t_blk, t_thr, 256, true);
+    solve_all.bind(t_blk, GPUBlock);
+    solve_all.bind(t_thr, GPUThread);
+}

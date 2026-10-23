@@ -1,0 +1,16 @@
+// fcpwb-gpu.bonsai without the persistent workers: every (walk, point)
+// pair is a thread of one launch, in blocks of 256, and the hardware's own
+// block scheduler hands the blocks to the multiprocessors as earlier ones
+// finish. Against fcpwb-gpu this measures what the persistent claim is
+// worth over the plain launch on this workload: a warp of the plain launch
+// lives as long as its longest walk, with its finished lanes idle, where a
+// persistent worker's finished lane claims the next walk at once.
+import apps/wosx/schedules/fcpwb;
+
+schedule {
+    solve_all.reorder(i, w);
+    solve_all.collapse(w, i, k);
+    solve_all.split(k, k_blk, k_thr, 256, true);
+    solve_all.bind(k_blk, GPUBlock);
+    solve_all.bind(k_thr, GPUThread);
+}

@@ -1,0 +1,21 @@
+// fcpwb-gpu.bonsai with the walk fastest: the work item `k` names the walk
+// as `k % walks` and the point as `k / walks`, so that a warp's consecutive
+// claims are consecutive walks of ONE point -- thirty-two walks that start
+// at the same place and ask the same first question -- where WoSX's order
+// (fcpwb-gpu) gives a warp thirty-two neighbouring points. The nest is
+// interchanged twice: the first `reorder` distributes the point's prologue
+// and epilogue into loops of their own and privatizes its sums, the second
+// puts the loops back in the program's order, now perfectly nested, which
+// is what `collapse` needs (a collapse over a body with effects before its
+// inner loop is refused, since it would repeat them).
+import apps/wosx/schedules/fcpwb;
+
+schedule {
+    solve_all.reorder(i, w);
+    solve_all.reorder(w, i);
+    solve_all.collapse(i, w, k);
+    solve_all.persistent(k, t, 131072);
+    solve_all.split(t, t_blk, t_thr, 256, true);
+    solve_all.bind(t_blk, GPUBlock);
+    solve_all.bind(t_thr, GPUThread);
+}

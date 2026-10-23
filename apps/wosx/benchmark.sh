@@ -9,10 +9,19 @@
 #     apps/wosx/benchmark.sh
 #     apps/wosx/benchmark.sh --meshes "whale dragon" --schedules fcpw4w16
 #     apps/wosx/benchmark.sh --table-only        # fold, print and plot what is logged
+#     apps/wosx/benchmark.sh --gpu               # the GPU table: WoSX's GPU solver against the GPU schedules
 #
 # The plot (plot.py) goes into apps/wosx/plots: the meshes along the x axis
 # by triangle count, two bars each, one thread against one thread and the
 # threads against the threads.
+#
+# --gpu runs the GPU comparison instead: the schedules default to the GPU
+# ones (fcpwb2-gpu, the schedule matching WoSX's persistent-thread kernel,
+# and its variants; compare.sh's *-gpu* rule builds the driver against
+# slang-rhi and runs both sides on the card), the logs go to
+# apps/wosx/results/gpu-logs, the CSV to apps/wosx/results/wosx-gpu-results.csv
+# and the plot to apps/wosx/plots/wosx-gpu-speedup.*; the idle check also
+# waits for the GPU to be empty of every other process.
 #
 # The meshes: WoSX's own demo meshes (deps/wosx/demo_apps/*/data -- the comb
 # electrodes, the whale, the car, the octopus, the beast, the rover, which
@@ -22,9 +31,11 @@
 # rim): closed, the sample points are the slice's interior; open, the
 # whole slice.
 #
-# Options: --schedules (default fcpw4w16,fcpw4w16-threads,fcpw4w16-persistent:
-# one thread each, the threads each, and the threads with the points claimed
-# by sixteen persistent workers instead of TBB's partition), --meshes
+# Options: --schedules (default fcpw4w16,fcpw4w16-threads,fcpw4w16-persistent,
+# fcpwb,fcpwb-threads,fcpwb-persistent: on each of the two trees -- FCPW's
+# four-wide Mbvh, and WoSX's default, FCPW's scalar binary BVH -- one thread
+# each, the threads each, and the threads with the points claimed by sixteen
+# persistent workers instead of TBB's partition), --meshes
 # (default all, names as below), --out DIR for the logs (default
 # apps/wosx/results/logs), --side / --walks / --repeats (default 128 / 64 /
 # 3: the driver's slice, walks per point, and runs per side with the least
@@ -35,10 +46,14 @@
 # cores to pin to (compare.sh's rule otherwise).
 #
 # What a run does. Before each mesh the machine is checked idle -- nothing
-# but this at over half a core -- and a busy machine is waited for, up to
-# ten minutes, then the run stops and says so: it never measures beside
-# another load. `touch <out>/PAUSE` holds it at the next mesh boundary until
-# the file goes. Each mesh's log is written as `<log>.partial` and renamed
+# but this at over half a core, no other process on the GPU, and no other
+# benchmark's claim in /tmp/benchmark.lock (the sessions' convention: one
+# line naming the holder, written while a measurement runs; this script
+# writes its own while it measures and removes it when done) -- and a busy
+# machine is waited for, up to ten minutes, then the run stops and says so:
+# it never measures beside another load. `touch <out>/PAUSE` holds it at
+# the next mesh boundary until the file goes. Each mesh's log is written as
+# `<log>.partial` and renamed
 # when complete, so a log that exists is a complete run and a stopped sweep
 # resumes with the same command (--fresh clears them first). The logs are
 # folded into the CSV, one row per (mesh, schedule), each stamped with the
@@ -55,15 +70,16 @@ WOSX_MESHES="comb whale car octopus beast rover"
 RTQ_MESHES="pavilion head zero-day bmw crown ivy villa dambreak sportscar landscape lte-orb ganesha dragon"
 ALL_MESHES="$WOSX_MESHES $RTQ_MESHES"
 MESHES="$ALL_MESHES"
-SCHEDULES="fcpw4w16,fcpw4w16-threads,fcpw4w16-persistent"
-OUT="apps/wosx/results/logs"
-CSV="apps/wosx/results/wosx-results.csv"
+SCHEDULES=""
+OUT=""
+CSV=""
 PLOTS="apps/wosx/plots"
 SIDE=128
 WALKS=64
 REPEATS=3
 FRESH=0
 TABLE_ONLY=0
+GPU=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --schedules) SCHEDULES="$2"; shift 2 ;;
@@ -74,10 +90,23 @@ while [[ $# -gt 0 ]]; do
     --repeats) REPEATS="$2"; shift 2 ;;
     --fresh) FRESH=1; shift ;;
     --table-only) TABLE_ONLY=1; shift ;;
-    -h|--help) sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --gpu) GPU=1; shift ;;
+    -h|--help) sed -n '2,56p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option $1" >&2; exit 1 ;;
   esac
 done
+# The CPU table's defaults -- the three schedules on each of the two trees,
+# FCPW's four-wide Mbvh (both sides vectorized) and WoSX's default, FCPW's
+# scalar binary BVH (both sides as WoSX ships) -- or the GPU table's.
+if (( GPU )); then
+  SCHEDULES="${SCHEDULES:-fcpwb-gpu,fcpwb-gpu-flat,fcpwb-gpu-walks,fcpwb-gpu-points,fcpwb2-gpu,fcpw4w16-gpu}"
+  OUT="${OUT:-apps/wosx/results/gpu-logs}"
+  CSV="${CSV:-apps/wosx/results/wosx-gpu-results.csv}"
+else
+  SCHEDULES="${SCHEDULES:-fcpw4w16,fcpw4w16-threads,fcpw4w16-persistent,fcpwb,fcpwb-threads,fcpwb-persistent}"
+  OUT="${OUT:-apps/wosx/results/logs}"
+  CSV="${CSV:-apps/wosx/results/wosx-results.csv}"
+fi
 for s in $(tr , ' ' <<< "$SCHEDULES"); do
   [[ -f "apps/wosx/schedules/$s.bonsai" ]] || { echo "no schedule apps/wosx/schedules/$s.bonsai" >&2; exit 1; }
 done
@@ -115,8 +144,22 @@ mesh_path() {
 }
 
 # Anything but this run's own processes and the sessions' shells at over
-# half a core means someone else is measuring or compiling.
+# half a core means someone else is measuring or compiling; so does any
+# process on the GPU (a GPU measurement shares the card with nothing, and
+# the other sessions' GPU runs count as the machine in use either way), and
+# so does another benchmark's claim in the lock file.
+LOCK=/tmp/benchmark.lock
+OWN_LOCK=0
 machine_busy() {
+  if [[ -e "$LOCK" && "$OWN_LOCK" -eq 0 ]]; then
+    echo "  $LOCK is held: $(cat "$LOCK" 2>/dev/null)"
+    return 0
+  fi
+  if command -v nvidia-smi >/dev/null 2>&1 &&
+     [[ -n "$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null)" ]]; then
+    echo "  a process is on the GPU: $(nvidia-smi --query-compute-apps=pid,process_name --format=csv,noheader 2>/dev/null | head -2 | tr '\n' ';')"
+    return 0
+  fi
   ps -eo pid,pcpu,comm --no-headers | awk '
     $2 > 50 && $3 !~ /^(claude|node|tmux|sshd|ps|awk|bash|wosx\.out)$/ { busy = 1 }
     END { exit !busy }'
@@ -128,6 +171,13 @@ wait_idle() {
     sleep 30; waited=$((waited + 30))
     if (( waited >= 600 )); then echo "[$(date +%T)] the machine did not go idle in ten minutes; stopping before $1" >&2; exit 3; fi
   done
+  # The claim, while this measures: the holder and the start time, as the
+  # sessions write it; removed when the sweep ends or is stopped.
+  if [[ "$OWN_LOCK" -eq 0 ]]; then
+    echo "bonsai-ac apps/wosx/benchmark.sh since $(date +%F\ %T)" > "$LOCK"
+    OWN_LOCK=1
+    trap 'if [[ "$OWN_LOCK" -eq 1 ]]; then rm -f "$LOCK"; fi' EXIT
+  fi
 }
 
 run() {  # run <log> <compare.sh args...>
@@ -154,6 +204,7 @@ if (( ! TABLE_ONLY )); then
     run "$OUT/$mesh.s$SIDE.w$WALKS.log" --schedule "$SCHEDULES" --side "$SIDE" --walks "$WALKS" --repeats "$REPEATS" "$path"
   done
   echo "[$(date +%T)] measured: $OUT"
+  if [[ "$OWN_LOCK" -eq 1 ]]; then rm -f "$LOCK"; OWN_LOCK=0; fi
 fi
 
 # The compiler the rows were measured under: the commit, marked when the
@@ -219,5 +270,9 @@ echo "rows: $CSV"
 # The plot: one bar per (mesh, schedule), bonsai's rate over WoSX's, into
 # apps/wosx/plots (plot.py prints its own geomeans over the plotted meshes;
 # the landscape is left out of the plot, since nearly every walk on it
-# escapes on its first step).
-python3 apps/wosx/plot.py "$CSV" -o "$PLOTS"
+# escapes on its first step). The GPU table draws its own figure.
+if (( GPU )); then
+  python3 apps/wosx/plot.py "$CSV" -o "$PLOTS" --gpu
+else
+  python3 apps/wosx/plot.py "$CSV" -o "$PLOTS"
+fi

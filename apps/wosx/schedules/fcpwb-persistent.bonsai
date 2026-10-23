@@ -1,0 +1,15 @@
+// The threaded schedule on WoSX's default tree with persistent workers:
+// fcpwb-threads.bonsai's parfor over the points handed to sixteen workers,
+// one per hardware thread of the performance cores compare.sh pins to,
+// that claim points from a counter until none are left (`persistent`,
+// Aila and Laine's persistent threads), the workers `t` bound to the CPU
+// threads -- what fcpw4w16-persistent.bonsai is on the four-wide tree.
+// Against fcpwb-threads it measures the dynamic claim's worth on this
+// tree, whose nodes are smaller and whose depth is twice the wide tree's.
+// compare.sh runs it as a threaded schedule.
+import apps/wosx/schedules/fcpwb;
+
+schedule {
+    solve_all.persistent(i, t, 16);
+    solve_all.bind(t, CPUThread);
+}

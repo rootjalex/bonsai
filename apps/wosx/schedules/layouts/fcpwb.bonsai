@@ -1,28 +1,36 @@
 // FCPW's scalar BVH -- the tree WoSX builds by default, FCPW's CMake
-// leaving FCPW_USE_ENOKI off -- as a tree declaration and the layout that
-// is its bytes: fcpw::Bvh<3, BvhNode<3>, Triangle> (deps/fcpw/include/fcpw/
-// aggregates/bvh.h). A node is its own box (BoundingBox<3>: pMin, pMax, two
-// Vector3f of 12 bytes), one int that is the second child's offset for an
-// interior node and the first reference's index for a leaf (a union), and
-// the leaf's reference count, zero for an interior node: 32 bytes, a binary
-// tree whose left child is the next row and whose leaves reference FCPW's
-// primitives in the order its build left them (Bvh::primitives). The
-// primitives are copied into a plain array of triangles by the driver
-// (apps/wosx/fcpw_bvh.h), each its three corners and FCPW's pIndex, the
-// fields apps/rtq's Triangle element reads as the four-wide layout's
-// packets provide them (apps/rtq/schedules/layouts/fcpw4w16.bonsai).
+// leaving FCPW_USE_ENOKI off, and the one tree FCPW puts on a GPU -- as a
+// tree declaration and the layout that is its bytes: fcpw::Bvh<3,
+// BvhNode<3>, Triangle> (deps/fcpw/include/fcpw/aggregates/bvh.h; on the
+// GPU fcpw/gpu/bvh.slang's Bvh<BvhNode, Triangle, NoSilhouette> over the
+// same rows, GPUBvhNode). A node is its own box (BoundingBox<3>: pMin,
+// pMax, two Vector3f of 12 bytes), one int that is the second child's
+// offset for an interior node and the first reference's index for a leaf
+// (a union), and the leaf's reference count, zero for an interior node: 32
+// bytes, a binary tree whose left child is the next row and whose leaves
+// reference FCPW's primitives in the order its build left them
+// (Bvh::primitives). The primitives are copied into a plain array of
+// triangles by the driver (apps/wosx/fcpw_bvh.h), each its three corners
+// and FCPW's pIndex, the fields apps/rtq's Triangle element reads as the
+// four-wide layout's packets provide them
+// (apps/rtq/schedules/layouts/fcpw4w16.bonsai).
 //
-// FCPW's scalar traversal tests both children's boxes at the parent and
-// descends into the nearer first (bvh.inl, processSubtreeForClosestPoint).
-// A node here bounds itself, so each child's box is tested as the child is
-// entered, and the children are visited left then right: a layout field
-// cannot read another row's fields (`Nodes[index + 1].pMin` is not in the
-// layout language), so a node cannot hold its children's boxes and no key
-// can order them. That is the one departure from FCPW's algorithm on this
-// tree, noted in PLAN.md.
+// FCPW's traversal tests both children's boxes at the parent, lowers the
+// radius to each box's far corner, and enters the nearer first (bvh.inl,
+// processSubtreeForClosestPoint; bvh.slang, findClosestPoint). In the tree
+// language that is a node bounding its children (`with AABB(lo, hi) on
+// children`, as the four-wide tree is declared), and the layout provides
+// the children's boxes by reading them out of the children's own rows:
+// `this[left].low` is the group's row at index `left`, its stored field --
+// the parent *logically* holds its children's boxes while its bytes stay
+// FCPW's, the device the PLDI 2026 paper's closest-point benchmark used for
+// this tree (apps/queries/cp/cp.bonsai on the branch ajr/pldi-benchmarks),
+// the two-lane vectors built by component. What a visit reads is then what
+// FCPW's reads: the node's row and its two children's rows.
 schedule {
-    tree[[Triangle]] BVH2(low high : vec3f) with AABB(low, high) =
-    | Interior(left : BVH2, right : BVH2)
+    tree[[Triangle]] BVH2 =
+    | Interior(children : array[BVH2, 2], lo hi : vector[vec3f, 2])
+        with AABB(lo, hi) on children
     | Leaf(data : array[Triangle]) with data = data;
     triangles : BVH2;
 
@@ -45,6 +53,14 @@ schedule {
                 0 => Interior {
                     left = index + 1u;
                     right = index + cast[[u32]](offset);
+                    children = vector[u32, 2]{left, right};
+                    // The children's boxes, read from the children's rows.
+                    lo = vector[vec3f, 2]{vector[f32, 2]{this[left].low[0], this[right].low[0]},
+                                          vector[f32, 2]{this[left].low[1], this[right].low[1]},
+                                          vector[f32, 2]{this[left].low[2], this[right].low[2]}};
+                    hi = vector[vec3f, 2]{vector[f32, 2]{this[left].high[0], this[right].high[0]},
+                                          vector[f32, 2]{this[left].high[1], this[right].high[1]},
+                                          vector[f32, 2]{this[left].high[2], this[right].high[2]}};
                 };
                 _ => Leaf {
                     data = range(prims, cast[[u32]](offset), cast[[u32]](nReferences));

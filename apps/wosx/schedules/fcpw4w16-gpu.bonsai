@@ -1,0 +1,28 @@
+// WoSX's GPU kernel (fcpwb2-gpu.bonsai) over FCPW's four-wide tree instead
+// of its binary one: the Mbvh in FCPW's bytes
+// (apps/rtq/schedules/layouts/fcpw4w16.bonsai, the tree the CPU comparison
+// runs on both sides), which FCPW cannot put on the GPU -- its GPU transfer
+// takes the binary tree only -- so WoSX's side stays on the binary tree and
+// this is a schedule WoSX has no counterpart for. A thread tests a node's
+// four boxes one at a time and a leaf's sixteen triangles one at a time
+// (nothing is vectorized: a GPU thread is a lane, and the warp is the
+// gang), on FCPW's stack of 96; half the depth of the binary tree, four
+// times the work at a node, sixteen triangles a leaf in FCPW's packets
+// where the binary leaves hold a few.
+import apps/rtq/schedules/layouts/fcpw4w16;
+
+schedule {
+    walk.loopify();
+    closest.sort(triangles.Interior,
+                 |i : u32, q : Point, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+                 distmin(q, AABB{lo[i], hi[i]}))
+           .loopify(96);
+    closest.skip(closest_point_fcpw);
+
+    solve_all.reorder(i, w);
+    solve_all.collapse(w, i, k);
+    solve_all.persistent(k, t, 131072);
+    solve_all.split(t, t_blk, t_thr, 256, true);
+    solve_all.bind(t_blk, GPUBlock);
+    solve_all.bind(t_thr, GPUThread);
+}

@@ -27,6 +27,26 @@ the leaf's sixteen triangles tested at once. The tree is built by WoSX's own
 boundary handler (FCPW's builder, vectorized), so both sides traverse the
 same splits, the same leaves and the same boxes.
 
+The GPU comparison runs WoSX's GPU solver against the program on the GPU.
+WoSX's GPU solver is the same walk as a Slang compute shader run through
+slang-rhi (deps/wosx/include/wosx/gpu), over FCPW's binary BVH -- the one
+tree FCPW puts on a GPU -- and by default with persistent threads: 131072
+resident threads, in groups of 256, each claiming one walk at a time from
+a global counter until the walks are gone, consecutive claims consecutive
+points, each walk merged into its point's statistics under a per-point
+spinlock. The schedule matching it (`schedules/fcpwb-gpu.bonsai`, over
+the same tree in FCPW's bytes) derives that kernel from the unchanged
+program with four directives:
+`reorder` puts the walks outside the points and distributes what a point
+does around its walks into loops of their own, `collapse` makes one loop
+of every (walk, point) pair with the point fastest, `persistent` hands it
+to 131072 workers claiming from a counter, and a `split` and two `bind`s
+put the workers on the GPU's blocks and threads. Its variants depart from
+it one thing at a time (a plain launch, the walks fastest, a point a
+claim, a layout that stores the children's boxes in the parent, FCPW's
+four-wide tree instead of its binary one), and the GPU table measures
+each.
+
 Only the plain walk is here: no source term (the Laplace problem), no
 gradient estimate, no Russian roulette or splitting, no reflecting boundary
 (walk on stars), no caching. Each is an extension to add once the basic
@@ -49,6 +69,22 @@ git -C deps/wosx/deps/fcpw submodule update --init deps/enoki deps/eigen
 
 `compare.sh` stops with a message if any of these is missing.
 
+The GPU comparison needs one thing built: slang-rhi, the GPU runtime
+WoSX's and FCPW's GPU code run on, a submodule of WoSX's FCPW that fetches
+the Slang compiler it needs as a prebuilt release at configure time (the
+version FCPW's CMake pins). Once, from the repository root, inside the
+conda environment:
+
+```bash
+git -C deps/wosx submodule update --init deps/nanoflann      # WoSX's GPU headers reach it
+git -C deps/wosx/deps/fcpw submodule update --init deps/slang-rhi
+bash apps/wosx/build_slang_rhi.sh      # into deps/slang-rhi-build, CUDA backend only
+```
+
+`compare.sh` stops with a message if a `*-gpu*` schedule is asked for and
+it is not there. The program's own GPU code needs nothing but the CUDA
+driver (runtime/bonsai_cuda.h finds it at run time).
+
 ## Running
 
 The whole table, from the repository root, inside the `bonsai` conda
@@ -58,7 +94,18 @@ environment, with the compiler built:
 apps/wosx/benchmark.sh                 # every mesh, both schedules, CSV, table, geomeans, plot
 apps/wosx/benchmark.sh --table-only    # fold, print and plot the logs already there
 python3 apps/wosx/plot.py apps/wosx/results/wosx-results.csv -o apps/wosx/plots   # the plot alone
+apps/wosx/benchmark.sh --gpu           # the GPU table: WoSX's GPU solver against the GPU schedules
 ```
+
+`--gpu` runs the GPU comparison over the same meshes: the schedules
+default to `fcpwb2-gpu` and its variants, the logs go to
+`apps/wosx/results/gpu-logs`, the CSV to
+`apps/wosx/results/wosx-gpu-results.csv` and the figure to
+`apps/wosx/plots/wosx-gpu-speedup.*` (`plot.py --gpu`), and the idle check
+waits for the GPU to be empty of every other process as well as the CPU.
+Either run writes `/tmp/benchmark.lock` while it measures -- the sessions'
+convention for claiming the machine, one line naming the holder -- and
+waits while another's claim is there.
 
 It runs `compare.sh` over WoSX's own demo meshes (the comb electrodes, the
 whale, the car, the octopus, the beast, the rover) and the thirteen pbrt
@@ -90,8 +137,13 @@ apps/wosx/compare.sh --image apps/wosx/dragon ~/projects/pbrt-v4-scenes/sssdrago
 apps/wosx/compare.sh deps/wosx/demo_apps/potential_flow/data/whale.obj
 ```
 
-Three schedules are built and run by default, each its own table under a
-`=== schedule` line. `fcpw4w16` is one thread against one thread: WoSX's
+Three schedules on each of two trees are the table's defaults
+(benchmark.sh), each its own table under a `=== schedule` line; compare.sh
+alone builds and runs `fcpw4w16,fcpw4w16-threads` unless `--schedule` says
+otherwise. The `fcpw4w16*` schedules run FCPW's four-wide tree, both sides
+vectorized; the `fcpwb*` schedules run WoSX's default tree, FCPW's scalar
+binary BVH, both sides as WoSX ships, the same three ways (`fcpwb`,
+`fcpwb-threads`, `fcpwb-persistent`). `fcpw4w16` is one thread against one thread: WoSX's
 `solve` with `runSingleThreaded`, the program's parfor over the points
 left unbound by the schedule (a plain loop), both under numactl on the
 physical core the kernel ranks best, as apps/rtq measures.
@@ -108,6 +160,26 @@ cores) that claim a point at a time from a counter, against the same WoSX
 run: beside `fcpw4w16-threads` it measures what a dynamic claim is worth
 over TBB's partition of the points when points differ in cost.
 `RTQ_CPUS=<cpus>` pins any of them to another set.
+
+A schedule named `*-gpu*` is the GPU comparison (`compare.sh --schedule
+fcpwb-gpu <mesh>`): the driver is built with `WOSX_GPU` against slang-rhi
+and run with `--gpu`, pinned like a single-thread run (the host thread
+only; both sides run on the card). WoSX's side is its GPU solver as its
+demos set it up (demo_apps/basic_2d/gpu_demo.cpp): a task handle on the
+CUDA backend that loads FCPW's and WoSX's Slang modules and this
+directory's PDE (`gpu/wosx-pde-definition.slang`, the same Dirichlet
+data), WoSX's GPU boundary handler building FCPW's binary tree over the
+same positions and indices, and `GPUWalkOnSpheresSolver` with the walk
+settings above. `--gpu-reference persistent` (the default, WoSX's on CUDA)
+runs its persistent-thread kernel, `threads` its other one -- a thread per
+copy of a point, the points copied enough times to fill the card, one walk
+per dispatch, which rounds the walks per point up and both sides then run
+the rounded count; `--gpu-threads N` sets the resident threads (default
+131072, WoSX's). The program's side stages every buffer where the
+generated header says its schedule reads it (the points, the distances
+and the tree on the device; what the host's loops write on the host) and
+forbids a copy inside the timed call, and the clock on both sides is
+around the solve alone, the dispatches and the wait for them.
 
 The mesh is a binary PLY of either byte order, plain or gzipped, as pbrt's
 scenes ship them, or an OBJ, read by WoSX's own loader as its demos read
@@ -144,7 +216,11 @@ the known solution, and `z`: the mean signed difference between the two
 estimates over all the points divided by its standard error from WoSX's
 own per-point variances, of order one when the two sides estimate the same
 thing and large when one is biased against the other -- the streams cannot
-be the same, since WoSX seeds each point's generator from the clock.
+be the same, since WoSX seeds each point's generator from the clock. Against
+WoSX's GPU solver, whose statistics keep no variance, `z` is the paired
+statistic instead -- the mean of the per-point differences over the
+standard error estimated from the differences themselves -- and the
+table's heading says `z (paired)`.
 `--image P` also writes the slice three ways, `P-bonsai.ppm`, `P-wosx.ppm`
 and `P-exact.ppm`, blue to red over [-1, 1], the cells with no point
 black. `--shuffle` solves the points in a random order on both sides
@@ -183,16 +259,38 @@ in question (PLAN.md, the persistent schedule).
   `schedules/fcpw4w16-packet-points.bonsai`: the same packet over the
   sample points instead, each lane's walks a loop inside.
 - `schedules/layouts/fcpwb.bonsai`: WoSX's default tree, FCPW's scalar
-  binary BVH (FCPW_USE_ENOKI off), as a tree whose nodes bound themselves
-  in FCPW's node bytes, the primitives copied out of FCPW's polygon soup
-  into an array of Triangle elements by the driver (`fcpw_bvh.h`).
-  `schedules/fcpwb.bonsai`: the matching schedule on it, nothing
-  vectorized, the children visited left then right where FCPW visits the
-  nearer first (a layout field cannot read a child's row, so a node cannot
-  hold its children's boxes; PLAN.md). `schedules/fcpwb-packet.bonsai` and
-  `schedules/fcpwb-packet-points.bonsai`: the two packets over it. The
+  binary BVH (FCPW_USE_ENOKI off; the one tree FCPW puts on a GPU), in
+  FCPW's node bytes, the primitives copied out of FCPW's polygon soup into
+  an array of Triangle elements by the driver (`fcpw_bvh.h`). The node is
+  declared bounding its children, as FCPW traverses it, and the layout
+  reads the children's boxes out of the children's own rows
+  (`this[left].low`), so the parent holds them logically while its bytes
+  stay FCPW's -- the device the PLDI 2026 paper's closest-point benchmark
+  used for this tree. `schedules/fcpwb.bonsai`: the matching schedule on
+  it, nothing vectorized, the two children tested at their parent and the
+  nearer entered first; `fcpwb-threads` and `fcpwb-persistent`: the
+  threads and the persistent workers on it; `schedules/fcpwb-packet.bonsai`
+  and `schedules/fcpwb-packet-points.bonsai`: the two packets over it. The
   comparison builds FCPW scalar for these (`compare.sh --schedule fcpwb,
   fcpwb-packet`), so WoSX's side runs as it ships.
+  `schedules/fcpwb-gpu.bonsai`: the schedule matching WoSX's GPU solver
+  (above), and its variants `fcpwb-gpu-flat` (every walk a thread of one
+  launch, no persistent workers), `fcpwb-gpu-walks` (the walks fastest: a
+  warp's claims are one point's walks) and `fcpwb-gpu-points` (a point a
+  claim, its walks in sequence).
+- `schedules/layouts/fcpwb2.bonsai`: the same binary tree in another
+  layout, each interior node's row holding its two children's boxes and
+  rows (56 bytes, built from FCPW's rows by the driver, `fcpw_bvh2.h`), so
+  that a visit reads one row where FCPW's layout reads three; the
+  triangles as for fcpwb. `schedules/fcpwb2.bonsai`: the matching
+  schedule's traversal on it on one thread; `schedules/fcpwb2-gpu.bonsai`:
+  WoSX's GPU kernel over it, a candidate for the optimized schedule.
+  `schedules/fcpw4w16-gpu.bonsai`: the same kernel over FCPW's four-wide
+  tree, which FCPW cannot put on a GPU.
+- `gpu/wosx-pde-definition.slang`: the PDE WoSX's GPU solver is given,
+  the Laplace problem with the program's Dirichlet data, in the shape
+  WoSX asks for (a module named `wosx_pde_definition` with a `PDEType`).
+  `build_slang_rhi.sh`: builds slang-rhi once, into deps/slang-rhi-build.
 - `wosx_hook.cpp`: the driver; `compare.sh`, `benchmark.sh`, `plot.py`:
   the scripts.
   The mesh reader and the copy of FCPW's tree into the layout are

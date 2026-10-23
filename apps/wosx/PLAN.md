@@ -536,6 +536,196 @@ declared `with AABB(lo, hi) on children` with the sort key `distmin(q,
 AABB{lo[i], hi[i]})`, FCPW's order exactly. Not started: it is a new form
 in the layout language, and the user decides those.
 
+## 2026-10-21: the GPU comparison
+
+The user's ask: "extend the wosx comparison to also perform a GPU
+comparison. We need a) a matching schedule to their schedule and b) an
+optimized schedule, which I suspect involves applying persistent threads
+at least, so long walks don't take an entire warp with them."
+
+### What WoSX's GPU solver is
+
+Read from deps/wosx/include/wosx/gpu and deps/wosx/deps/fcpw/include/
+fcpw/gpu (Slang, run through slang-rhi; the demos ask for the CUDA
+backend, demo_apps/basic_2d/gpu_demo.cpp):
+
+- **The tree.** FCPW's *binary* BVH: `GPUScene::transferToGPU` takes the
+  non-vectorized `Bvh` and nothing else, so WoSX's GPU boundary handler
+  builds with vectorization off and copies the rows (GPUBvhNode: the
+  node's own box, nPrimitives, offset; 32 bytes) and the triangles
+  (GPUTriangle: the three corners and the index, 40 bytes, out of the
+  polygon soup). The traversal (bvh.slang, `Bvh::findClosestPoint`) is the
+  CPU scalar one's order (bvh.inl, processSubtreeForClosestPoint): a stack
+  of 64; pop a node and skip it if its box is now farther than the best;
+  at a leaf test the triangles one by one; at an interior node test BOTH
+  children's boxes, lowering the radius to each box's far corner, and push
+  the farther then the nearer. Not the four-wide Mbvh the CPU comparison
+  runs on both sides.
+- **The kernel, by default.** `runPersistentPointEstimator`
+  (entrypoints/common-shaders/point-estimation.cs.slang), chosen whenever
+  the backend is CUDA and `disablePersistentThreads` is not set: 131072
+  resident threads (`nResidentThreads`, the demos' default) in groups of
+  256, each claiming ONE WALK at a time from a 64-bit global counter until
+  the claims pass `points * walks`, the work item naming the point as
+  `work % points` -- consecutive claims are consecutive points -- and the
+  walk as the rest; one walk's statistics merged into the point's under a
+  per-point spinlock (compare-exchange, two device barriers, exchange).
+  So the user's suspicion is WoSX's own design: their default GPU
+  schedule *is* persistent threads at the grain of a walk, and a warp
+  whose lane finishes a short walk refills that lane with the next claim
+  while a long walk runs beside it.
+- **The other kernel.** `runPointEstimator`: one thread per copy of a
+  sample point, the points copied `ceil(131072 / points)` times (capped at
+  the walk count) so the card is full, each copy running one walk per
+  dispatch over `walks / copies` dispatches, the copies merged afterwards
+  (`computeWorkloadParameters`; it can only round the walks per point up).
+- **Where it differs from WoSX's CPU walk.** The GPU walk bounds each
+  step's query by `1.001 * 2 * dist` -- the walk stepped `dist`, so the
+  next distance is at most twice that -- where the CPU asks with an
+  infinite radius; the triangle test divides (`d1 / (d1 - d3)`, Slang's
+  float division) where FCPW's vectorized build uses enoki's reciprocal
+  with one Newton step, which apps/rtq's metric transcribes; pcg32 one per
+  thread, seeded from the clock with the thread as the stream. slang-rhi
+  compiles with Slang's default floating-point mode (no fast math), and
+  so is our GPU build compiled exact.
+
+### The matching schedule, by directives alone
+
+The program is unchanged. `schedules/fcpwb-gpu.bonsai`, over FCPW's tree
+in FCPW's bytes (the next section):
+
+    solve_all.reorder(i, w);
+    solve_all.collapse(w, i, k);
+    solve_all.persistent(k, t, 131072);
+    solve_all.split(t, t_blk, t_thr, 256, true);
+    solve_all.bind(t_blk, GPUBlock);
+    solve_all.bind(t_thr, GPUThread);
+
+`reorder(i, w)` puts the walks outside the points and, the nest not being
+perfect, distributes what a point's body does around its walks -- the
+three sums it starts, the mean it takes -- into `i!prologue` and
+`i!epilogue` loops, privatizing the sums into a slot per point
+(SSA/ReorderLoops.h, as written for pbrt's pixel loop). `collapse(w, i,
+k)` makes the perfect nest one loop over every (walk, point) pair, the
+point fastest, which is WoSX's `work % points`. `persistent(k, t,
+131072)` is Aila and Laine's scheme at WoSX's count and grain, and the
+split and binds are its groups of 256. The walk's adds to its point's
+sums become three device-scope atomic adds into the privatized slots (the
+PTX: `atom.global.add.f32` and two `.u32`, beside the counter's two claim
+sites); WoSX's spinlock-and-merge is the same accumulation by other means.
+The two distributed loops over the points run on the host around the
+launch, where a `parfor` left unbound runs; the generated header's sides
+table puts the points, the distances and the tree on the device and the
+three outputs on the host, and the driver stages them so.
+
+**One compiler change** (src/SSA/Convert.cpp, `nested_loop`): after a
+reorder the schedule's `i` is three loops -- the nest's, the prologue's
+and the epilogue's, variants in the sense of `loop_matches` -- and
+`collapse(w, i, k)` resolved `i` function-wide and refused the ambiguity;
+`reorder(w, i)` written a second time (fcpwb2-gpu-walks, to put the loops
+back in the program's order once distributed) hit the same. A directive on
+a nested pair now resolves its second loop by position: of the loops the
+name matches in the anchor's function, with the anchor's variant suffix
+first and bare second, the one nested with the anchor (inside it for
+collapse; either way round for reorder). A variant of the first loop with
+no such partner -- a distributed loop beside the nest -- is passed over,
+and a directive that finds no pair at all is refused. Tests:
+ssa/reorder-collapse (both orders), correctness/llvm/reorder-collapse,
+correctness/gpu/reorder-collapse-persistent (the whole chain, on the GPU).
+
+### The tree: FCPW's bytes, FCPW's order
+
+WoSX's GPU tree is the binary one, whose byte-for-byte layout
+(layouts/fcpwb.bonsai) the 2026-10-09 section could only traverse left
+then right -- a layout field, it said, cannot read a child row's box, so a
+node cannot bound its children and no key can order them, 0.12x of WoSX's
+CPU. That was wrong about the language: the user pointed at the PLDI 2026
+paper's closest-point benchmark (apps/queries/cp/cp.bonsai on the branch
+ajr/pldi-benchmarks), whose layout has the parent *logically* hold its
+children's boxes, read out of the children's rows with `this[left].low`
+-- `this` being the group, `this[row]` one of its rows -- and the device
+is in this branch's parser and layout lowering still (Parser.cpp adds
+`this` to the layout's scope; Lower/Layouts.cpp binds it to the group
+inside a Materialize). Two forms were tried. The paper's -- the node
+bounding itself, the children's boxes as four extra Interior fields and
+the sort key choosing between them -- fails this branch's layout validator
+(ValidateLayout.cpp: no path for the Interior arm). The `on children` form
+works: the tree declared as the four-wide one is, `Interior(children :
+array[BVH2, 2], lo hi : vector[vec3f, 2]) with AABB(lo, hi) on children`,
+and the layout's Interior arm building `children` from `index + 1u` and
+`index + offset` and `lo`, `hi` from `this[left].low[0]`,
+`this[right].low[0]`, ... component by component (a `vector[vec3f, 2]` is
+built from three two-lane vectors, and a field's `.x` does not lower where
+its `[0]` does). So FCPW's rows are read as FCPW reads them -- the node's
+row, then its two children's rows -- the children tested at the parent,
+the radius lowered to each box's far corner, the nearer entered first,
+and the bytes are FCPW's GPUBvhNode to the byte. The whale, one thread,
+WoSX's scalar solver against `fcpwb` (side 128, 64 walks, least of 3):
+0.54 against 0.53 Msteps/s, 0.99x -- from 0.12x on the left-then-right
+layout. The same change goes to `fcpwb-packet` and `fcpwb-packet-points`
+(a sort, voted by the gang's majority) and adds `fcpwb-threads` and
+`fcpwb-persistent`, so the CPU table runs the three schedules on both
+trees; the user asked that every schedule on this tree carry the fix and
+that both CPU tables (this app's and apps/rtq's) be measured fresh.
+
+The triangles stay the program's elements (44 bytes, the edges
+precomputed) on this tree: FCPW's 40-byte GPUTriangle rows with the edges
+derived would need a one-element tile, which the layout language's tiles
+do not allow (IR/Layout.cpp, tile_width: more than one), and that is a
+language change for the user to call.
+
+`layouts/fcpwb2.bonsai` is the same tree in another layout, kept as a
+variant: each interior row holds its two children's boxes component by
+component and their two rows, 56 bytes, built by the driver
+(`fcpw_bvh2.h`) from FCPW's rows at copy time, so a visit reads one row
+where FCPW's layout reads three. `schedules/fcpwb2.bonsai` is its CPU
+schedule (the whale: 0.57 against WoSX's 0.65 Msteps/s single-threaded,
+0.88x, under a different load than the 0.99x above), `fcpwb2-gpu` the GPU
+kernel over it.
+
+### The variants, for (b)
+
+Each departs from the matching schedule in one thing:
+
+- `fcpwb-gpu-flat`: no persistent workers; every (walk, point) pair a
+  thread of one launch in blocks of 256, the hardware's block scheduler
+  doing the balancing. What the persistent claim is worth here.
+- `fcpwb-gpu-walks`: the walk fastest -- a warp's claims are one point's
+  thirty-two walks, which start at the same place -- against WoSX's
+  consecutive points. Coherence.
+- `fcpwb-gpu-points`: a point a claim, its walks in sequence on one
+  thread (the CPU persistent schedule's grain). What the grain costs.
+- `fcpwb2-gpu`: the matching kernel over the layout that stores the
+  children's boxes in the parent (one row read a visit where FCPW's layout
+  reads three). What the layout alone is worth.
+- `fcpw4w16-gpu`: the matching kernel over FCPW's four-wide tree in FCPW's
+  bytes (the CPU comparison's tree), which FCPW cannot put on a GPU: four
+  boxes a node, sixteen triangles a leaf, half the depth.
+
+### The reference's side, and the harness
+
+wosx_hook.cpp under `WOSX_GPU` (compare.sh builds it so for a `*-gpu*`
+schedule, against slang-rhi built once by build_slang_rhi.sh into
+deps/slang-rhi-build, which fetches FCPW's pinned Slang release): WoSX's
+GPUTaskHandle on the CUDA backend, its GPU boundary handler over the same
+positions and indices (the same deterministic build the CPU handler ran,
+so the same tree the layout holds), GPUGeometricQueries over the same box,
+the PDE in gpu/wosx-pde-definition.slang (the Laplace problem with
+`x^2 - y^2`, in the module shape WoSX asks for), GPUWalkOnSpheresSolver
+persistent (`--gpu-reference persistent`, the default) or threads. The
+clock on both sides is around the solve alone -- WoSX's dispatch and the
+wait for it; our launch, its captures and the wait -- after the
+statistics and generators are reset off the clock; least of three after a
+warm-up, as the CPU table. WoSX's GPU statistics keep no variance, so the
+bias test `z` against them is the paired statistic over the points. The
+GPU runs are pinned like single-thread runs (the host thread), both sides
+on the card; benchmark.sh --gpu waits for an empty GPU and honours
+/tmp/benchmark.lock, the sessions' claim file.
+
+### Measured
+
+(to be filled in: the whale first, then the table over the meshes)
+
 ### Next
 
 - The layout-language extension above, if the user wants WoSX's default
