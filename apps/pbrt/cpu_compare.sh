@@ -59,7 +59,7 @@ SPPS="16 64"
 REPEATS=3
 OUT="$PREFIX/cpu-compare-out"
 SCHEDULES="scalar wavefront-frame wavefront-frame-packet wavefront-frame-packet-reorder \
-wavefront-thread-packet wavefront-thread-packet-reorder"
+wavefront-thread wavefront-thread-packet wavefront-thread-packet-reorder"
 SCENES="killeroos/killeroo-simple killeroos/killeroo-gold pbrt-book/book \
 ganesha/ganesha sanmiguel/sanmiguel-courtyard"
 RESUME=0
