@@ -10,12 +10,12 @@ The CSV has one row per measured cell and side (scene, spp, side, render
 seconds, speedup, verdict, ...; cpu_compare.sh's header says what each
 column is). The side `pbrt-wavefront` is the reference and draws no bar:
 the dashed line at 1 is it. The other sides are drawn in the order of SIDES
-below -- pbrt's own scalar integrator first, then this renderer's schedules
-from the path-per-sample `scalar` through the band wavefront (scalar and
-vectorized drains, then the vectorized one with its rays reordered) and the
-per-thread wavefront (scalar and vectorized drains, then the vectorized one
-pushed sample-major). `--sides` names a subset (comma-separated side names)
-and keeps that order, so the five-bar figure of the first study is
+below -- pbrt's megakernel first, then this renderer's schedules named by
+the encoding SIDES explains (type-parallelism-SIMD-order[-sort]: mk-b-s-ps
+is the path-per-sample `scalar` schedule, wf-b-v-sp-sort the band
+wavefront with vectorized drains and the rays sorted, wf-t-v-ps the
+per-thread vectorized wavefront). `--sides` names a subset (comma-separated
+side names) and keeps that order, so the five-bar figure of the first study is
 `--sides pbrt-volpath,scalar,wavefront-frame,wavefront-frame-packet,wavefront-frame-packet-reorder`.
 
 Colour tells the renderer apart and hatching tells the schedules apart:
@@ -49,18 +49,27 @@ BONSAI_COLOUR = "#0072B2"    # Okabe-Ito blue
 BAD_EDGE = "#D55E00"         # Okabe-Ito vermilion, for an image that did not match
 
 # (side in the CSV, label in the legend, colour, hatch): the drawing order.
-# The names follow one pattern: the renderer, then "per-thread" when the
-# queues are a thread's, then the drains (scalar or vectorized), then the
-# structure (wavefront, or nothing for a path per sample), then a variant.
+# pbrt has two schedules and is named by them: its megakernel (the CPU
+# volpath integrator, a path per sample) and its wavefront, the reference.
+# A Bonsai schedule is named by the user's encoding (10-22),
+# type-parallelism-SIMD-order[-sort]: type `wf` (wavefront) or `mk`
+# (megakernel, a path per sample); parallelism `b` (bulk: the frame's
+# pixels shared by the threads, as pbrt's bands and a megakernel's pixel
+# loop are) or `t` (per-thread: a thread owns a chunk of pixels and its
+# queues); SIMD `s` (scalar drains) or `v` (vectorized, sixteen-wide gangs);
+# order `ps` (pixels outer, samples inner, the program's order) or `sp`
+# (samples outer, pixels inner: `reorder(p, s)` or `reorder(p_in, s)`);
+# `-sort` when the rays queue is sorted by the two-point Morton key before
+# each trace pass. The code is read from the schedule file's directives.
 SIDES = [
-    ("pbrt-volpath", "pbrt scalar", PBRT_COLOUR, ""),
-    ("scalar", "Bonsai scalar", BONSAI_COLOUR, ""),
-    ("wavefront-frame", "Bonsai scalar wavefront", BONSAI_COLOUR, "////"),
-    ("wavefront-frame-packet", "Bonsai vectorized wavefront", BONSAI_COLOUR, "xxxx"),
-    ("wavefront-frame-packet-reorder", "Bonsai vectorized wavefront, rays reordered", BONSAI_COLOUR, "...."),
-    ("wavefront-thread", "Bonsai per-thread scalar wavefront", BONSAI_COLOUR, "\\\\\\\\"),
-    ("wavefront-thread-packet", "Bonsai per-thread vectorized wavefront", BONSAI_COLOUR, "++++"),
-    ("wavefront-thread-packet-reorder", "Bonsai per-thread vectorized wavefront, sample-major", BONSAI_COLOUR, "oooo"),
+    ("pbrt-volpath", "pbrt megakernel", PBRT_COLOUR, ""),
+    ("scalar", "Bonsai mk-b-s-ps", BONSAI_COLOUR, ""),
+    ("wavefront-frame", "Bonsai wf-b-s-sp", BONSAI_COLOUR, "////"),
+    ("wavefront-frame-packet", "Bonsai wf-b-v-sp", BONSAI_COLOUR, "xxxx"),
+    ("wavefront-frame-packet-reorder", "Bonsai wf-b-v-sp-sort", BONSAI_COLOUR, "...."),
+    ("wavefront-thread", "Bonsai wf-t-s-ps", BONSAI_COLOUR, "\\\\\\\\"),
+    ("wavefront-thread-packet", "Bonsai wf-t-v-ps", BONSAI_COLOUR, "++++"),
+    ("wavefront-thread-packet-reorder", "Bonsai wf-t-v-sp", BONSAI_COLOUR, "oooo"),
 ]
 
 

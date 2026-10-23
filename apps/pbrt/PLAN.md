@@ -16220,10 +16220,14 @@ as the band structure has. So:
   wavefront-frame-packet).
 - `plot_cpu_wavefront.py` draws the CSV: pbrt grey, Bonsai one blue with
   a hatch per schedule, the reference a dashed line labelled at the right,
-  names "pbrt scalar", "Bonsai scalar", "Bonsai scalar wavefront", "Bonsai
-  vectorized wavefront", "Bonsai vectorized wavefront, rays reordered",
-  "Bonsai per-thread scalar wavefront", "Bonsai per-thread vectorized
-  wavefront", "Bonsai per-thread vectorized wavefront, sample-major".
+  no numbers on the bars. The names are the user's encoding (10-22,
+  evening): pbrt by its two schedules ("pbrt megakernel", "pbrt
+  wavefront"); Bonsai as type-parallelism-SIMD-order[-sort] -- `wf`/`mk`,
+  `b`ulk/per-`t`hread, `s`calar/`v`ectorized, `ps`/`sp` loop order, `-sort`
+  for the rays sort -- so scalar = mk-b-s-ps, wavefront-frame = wf-b-s-sp,
+  wavefront-frame-packet = wf-b-v-sp, wavefront-frame-packet-reorder =
+  wf-b-v-sp-sort, wavefront-thread = wf-t-s-ps, wavefront-thread-packet =
+  wf-t-v-ps, wavefront-thread-packet-reorder = wf-t-v-sp.
 
 The table above (10-21) stays as the record of the runs it came from; the
 paper's numbers are the CSV's, re-measured by the script on all five
