@@ -38,7 +38,10 @@ before it.
   before writing any file, a PFM included, and a float render checked
   against a half-quantized one loses its last digit of agreement and, on
   an emissive medium, counts every pixel lit by 1e-20 here and rounded to
-  black there as a pixel lit on one side only.
+  black there as a pixel lit on one side only. `--build-renderer <path>`
+  compiles the schedule's renderer to a file and stops; `--renderer <path>`
+  compares with that file instead of compiling one, which is how a sweep
+  compiles each schedule once (the renderer does not depend on the scene).
 - `gpu_clock.sh`: sourced by `gpu_compare.sh` and `heatmap.sh`; reads the
   idle GPU's clocks before a run and the table's last line says whether
   they were locked or not. An unlocked GeForce boosts by load and a
@@ -82,7 +85,8 @@ before it.
 - `cpu_compare.sh [--spp "N ..."] [--repeats N] [--schedules "..."]
   [--scenes "..."] [--out DIR] [--resume]`: the CPU comparison -- pbrt's
   CPU wavefront against every CPU schedule, on the scenes given (five of
-  rising cost by default) at the sample counts given, one compare.sh run
+  rising cost by default) at the sample counts given, each schedule's
+  renderer compiled once up front (`DIR/renderers`), then one compare.sh run
   per schedule per cell, `scalar` against pbrt's volpath and the wavefront
   schedules against `pbrt --wavefront`, pbrt rendered once per cell and
   kept for the cell's schedules (`compare.sh --pbrt-cache`). Writes

@@ -70,17 +70,45 @@ PREFIX="apps/pbrt"
 # of REPEATS for every schedule of a cell, which is what a comparison of the
 # schedules wants, and pbrt is not rendered once per schedule. A run that
 # hits the cache says so on its output; without the option nothing is kept.
+#
+# `--build-renderer <path>` compiles the schedule's renderer -- the generated
+# module and the driver, exactly as a comparison builds them -- to <path>
+# and stops, rendering nothing; `--renderer <path>` runs a comparison with a
+# renderer so built instead of compiling one. The renderer does not depend on
+# the scene (the scene is data the driver reads), so a sweep over several
+# scenes and sample counts compiles each schedule once and hands the binary
+# to every cell, where compiling per cell cost cpu_compare.sh some four
+# minutes a cell before any render began (2026-10-22). What is timed is the
+# same binary either way.
 DUMP_OPTS=()
 MAXDEPTH=""
 SCHEDULE="${SCHEDULE:-packet}"
 PBRT_WAVEFRONT=0
 PBRT_CACHE=""
+BUILD_RENDERER=""
+RENDERER=""
 ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --pbrt-wavefront)
       PBRT_WAVEFRONT=1
       shift
+      ;;
+    --build-renderer)
+      if [[ $# -lt 2 ]]; then
+        echo "--build-renderer needs a path to write the renderer to" >&2
+        exit 1
+      fi
+      BUILD_RENDERER="$2"
+      shift 2
+      ;;
+    --renderer)
+      if [[ $# -lt 2 || ! -x "$2" ]]; then
+        echo "--renderer needs a renderer built by --build-renderer" >&2
+        exit 1
+      fi
+      RENDERER="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
+      shift 2
       ;;
     --pbrt-cache)
       if [[ $# -lt 2 ]]; then
@@ -143,18 +171,21 @@ WORK="${WORK:-$PREFIX/compare-out}"
 # The scene both sides render. Any .pbrt this renderer understands will do.
 SCENE="${1:-$PREFIX/scenes/three-spheres.pbrt}"
 
-if [[ ! -x "$PBRT" ]]; then
-  echo "no pbrt at $PBRT -- set PBRT to a built one" >&2
-  exit 1
+if [[ -z "$BUILD_RENDERER" ]]; then
+  if [[ ! -x "$PBRT" ]]; then
+    echo "no pbrt at $PBRT -- set PBRT to a built one" >&2
+    exit 1
+  fi
+  if [[ ! -f "$SCENE" ]]; then
+    echo "no scene at $SCENE" >&2
+    exit 1
+  fi
+  # pbrt is run from the working directory, so that the .exr it is told to
+  # write lands there rather than beside the repository. That means it needs
+  # the scene by a path that survives the change of directory, and a relative
+  # one does not.
+  SCENE="$(cd "$(dirname "$SCENE")" && pwd)/$(basename "$SCENE")"
 fi
-if [[ ! -f "$SCENE" ]]; then
-  echo "no scene at $SCENE" >&2
-  exit 1
-fi
-# pbrt is run from the working directory, so that the .exr it is told to write
-# lands there rather than beside the repository. That means it needs the scene
-# by a path that survives the change of directory, and a relative one does not.
-SCENE="$(cd "$(dirname "$SCENE")" && pwd)/$(basename "$SCENE")"
 # Asked rather than assumed. Existing is not the same as being able to compile
 # the header: gcc merely warns that it is ignoring ext_vector_type and then
 # fails on every use of the type, which is a hundred lines of template noise
@@ -201,8 +232,92 @@ WORK="$(cd "$WORK" && pwd)"
 BONSAI_BUILD_DIR="${BONSAI_BUILD_DIR:-build}"
 # A directory that only holds a compiler binary (a copy kept of an earlier
 # build) is used as it is, as gpu_compare.sh uses one.
-if [[ -f "$BONSAI_BUILD_DIR/CMakeCache.txt" ]]; then
+# Not when a prebuilt renderer is run: that binary is what is measured, and
+# the compiler is not used.
+if [[ -z "$RENDERER" && -f "$BONSAI_BUILD_DIR/CMakeCache.txt" ]]; then
   cmake --build "$BONSAI_BUILD_DIR" -j
+fi
+
+# The renderer for the schedule, built to $1: the program and the schedule
+# through the compiler to a module and header, the driver compiled against
+# the header with clang and linked with the module.
+# --no-heap: a renderer's inner loop must not allocate, and nothing frees a
+# heap allocation, so this is checked rather than hoped for. Three constant
+# tables written where they were used once cost a fifth of the render and four
+# gigabytes of resident memory before anybody noticed; this is what noticing
+# looks like now.
+# --ffp-contract: pbrt is built with gcc and no -ffp-contract flag, so it gets
+# gcc's default of `fast` and its `a*b + c` rounds once. This app cannot agree
+# with pbrt bit for bit while rounding twice. See include/SSA/Contract.h.
+build_renderer() {
+  local out="$1"
+  if [[ ! -f "$PREFIX/schedules/$SCHEDULE.bonsai" ]]; then
+    echo "no schedule $PREFIX/schedules/$SCHEDULE.bonsai" >&2
+    exit 1
+  fi
+  # --fast-math and a 128-register cap for a schedule that runs on the GPU:
+  # pbrt's GPU build is nvcc's --use_fast_math with -maxrregcount 128
+  # (pbrt-v4's CMakeLists.txt), and that is what the device code is compared
+  # against (see CompilerOptions::fast_math and gpu_max_registers; the cap was
+  # the best of the sweep in PLAN.md as well). A CPU schedule is compared
+  # against pbrt's CPU build, which has neither flag, and stays exact.
+  local -a gpu_flags=()
+  # The directives, not the comments: a CPU schedule may well talk about the
+  # device schedule it stands in for.
+  if grep -v '^\s*//' "$PREFIX/schedules/$SCHEDULE.bonsai" | grep -q "GPUBlock\|GPUThread\|OptixThread"; then
+    gpu_flags=(--fast-math --gpu-max-registers 128)
+    echo "a GPU schedule: compiled with --fast-math and a 128-register cap, as pbrt --gpu is built."
+  fi
+  # The NanoVDB shim -- the implementation of the renderer's foreign functions
+  # over NanoVDB (docs/foreign-functions.md) -- built to host bitcode and, for
+  # a GPU schedule, to PTX for this machine's GPU, both linked into the
+  # generated module (`--link`), and compiled into the driver against the
+  # generated header's prototypes (build_nanovdb_shim.sh).
+  local shim_arch=""
+  if [[ ${#gpu_flags[@]} -gt 0 ]]; then
+    shim_arch="sm_$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d '. ')"
+  fi
+  local shim_out nanovdb_include
+  shim_out=$(bash $PREFIX/build_nanovdb_shim.sh "$WORK" $shim_arch)
+  nanovdb_include=$(echo "$shim_out" | sed -n 's/^NANOVDB_INCLUDE=//p')
+  local -a link_flags
+  mapfile -t link_flags < <(echo "$shim_out" | grep -v '^NANOVDB_INCLUDE=')
+  "./$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract "${gpu_flags[@]}" \
+      "${link_flags[@]}" \
+      -i $PREFIX/render.bonsai -i "$PREFIX/schedules/$SCHEDULE.bonsai" \
+      -b cpp -o $PREFIX/render
+  # A schedule on the RT cores: the generated header includes
+  # runtime/bonsai_optix.h, which declares the acceleration structure's build
+  # against the OptiX SDK's headers and CUDA's -- the same ones the compiler's
+  # own build found (CMakeLists.txt, BONSAI_OPTIX_SDK), so the same places.
+  local -a optix_flags=()
+  if grep -q '^#define BONSAI_HAS_OPTIX' "$PREFIX/render.h"; then
+    local optix_sdk="${BONSAI_OPTIX_SDK:-$HOME/installs/NVIDIA-OptiX-SDK-9.1.0-linux64-x86_64}"
+    local cuda_dir="${CUDA_HOME:-/usr/local/cuda}"
+    if [[ ! -f "$optix_sdk/include/optix.h" || ! -f "$cuda_dir/include/cuda.h" ]]; then
+      echo "the schedule launches through OptiX, and the OptiX SDK ($optix_sdk)" >&2
+      echo "or CUDA ($cuda_dir) headers were not found. Set BONSAI_OPTIX_SDK" >&2
+      echo "and CUDA_HOME." >&2
+      exit 1
+    fi
+    optix_flags=(-isystem "$optix_sdk/include" -isystem "$cuda_dir/include")
+  fi
+  # -march=native as pbrt's own build has it: the driver is host code, and
+  # runtime/bonsai_parallel.h's sort of a sorted queue takes its vectorized
+  # form only when the translation unit is compiled for the host's vectors.
+  "$BONSAI_CXX" -g -std=c++20 -O3 -march=native -I. -I$PREFIX $(bash $PREFIX/scene_schema.sh) \
+      $PREFIX/render_hook.cpp \
+      -DBONSAI_SHIM_CHECK "$nanovdb_include" $PREFIX/nanovdb_shim.cpp \
+      $PREFIX/render.o "${TBB_FLAGS[@]}" "${optix_flags[@]}" -o "$out"
+  rm -f $PREFIX/render.o
+  rm -rf "$out.dSYM"
+}
+
+if [[ -n "$BUILD_RENDERER" ]]; then
+  mkdir -p "$(dirname "$BUILD_RENDERER")"
+  build_renderer "$BUILD_RENDERER"
+  echo "built the \"$SCHEDULE\" renderer at $BUILD_RENDERER"
+  exit 0
 fi
 
 # The scene is read once, by PBRT's parser, and both sides render what it says.
@@ -488,74 +603,18 @@ echo "this renderer: schedule \"$SCHEDULE\""
 # This renderer. The resolution comes from the scene along with everything
 # else, so there is no longer a second place for it to disagree. It repeats
 # inside one process, so there is no per-run startup to pay.
-# --no-heap: a renderer's inner loop must not allocate, and nothing frees a
-# heap allocation, so this is checked rather than hoped for. Three constant
-# tables written where they were used once cost a fifth of the render and four
-# gigabytes of resident memory before anybody noticed; this is what noticing
-# looks like now.
-# --ffp-contract: pbrt is built with gcc and no -ffp-contract flag, so it gets
-# gcc's default of `fast` and its `a*b + c` rounds once. This app cannot agree
-# with pbrt bit for bit while rounding twice. See include/SSA/Contract.h.
-if [[ ! -f "$PREFIX/schedules/$SCHEDULE.bonsai" ]]; then
-  echo "no schedule $PREFIX/schedules/$SCHEDULE.bonsai" >&2
-  exit 1
+# The renderer: the one named by --renderer, else built here (build_renderer
+# above) and removed at the end.
+if [[ -n "$RENDERER" ]]; then
+  echo "the renderer is the prebuilt $RENDERER"
+else
+  RENDERER="$WORK/render.out"
+  build_renderer "$RENDERER"
 fi
-# --fast-math and a 128-register cap for a schedule that runs on the GPU:
-# pbrt's GPU build is nvcc's --use_fast_math with -maxrregcount 128
-# (pbrt-v4's CMakeLists.txt), and that is what the device code is compared
-# against (see CompilerOptions::fast_math and gpu_max_registers; the cap was
-# the best of the sweep in PLAN.md as well). A CPU schedule is compared
-# against pbrt's CPU build, which has neither flag, and stays exact.
-GPU_FLAGS=()
-# The directives, not the comments: a CPU schedule may well talk about the
-# device schedule it stands in for.
-if grep -v '^\s*//' "$PREFIX/schedules/$SCHEDULE.bonsai" | grep -q "GPUBlock\|GPUThread\|OptixThread"; then
-  GPU_FLAGS=(--fast-math --gpu-max-registers 128)
-  echo "a GPU schedule: compiled with --fast-math and a 128-register cap, as pbrt --gpu is built."
-fi
-# The NanoVDB shim -- the implementation of the renderer's foreign functions
-# over NanoVDB (docs/foreign-functions.md) -- built to host bitcode and, for
-# a GPU schedule, to PTX for this machine's GPU, both linked into the
-# generated module (`--link`), and compiled into the driver against the
-# generated header's prototypes (build_nanovdb_shim.sh).
-SHIM_ARCH=""
-if [[ ${#GPU_FLAGS[@]} -gt 0 ]]; then
-  SHIM_ARCH="sm_$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d '. ')"
-fi
-SHIM_OUT=$(bash $PREFIX/build_nanovdb_shim.sh "$WORK" $SHIM_ARCH)
-NANOVDB_INCLUDE=$(echo "$SHIM_OUT" | sed -n 's/^NANOVDB_INCLUDE=//p')
-mapfile -t LINK_FLAGS < <(echo "$SHIM_OUT" | grep -v '^NANOVDB_INCLUDE=')
-"./$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract "${GPU_FLAGS[@]}" \
-    "${LINK_FLAGS[@]}" \
-    -i $PREFIX/render.bonsai -i "$PREFIX/schedules/$SCHEDULE.bonsai" \
-    -b cpp -o $PREFIX/render
-# A schedule on the RT cores: the generated header includes
-# runtime/bonsai_optix.h, which declares the acceleration structure's build
-# against the OptiX SDK's headers and CUDA's -- the same ones the compiler's
-# own build found (CMakeLists.txt, BONSAI_OPTIX_SDK), so the same places.
-OPTIX_FLAGS=()
-if grep -q '^#define BONSAI_HAS_OPTIX' "$PREFIX/render.h"; then
-  OPTIX_SDK="${BONSAI_OPTIX_SDK:-$HOME/installs/NVIDIA-OptiX-SDK-9.1.0-linux64-x86_64}"
-  CUDA_DIR="${CUDA_HOME:-/usr/local/cuda}"
-  if [[ ! -f "$OPTIX_SDK/include/optix.h" || ! -f "$CUDA_DIR/include/cuda.h" ]]; then
-    echo "the schedule launches through OptiX, and the OptiX SDK ($OPTIX_SDK)" >&2
-    echo "or CUDA ($CUDA_DIR) headers were not found. Set BONSAI_OPTIX_SDK" >&2
-    echo "and CUDA_HOME." >&2
-    exit 1
-  fi
-  OPTIX_FLAGS=(-isystem "$OPTIX_SDK/include" -isystem "$CUDA_DIR/include")
-fi
-# -march=native as pbrt's own build has it: the driver is host code, and
-# runtime/bonsai_parallel.h's sort of a sorted queue takes its vectorized
-# form only when the translation unit is compiled for the host's vectors.
-"$BONSAI_CXX" -g -std=c++20 -O3 -march=native -I. -I$PREFIX $(bash $PREFIX/scene_schema.sh) \
-    $PREFIX/render_hook.cpp \
-    -DBONSAI_SHIM_CHECK "$NANOVDB_INCLUDE" $PREFIX/nanovdb_shim.cpp \
-    $PREFIX/render.o "${TBB_FLAGS[@]}" "${OPTIX_FLAGS[@]}" -o "$WORK/render.out"
 # --no-implicit-copies: the driver stages every buffer before its timer
 # starts, and a copy the compiled render would make inside the timed region
 # is an error rather than a number (see runtime/bonsai_buffer.h).
-BONSAI_OUT=$(BONSAI_REPEATS="$REPEATS" "$WORK/render.out" --no-implicit-copies \
+BONSAI_OUT=$(BONSAI_REPEATS="$REPEATS" "$RENDERER" --no-implicit-copies \
     "$WORK/scene.txt" "$WORK/bonsai.pfm")
 echo "$BONSAI_OUT"
 BONSAI_SECONDS=$(echo "$BONSAI_OUT" | sed -n 's/^render seconds: //p')
@@ -594,5 +653,4 @@ else
   python3 $PREFIX/compare_gbuffer.py --radiance-only "${COMPARE_ARGS[@]}"
 fi
 
-rm -f $PREFIX/render.o "$WORK/render.out"
-rm -rf "$WORK/render.out.dSYM"
+rm -f "$WORK/render.out"

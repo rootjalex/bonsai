@@ -8,9 +8,13 @@
 #
 # Every number in the CSV is written by this script from a compare.sh run
 # whose log sits beside it; nothing is typed in. A cell is one scene at one
-# sample count. For each cell the script runs compare.sh once per schedule,
-# one at a time (compare.sh shares apps/pbrt/render.{h,o}), scene-major so
-# that a scene's whole column is in hand before the next scene starts:
+# sample count. Each schedule's renderer is compiled once, before any cell
+# (compare.sh --build-renderer, into --out/renderers, its log in --out/logs),
+# since the binary does not depend on the scene; compiling it in every cell
+# cost some four minutes a cell (2026-10-22). For each cell the script then
+# runs compare.sh once per schedule with that renderer (--renderer), one at
+# a time, scene-major so that a scene's whole column is in hand before the
+# next scene starts:
 #
 # - `scalar` (the path-per-sample schedule, pbrt's own CPU structure) against
 #   pbrt's CPU volpath integrator, which gives the rows `pbrt-volpath` and
@@ -147,6 +151,7 @@ run_cell() {
   echo "== $name (load $load) at $(date +%H:%M:%S)"
   REPEATS="$REPEATS" WORK="$OUT/work" BONSAI_BUILD_DIR="$BONSAI_BUILD_DIR" \
     bash "$PREFIX/compare.sh" "$@" --spp "$spp" --schedule "$sd" \
+    --renderer "$OUT/renderers/$sd.out" \
     "$SCENES_DIR/$sc.pbrt" > "$log" 2>&1
   local st=$?
   local p o v
@@ -169,6 +174,27 @@ run_cell() {
 }
 
 echo "cpu_compare.sh: scenes [$SCENES], spp [$SPPS], schedules [$SCHEDULES], repeats $REPEATS, out $OUT, from $(date '+%Y-%m-%d %H:%M:%S')"
+
+# Every schedule's renderer, built once. A run resumed into the same --out
+# keeps the renderers it built, so a resumed run measures the binaries the
+# first run did; delete --out/renderers to rebuild them.
+for sd in $SCHEDULES; do
+  bin="$OUT/renderers/$sd.out"
+  if [[ -x "$bin" ]]; then
+    echo "renderer $sd: kept $bin"
+    continue
+  fi
+  t0=$(date +%s)
+  WORK="$OUT/work" BONSAI_BUILD_DIR="$BONSAI_BUILD_DIR" \
+    bash "$PREFIX/compare.sh" --schedule "$sd" --build-renderer "$bin" \
+    > "$OUT/logs/build-$sd.log" 2>&1
+  if [[ $? -ne 0 || ! -x "$bin" ]]; then
+    echo "renderer $sd: the build failed -- see $OUT/logs/build-$sd.log" >&2
+    exit 1
+  fi
+  echo "renderer $sd: built in $(( $(date +%s) - t0 )) s"
+done
+
 for sc in $SCENES; do
   for spp in $SPPS; do
     scene="$(basename "$sc")"
