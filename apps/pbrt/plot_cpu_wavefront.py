@@ -145,7 +145,7 @@ def main(argv):
     fig, ax = plt.subplots(figsize=(args.width, args.height))
 
     bar = 1.0                     # one bar's width in x units
-    gap_spp = 1.5                 # between the sample counts of a scene
+    gap_spp = 2.0                 # between the sample counts of a scene
     gap_scene = 4.0               # between scenes
     x = 0.0
     scene_centres, spp_centres, spp_labels = [], [], []
@@ -171,7 +171,7 @@ def main(argv):
                                 fontsize=5.5, rotation=90, zorder=4)
                 x += bar
             spp_centres.append((group_start + x - bar) / 2)
-            spp_labels.append(f"{spp} spp")
+            spp_labels.append(f"{spp}")       # "spp" is written once, at the left
             if j + 1 < len(spps):
                 x += gap_spp
         scene_centres.append((scene_start + x - bar) / 2)
@@ -183,6 +183,8 @@ def main(argv):
     ax.set_xticks(spp_centres)
     ax.set_xticklabels(spp_labels)
     ax.tick_params(axis="x", length=0)
+    ax.text(-bar, -0.045, "spp", ha="right", va="top",
+            transform=ax.get_xaxis_transform(), fontsize=8)
     for centre, scene in zip(scene_centres, scenes):
         ax.text(centre, -0.16, scene, ha="center", va="top",
                 transform=ax.get_xaxis_transform(), fontsize=8)

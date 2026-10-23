@@ -19,6 +19,58 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
+## Where it stands (2026-10-23, 14:00): the CPU matrix measured, the figure drawn
+
+**The paper's CPU figure is drawn from a script-produced table: five scenes
+(killeroo-simple, killeroo-gold, book, ganesha, sanmiguel-courtyard) at
+16, 64 and 128 spp, nine sides, 150 rows, three repeats a side, the least
+taken, every image checked against pbrt's (`cpu_compare.sh`, 10-23 08:28
+to 13:42, the machine otherwise idle; compiler from the committed
+10e9a048). Our per-thread wavefronts run 3.0-8.3x faster than pbrt's CPU
+wavefront and ahead of our own megakernel wherever the shading is heavy;
+the band wavefronts, pbrt's own structure in our code, 1.4-1.8x; our
+megakernel beats pbrt's by 1.05-1.4x. Neither ray sort pays on this CPU:
+the band sort is 8-12% slower than unsorted, the new per-thread sort
+(`wavefront-thread-packet-sort`, each thread sorting its own chunk's rays)
+3-25% slower, and its cost grows with the sample count as the chunk's
+queue outgrows the cache.** The figure is
+`apps/pbrt/plots/cpu-wavefront-speedups.pdf` (`.png` beside it;
+`plot_cpu_wavefront.py`, axis "Speedup over PBRT wf", bars PBRT mk,
+mk-b-s-ps, then the wavefronts, hatch per schedule). One check of 150
+failed, sanmiguel 16 spp `scalar` against pbrt's volpath on the lit-pixel
+count; pbrt's own volpath is further from pbrt's wavefront (3,401 lit
+pixels) than we are (136), so it is pbrt's spread, and the fix is
+cpu_compare.sh handing compare.sh the cached other-renderer image as
+`--pbrt-spread` (PLAN.md, "The matrix measured", 10-23). Speedups over
+pbrt's CPU wavefront:
+
+| scene | spp | PBRT mk | mk-b-s-ps | wf-b-s-sp | wf-b-v-sp | wf-b-v-sp-sort | wf-t-s-ps | wf-t-v-ps | wf-t-v-sp | wf-t-v-ps-sort |
+|---|---|---|---|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 6.04 | 8.08 | 1.54 | 1.77 | 1.63 | 8.16 | 8.26 | 8.18 | 7.80 |
+| killeroo-simple | 64 | 6.34 | 8.03 | 1.54 | 1.77 | 1.63 | 7.28 | 7.32 | 7.28 | 6.47 |
+| killeroo-simple | 128 | 5.99 | 7.86 | 1.52 | 1.74 | 1.61 | 7.24 | 7.15 | 7.06 | 5.75 |
+| killeroo-gold | 16 | 6.84 | 8.00 | 1.47 | 1.69 | 1.48 | 7.24 | 7.12 | 7.02 | 6.66 |
+| killeroo-gold | 64 | 6.81 | 7.88 | 1.46 | 1.67 | 1.47 | 6.70 | 6.68 | 6.62 | 6.02 |
+| killeroo-gold | 128 | 6.72 | 7.90 | 1.47 | 1.67 | 1.47 | 6.73 | 6.69 | 6.58 | 5.62 |
+| book | 16 | 3.79 | 5.36 | 1.51 | 1.52 | 1.37 | 5.95 | 7.01 | 7.06 | 6.82 |
+| book | 64 | 3.78 | 5.28 | 1.52 | 1.52 | 1.38 | 5.93 | 6.69 | 6.68 | 6.19 |
+| book | 128 | 3.73 | 5.20 | 1.52 | 1.53 | 1.38 | 5.87 | 6.58 | 6.60 | 5.74 |
+| ganesha | 16 | 4.75 | 5.44 | 1.44 | 1.32 | 1.18 | 4.94 | 5.56 | 5.02 | 5.17 |
+| ganesha | 64 | 4.80 | 5.51 | 1.46 | 1.33 | 1.19 | 5.27 | 5.71 | 5.10 | 5.04 |
+| ganesha | 128 | 4.79 | 5.54 | 1.45 | 1.32 | 1.18 | 5.29 | 5.77 | 5.09 | 4.83 |
+| sanmiguel-courtyard | 16 | 2.69 | 2.85* | 1.37 | 1.48 | 1.46 | 2.98 | 3.75 | 3.35 | 3.45 |
+| sanmiguel-courtyard | 64 | 2.69 | 2.83 | 1.37 | 1.46 | 1.45 | 3.02 | 3.78 | 3.28 | 3.56 |
+| sanmiguel-courtyard | 128 | 2.69 | 2.84 | 1.38 | 1.47 | 1.45 | 3.07 | 3.80 | 3.31 | 3.52 |
+
+The names: PBRT mk is pbrt's CPU volpath, the reference PBRT wf its
+`--wavefront`; a Bonsai schedule is type-parallelism-SIMD-order[-sort]
+(`wf`/`mk`, `b`ulk/per-`t`hread, `s`calar/`v`ectorized drains, `ps`/`sp`
+loop order, `-sort` for the rays sort). Render seconds and the readings
+are in PLAN.md. Next: the `--pbrt-spread` passthrough, the chunk-size
+sweep for the per-thread wavefront (the sort cost's growth with spp and
+the killeroo loss to the megakernel at 64/128 spp both point at the
+1024-pixel chunk), the ganesha band loss under perf stat.
+
 ## Where it stands (2026-10-21, 17:30): the per-thread wavefront
 
 **A wavefront whose queues belong to the thread (`wavefront-thread-packet`:

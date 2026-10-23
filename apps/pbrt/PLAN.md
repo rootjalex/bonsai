@@ -16233,3 +16233,126 @@ The table above (10-21) stays as the record of the runs it came from; the
 paper's numbers are the CSV's, re-measured by the script on all five
 scenes (the run follows below when the machine is free of the GPU
 timings).
+
+### The matrix measured: five scenes, three sample counts, nine sides (10-23)
+
+The run: `cpu_compare.sh --out apps/pbrt/cpu-compare-out` from 08:28 to
+10:45 on 10-23 (16 and 64 spp, eight sides), resumed 10:48 to 13:42 with
+`--spp "16 64 128"` and the ninth side; 150 rows, 3 repeats a side, the
+machine otherwise idle (the lock held, bonsai-ac's sweeps stopped). The
+compiler was built from the committed 10e9a048 in a clean worktree
+(apps/pbrt/scratch/wt-10e9a048; `BONSAI_BUILD_DIR` there), because the
+shared build/ held an uncommitted pass of bonsai-ac's that they reported
+as miscompiling vectorized traversals; nothing of it is in these numbers.
+Two changes to the harness first (73388b61, c0b4da6d): compare.sh
+`--build-renderer` / `--renderer`, so that cpu_compare.sh compiles each
+schedule once (the renderer does not depend on the scene) instead of once
+a cell, which had cost about four minutes a cell, and `wavefront-thread`
+in the default list. The night before was lost to a stale lock
+(bonsai-ac's, never cleared) that my waiter had no deadline against; the
+rule now is a deadline and a liveness check on any wait for the machine.
+
+The user's rulings of 10-23 on the figure: y axis "Speedup over PBRT wf";
+columns PBRT mk, mk-b-s-ps, then the wavefronts; 128 spp added; and a
+ninth side, `wavefront-thread-packet-sort` (wf-t-v-ps-sort):
+wavefront-thread-packet with the rays sort of wavefront-frame-packet-
+reorder, which on a per-thread queue sorts a chunk's rays on the thread
+that owns them (4109f5e7). The figure is `plots/cpu-wavefront-speedups.pdf`
+(and .png), drawn by `plot_cpu_wavefront.py` from the CSV; the tables
+below are the CSV printed (scratch csv_table.py), not typed.
+
+Render seconds (least of 3 a side):
+
+| scene | spp | PBRT wf | PBRT mk | mk-b-s-ps | wf-b-s-sp | wf-b-v-sp | wf-b-v-sp-sort | wf-t-s-ps | wf-t-v-ps | wf-t-v-sp | wf-t-v-ps-sort |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 5.50 | 0.91 | 0.68 | 3.57 | 3.11 | 3.37 | 0.67 | 0.67 | 0.67 | 0.71 |
+| killeroo-simple | 64 | 22.01 | 3.47 | 2.74 | 14.25 | 12.44 | 13.49 | 3.02 | 3.01 | 3.02 | 3.40 |
+| killeroo-simple | 128 | 43.52 | 7.26 | 5.54 | 28.57 | 24.95 | 27.03 | 6.01 | 6.08 | 6.17 | 7.57 |
+| killeroo-gold | 16 | 16.01 | 2.34 | 2.00 | 10.88 | 9.50 | 10.81 | 2.21 | 2.25 | 2.28 | 2.40 |
+| killeroo-gold | 64 | 63.53 | 9.33 | 8.06 | 43.39 | 38.04 | 43.15 | 9.48 | 9.51 | 9.60 | 10.55 |
+| killeroo-gold | 128 | 127.54 | 18.99 | 16.14 | 86.90 | 76.20 | 86.56 | 18.96 | 19.07 | 19.38 | 22.68 |
+| book | 16 | 20.01 | 5.28 | 3.73 | 13.28 | 13.17 | 14.59 | 3.36 | 2.85 | 2.83 | 2.93 |
+| book | 64 | 80.53 | 21.31 | 15.26 | 53.01 | 52.82 | 58.21 | 13.57 | 12.04 | 12.06 | 13.01 |
+| book | 128 | 160.55 | 43.08 | 30.89 | 105.97 | 105.22 | 116.42 | 27.35 | 24.39 | 24.34 | 27.95 |
+| ganesha | 16 | 19.51 | 4.11 | 3.59 | 13.51 | 14.82 | 16.56 | 3.95 | 3.51 | 3.89 | 3.77 |
+| ganesha | 64 | 78.53 | 16.37 | 14.25 | 53.90 | 59.15 | 66.20 | 14.91 | 13.76 | 15.40 | 15.59 |
+| ganesha | 128 | 156.54 | 32.71 | 28.27 | 107.85 | 118.38 | 132.38 | 29.62 | 27.14 | 30.76 | 32.44 |
+| sanmiguel-courtyard | 16 | 17.01 | 6.33 | 5.98* | 12.39 | 11.53 | 11.64 | 5.71 | 4.53 | 5.08 | 4.94 |
+| sanmiguel-courtyard | 64 | 67.53 | 25.15 | 23.90 | 49.26 | 46.17 | 46.63 | 22.32 | 17.86 | 20.61 | 19.00 |
+| sanmiguel-courtyard | 128 | 135.54 | 50.32 | 47.69 | 98.33 | 92.48 | 93.22 | 44.12 | 35.72 | 40.99 | 38.49 |
+
+Speedup over PBRT wf:
+
+| scene | spp | PBRT wf | PBRT mk | mk-b-s-ps | wf-b-s-sp | wf-b-v-sp | wf-b-v-sp-sort | wf-t-s-ps | wf-t-v-ps | wf-t-v-sp | wf-t-v-ps-sort |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 1.00 | 6.04 | 8.08 | 1.54 | 1.77 | 1.63 | 8.16 | 8.26 | 8.18 | 7.80 |
+| killeroo-simple | 64 | 1.00 | 6.34 | 8.03 | 1.54 | 1.77 | 1.63 | 7.28 | 7.32 | 7.28 | 6.47 |
+| killeroo-simple | 128 | 1.00 | 5.99 | 7.86 | 1.52 | 1.74 | 1.61 | 7.24 | 7.15 | 7.06 | 5.75 |
+| killeroo-gold | 16 | 1.00 | 6.84 | 8.00 | 1.47 | 1.69 | 1.48 | 7.24 | 7.12 | 7.02 | 6.66 |
+| killeroo-gold | 64 | 1.00 | 6.81 | 7.88 | 1.46 | 1.67 | 1.47 | 6.70 | 6.68 | 6.62 | 6.02 |
+| killeroo-gold | 128 | 1.00 | 6.72 | 7.90 | 1.47 | 1.67 | 1.47 | 6.73 | 6.69 | 6.58 | 5.62 |
+| book | 16 | 1.00 | 3.79 | 5.36 | 1.51 | 1.52 | 1.37 | 5.95 | 7.01 | 7.06 | 6.82 |
+| book | 64 | 1.00 | 3.78 | 5.28 | 1.52 | 1.52 | 1.38 | 5.93 | 6.69 | 6.68 | 6.19 |
+| book | 128 | 1.00 | 3.73 | 5.20 | 1.52 | 1.53 | 1.38 | 5.87 | 6.58 | 6.60 | 5.74 |
+| ganesha | 16 | 1.00 | 4.75 | 5.44 | 1.44 | 1.32 | 1.18 | 4.94 | 5.56 | 5.02 | 5.17 |
+| ganesha | 64 | 1.00 | 4.80 | 5.51 | 1.46 | 1.33 | 1.19 | 5.27 | 5.71 | 5.10 | 5.04 |
+| ganesha | 128 | 1.00 | 4.79 | 5.54 | 1.45 | 1.32 | 1.18 | 5.29 | 5.77 | 5.09 | 4.83 |
+| sanmiguel-courtyard | 16 | 1.00 | 2.69 | 2.85* | 1.37 | 1.48 | 1.46 | 2.98 | 3.75 | 3.35 | 3.45 |
+| sanmiguel-courtyard | 64 | 1.00 | 2.69 | 2.83 | 1.37 | 1.46 | 1.45 | 3.02 | 3.78 | 3.28 | 3.56 |
+| sanmiguel-courtyard | 128 | 1.00 | 2.69 | 2.84 | 1.38 | 1.47 | 1.45 | 3.07 | 3.80 | 3.31 | 3.52 |
+
+`*` the one image check of 150 that failed: sanmiguel-courtyard, 16 spp,
+`scalar` against pbrt's volpath -- 853,111 pixels lit here against
+pbrt's 856,648, a gap of 3,537 where 1,143 is allowed. It is pbrt's own
+spread, not ours: pbrt's wavefront on the same cell lights 853,247 pixels
+(compare_gbuffer.py on the two cached pbrt renders: pbrt's volpath is
+3,401 lit pixels off pbrt's wavefront, "FAILED ... where 1134 was
+allowed"), and ours is within 136 of the wavefront, which the program
+follows where pbrt's two differ. Under the spread rule of 10-18
+(gpu_compare.sh) the cell passes; the CSV keeps the verdict compare.sh
+wrote, and the bar carries the vermilion edge until cpu_compare.sh learns
+to hand compare.sh the cached other-renderer image as `--pbrt-spread`,
+which is the right fix and is on the list below.
+
+What the matrix says:
+
+- **pbrt's own CPU wavefront is 2.7-6.8x slower than its megakernel**
+  (PBRT mk over PBRT wf), the band structure's cost; the gap narrows as
+  the scene's shading grows (sanmiguel 2.7x) because the drains, not the
+  queues, come to dominate.
+- **Our megakernel (mk-b-s-ps) beats pbrt's megakernel by 1.05-1.4x** on
+  every cell: 1.33x killeroo-simple, 1.17x killeroo-gold, 1.4x book,
+  1.15x ganesha, 1.05x sanmiguel.
+- **The band wavefronts (wf-b-*) are 1.2-1.8x over pbrt's wavefront**,
+  the same structure in our code: scalar drains 1.37-1.54x; vectorized
+  drains gain 15% on the killeroos, 0-1% on book, 7-8% on sanmiguel, and
+  lose 8-9% on ganesha; the band sort is 8-12% slower than unsorted on
+  four scenes and 1% on sanmiguel.
+- **The per-thread wavefronts (wf-t-*) are 3.0-8.3x over pbrt's
+  wavefront**, 2.5-4.7x over the same drains in the band structure
+  (wf-t-v-ps over wf-b-v-sp: 4.7x killeroo-simple, 4.2x gold, 4.6x book,
+  4.2x ganesha, 2.5x sanmiguel), ahead of our megakernel on book, ganesha
+  and sanmiguel, and behind it by 9-18% on the killeroos (except
+  killeroo-simple at 16 spp), where the 1024-pixel chunk's queues at 64
+  and 128 spp outgrow the cache and the megakernel's path-at-a-time wins.
+- **Vectorized drains pay in the per-thread form where the shading is
+  heavy**: 0 to -2% on the killeroos, 12-18% on book, 8-13% on ganesha,
+  24-26% on sanmiguel (wf-t-v-ps over wf-t-s-ps) -- the opposite of the
+  band, where ganesha lost. Sample-major (wf-t-v-sp) is level on the
+  killeroos and book and 11-15% behind on ganesha and sanmiguel.
+- **The per-thread sort (wf-t-v-ps-sort) never beats unsorted
+  (wf-t-v-ps)**, and its cost grows with the pass size: killeroo-simple
+  6% / 13% / 25% at 16 / 64 / 128 spp, killeroo-gold 7 / 11 / 19%, book
+  3 / 8 / 15%, ganesha 7 / 13 / 20%, sanmiguel 9 / 6 / 8%. A chunk's rays
+  queue is chunk x spp entries, so the sort runs over 16k to 128k keys per
+  pass per thread, and the drain then reads the entries through the
+  permutation -- a scatter that leaves L2 as the queue does. The sort was
+  the paper's question (10-20); on this CPU, in both the band and the
+  per-thread form, the packet traversal gains less from coherent rays than
+  the sort and the permuted reads cost.
+
+To do, from this: cpu_compare.sh passing the cached other-renderer image
+as `--pbrt-spread` for the scalar cell (compare.sh gaining the option);
+the chunk-size sweep (256 / 128 pixels) for the per-thread wavefront,
+which the sort cost's growth with spp and the killeroo 64/128 loss to the
+megakernel both point at; the ganesha band loss under perf stat.
