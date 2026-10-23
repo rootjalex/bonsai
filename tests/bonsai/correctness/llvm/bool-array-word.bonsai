@@ -1,0 +1,42 @@
+//! flags: -b llvm -e
+
+// A local array of booleans is the bits of one word (SSA/PackBoolArrays.h):
+// its initializer builds the word, an element written sets or clears its
+// bit, an element read tests it, and an element written twice reads as it
+// was written last. The reads below index the array by constants and by a
+// loop's variable alike -- the loop's bound comes from outside, so the
+// shifts stay variable through LLVM -- and count what they find.
+import stdlib/numerics;
+
+func count_even(n : i32) -> i32 {
+    flags : mut array[bool, 5] = {false, true, false, false, true};
+    flags[0] = true;
+    flags[3] = true;
+    flags[4] = false;
+    flags[3] = false;
+    // {true, true, false, false, false} so far.
+    first : i32 = cast[[i32]](flags[0]) + cast[[i32]](flags[1]) * 2 +
+                  cast[[i32]](flags[2]) * 4 + cast[[i32]](flags[3]) * 8 +
+                  cast[[i32]](flags[4]) * 16;
+    print(first);
+    i : mut i32 = 0;
+    while i < n {
+        flags[i] = (i % 2) == 0;
+        i = i + 1;
+    }
+    i = 0;
+    hits : mut i32 = 0;
+    while i < n {
+        if flags[i] {
+            hits = hits + 1;
+        }
+        i = i + 1;
+    }
+    return hits;
+}
+
+func main() -> i32 {
+    print(count_even(5));
+    print(count_even(2));
+    return 0;
+}

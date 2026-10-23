@@ -27,9 +27,12 @@ add_bonsai_tests(
     child-volumes-any.bonsai
     child-volumes-sorted.bonsai
     child-volumes-sorted-wide.bonsai
+    child-volumes-sorted-two.bonsai
     thread-dispatch.bonsai
     child-volumes-vectorized.bonsai
     tiled-leaf-vectorized.bonsai
+    tiled-elements-one.bonsai
+    layout-row-read.bonsai
     skip-leaf-helper.bonsai
     skip-geometric-op.bonsai
     prefetch-children.bonsai

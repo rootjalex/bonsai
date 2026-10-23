@@ -26,7 +26,7 @@ shared_ptr<Value> append(Function &func, const shared_ptr<Block> &block,
 
 MaskLanes::MaskLanes(Function &func, uint32_t n, Type index_type)
     : func(func), n(n), index_t(std::move(index_type)),
-      as_bits_(n == 4 || n == 8 || n == 16 || n == 32 || n == 64),
+      as_bits_(n == 2 || n == 4 || n == 8 || n == 16 || n == 32 || n == 64),
       lanes_t(Vector_t::make(index_t, n)),
       mask_t(Vector_t::make(Bool_t::make(), n)) {
     if (as_bits_) {

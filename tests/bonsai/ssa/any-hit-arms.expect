@@ -37,7 +37,6 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
         let _t78 = (*tris_ref!top) & 15u in
         let @3 = _t78 == 0u in
         if (@3) {
-          _mask0 : mut bool[8]
           let @4 = f32x3(1f) in
           let @5 = r.d in
           let invDir$i65 = @4 / @5 in
@@ -127,22 +126,19 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
           let @91 = @219 < @337 in
           let @92 = @89 & @91 in
           let @157 = select(@328, @212, @92) in
-          _mask0[ramp(0u, 1u, 8)] = @157
+          let @376 = reinterpret_cast<u8>(@157) in
+          let @377 = cast<u32>(@376) in
           let @97 = @9[@10] in
           let @98 = @97.children in
           let _t40 = cast<u32x8>(@98) in
           let @249 = reduce<+>(cast<u32x8>(@157)) in
           let @302 = reduce<any>(@157) in
           if (@302) {
-            let @303 = reinterpret_cast<u8>(@157) in
-            let @304 = cast<u32>(@303) in
-            let @305 = @304 - 1u in
-            let @306 = @304 & @305 in
+            let @305 = @377 - 1u in
+            let @306 = @377 & @305 in
             let @307 = @306 == 0u in
             if (@307) {
-              let @250 = reinterpret_cast<u8>(@157) in
-              let @251 = cast<u32>(@250) in
-              let @252 = ctz(@251) in
+              let @252 = ctz(@377) in
               let @340 = reinterpret_cast<const u32[8]>((&@9[@10].children)) in
               let @342 = @340[@252] in
               tris_ref!top = @342
@@ -151,10 +147,8 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
               let @308 = @249 - 2u in
               switch (@308) {
               case 0: {
-                let @254 = reinterpret_cast<u8>(@157) in
-                let @255 = cast<u32>(@254) in
-                let @256 = ctz(@255) in
-                let @257 = clz(@255) in
+                let @256 = ctz(@377) in
+                let @257 = clz(@377) in
                 let @258 = 31u - @257 in
                 let @345 = reinterpret_cast<const u32[8]>((&@9[@10].children)) in
                 let @347 = @345[@256] in
@@ -166,13 +160,11 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
                 continue
               } break;
               case 1: {
-                let @264 = reinterpret_cast<u8>(@157) in
-                let @265 = cast<u32>(@264) in
-                let @266 = ctz(@265) in
-                let @267 = @265 - 1u in
-                let @268 = @265 & @267 in
+                let @266 = ctz(@377) in
+                let @267 = @377 - 1u in
+                let @268 = @377 & @267 in
                 let @269 = ctz(@268) in
-                let @270 = clz(@265) in
+                let @270 = clz(@377) in
                 let @271 = 31u - @270 in
                 let @352 = reinterpret_cast<const u32[8]>((&@9[@10].children)) in
                 let @354 = @352[@266] in
@@ -187,16 +179,14 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
                 continue
               } break;
               case 2: {
-                let @280 = reinterpret_cast<u8>(@157) in
-                let @281 = cast<u32>(@280) in
-                let @282 = ctz(@281) in
-                let @283 = @281 - 1u in
-                let @284 = @281 & @283 in
+                let @282 = ctz(@377) in
+                let @283 = @377 - 1u in
+                let @284 = @377 & @283 in
                 let @285 = ctz(@284) in
                 let @286 = @284 - 1u in
                 let @287 = @284 & @286 in
                 let @288 = ctz(@287) in
-                let @289 = clz(@281) in
+                let @289 = clz(@377) in
                 let @290 = 31u - @289 in
                 let @361 = reinterpret_cast<const u32[8]>((&@9[@10].children)) in
                 let @363 = @361[@282] in
@@ -214,9 +204,7 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
                 continue
               } break;
               default: {
-                let @310 = reinterpret_cast<u8>(@157) in
-                let @311 = cast<u32>(@310) in
-                let @312 = clz(@311) in
+                let @312 = clz(@377) in
                 let @313 = 31u - @312 in
                 let @315 = u32x8(@313) in
                 let @316 = ramp(0u, 1u, 8) != @315 in

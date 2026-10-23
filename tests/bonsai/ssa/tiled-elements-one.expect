@@ -33,8 +33,8 @@ func _recloop_func0(tris_index : u32, _bound0 : f32, _best0 : mut (__tuple_1*), 
   data : mut u32
   !stack : mut u32[64]
   !stack0 : mut f32[64]
-  @195 : mut i32[2]
-  @196 : mut i32[2]
+  @192 : mut i32[2]
+  _mask0 : mut u32
   tris_index!top = tris_index
   _bound0!top = _bound0
   !count = 0u
@@ -45,36 +45,36 @@ func _recloop_func0(tris_index : u32, _bound0 : f32, _best0 : mut (__tuple_1*), 
     if (@2) {
       do {
         let @3 = tris.group1_index in
-        let _t258 = @3[(*tris_index!top)] in
-        let _t259 = _t258.child0 in
-        let @6 = _t259 >> 31 in
+        let _t228 = @3[(*tris_index!top)] in
+        let _t229 = _t228.child0 in
+        let @6 = _t229 >> 31 in
         let @7 = @6 & 1 in
         let @8 = @7 == 0 in
         if (@8) {
-          _mask0 : mut bool[2]
+          _mask0 = 0u
           _carry0 : mut f32[2]
           _keys0 : mut f32[2]
           parfor children in [0u:2u:1u] {
-            let @9 = _t258.boxMin_x in
+            let @9 = _t228.boxMin_x in
             let @10 = cast<f32x2>(@9) in
-            let @11 = _t258.boxMin_y in
+            let @11 = _t228.boxMin_y in
             let @12 = cast<f32x2>(@11) in
-            let @13 = _t258.boxMin_z in
+            let @13 = _t228.boxMin_z in
             let @14 = cast<f32x2>(@13) in
-            let @175 = @10[children] in
-            let @176 = @12[children] in
-            let @177 = @14[children] in
-            let _t0$i26 = build<f32x3>(@175, @176, @177) in
-            let @17 = _t258.boxMax_x in
+            let @172 = @10[children] in
+            let @173 = @12[children] in
+            let @174 = @14[children] in
+            let _t0$i26 = build<f32x3>(@172, @173, @174) in
+            let @17 = _t228.boxMax_x in
             let @18 = cast<f32x2>(@17) in
-            let @19 = _t258.boxMax_y in
+            let @19 = _t228.boxMax_y in
             let @20 = cast<f32x2>(@19) in
-            let @21 = _t258.boxMax_z in
+            let @21 = _t228.boxMax_z in
             let @22 = cast<f32x2>(@21) in
-            let @179 = @18[children] in
-            let @180 = @20[children] in
-            let @181 = @22[children] in
-            let _t5$i26 = build<f32x3>(@179, @180, @181) in
+            let @176 = @18[children] in
+            let @177 = @20[children] in
+            let @178 = @22[children] in
+            let _t5$i26 = build<f32x3>(@176, @177, @178) in
             let v$i26 = p.vec in
             let _t1$i26 = _t0$i26 - v$i26 in
             let sqLow$i26 = _t1$i26 * _t1$i26 in
@@ -91,148 +91,144 @@ func _recloop_func0(tris_index : u32, _bound0 : f32, _best0 : mut (__tuple_1*), 
             let @43 = (*_best0) in
             let @44 = @43._field0 in
             let @45 = _t39 < @44 in
-            _mask0[children] = @45
+            let @237 = (*_mask0) in
+            let @238 = 1u << children in
+            let @239 = ~@238 in
+            let @240 = @237 & @239 in
+            let @241 = cast<u32>(@45) in
+            let @242 = @241 << children in
+            let @243 = @240 | @242 in
+            _mask0 = @243
             _carry0[children] = _t39
-            let @48 = (*_best0) in
-            let @49 = @48._field0 in
-            let @50 = _t39 < @49 in
-            if (@50) {
-              let @51 = v$i26 - _t0$i26 in
-              let @52 = abs(@51) in
-              let @53 = abs(_t6$i26) in
-              let span$i0 = max(@52, @53) in
-              let @55 = span$i0[0] in
-              let @57 = @55 * @55 in
-              let @58 = span$i0[1] in
-              let @60 = @58 * @58 in
-              let @61 = @57 + @60 in
-              let @62 = span$i0[2] in
-              let @64 = @62 * @62 in
-              let @65 = @61 + @64 in
-              let @66 = sqrt(@65) in
-              _best0._field0 min= @66
-            }
+            let @48 = v$i26 - _t0$i26 in
+            let @49 = abs(@48) in
+            let @50 = abs(_t6$i26) in
+            let span$i0 = max(@49, @50) in
+            let @52 = span$i0[0] in
+            let @54 = @52 * @52 in
+            let @55 = span$i0[1] in
+            let @57 = @55 * @55 in
+            let @58 = @54 + @57 in
+            let @59 = span$i0[2] in
+            let @61 = @59 * @59 in
+            let @62 = @58 + @61 in
+            let @63 = sqrt(@62) in
+            _best0._field0 min= @63
             _keys0[children] = _t39
             continue
           }
-          let @70 = cast<u32>(_t259) in
-          let @71 = _t258.child1 in
-          let @72 = cast<u32>(@71) in
-          let _t167 = build<u32x2>(@70, @72) in
-          let @184 = _mask0[ramp(0u, 1u, 2)] in
-          let @186 = _keys0[ramp(0u, 1u, 2)] in
-          let @188 = _carry0[ramp(0u, 1u, 2)] in
-          let @189 = reinterpret_cast<i32x2>(@186) in
-          let @197 = reduce<any>(@184) in
-          if (@197) {
-            let @198 = u32x2(2u) in
-            let @200 = select(@184, ramp(0u, 1u, 2), @198) in
-            let @201 = reduce<min>(@200) in
-            let @202 = _t167[@201] in
-            let @203 = @188[@201] in
-            let @204 = u32x2(@201) in
-            let @205 = ramp(0u, 1u, 2) != @204 in
-            let @206 = @184 && @205 in
-            let @207 = reduce<any>(@206) in
-            if (@207) {
-              let @210 = select(@206, ramp(0u, 1u, 2), @198) in
-              let @211 = reduce<min>(@210) in
-              let @214 = i32x2(0) in
-              let @215 = select(@184, @189, @214) in
-              @195[ramp(0u, 1u, 2)] = @215
-              let @217 = reinterpret_cast<i32x2>(@188) in
-              let @219 = select(@184, @217, @214) in
-              @196[ramp(0u, 1u, 2)] = @219
-              let @222 = @195[@201] in
-              let @223 = @222 >> 31 in
-              let @224 = @223 & 2147483647 in
-              let @225 = @222 ^ @224 in
-              let @227 = @196[@201] in
-              let @229 = @195[@211] in
-              let @230 = @229 >> 31 in
-              let @231 = @230 & 2147483647 in
-              let @232 = @229 ^ @231 in
-              let @233 = _t167[@211] in
-              let @235 = @196[@211] in
-              let @236 = @225 < @232 in
-              let @239 = select(@236, @202, @233) in
-              let @240 = select(@236, @233, @202) in
-              let @241 = select(@236, @227, @235) in
-              let @242 = select(@236, @235, @227) in
-              let @243 = reinterpret_cast<f32>(@241) in
-              let @244 = reinterpret_cast<f32>(@242) in
-              !stack[(*!count)] = @240
-              !stack0[(*!count)] = @244
-              let @253 = (*!count) + 1u in
-              tris_index!top = @239
-              _bound0!top = @243
-              !count = @253
+          let @67 = cast<u32>(_t229) in
+          let @68 = _t228.child1 in
+          let @69 = cast<u32>(@68) in
+          let _t137 = build<u32x2>(@67, @69) in
+          let @244 = (*_mask0) in
+          let @245 = cast<u2>(@244) in
+          let @246 = reinterpret_cast<boolx2>(@245) in
+          let @183 = _keys0[ramp(0u, 1u, 2)] in
+          let @185 = _carry0[ramp(0u, 1u, 2)] in
+          let @186 = reinterpret_cast<i32x2>(@183) in
+          let @193 = reduce<any>(@246) in
+          if (@193) {
+            let @195 = cast<u32>(@245) in
+            let @196 = ctz(@195) in
+            let @197 = _t137[@196] in
+            let @198 = @185[@196] in
+            let @199 = @195 - 1u in
+            let @200 = @195 & @199 in
+            let @201 = @200 != 0u in
+            if (@201) {
+              let @202 = ctz(@200) in
+              let @205 = i32x2(0) in
+              let @206 = select(@246, @186, @205) in
+              @192[ramp(0u, 1u, 2)] = @206
+              let @209 = @192[@196] in
+              let @210 = @209 >> 31 in
+              let @211 = @210 & 2147483647 in
+              let @212 = @209 ^ @211 in
+              let @214 = @192[@202] in
+              let @215 = @214 >> 31 in
+              let @216 = @215 & 2147483647 in
+              let @217 = @214 ^ @216 in
+              let @218 = _t137[@202] in
+              let @219 = @212 < @217 in
+              let @222 = select(@219, @197, @218) in
+              let @223 = select(@219, @218, @197) in
+              let @224 = select(@219, @209, @214) in
+              let @225 = select(@219, @214, @209) in
+              let @226 = reinterpret_cast<f32>(@224) in
+              let @227 = reinterpret_cast<f32>(@225) in
+              !stack[(*!count)] = @223
+              !stack0[(*!count)] = @227
+              let @236 = (*!count) + 1u in
+              tris_index!top = @222
+              _bound0!top = @226
+              !count = @236
               continue
             } else {
-              tris_index!top = @202
-              _bound0!top = @203
+              tris_index!top = @197
+              _bound0!top = @198
               continue
             }
           }
         } else {
-          let @82 = _t258.child1 in
-          let @83 = cast<u32>(@82) in
+          let @79 = _t228.child1 in
+          let @80 = cast<u32>(@79) in
           data = 0u
-          while ((*data) < @83) {
-            let @85 = 0 - _t259 in
-            let @86 = @85 - 1 in
-            let @87 = cast<u32>(@86) in
-            let _t386 = @87 + (*data) in
-            let @89 = tris.group0_prims in
-            let @90 = @89[_t386] in
-            let _t387$pa0 = @90.pa in
-            let _t387$pb1 = @90.pb in
-            let _t387$pc2 = @90.pc in
-            let @98 = cast<f32x3x1>(_t387$pa0) in
-            let @99 = @98[0u] in
-            let @100 = cast<f32x3x1>(_t387$pb1) in
-            let @101 = @100[0u] in
-            let @102 = cast<f32x3x1>(_t387$pc2) in
-            let @103 = @102[0u] in
-            let tri$i1 = build<Triangle>(@99, @101, @103) in
-            let @105 = closestPointonTriangle(p, tri$i1) in
-            let pts$i1 = @105 in
-            let _t405 = p.vec in
-            let @107 = pts$i1._field0 in
-            let @108 = @107.vec in
-            let @109 = _t405 - @108 in
-            let @110 = @109[0] in
-            let @115 = @110 * @110 in
-            let @119 = @109[1] in
-            let @124 = @119 * @119 in
-            let @125 = @115 + @124 in
-            let @129 = @109[2] in
-            let @134 = @129 * @129 in
-            let @135 = @125 + @134 in
-            let @136 = sqrt(@135) in
-            let @138 = (*_best0) in
-            let @139 = @138._field0 in
-            let @140 = @136 < @139 in
-            if (@140) {
-              let @172 = build<__tuple_0>(_t386) in
-              let @173 = build<__tuple_1>(@136, @172) in
-              _best0 argmin= @173
+          while ((*data) < @80) {
+            let @82 = 0 - _t229 in
+            let @83 = @82 - 1 in
+            let @84 = cast<u32>(@83) in
+            let _t356 = @84 + (*data) in
+            let @86 = tris.group0_prims in
+            let @87 = @86[_t356] in
+            let _t357$pa0 = @87.pa in
+            let _t357$pb1 = @87.pb in
+            let _t357$pc2 = @87.pc in
+            let @95 = cast<f32x3x1>(_t357$pa0) in
+            let @96 = @95[0u] in
+            let @97 = cast<f32x3x1>(_t357$pb1) in
+            let @98 = @97[0u] in
+            let @99 = cast<f32x3x1>(_t357$pc2) in
+            let @100 = @99[0u] in
+            let tri$i1 = build<Triangle>(@96, @98, @100) in
+            let @102 = closestPointonTriangle(p, tri$i1) in
+            let pts$i1 = @102 in
+            let _t375 = p.vec in
+            let @104 = pts$i1._field0 in
+            let @105 = @104.vec in
+            let @106 = _t375 - @105 in
+            let @107 = @106[0] in
+            let @112 = @107 * @107 in
+            let @116 = @106[1] in
+            let @121 = @116 * @116 in
+            let @122 = @112 + @121 in
+            let @126 = @106[2] in
+            let @131 = @126 * @126 in
+            let @132 = @122 + @131 in
+            let @133 = sqrt(@132) in
+            let @135 = (*_best0) in
+            let @136 = @135._field0 in
+            let @137 = @133 < @136 in
+            if (@137) {
+              let @169 = build<__tuple_0>(_t356) in
+              let @170 = build<__tuple_1>(@133, @169) in
+              _best0 argmin= @170
             }
-            let @174 = (*data) + 1u in
-            data = @174
+            let @171 = (*data) + 1u in
+            data = @171
           }
         }
         break
       } while (true)
     }
-    let @246 = (*!count) != 0u in
-    if (@246) {
-      let @247 = (*!count) - 1u in
-      let @248 = !stack[@247] in
-      let @249 = !stack0[@247] in
-      tris_index!top = @248
-      _bound0!top = @249
-      !count = @247
+    let @229 = (*!count) != 0u in
+    if (@229) {
+      let @230 = (*!count) - 1u in
+      let @231 = !stack[@230] in
+      let @232 = !stack0[@230] in
+      tris_index!top = @231
+      _bound0!top = @232
+      !count = @230
       continue
     } else {
       return
@@ -248,11 +244,11 @@ func _traverse_tree0(p : Point, tris : _tree_layout0) -> Triangle {
   _best0 = @2
   let @4 = -0f - @0 in
   _recloop_func0(0u, @4, _best0, tris, p)
-  let _t260 = tris.group0_prims in
+  let _t230 = tris.group0_prims in
   let @6 = (*_best0) in
   let @7 = @6._field1 in
   let @8 = @7._field0 in
-  let @9 = _t260[@8] in
+  let @9 = _t230[@8] in
   let @10 = @9.pa in
   let @11 = cast<f32x3x1>(@10) in
   let @12 = @11[0u] in
@@ -277,11 +273,11 @@ func [[export]] closest(_ret0 : mut (Triangle*), p : (Point*), tris : (_tree_lay
   let @6 = (*p) in
   _recloop_func0(0u, @4, _best0$i3, @5, @6)
   let @7 = (*tris) in
-  let _t260$i3 = @7.group0_prims in
+  let _t230$i3 = @7.group0_prims in
   let @9 = (*_best0$i3) in
   let @10 = @9._field1 in
   let @11 = @10._field0 in
-  let @12 = _t260$i3[@11] in
+  let @12 = _t230$i3[@11] in
   let @13 = @12.pa in
   let @14 = cast<f32x3x1>(@13) in
   let @15 = @14[0u] in

@@ -47,7 +47,6 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
         let _t184 = (*tris_ref!top) & 15u in
         let @4 = _t184 == 0u in
         if (@4) {
-          _mask0 : mut bool[4]
           _carry0 : mut f32[4]
           _keys0 : mut f32[4]
           let @5 = f32x3(1f) in
@@ -127,21 +126,20 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
           let @572 = f32x4(@110) in
           let @111 = tNear$i15 < @572 in
           let @513 = select(@69, @111, @566) in
-          _mask0[ramp(0u, 1u, 4)] = @513
+          let @842 = reinterpret_cast<u4>(@513) in
+          let @843 = cast<u32>(@842) in
           let @837 = select(@833, @688, tNear$i15) in
           _carry0[ramp(0u, 1u, 4)] = @837
           _keys0[ramp(0u, 1u, 4)] = @837
           let @380 = reinterpret_cast<i32x4>(@837) in
           let @388 = reduce<any>(@513) in
           if (@388) {
-            let @389 = reinterpret_cast<u4>(@513) in
-            let @390 = cast<u32>(@389) in
-            let @391 = ctz(@390) in
+            let @391 = ctz(@843) in
             let @499 = reinterpret_cast<const u32[4]>((&@10[@11].children)) in
             let @501 = @499[@391] in
             let @393 = @837[@391] in
-            let @394 = @390 - 1u in
-            let @395 = @390 & @394 in
+            let @394 = @843 - 1u in
+            let @395 = @843 & @394 in
             let @396 = @395 != 0u in
             if (@396) {
               let @397 = ctz(@395) in

@@ -37,13 +37,21 @@ struct Carry {
     // Set for an extremum over every element of the set (no filter of the
     // program's between): what the metric can reach within a child's volume
     // -- its upper bound for a minimum -- and the accumulator to tighten with
-    // it, under the child's own test, as the children are tested: the best
-    // is then no worse than the farthest a hit child's volume holds (FCPW's
-    // `tMaxMin = min(tMaxMin, tMax[W])` on every pushed child). Inside a
-    // children's loop that a schedule vectorizes this is a reduction over the
-    // lanes into the one accumulator, which the vectorizer makes one masked
-    // cross-lane minimum (SSA/Vectorize.cpp). Unset where a filter may
-    // exclude every element of a child, where the bound would not hold.
+    // it as the children are tested, every child, whether its test lets it
+    // in or not: the best is then no worse than the farthest a child's
+    // volume holds (FCPW's `s.r2 = min(s.r2, d2Max)` on both children of a
+    // node, bvh.inl, and its `tMaxMin = min(tMaxMin, tMax[W])`). Tightening
+    // by a child tested out is harmless: its reach is no nearer than its
+    // bound, which is no nearer than the best -- that is what tested it out
+    // -- or infinite where the volume holds nothing the metric reaches (a
+    // box a ray misses; apps/rtq's metrics answer `inf` for `distmax`
+    // there). It used to be made under the child's test, a data-dependent
+    // branch per child that the predictor cannot learn, for no pruning the
+    // unconditional minimum does not do. Inside a children's loop that a
+    // schedule vectorizes this is a reduction over the lanes into the one
+    // accumulator, which the vectorizer makes one cross-lane minimum
+    // (SSA/Vectorize.cpp). Unset where a filter may exclude every element of
+    // a child, where the bound would not hold.
     std::function<ir::Expr(const Interval &)> reach_of;
     std::optional<ir::WriteLoc> tighten;
     ir::Accumulate::OpType tighten_op = ir::Accumulate::Min;
@@ -1044,8 +1052,8 @@ struct Rewriter : public ir::Mutator {
             const ir::Expr cond = cond_of(bounds);
             // The carried bound, from the carried lambda's own interval over
             // the same child; and, for an extremum over every element, the
-            // accumulator tightened with what the child can reach, under
-            // the child's test, in the loop (see Carry).
+            // accumulator tightened with what the child can reach, in the
+            // loop, every child (see Carry).
             ir::Expr carried_value;
             ir::Stmt tighten;
             if (carry.has_value() &&
@@ -1067,9 +1075,6 @@ struct Rewriter : public ir::Mutator {
                         reach.defined()) {
                         tighten = ir::Accumulate::make(
                             *carry->tighten, carry->tighten_op, std::move(reach));
-                        if (cond.defined()) {
-                            tighten = ir::IfElse::make(cond, std::move(tighten));
-                        }
                     }
                 }
             }
@@ -1176,27 +1181,20 @@ struct Rewriter : public ir::Mutator {
         }
         // The carried bounds, one per child from the carried lambda's
         // interval over it, where every child has one; and the tightening
-        // by what each child can reach, under its test (see Carry).
+        // by what each child can reach, every child (see Carry).
         ir::Expr branches = value;
         if (carry.has_value()) {
             std::vector<ir::Expr> carries;
-            size_t child = 0;
             for (const Interval &b :
                  child_bounds(carry->metric, value, existing,
                               carry->annotations)) {
                 carries.push_back(carry->bound_of(b));
-                if (carry->reach_of && carry->tighten.has_value() &&
-                    child < conds.size()) {
+                if (carry->reach_of && carry->tighten.has_value()) {
                     if (ir::Expr reach = carry->reach_of(b); reach.defined()) {
-                        ir::Stmt tighten = ir::Accumulate::make(
-                            *carry->tighten, carry->tighten_op, std::move(reach));
-                        if (!is_const_one(conds[child])) {
-                            tighten = ir::IfElse::make(conds[child], std::move(tighten));
-                        }
-                        stmts.push_back(std::move(tighten));
+                        stmts.push_back(ir::Accumulate::make(
+                            *carry->tighten, carry->tighten_op, std::move(reach)));
                     }
                 }
-                child++;
             }
             const std::vector<ir::Expr> parts = break_tuple(value);
             if (carries.size() == parts.size() &&

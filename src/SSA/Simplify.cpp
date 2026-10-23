@@ -792,17 +792,18 @@ struct Simplifier {
     // The lane a mask with one bit on names, as an index of `index_type`:
     // the mask read as an integer and its trailing zeros counted (`kmov`,
     // `tzcnt`; Embree's `bsf` on its movemask). Where the mask's lanes are
-    // the bits of an integer type; four lanes are four bits, widened to
-    // the index's word before the count, as SSA/QueueRecursion.cpp widens
-    // them (the C++ backend's uint4_t, runtime/u4.h). A mask of other
-    // widths stays with the compress.
+    // the bits of an integer type; four lanes are four bits, and two are
+    // two, widened to the index's word before the count, as
+    // SSA/MaskLanes.cpp widens them (the C++ backend's uint4_t and uint2_t,
+    // runtime/u4.h and u2.h). A mask of other widths stays with the
+    // compress.
     ValuePtr lowest_lane(const ValuePtr &mask, const Type &index_type) {
         const Type &mt = mask->get_type();
         if (!mt.is<Vector_t>() || !mt.element_of().is<Bool_t>()) {
             return nullptr;
         }
         const uint32_t n = mt.lanes();
-        if (n != 4 && n != 8 && n != 16 && n != 32 && n != 64) {
+        if (n != 2 && n != 4 && n != 8 && n != 16 && n != 32 && n != 64) {
             return nullptr;
         }
         const Type bits_t = UInt_t::make(n);

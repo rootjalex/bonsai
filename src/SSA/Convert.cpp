@@ -22,6 +22,7 @@
 #include "SSA/Stage.h"
 #include "SSA/InvariantDivision.h"
 #include "SSA/MirrorLoads.h"
+#include "SSA/PackBoolArrays.h"
 #include "SSA/PromoteAllocas.h"
 #include "SSA/Rewrite.h"
 #include "SSA/ConstantIntervals.h"
@@ -3680,6 +3681,17 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         mirror_derived_loads(*f);
     }
     phase("mirror derived loads");
+    // A small local array of booleans -- a node's children's tests, which
+    // the sort and the loopified descent read whole as a mask -- is the bits
+    // of one word from here on (SSA/PackBoolArrays.h), assembled in a
+    // register rather than stored a byte at a time and loaded back as a
+    // word, which the store buffer cannot forward. After the directives,
+    // whose vectorized children's loops have made their arrays vectors
+    // already, and before the promotion below, which makes the word a value.
+    for (const auto &[name, f] : fmap) {
+        pack_bool_arrays(*f);
+    }
+    phase("pack bool arrays");
     // A `mut` local the builder put in memory that nothing but loads and
     // stores ever touch is a value from here on (SSA/PromoteAllocas.h). After
     // the rewrites rather than before them, because a rewrite may be about

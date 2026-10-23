@@ -17,12 +17,13 @@ namespace ssa {
 // bsf), the highest its leading zeros (`lzcnt`, bsr), the lowest is cleared
 // by `m & (m - 1)` (`blsr`), and whether any lane is left is the word
 // against zero -- the flag the clear leaves. A four-wide mask is four bits,
-// an integer of a width the machine has no word for, widened to the index's
-// word (the C++ backend's uint4_t, runtime/u4.h, is a byte read as its low
-// four bits); Embree's BVH4 reads its four-wide mask the same way,
-// `movemask` to a word. Where the lane count is not a word's, a lane is the
-// least or the greatest lane index the mask keeps, by a reduction over the
-// lane ramp, and clearing one is a compare against it.
+// and a binary tree's two-wide mask two, integers of widths the machine has
+// no word for, widened to the index's word (the C++ backend's uint4_t and
+// uint2_t, runtime/u4.h and u2.h, are a byte read as its low bits); Embree's
+// BVH4 reads its four-wide mask the same way, `movemask` to a word. Where
+// the lane count is none of these, a lane is the least or the greatest lane
+// index the mask keeps, by a reduction over the lane ramp, and clearing one
+// is a compare against it.
 //
 // What every lowering that takes a node's hit children one by one reads
 // them with: loopify's arms over the lanes a node hit (SSA/QueueRecursion

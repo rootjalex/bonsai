@@ -34,7 +34,6 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
     let _t127 = tris_ref & 15u in
     let @4 = _t127 == 0u in
     if (@4) {
-      _mask0 : mut bool[4]
       _carry0 : mut f32[4]
       let @5 = tris.group1_row in
       let @6 = tris_ref >> 4u in
@@ -123,7 +122,8 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
       } else {
         !and_0!skip = @494
       }
-      _mask0[ramp(0u, 1u, 4)] = (*!and_0!skip)
+      let @606 = reinterpret_cast<u4>((*!and_0!skip)) in
+      let @607 = cast<u32>(@606) in
       let interval$i0 = @513 in
       let @118 = interval$i0.set in
       let @605 = !@118 in
@@ -144,20 +144,28 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
       let @134 = _carry0[2u] in
       let @135 = _t40[3u] in
       let @136 = _carry0[3u] in
-      let @137 = _mask0[0u] in
-      let @138 = _mask0[1u] in
-      let @139 = _mask0[2u] in
-      let @140 = _mask0[3u] in
-      if (@137) {
+      let @609 = @607 >> 0u in
+      let @610 = @609 & 1u in
+      let @611 = @610 != 0u in
+      let @613 = @607 >> 1u in
+      let @614 = @613 & 1u in
+      let @615 = @614 != 0u in
+      let @617 = @607 >> 2u in
+      let @618 = @617 & 1u in
+      let @619 = @618 != 0u in
+      let @621 = @607 >> 3u in
+      let @622 = @621 & 1u in
+      let @623 = @622 != 0u in
+      if (@611) {
         _recloop_func0(@129, @130, _best0, r, tris)
       }
-      if (@138) {
+      if (@615) {
         _recloop_func0(@131, @132, _best0, r, tris)
       }
-      if (@139) {
+      if (@619) {
         _recloop_func0(@133, @134, _best0, r, tris)
       }
-      if (@140) {
+      if (@623) {
         _recloop_func0(@135, @136, _best0, r, tris)
       }
     } else {

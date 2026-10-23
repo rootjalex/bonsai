@@ -7,6 +7,7 @@ add_bonsai_tests(
     atanh-cosh.bonsai
     atomic-accumulate.bonsai
     bitwise.bonsai
+    bool-array-word.bonsai
     bounded-multiplier.bonsai
     bsdf-f.bonsai
     cast-bool.bonsai

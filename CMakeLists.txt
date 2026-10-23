@@ -279,6 +279,7 @@ target_sources(
     src/SSA/LoopArithmetic.cpp
     src/SSA/MaskLanes.cpp
     src/SSA/MergeLatches.cpp
+    src/SSA/PackBoolArrays.cpp
     src/SSA/PromoteAllocas.cpp
     src/SSA/QueueRecursion.cpp
     src/SSA/Reach.cpp

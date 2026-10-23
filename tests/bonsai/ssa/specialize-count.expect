@@ -30,7 +30,8 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
     let _t58 = tris_ref & 15u in
     let @3 = _t58 == 0u in
     if (@3) {
-      _mask0 : mut bool[4]
+      _mask0 : mut u32
+      _mask0 = 0u
       parfor children in [0u:4u:1u] {
         intersectsp_ray_aabb$r65 : mut _option0
         tmin$i65 : mut f32
@@ -69,11 +70,11 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
         let @35 = _t118$i50$i65 / @34 in
         let @37 = 2f * @35 in
         let @38 = 1f + @37 in
-        let @139 = @30 * f32x3(@38) in
-        let @40 = @139[1u] in
+        let @162 = @30 * f32x3(@38) in
+        let @40 = @162[1u] in
         let @42 = @27[0u] in
         let @43 = @40 < @42 in
-        let @45 = @139[0u] in
+        let @45 = @162[0u] in
         let @47 = @27[1u] in
         let @48 = @45 < @47 in
         let @49 = @43 || @48 in
@@ -83,7 +84,7 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
         } else {
           let @55 = max(@42, @47) in
           let @60 = min(@45, @40) in
-          let @62 = @139[2u] in
+          let @62 = @162[2u] in
           let @64 = @62 < @55 in
           let @67 = @27[2u] in
           let @68 = @60 < @67 in
@@ -116,7 +117,14 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
         } else {
           intersects_Ray_AABB$r0 = false
         }
-        _mask0[children] = (*intersects_Ray_AABB$r0)
+        let @139 = (*_mask0) in
+        let @140 = 1u << children in
+        let @141 = ~@140 in
+        let @142 = @139 & @141 in
+        let @143 = cast<u32>((*intersects_Ray_AABB$r0)) in
+        let @144 = @143 << children in
+        let @145 = @142 | @144 in
+        _mask0 = @145
         continue
       }
       let @95 = tris.group0_row in
@@ -128,20 +136,29 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
       let @101 = _t40[1u] in
       let @102 = _t40[2u] in
       let @103 = _t40[3u] in
-      let @104 = _mask0[0u] in
-      let @105 = _mask0[1u] in
-      let @106 = _mask0[2u] in
-      let @107 = _mask0[3u] in
-      if (@104) {
+      let @146 = (*_mask0) in
+      let @147 = @146 >> 0u in
+      let @148 = @147 & 1u in
+      let @149 = @148 != 0u in
+      let @151 = @146 >> 1u in
+      let @152 = @151 & 1u in
+      let @153 = @152 != 0u in
+      let @155 = @146 >> 2u in
+      let @156 = @155 & 1u in
+      let @157 = @156 != 0u in
+      let @159 = @146 >> 3u in
+      let @160 = @159 & 1u in
+      let @161 = @160 != 0u in
+      if (@149) {
         _recloop_func0(@100, _holds0, r, tris)
       }
-      if (@105) {
+      if (@153) {
         _recloop_func0(@101, _holds0, r, tris)
       }
-      if (@106) {
+      if (@157) {
         _recloop_func0(@102, _holds0, r, tris)
       }
-      if (@107) {
+      if (@161) {
         _recloop_func0(@103, _holds0, r, tris)
       }
     } else {

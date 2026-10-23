@@ -40,7 +40,6 @@ func _recloop_func0(tris_ref : u64, _holds0 : mut (bool*), r : Ray) -> void {
         let @3 = @2 & 1u in
         let @4 = @3 == 0u in
         if (@4) {
-          _mask0 : mut bool[8]
           let @5 = f32x3(1f) in
           let @6 = r.d in
           let invDir$i65 = @5 / @6 in
@@ -135,7 +134,8 @@ func _recloop_func0(tris_ref : u64, _holds0 : mut (bool*), r : Ray) -> void {
           let @99 = @280 < @408 in
           let @100 = @97 & @99 in
           let @220 = select(@399, @273, @100) in
-          _mask0[ramp(0u, 1u, 8)] = @220
+          let @442 = reinterpret_cast<u8>(@220) in
+          let @443 = cast<u32>(@442) in
           let @104 = _t12.children in
           let @105 = cast<u64x8>(@104) in
           let @110 = _t12.children in
@@ -143,15 +143,11 @@ func _recloop_func0(tris_ref : u64, _holds0 : mut (bool*), r : Ray) -> void {
           let @312 = reduce<+>(cast<u32x8>(@220)) in
           let @375 = reduce<any>(@220) in
           if (@375) {
-            let @376 = reinterpret_cast<u8>(@220) in
-            let @377 = cast<u32>(@376) in
-            let @378 = @377 - 1u in
-            let @379 = @377 & @378 in
+            let @378 = @443 - 1u in
+            let @379 = @443 & @378 in
             let @380 = @379 == 0u in
             if (@380) {
-              let @313 = reinterpret_cast<u8>(@220) in
-              let @314 = cast<u32>(@313) in
-              let @315 = ctz(@314) in
+              let @315 = ctz(@443) in
               let @410 = reinterpret_cast<const u64[8]>((&@11[0u].children)) in
               let @412 = @410[@315] in
               let _effect0 = prefetch(@412, 256u) in
@@ -161,10 +157,8 @@ func _recloop_func0(tris_ref : u64, _holds0 : mut (bool*), r : Ray) -> void {
               let @381 = @312 - 2u in
               switch (@381) {
               case 0: {
-                let @318 = reinterpret_cast<u8>(@220) in
-                let @319 = cast<u32>(@318) in
-                let @320 = ctz(@319) in
-                let @321 = clz(@319) in
+                let @320 = ctz(@443) in
+                let @321 = clz(@443) in
                 let @322 = 31u - @321 in
                 let @414 = reinterpret_cast<const u64[8]>((&@11[0u].children)) in
                 let @416 = @414[@320] in
@@ -178,13 +172,11 @@ func _recloop_func0(tris_ref : u64, _holds0 : mut (bool*), r : Ray) -> void {
                 continue
               } break;
               case 1: {
-                let @330 = reinterpret_cast<u8>(@220) in
-                let @331 = cast<u32>(@330) in
-                let @332 = ctz(@331) in
-                let @333 = @331 - 1u in
-                let @334 = @331 & @333 in
+                let @332 = ctz(@443) in
+                let @333 = @443 - 1u in
+                let @334 = @443 & @333 in
                 let @335 = ctz(@334) in
-                let @336 = clz(@331) in
+                let @336 = clz(@443) in
                 let @337 = 31u - @336 in
                 let @420 = reinterpret_cast<const u64[8]>((&@11[0u].children)) in
                 let @422 = @420[@332] in
@@ -202,16 +194,14 @@ func _recloop_func0(tris_ref : u64, _holds0 : mut (bool*), r : Ray) -> void {
                 continue
               } break;
               case 2: {
-                let @349 = reinterpret_cast<u8>(@220) in
-                let @350 = cast<u32>(@349) in
-                let @351 = ctz(@350) in
-                let @352 = @350 - 1u in
-                let @353 = @350 & @352 in
+                let @351 = ctz(@443) in
+                let @352 = @443 - 1u in
+                let @353 = @443 & @352 in
                 let @354 = ctz(@353) in
                 let @355 = @353 - 1u in
                 let @356 = @353 & @355 in
                 let @357 = ctz(@356) in
-                let @358 = clz(@350) in
+                let @358 = clz(@443) in
                 let @359 = 31u - @358 in
                 let @428 = reinterpret_cast<const u64[8]>((&@11[0u].children)) in
                 let @430 = @428[@351] in
@@ -234,9 +224,7 @@ func _recloop_func0(tris_ref : u64, _holds0 : mut (bool*), r : Ray) -> void {
               } break;
               default: {
                 let _effect10 = prefetch(@105, 256u, @220) in
-                let @383 = reinterpret_cast<u8>(@220) in
-                let @384 = cast<u32>(@383) in
-                let @385 = clz(@384) in
+                let @385 = clz(@443) in
                 let @386 = 31u - @385 in
                 let @388 = u32x8(@386) in
                 let @389 = ramp(0u, 1u, 8) != @388 in
