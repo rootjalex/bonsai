@@ -18,11 +18,15 @@ per-thread vectorized wavefront). `--sides` names a subset (comma-separated
 side names) and keeps that order, so the five-bar figure of the first study is
 `--sides pbrt-volpath,scalar,wavefront-frame,wavefront-frame-packet,wavefront-frame-packet-reorder`.
 
-Colour tells the renderer apart and hatching tells the schedules apart:
-pbrt's bar is grey, every Bonsai bar is one blue, and each Bonsai schedule
-has its own hatch, so the figure reads the same in print, in greyscale and
-under the common colour deficiencies (the two colours are from the
-Okabe-Ito palette). The figure does not mark the image checks: the CSV's
+Each side has its own colour from ColorBrewer's nine-class YlGnBu ramp
+(the user's choice, 10-23, after the hatched one-blue figure proved hard to
+read): a sequential ramp, pale yellow to deep blue, laid over the sides in
+their drawing order, so neighbouring bars differ in lightness as well as
+hue and the figure reads in greyscale and under the common colour
+deficiencies (ColorBrewer marks the ramp colour-blind safe and
+print-friendly; no nine-colour qualitative palette is). Every bar has a
+thin dark edge so the pale end stays visible on white. The figure does not
+mark the image checks: the CSV's
 verdict column has them, and the one that ever failed (sanmiguel 16 spp
 against pbrt's volpath) was pbrt's own two integrators disagreeing by more
 than we differ from either, which the user ruled fine (10-23). The bars carry no
@@ -47,10 +51,13 @@ from matplotlib.patches import Patch  # noqa: E402
 REFERENCE = "pbrt-wavefront"
 REFERENCE_LABEL = "PBRT wf"
 Y_LABEL = "Speedup over PBRT wf"   # the user's wording (10-23)
-PBRT_COLOUR = "#7F7F7F"      # a mid grey
-BONSAI_COLOUR = "#0072B2"    # Okabe-Ito blue
+EDGE = "#333333"             # every bar's thin edge
 
-# (side in the CSV, label in the legend, colour, hatch): the drawing order.
+# ColorBrewer YlGnBu, nine classes, lightest first (the user's palette, 10-23).
+YLGNBU = ["#FFFFD9", "#EDF8B1", "#C7E9B4", "#7FCDBB", "#41B6C4",
+          "#1D91C0", "#225EA8", "#253494", "#081D58"]
+
+# (side in the CSV, label in the legend, colour): the drawing order.
 # pbrt has two schedules and is named by them: its megakernel (the CPU
 # volpath integrator, a path per sample) and its wavefront, the reference.
 # A Bonsai schedule is named by the user's encoding (10-22),
@@ -64,15 +71,15 @@ BONSAI_COLOUR = "#0072B2"    # Okabe-Ito blue
 # `-sort` when the rays queue is sorted by the two-point Morton key before
 # each trace pass. The code is read from the schedule file's directives.
 SIDES = [
-    ("pbrt-volpath", "PBRT mk", PBRT_COLOUR, ""),
-    ("scalar", "Bonsai mk-b-s-ps", BONSAI_COLOUR, ""),
-    ("wavefront-frame", "Bonsai wf-b-s-sp", BONSAI_COLOUR, "////"),
-    ("wavefront-frame-packet", "Bonsai wf-b-v-sp", BONSAI_COLOUR, "xxxx"),
-    ("wavefront-frame-packet-reorder", "Bonsai wf-b-v-sp-sort", BONSAI_COLOUR, "...."),
-    ("wavefront-thread", "Bonsai wf-t-s-ps", BONSAI_COLOUR, "\\\\\\\\"),
-    ("wavefront-thread-packet", "Bonsai wf-t-v-ps", BONSAI_COLOUR, "++++"),
-    ("wavefront-thread-packet-reorder", "Bonsai wf-t-v-sp", BONSAI_COLOUR, "oooo"),
-    ("wavefront-thread-packet-sort", "Bonsai wf-t-v-ps-sort", BONSAI_COLOUR, "**"),
+    ("pbrt-volpath", "PBRT mk", YLGNBU[0]),
+    ("scalar", "Bonsai mk-b-s-ps", YLGNBU[1]),
+    ("wavefront-frame", "Bonsai wf-b-s-sp", YLGNBU[2]),
+    ("wavefront-frame-packet", "Bonsai wf-b-v-sp", YLGNBU[3]),
+    ("wavefront-frame-packet-reorder", "Bonsai wf-b-v-sp-sort", YLGNBU[4]),
+    ("wavefront-thread", "Bonsai wf-t-s-ps", YLGNBU[5]),
+    ("wavefront-thread-packet", "Bonsai wf-t-v-ps", YLGNBU[6]),
+    ("wavefront-thread-packet-reorder", "Bonsai wf-t-v-sp", YLGNBU[7]),
+    ("wavefront-thread-packet-sort", "Bonsai wf-t-v-ps-sort", YLGNBU[8]),
 ]
 
 
@@ -142,7 +149,7 @@ def main(argv):
 
     plt.rcParams.update({"pdf.fonttype": 42, "ps.fonttype": 42,
                          "font.size": 8, "axes.titlesize": 8,
-                         "legend.fontsize": 7, "hatch.linewidth": 0.7})
+                         "legend.fontsize": 7})
     fig, ax = plt.subplots(figsize=(args.width, args.height))
 
     bar = 1.0                     # one bar's width in x units
@@ -155,12 +162,12 @@ def main(argv):
         for j, spp in enumerate(spps):
             ref = reference(scene, spp)
             group_start = x
-            for side, label, colour, hatch in sides:
+            for side, label, colour in sides:
                 c = cell(scene, spp, side)
                 if c is not None and ref is not None:
                     speedup = ref / c["seconds"]
-                    ax.bar(x, speedup, bar * 0.9, color=colour, hatch=hatch,
-                           edgecolor="white", linewidth=0.5, zorder=2)
+                    ax.bar(x, speedup, bar * 0.9, color=colour,
+                           edgecolor=EDGE, linewidth=0.4, zorder=2)
                     if args.values:
                         ax.text(x, speedup, f"{speedup:.2f}", ha="center", va="bottom",
                                 fontsize=5.5, rotation=90, zorder=4)
@@ -197,8 +204,8 @@ def main(argv):
     if args.title:
         ax.set_title(args.title)
 
-    handles = [Patch(facecolor=colour, hatch=hatch, edgecolor="white", linewidth=0.5,
-                     label=label) for _, label, colour, hatch in sides]
+    handles = [Patch(facecolor=colour, edgecolor=EDGE, linewidth=0.4, label=label)
+               for _, label, colour in sides]
     ncol = 3 if len(handles) > 6 else 2 if len(handles) > 4 else len(handles)
     legend_rows = (len(handles) + ncol - 1) // ncol
     ax.legend(handles=handles, ncol=ncol, frameon=False, loc="lower center",
