@@ -79,17 +79,25 @@ before it.
   holds the run between timed runs for as long as it exists, which is how
   to borrow the machine for a measurement of one's own. `--spp` takes one
   count or several (`--spp "16 64 256"`): every scene at each, one table.
-- `plot_cpu_wavefront.py results/cpu-wavefront.csv -o OUT.pdf [--sides
-  a,b,...] [--log] [--no-values] [--width W --height H]`: the CPU
-  wavefront study (REPORT.md, 10-21) as one figure -- every schedule's
-  speedup over pbrt's CPU wavefront, a group of bars per scene and a
-  subgroup per sample count, pbrt's own volpath first, then `scalar`, the
-  band wavefront, its vectorized and ray-sorted forms and the per-thread
-  wavefront in both orders (Okabe-Ito colours, values on the bars, a
-  hatched bar for an image that did not match). The CSV is the hand-folded
-  table of compare.sh's results, one row per cell (scene, spp, side,
-  render seconds, verdict, date); `plots/` holds the drawn figures and is
-  not committed.
+- `cpu_compare.sh [--spp "N ..."] [--repeats N] [--schedules "..."]
+  [--scenes "..."] [--out DIR] [--resume]`: the CPU comparison -- pbrt's
+  CPU wavefront against every CPU schedule, on the scenes given (five of
+  rising cost by default) at the sample counts given, one compare.sh run
+  per schedule per cell, `scalar` against pbrt's volpath and the wavefront
+  schedules against `pbrt --wavefront`, pbrt rendered once per cell and
+  kept for the cell's schedules (`compare.sh --pbrt-cache`). Writes
+  `DIR/cpu-results.csv` (a row per scene, spp and side: seconds, speedup,
+  verdict, load, time, log), the logs it was read from, and both sides'
+  images; `--resume` skips rows already in the CSV. Every number in the
+  CSV comes from a log beside it.
+- `plot_cpu_wavefront.py DIR/cpu-results.csv -o OUT.pdf [--sides a,b,...]
+  [--log] [--no-values] [--width W --height H]`: that CSV as one figure --
+  every side's speedup over pbrt's CPU wavefront (the dashed line at 1), a
+  group of bars per scene and a subgroup per sample count; pbrt's bar
+  grey, every Bonsai bar one blue with a hatch per schedule, so it reads
+  in print and under colour deficiencies; a bar whose image did not match
+  pbrt's has a vermilion edge. `plots/` holds the drawn figures and is not
+  committed.
 - `plot_gpu_table.py OUT.png TABLE.tsv...`: the tables gpu_compare.sh
   wrote, plotted -- each schedule's speedup over `pbrt --gpu` and every
   side's kernel time, a group of bars per scene and a row of panels per

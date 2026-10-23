@@ -16191,7 +16191,41 @@ Readings:
   the band gangs' loss on ganesha (9%), and both are measured next with
   `perf stat`.
 
-The figure the user asked for is drawn by `plot_cpu_wavefront.py` from
-`results/cpu-wavefront.csv` (every cell of the two matrices, one row each)
-into `plots/cpu-wavefront-speedups.pdf`; the two per-thread builds are its
-sixth and seventh bars, and `--sides` draws the five-bar form.
+### The figure, from a script (10-22)
+
+The user's rulings of 10-22 on the deliverable: the plot is code in the
+repository and a figure file, not a page ("I need to make these plots for
+a paper"); no number is ever typed into a CSV -- "you give a script that
+runs benchmarks and PRODUCES a CSV"; the series names follow one pattern;
+the line at 1 must be visible; the colours colour-blind safe, with pbrt
+one colour and every Bonsai schedule the same colour told apart by hatch;
+five scenes of varying complexity, the list one variable so it can grow;
+and a per-thread wavefront with scalar drains beside the vectorized one,
+as the band structure has. So:
+
+- `cpu_compare.sh` runs the matrix (scenes x spp x schedules, one
+  compare.sh run per schedule per cell, `scalar` against pbrt's volpath,
+  the wavefront schedules against `pbrt --wavefront`) and writes
+  `cpu-compare-out/cpu-results.csv` from the logs beside it; `--resume`
+  continues a run. compare.sh gained `--pbrt-cache DIR`, which keeps
+  pbrt's render (its least-of-REPEATS time and its radiance) keyed by
+  scene, flags, depth, repeats and binary, so that pbrt is rendered once
+  per cell and every schedule of the cell is measured against the same
+  reference time and image.
+- The five scenes, of rising cost: killeroo-simple, killeroo-gold, book,
+  ganesha, sanmiguel-courtyard (`--scenes` takes any list scene_dump
+  converts).
+- `schedules/wavefront-thread.bonsai`: wavefront-thread-packet without
+  its vectorize lines (the per-thread pair of wavefront-frame /
+  wavefront-frame-packet).
+- `plot_cpu_wavefront.py` draws the CSV: pbrt grey, Bonsai one blue with
+  a hatch per schedule, the reference a dashed line labelled at the right,
+  names "pbrt scalar", "Bonsai scalar", "Bonsai scalar wavefront", "Bonsai
+  vectorized wavefront", "Bonsai vectorized wavefront, rays reordered",
+  "Bonsai per-thread scalar wavefront", "Bonsai per-thread vectorized
+  wavefront", "Bonsai per-thread vectorized wavefront, sample-major".
+
+The table above (10-21) stays as the record of the runs it came from; the
+paper's numbers are the CSV's, re-measured by the script on all five
+scenes (the run follows below when the machine is free of the GPU
+timings).

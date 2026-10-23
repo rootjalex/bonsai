@@ -59,16 +59,36 @@ PREFIX="apps/pbrt"
 # the wavefront schedules is fair against. Without it pbrt runs its CPU
 # integrator, which is what the geometry checks were written against and what
 # the two still agree on to the pixel where no texture is filtered.
+#
+# `--pbrt-cache <dir>` keeps pbrt's renders: the timed EXRs' least time and
+# the radiance image are stored under <dir>, keyed by everything that
+# decides them (the scene's path, pbrt's flags, the depth, REPEATS, the
+# pbrt binary's modification time), and a later run with the same key
+# compares against the stored render instead of rendering pbrt again. This
+# is for cpu_compare.sh, which runs several schedules against one pbrt
+# reference per scene and sample count: pbrt's time is then the same least
+# of REPEATS for every schedule of a cell, which is what a comparison of the
+# schedules wants, and pbrt is not rendered once per schedule. A run that
+# hits the cache says so on its output; without the option nothing is kept.
 DUMP_OPTS=()
 MAXDEPTH=""
 SCHEDULE="${SCHEDULE:-packet}"
 PBRT_WAVEFRONT=0
+PBRT_CACHE=""
 ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --pbrt-wavefront)
       PBRT_WAVEFRONT=1
       shift
+      ;;
+    --pbrt-cache)
+      if [[ $# -lt 2 ]]; then
+        echo "--pbrt-cache needs a directory" >&2
+        exit 1
+      fi
+      PBRT_CACHE="$2"
+      shift 2
       ;;
     --spp)
       if [[ $# -lt 2 ]]; then
@@ -403,7 +423,27 @@ min_seconds() {
     'BEGIN { if (a == "" || (b != "" && b < a)) print b; else print a }'
 }
 PBRT_SECONDS=""
-if [[ "$FILM" == "gbuffer" ]]; then
+# The cache entry for this render, when a cache was named: a directory
+# under it named by the hash of the key, holding the time and the images
+# the comparison reads (the radiance; for a gbuffer film the EXR too).
+PBRT_CACHED=""
+PBRT_CACHE_DIR=""
+if [[ -n "$PBRT_CACHE" ]]; then
+  mkdir -p "$PBRT_CACHE"
+  PBRT_CACHE="$(cd "$PBRT_CACHE" && pwd)"
+  key="$SCENE|${PBRT_FLAGS[*]-}|$MAXDEPTH|$REPEATS|$(stat -c %Y "$PBRT")|$(md5sum < <(pbrt_scene) | cut -d' ' -f1)"
+  PBRT_CACHE_DIR="$PBRT_CACHE/$(echo -n "$key" | md5sum | cut -d' ' -f1)"
+  if [[ -f "$PBRT_CACHE_DIR/seconds" && -f "$PBRT_CACHE_DIR/pbrt-radiance.pfm" ]]; then
+    PBRT_CACHED=1
+    PBRT_SECONDS="$(cat "$PBRT_CACHE_DIR/seconds")"
+    cp "$PBRT_CACHE_DIR/pbrt-radiance.pfm" "$WORK/pbrt-radiance.pfm"
+    [[ -f "$PBRT_CACHE_DIR/pbrt.exr" ]] && cp "$PBRT_CACHE_DIR/pbrt.exr" "$WORK/pbrt.exr"
+    echo "pbrt's render taken from the cache ($PBRT_CACHE_DIR, rendered $(cat "$PBRT_CACHE_DIR/when"))."
+  fi
+fi
+if [[ -n "$PBRT_CACHED" ]]; then
+  :
+elif [[ "$FILM" == "gbuffer" ]]; then
   # A gbuffer film's EXR is full float and carries the clock, so each repeat is
   # both a timing sample and, on the last, the channels the comparison reads.
   for _ in $(seq "$REPEATS"); do
@@ -433,6 +473,14 @@ else
         "$(pbrt_seconds_of "$WORK/pbrt-time.exr")")
   done
   pbrt_render "$WORK/pbrt-radiance.pfm"
+fi
+if [[ -n "$PBRT_CACHE_DIR" && -z "$PBRT_CACHED" ]]; then
+  mkdir -p "$PBRT_CACHE_DIR"
+  echo "$PBRT_SECONDS" > "$PBRT_CACHE_DIR/seconds"
+  echo "$key" > "$PBRT_CACHE_DIR/key"
+  date '+%Y-%m-%d %H:%M:%S' > "$PBRT_CACHE_DIR/when"
+  cp "$WORK/pbrt-radiance.pfm" "$PBRT_CACHE_DIR/pbrt-radiance.pfm"
+  [[ "$FILM" == "gbuffer" ]] && cp "$WORK/pbrt.exr" "$PBRT_CACHE_DIR/pbrt.exr"
 fi
 echo "pbrt: rendered $SCENE in ${PBRT_SECONDS:-?}s (film \"$FILM\"," \
      "integrator \"$PBRT_INTEGRATOR\"${MAXDEPTH:+, maxdepth $MAXDEPTH})"

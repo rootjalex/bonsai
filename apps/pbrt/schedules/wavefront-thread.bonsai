@@ -1,0 +1,82 @@
+// The per-thread wavefront with scalar drains: wavefront-thread-packet
+// without its vectorize lines, so that the two files are the study of what
+// the vectorization alone is worth on the per-thread structure, as
+// wavefront-frame and wavefront-frame-packet are on pbrt's band structure.
+// Nothing else differs between the two (the user, 10-21: "a Bonsai
+// per-thread wavefront with vectorization" beside one without).
+//
+// What follows is wavefront-thread-packet.bonsai's own comment, less the
+// gangs.
+//
+// The per-thread wavefront: the pixels split into chunks, a chunk per
+// thread at a time, and every queue on the chunk -- so each thread owns
+// its queues and its round loop, drains them itself, and nothing a round
+// reads or writes leaves the core's cache. It is wavefront-frame's kernels
+// (pbrt's kernel order per bounce) over wavefront-volpath's ownership:
+// there the queues were a pixel's, holding its spp samples; here a chunk's
+// queue holds chunk x spp entries. The chunk is a thousand and twenty-four
+// pixels; the chunks are handed to the threads by the runtime's
+// work-stealing loop as pixels are elsewhere, so a chunk of background
+// costs no thread the frame.
+//
+// The push order inside a chunk is the program's: a pixel's samples one
+// after the other, then the next pixel.
+import apps/pbrt/schedules/trees/bvh;
+
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_probe_step.loopify();
+    vol_shadow_track.loopify();
+    render.specialize(integrator);
+    render[VolPath].split(p, p_thread, p_in, 1024, true);
+    rays = render[VolPath].queue(p_thread);
+    li_vol_path.defer(vol_path_step, rays);
+    vol_medium_scatter.defer(vol_path_step, rays);
+    vol_surface.defer(vol_path_step, rays);
+    vol_route.defer(vol_path_step, rays);
+    vol_exit.defer(vol_path_step, rays);
+    medium_samples = render[VolPath].queue(p_thread);
+    vol_path_step.defer(vol_medium_sample, medium_samples);
+    medium_scatters = render[VolPath].queue(p_thread);
+    vol_medium_sample.defer(vol_medium_scatter, medium_scatters);
+    escaped = render[VolPath].queue(p_thread);
+    vol_route.defer(escaped_contribution, escaped);
+    emissive = render[VolPath].queue(p_thread);
+    vol_route.defer(emissive_contribution, emissive);
+    hits = render[VolPath].queue(p_thread);
+    vol_route.defer(vol_surface, hits);
+    hits.specialize(material);
+    shadow = render[VolPath].queue(p_thread);
+    vol_sample_ld.defer(shadow_contribution, shadow);
+    probes = render[VolPath].queue(p_thread);
+    vol_subsurface.defer(vol_probe, probes);
+    exits = render[VolPath].queue(p_thread);
+    vol_probe.defer(vol_exit, exits);
+    exit_shadow = render[VolPath].queue(p_thread);
+    vol_exit.defer(exit_shadow_contribution, exit_shadow);
+    trace.sort(primitives.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .sort(Inst.blas.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+    trace_any.sort(primitives.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .sort(Inst.blas.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .loopify(64);
+    // The threads take chunks; everything inside a chunk is the thread's.
+    render.bind(p_thread, CPUThread);
+    render.bind(q, CPUThread);
+}
