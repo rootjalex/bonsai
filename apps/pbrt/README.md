@@ -99,8 +99,9 @@ before it.
   every side's speedup over pbrt's CPU wavefront (the dashed line at 1), a
   group of bars per scene and a subgroup per sample count; pbrt's bar
   grey, every Bonsai bar one blue with a hatch per schedule, so it reads
-  in print and under colour deficiencies; a bar whose image did not match
-  pbrt's has a vermilion edge. The axis reads "Speedup over PBRT wf";
+  in print and under colour deficiencies. The image checks are not marked
+  on the figure (the CSV's verdict column has them). The axis reads
+  "Speedup over PBRT wf";
   pbrt's bars are "PBRT mk" (its megakernel, the CPU volpath) and the
   reference line "PBRT wf"; the bars run PBRT mk, mk-b-s-ps, then the
   wavefronts; a Bonsai schedule is named

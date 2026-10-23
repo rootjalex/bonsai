@@ -22,8 +22,10 @@ Colour tells the renderer apart and hatching tells the schedules apart:
 pbrt's bar is grey, every Bonsai bar is one blue, and each Bonsai schedule
 has its own hatch, so the figure reads the same in print, in greyscale and
 under the common colour deficiencies (the two colours are from the
-Okabe-Ito palette). A bar whose image did not match pbrt's has a thick
-vermilion edge; the legend says so when any does. The bars carry no
+Okabe-Ito palette). The figure does not mark the image checks: the CSV's
+verdict column has them, and the one that ever failed (sanmiguel 16 spp
+against pbrt's volpath) was pbrt's own two integrators disagreeing by more
+than we differ from either, which the user ruled fine (10-23). The bars carry no
 numbers (the user, 10-22: they made the figure noisy; the CSV has them;
 `--values` puts them back). `--width` and `--height` are the figure
 size in inches (the defaults fit a two-column page's full width); `--log`
@@ -47,7 +49,6 @@ REFERENCE_LABEL = "PBRT wf"
 Y_LABEL = "Speedup over PBRT wf"   # the user's wording (10-23)
 PBRT_COLOUR = "#7F7F7F"      # a mid grey
 BONSAI_COLOUR = "#0072B2"    # Okabe-Ito blue
-BAD_EDGE = "#D55E00"         # Okabe-Ito vermilion, for an image that did not match
 
 # (side in the CSV, label in the legend, colour, hatch): the drawing order.
 # pbrt has two schedules and is named by them: its megakernel (the CPU
@@ -149,7 +150,6 @@ def main(argv):
     gap_scene = 4.0               # between scenes
     x = 0.0
     scene_centres, spp_centres, spp_labels = [], [], []
-    any_bad = False
     for scene in scenes:
         scene_start = x
         for j, spp in enumerate(spps):
@@ -159,13 +159,8 @@ def main(argv):
                 c = cell(scene, spp, side)
                 if c is not None and ref is not None:
                     speedup = ref / c["seconds"]
-                    # pbrt's own rows carry "-" for a verdict: nothing checks
-                    # pbrt against itself, so they are not failures.
-                    ok = c["verdict"].startswith("ok") or c["verdict"].strip() == "-"
-                    any_bad = any_bad or not ok
                     ax.bar(x, speedup, bar * 0.9, color=colour, hatch=hatch,
-                           edgecolor="white" if ok else BAD_EDGE,
-                           linewidth=0.5 if ok else 1.4, zorder=2)
+                           edgecolor="white", linewidth=0.5, zorder=2)
                     if args.values:
                         ax.text(x, speedup, f"{speedup:.2f}", ha="center", va="bottom",
                                 fontsize=5.5, rotation=90, zorder=4)
@@ -204,9 +199,6 @@ def main(argv):
 
     handles = [Patch(facecolor=colour, hatch=hatch, edgecolor="white", linewidth=0.5,
                      label=label) for _, label, colour, hatch in sides]
-    if any_bad:
-        handles.append(Patch(facecolor="white", edgecolor=BAD_EDGE, linewidth=1.4,
-                             label="image differs from pbrt's"))
     ncol = 3 if len(handles) > 6 else 2 if len(handles) > 4 else len(handles)
     legend_rows = (len(handles) + ncol - 1) // ncol
     ax.legend(handles=handles, ncol=ncol, frameon=False, loc="lower center",
