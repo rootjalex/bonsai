@@ -34,9 +34,20 @@ with the ray queue sorted by the two-point Morton key before each trace
 user's rule for the GPU is to compare techniques on the ray tracing
 hardware alone, the software traversals (gpu.bonsai, gpu-wavefront.bonsai)
 having never won a cell. `--sides` names a subset in its own order. The
-colours are four classes of the CPU figure's YlGnBu ramp, spread so that
-neighbours differ in lightness; everything else about the drawing is
-plot_cpu_wavefront.py's `draw`.
+colours are classes of the CPU figure's YlGnBu ramp spread evenly over the
+sides drawn, in drawing order, so that neighbours differ in lightness: four
+sides take the classes 1, 3, 5 and 7 (the paper figure), up to seven sides
+stay within 1..7, and eight or nine sides use the whole ramp, the palest
+class told from the page by the bar's edge. All nine measured schedules
+(the four above and the exploration's five) fit on one figure that way,
+as the user asked on 10-24:
+
+    python3 apps/pbrt/plot_gpu_wavefront.py apps/pbrt/gpu-compare-out/table.tsv \
+        apps/pbrt/gpu-compare-out-sort/table.tsv \
+        apps/pbrt/gpu-compare-out-explore/table.tsv \
+        --width 11 -o apps/pbrt/plots/gpu-wavefront-all.pdf
+
+Everything else about the drawing is plot_cpu_wavefront.py's `draw`.
 """
 import argparse
 import csv
@@ -48,22 +59,39 @@ REFERENCE = "pbrt --gpu"
 REFERENCE_LABEL = "PBRT wf"
 Y_LABEL = "Speedup over PBRT wf"
 
+# (side in the table, label in the legend): the drawing order, the
+# megakernels first and then the wavefronts, each family from its plain
+# schedule to its variants. The colour is assigned by `colour_sides` from the
+# number of sides drawn.
 SIDES = [
-    ("gpu-optix-mega", "Bonsai mk", YLGNBU[1]),
-    ("gpu-optix-mega-ser", "Bonsai mk-ser", YLGNBU[3]),
-    ("gpu-optix", "Bonsai wf", YLGNBU[5]),
-    ("gpu-optix-sort", "Bonsai wf-sort", YLGNBU[7]),
+    ("gpu-optix-mega", "Bonsai mk"),
+    ("gpu-optix-mega-ser", "Bonsai mk-ser"),
     # The exploration of 10-24 (apps/pbrt/schedules/gpu-optix-*.bonsai):
-    # variants of the wavefront and the megakernel, drawn when a table has
-    # them or `--sides` asks; a figure of more than nine sides repeats a
-    # colour, so choose a subset for print.
-    ("gpu-optix-mega-ser-ray", "Bonsai mk-ser-ray", YLGNBU[2]),
-    ("gpu-optix-b128", "Bonsai wf-b128", YLGNBU[4]),
-    ("gpu-optix-b512", "Bonsai wf-b512", YLGNBU[6]),
-    ("gpu-optix-fused", "Bonsai wf-fused", YLGNBU[8]),
-    ("gpu-optix-fused-ser", "Bonsai wf-fused-ser", YLGNBU[0]),
-    ("gpu-optix-sort36", "Bonsai wf-sort36", YLGNBU[3]),
+    # variants of the megakernel and the wavefront, drawn when a table has
+    # them or `--sides` asks; more than nine sides exceed the ramp.
+    ("gpu-optix-mega-ser-ray", "Bonsai mk-ser-ray"),
+    ("gpu-optix", "Bonsai wf"),
+    ("gpu-optix-b128", "Bonsai wf-b128"),
+    ("gpu-optix-b512", "Bonsai wf-b512"),
+    ("gpu-optix-fused", "Bonsai wf-fused"),
+    ("gpu-optix-fused-ser", "Bonsai wf-fused-ser"),
+    ("gpu-optix-sort", "Bonsai wf-sort"),
+    ("gpu-optix-sort36", "Bonsai wf-sort36"),
 ]
+def colour_sides(sides):
+    """`sides` ((side, label) in drawing order) with a YlGnBu class each:
+    the classes spread evenly over 1..7 for up to seven sides (four sides:
+    1, 3, 5, 7) and over the whole ramp 0..8 for eight or nine; more than
+    nine is an error, since the ramp has nine classes."""
+    n = len(sides)
+    if n > len(YLGNBU):
+        raise ValueError(f"{n} sides for a ramp of {len(YLGNBU)} colours")
+    low, high = (1, 7) if n <= 7 else (0, 8)
+    if n == 1:
+        classes = [high]
+    else:
+        classes = [round(low + (high - low) * i / (n - 1)) for i in range(n)]
+    return [(side, label, YLGNBU[c]) for (side, label), c in zip(sides, classes)]
 
 
 def load(paths, kernel=False):
@@ -116,7 +144,7 @@ def main(argv):
     sides = choose_sides(rows, SIDES, args.sides)
     if sides is None:
         return 1
-    draw(rows, sides, REFERENCE, REFERENCE_LABEL, Y_LABEL, args)
+    draw(rows, colour_sides(sides), REFERENCE, REFERENCE_LABEL, Y_LABEL, args)
     return 0
 
 
