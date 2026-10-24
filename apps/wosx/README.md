@@ -45,7 +45,12 @@ put the workers on the GPU's blocks and threads. Its variants depart from
 it one thing at a time (a plain launch, the walks fastest, a point a
 claim, a layout that stores the children's boxes in the parent, FCPW's
 four-wide tree instead of its binary one), and the GPU table measures
-each.
+each. Two meshes, the crown and the beast, have fewer walks (29440 and
+86016) than the kernel has threads, so on them a thread claims one walk
+and the card runs nearly empty: both sides' time is the longest walks'
+latency, the same on both, and their bars sit at 1 on every schedule
+(PLAN.md, "The crown and the beast"; with 1024 walks a point they gain
+like the others).
 
 Only the plain walk is here: no source term (the Laplace problem), no
 gradient estimate, no Russian roulette or splitting, no reflecting boundary

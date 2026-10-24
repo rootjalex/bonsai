@@ -881,7 +881,8 @@ the baseline", and three things to fix in the language. All four are in.
    but the comb. What remains of the gap is the two differences the
    section above leaves unmatched (the pop's re-test, the four-wide
    network's tie order do not apply here; the binary CPU walk's remaining
-   difference is to be read from the assembly again). The four-wide
+   difference is read from the machine below, "The binary CPU walk's gap",
+   2026-10-24 afternoon: the generated two-child visit). The four-wide
    tree's three schedules are each one percent down, every cell by one
    to two percent, bonsai's rate alone. The rtq table (apps/rtq) moved
    the same way: its closest-point rows on the four-wide tree, `fcpw4w16`
@@ -1089,6 +1090,98 @@ The best schedule of the seven, `persistent-reorder-256k`, is WoSX's
 kernel with two changes of the schedule and none of the program: a
 warp's claims one point's walks, and the card full. The beast stays
 the one mesh under WoSX on every schedule (0.94 to 0.99).
+
+### The crown and the beast (2026-10-24, afternoon)
+
+The user asked why the two gain nothing on the GPU. Profiled
+(scratch/gpu-gap/: nsys timelines of both, an ncu report of the crown's
+two kernels, a sweep of the walk count; the machine claimed from
+bonsai-f9 for it):
+
+- They are the two meshes with fewer walks than the kernel has threads:
+  460 and 1344 sample points on the slice, so 29440 and 86016 walks
+  against 131072 persistent threads (174080 resident slots). Every thread
+  claims at most one walk, the persistent loop never claims a second, and
+  the card runs nearly empty: on the crown ncu has WoSX's kernel at 15%
+  achieved occupancy (7.4 warps a multiprocessor) with 2.9 of 32 lanes
+  active per warp on average, ours at 25% with 2.6 lanes. The kernel's
+  time is the longest walks' chain of dependent steps, not throughput:
+  460 walks (one a point) take 2 ms, 29440 take 3 ms, 117760 take 4 ms,
+  and only at 471040 (1024 a point) does the time grow with the work,
+  10 ms (walks-sweep.txt).
+- In that regime both kernels take the same time, since a step's latency
+  is the same tree's dependent node loads on both sides (nsys: WoSX
+  3.00 ms, ours 2.92 ms a launch on the crown; 12.21 and 12.09 ms on the
+  beast), and nothing a schedule changes -- which walks a warp holds, how
+  many threads, the block size -- matters while the multiprocessors wait
+  on three lanes. Our kernel executes 21% more warp-instructions than
+  WoSX's (706M against 582M on the crown) in 64 registers to its 82, and
+  waits twice as long between issued instructions (14.5 cycles against
+  7.2); none of it shows in the time.
+- The bars are then noise about 1.0: the least of three of a 3 ms launch
+  moves 5 to 10% run to run (the crown 1.04, 1.06 and 1.10 in three runs
+  today, the beast 0.99 and 1.06).
+- With the card full the two are like the others: at 1024 walks a point
+  the matching schedule is 1.16x on the crown and 1.24x on the beast, and
+  WoSX's own rate rises from 67 to 273 Msteps/s on the crown.
+
+Whether the table should give every mesh enough walks to fill the card
+(a walk count per mesh, or more sample points) is the user's call; its
+64 walks a point are the demo's.
+
+### The binary CPU walk's gap, read from the machine (2026-10-24, afternoon)
+
+The user asked why `fcpwb`, one thread against one thread, is under WoSX
+on the small meshes (comb 0.73, pavilion 0.84, crown 0.93, head 0.94;
+level or ahead from a million triangles up). Read on the comb
+(scratch/cpu-gap/: the kept wosx.ll and wosx.out, perf records of cycles
+and of instructions, gdb hit counts of the traversal loops):
+
+- It is instruction count, not stalls: the two sides retire at the same
+  rate (our share of the process's cycles 57.2%, of its instructions
+  57.3%, the process at 2.6 instructions a cycle), and ours executes 1.45x
+  FCPW's instructions for the same queries (16.4G against 11.3G over the
+  run), which is the 0.72x.
+- Not more work: counting the traversal loops over one run (2240 walks,
+  29k queries) has ours visiting 528702 nodes and testing 322898
+  triangles where FCPW visits 639987 and tests 384941 -- 17% fewer. FCPW
+  enters a child at `d2Min <= r2` and our argmin only on a strict
+  improvement, and on the comb's flat plates a box's near distance equals
+  the best found often (the closest point on a plate in the slice's plane,
+  the plate's boxes bounded by that plane). The leaf costs the same per
+  triangle on both sides (about 130 instructions). The difference is the
+  interior node: FCPW's two-child visit is about 70 instructions
+  straight-line (bvh.inl: two overlaps, two compares, two pushes and the
+  nearer's pop), ours about 130 (65d30..65f52 of the kept binary and the
+  pop), and half our visits are two-child visits (272238 pushes).
+- Where the sixty go, read off the assembly: about fifteen shuffles
+  assembling the two children's boxes as per-axis two-lane vectors from
+  the children's rows (the layout's `lo = vector[vec3f, 2]{vector[f32, 2]
+  {this[left].low.x, this[right].low.x}, ...}` lowered as gathers and
+  transposes -- vpermt2ps, vinsertps, vunpckhps, vmovshdup -- where
+  FCPW's distances come straight from the loaded scalars); about
+  twenty-five choosing the entered children's keys and indices by a
+  data-dependent lane through the stack (the sort's lowering stores the
+  two-lane keys and carries to memory and reloads them at the lane tzcnt
+  found, with k-mask moves and blends around it); about ten ordering the
+  two keys as integers after a float-to-sortable-int conversion of each
+  (sar, and, xor, then cmovs) where FCPW does one compare and a swap;
+  about eight for the key's both-contain select, which FCPW evaluates
+  only in its both-hit branch.
+- Why the big meshes do not show it: their traversal waits on node loads
+  from L2 and memory, which hides the arithmetic; the comb's 13 KB tree
+  and 24 KB of triangles sit in L1, where instructions are the time. The
+  ratio follows the tree size (pavilion 0.84 at 11k triangles, head 0.94
+  at 17k, crown 0.93 at 155k, the cars 0.95, the million-triangle meshes
+  1.02 to 1.04).
+
+What would close it is codegen, not the schedule: the two-child sort as
+a compare-and-swap in registers (the two-lane case of the sort's
+lowering), the children's boxes computed per child from their rows
+rather than transposed into two lanes (the lowering of a `vector[vec3f,
+2]` built by component), and the keys compared as floats. Left for the
+user to decide; the comb's 0.73 is the whole of it, and the threaded and
+persistent forms are ahead on every mesh but the comb regardless.
 
 ### Next
 
