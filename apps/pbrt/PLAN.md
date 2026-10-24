@@ -16702,5 +16702,96 @@ plain one if the paper wants the data-dependent point drawn (both are in
 `plot_gpu_wavefront.py`'s sides); the reordering hint's key taken from
 the sort key's live bits too (a 16-bit hint from a 36-bit key wants the
 top sixteen, which the schedule shifts by hand today); the pixel-major GPU
-pass as a schedule that sizes the band's queue by the whole band; the CPU
-sorted schedules re-measured with the fixed key (running, 10-24 03:50).
+pass as a schedule that sizes the band's queue by the whole band.
+
+### The CPU sorted schedules re-measured with the fixed key (10-24)
+
+The two CPU schedules that sort the rays queue -- wf-b-v-sp-sort
+(wavefront-frame-packet-reorder, the band's queue sorted) and
+wf-t-v-ps-sort (wavefront-thread-packet-sort, each thread's chunk sorted)
+-- were measured on 10-21 and 10-23 with the lossy key (the section
+above), so they were run again with the fixed one: `cpu_compare.sh --out
+apps/pbrt/cpu-compare-out-sortfix --schedules "wavefront-frame-packet-
+reorder wavefront-thread-packet-sort"`, the five scenes at 16, 64 and
+128 spp, three repeats a side, the least, pbrt's wavefront run again
+beside them (03:44 to 05:52 on 10-24, the machine otherwise idle), 30
+sides, every image matching. The figure and the tables below join this
+CSV with the matrix's: a re-measured side's row replaces the old one,
+and every side is measured against the pbrt that ran beside it
+(plot_cpu_wavefront.py takes several CSVs; the two sorted columns below
+are this run's, the rest the 10-23 matrix's).
+
+Render seconds (least of 3 a side):
+
+| scene | spp | PBRT wf | PBRT mk | mk-b-s-ps | wf-b-s-sp | wf-b-v-sp | wf-b-v-sp-sort | wf-t-s-ps | wf-t-v-ps | wf-t-v-sp | wf-t-v-ps-sort |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 5.50 | 0.91 | 0.68 | 3.57 | 3.11 | 3.00 | 0.67 | 0.67 | 0.67 | 0.69 |
+| killeroo-simple | 64 | 22.01 | 3.47 | 2.74 | 14.25 | 12.44 | 11.98 | 3.02 | 3.01 | 3.02 | 3.27 |
+| killeroo-simple | 128 | 43.52 | 7.26 | 5.54 | 28.57 | 24.95 | 23.98 | 6.01 | 6.08 | 6.17 | 7.44 |
+| killeroo-gold | 16 | 16.01 | 2.34 | 2.00 | 10.88 | 9.50 | 9.55 | 2.21 | 2.25 | 2.28 | 2.32 |
+| killeroo-gold | 64 | 63.52 | 9.33 | 8.06 | 43.39 | 38.04 | 38.18 | 9.48 | 9.51 | 9.60 | 10.26 |
+| killeroo-gold | 128 | 127.54 | 18.99 | 16.14 | 86.90 | 76.20 | 76.27 | 18.96 | 19.07 | 19.38 | 21.94 |
+| book | 16 | 20.01 | 5.28 | 3.73 | 13.28 | 13.17 | 13.72 | 3.36 | 2.85 | 2.83 | 2.76 |
+| book | 64 | 80.52 | 21.31 | 15.26 | 53.01 | 52.82 | 54.81 | 13.57 | 12.04 | 12.06 | 12.33 |
+| book | 128 | 159.56 | 43.08 | 30.89 | 105.97 | 105.22 | 109.64 | 27.35 | 24.39 | 24.34 | 27.31 |
+| ganesha | 16 | 19.51 | 4.11 | 3.59 | 13.51 | 14.82 | 14.88 | 3.95 | 3.51 | 3.89 | 3.64 |
+| ganesha | 64 | 78.53 | 16.37 | 14.25 | 53.90 | 59.15 | 59.48 | 14.91 | 13.76 | 15.40 | 14.84 |
+| ganesha | 128 | 155.55 | 32.71 | 28.27 | 107.85 | 118.38 | 118.79 | 29.62 | 27.14 | 30.76 | 31.01 |
+| sanmiguel-courtyard | 16 | 17.01 | 6.33 | 5.98* | 12.39 | 11.53 | 10.25 | 5.71 | 4.53 | 5.08 | 4.46 |
+| sanmiguel-courtyard | 64 | 67.53 | 25.15 | 23.90 | 49.26 | 46.17 | 41.02 | 22.32 | 17.86 | 20.61 | 17.11 |
+| sanmiguel-courtyard | 128 | 135.54 | 50.32 | 47.69 | 98.33 | 92.48 | 82.05 | 44.12 | 35.72 | 40.99 | 33.97 |
+
+Speedup over the PBRT wf of the same run:
+
+| scene | spp | PBRT wf | PBRT mk | mk-b-s-ps | wf-b-s-sp | wf-b-v-sp | wf-b-v-sp-sort | wf-t-s-ps | wf-t-v-ps | wf-t-v-sp | wf-t-v-ps-sort |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 1.00 | 6.04 | 8.08 | 1.54 | 1.77 | 1.83 | 8.16 | 8.26 | 8.18 | 7.99 |
+| killeroo-simple | 64 | 1.00 | 6.34 | 8.03 | 1.54 | 1.77 | 1.84 | 7.28 | 7.32 | 7.28 | 6.73 |
+| killeroo-simple | 128 | 1.00 | 5.99 | 7.86 | 1.52 | 1.74 | 1.82 | 7.24 | 7.15 | 7.06 | 5.85 |
+| killeroo-gold | 16 | 1.00 | 6.84 | 8.00 | 1.47 | 1.69 | 1.68 | 7.24 | 7.12 | 7.02 | 6.91 |
+| killeroo-gold | 64 | 1.00 | 6.81 | 7.88 | 1.46 | 1.67 | 1.66 | 6.70 | 6.68 | 6.62 | 6.19 |
+| killeroo-gold | 128 | 1.00 | 6.72 | 7.90 | 1.47 | 1.67 | 1.67 | 6.73 | 6.69 | 6.58 | 5.81 |
+| book | 16 | 1.00 | 3.79 | 5.36 | 1.51 | 1.52 | 1.46 | 5.95 | 7.01 | 7.06 | 7.25 |
+| book | 64 | 1.00 | 3.78 | 5.28 | 1.52 | 1.52 | 1.47 | 5.93 | 6.69 | 6.68 | 6.53 |
+| book | 128 | 1.00 | 3.73 | 5.20 | 1.52 | 1.53 | 1.46 | 5.87 | 6.58 | 6.60 | 5.84 |
+| ganesha | 16 | 1.00 | 4.75 | 5.44 | 1.44 | 1.32 | 1.31 | 4.94 | 5.56 | 5.02 | 5.36 |
+| ganesha | 64 | 1.00 | 4.80 | 5.51 | 1.46 | 1.33 | 1.32 | 5.27 | 5.71 | 5.10 | 5.29 |
+| ganesha | 128 | 1.00 | 4.79 | 5.54 | 1.45 | 1.32 | 1.31 | 5.29 | 5.77 | 5.09 | 5.02 |
+| sanmiguel-courtyard | 16 | 1.00 | 2.69 | 2.85* | 1.37 | 1.48 | 1.66 | 2.98 | 3.75 | 3.35 | 3.82 |
+| sanmiguel-courtyard | 64 | 1.00 | 2.69 | 2.83 | 1.37 | 1.46 | 1.65 | 3.02 | 3.78 | 3.28 | 3.95 |
+| sanmiguel-courtyard | 128 | 1.00 | 2.69 | 2.84 | 1.38 | 1.47 | 1.65 | 3.07 | 3.80 | 3.31 | 3.99 |
+
+(`*` the one check of the 10-23 matrix held against pbrt's own spread, as
+the section above explains.)
+
+What it says, and what it corrects: **with a key that is not lossy, the
+ray sort is a data-dependent win on the CPU too.**
+
+- **The band sort (wf-b-v-sp-sort) now beats the unsorted band wavefront
+  on killeroo-simple (1.83x / 1.84x / 1.82x against 1.77x / 1.77x /
+  1.74x) and on sanmiguel (1.66x / 1.65x / 1.65x against 1.48x / 1.46x /
+  1.47x, a 12% gain), is level on killeroo-gold and ganesha (within 1%)
+  and 4% behind on book.** On 10-21, with the lossy key, it lost 8 to 12%
+  everywhere; the sort was paying for itself and being charged for a key
+  that scrambled half the rays' order.
+- **The per-thread sort (wf-t-v-ps-sort) beats the unsorted per-thread
+  wavefront on sanmiguel at every count (3.82x / 3.95x / 3.99x against
+  3.75x / 3.78x / 3.80x, up to 5%) and on book at 16 spp (7.25x against
+  7.01x)**, and it is the fastest CPU schedule measured on sanmiguel. It
+  still loses where the chunk's pass is large: 3% at 16 spp growing to 18
+  to 20% at 128 spp on the killeroos and book, 4 to 13% on ganesha -- the
+  chunk x spp entries of a pass outgrow the core's cache and the sort and
+  the permuted reads pay for it, as the 10-23 reading said; a smaller
+  chunk at high spp is the remedy that reading pointed at.
+- The ray sort's story is therefore the same on both processors: it pays
+  where the shading is heavy and the rays incoherent (sanmiguel), and
+  costs where the traversal is already cheap; and on the CPU, where the
+  sort is one call per pass rather than a dozen launches, it pays more
+  often. The 14:00 reading of 10-23 ("neither sort pays on this CPU") was
+  a reading of the lossy key and is withdrawn.
+
+To do, from this: the chunk-size sweep for the per-thread wavefront with
+and without the sort (256 / 128 pixels), which the sort's growth with spp
+points at even more sharply now; the paper's CPU figure is redrawn from
+the two CSVs (plots/cpu-wavefront-speedups.pdf), and REPORT's 10-23
+14:00 entry is superseded by today's.

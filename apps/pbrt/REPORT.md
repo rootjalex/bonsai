@@ -19,6 +19,50 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
+## Where it stands (2026-10-24, 06:00): the CPU sorted schedules re-measured with the fixed key; the ray sort pays where the shading is heavy
+
+**The two CPU schedules that sort the rays queue were re-measured with
+the two-point key fixed (it had been lossy since 10-20: the section
+below), and the 10-23 14:00 reading that "neither sort pays on this CPU"
+is withdrawn: the band sort (wf-b-v-sp-sort) beats the unsorted band
+wavefront on killeroo-simple (1.83x against 1.77x) and sanmiguel (1.66x
+against 1.48x, +12%) and is level on killeroo-gold and ganesha; the
+per-thread sort (wf-t-v-ps-sort) beats the unsorted per-thread wavefront
+on sanmiguel at every sample count (3.82x / 3.95x / 3.99x against 3.75x
+/ 3.78x / 3.80x) and on book at 16 spp, and is the fastest CPU schedule
+measured on sanmiguel; it still loses by up to 20% at 128 spp where a
+chunk's pass outgrows the cache.** The run: `cpu_compare.sh --out
+apps/pbrt/cpu-compare-out-sortfix`, 03:44 to 05:52 on 10-24, 30 sides,
+every image matching; the CPU figure (`plots/cpu-wavefront-speedups.pdf`)
+is drawn from both CSVs, the re-measured sides replacing the old rows and
+each measured against the pbrt that ran beside it. Both tables are in
+PLAN.md ("The CPU sorted schedules re-measured with the fixed key"). The
+same lesson as the GPU exploration's: whether a schedule wins is a
+property of the scene -- the sort pays where shading is heavy and rays
+incoherent, and on the CPU, where a sort is one call per pass rather than
+a dozen launches, it pays more often than on the GPU, where it never did.
+
+Speedup over the PBRT wf of the same run (the two sorted columns are the
+re-measurement, the rest the 10-23 matrix):
+
+| scene | spp | PBRT wf | PBRT mk | mk-b-s-ps | wf-b-s-sp | wf-b-v-sp | wf-b-v-sp-sort | wf-t-s-ps | wf-t-v-ps | wf-t-v-sp | wf-t-v-ps-sort |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 1.00 | 6.04 | 8.08 | 1.54 | 1.77 | 1.83 | 8.16 | 8.26 | 8.18 | 7.99 |
+| killeroo-simple | 64 | 1.00 | 6.34 | 8.03 | 1.54 | 1.77 | 1.84 | 7.28 | 7.32 | 7.28 | 6.73 |
+| killeroo-simple | 128 | 1.00 | 5.99 | 7.86 | 1.52 | 1.74 | 1.82 | 7.24 | 7.15 | 7.06 | 5.85 |
+| killeroo-gold | 16 | 1.00 | 6.84 | 8.00 | 1.47 | 1.69 | 1.68 | 7.24 | 7.12 | 7.02 | 6.91 |
+| killeroo-gold | 64 | 1.00 | 6.81 | 7.88 | 1.46 | 1.67 | 1.66 | 6.70 | 6.68 | 6.62 | 6.19 |
+| killeroo-gold | 128 | 1.00 | 6.72 | 7.90 | 1.47 | 1.67 | 1.67 | 6.73 | 6.69 | 6.58 | 5.81 |
+| book | 16 | 1.00 | 3.79 | 5.36 | 1.51 | 1.52 | 1.46 | 5.95 | 7.01 | 7.06 | 7.25 |
+| book | 64 | 1.00 | 3.78 | 5.28 | 1.52 | 1.52 | 1.47 | 5.93 | 6.69 | 6.68 | 6.53 |
+| book | 128 | 1.00 | 3.73 | 5.20 | 1.52 | 1.53 | 1.46 | 5.87 | 6.58 | 6.60 | 5.84 |
+| ganesha | 16 | 1.00 | 4.75 | 5.44 | 1.44 | 1.32 | 1.31 | 4.94 | 5.56 | 5.02 | 5.36 |
+| ganesha | 64 | 1.00 | 4.80 | 5.51 | 1.46 | 1.33 | 1.32 | 5.27 | 5.71 | 5.10 | 5.29 |
+| ganesha | 128 | 1.00 | 4.79 | 5.54 | 1.45 | 1.32 | 1.31 | 5.29 | 5.77 | 5.09 | 5.02 |
+| sanmiguel-courtyard | 16 | 1.00 | 2.69 | 2.85 | 1.37 | 1.48 | 1.66 | 2.98 | 3.75 | 3.35 | 3.82 |
+| sanmiguel-courtyard | 64 | 1.00 | 2.69 | 2.83 | 1.37 | 1.46 | 1.65 | 3.02 | 3.78 | 3.28 | 3.95 |
+| sanmiguel-courtyard | 128 | 1.00 | 2.69 | 2.84 | 1.38 | 1.47 | 1.65 | 3.07 | 3.80 | 3.31 | 3.99 |
+
 ## Where it stands (2026-10-24, 04:00): the GPU schedule space explored; a data-dependent winner
 
 **Asked whether any schedule beats the matching wavefront on any scene or
