@@ -3976,12 +3976,21 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         return;
     }
     case Intrinsic::sort_indices: {
-        // The host runtime's sort of a queue's entry indices by their keys
-        // (runtime/bonsai_parallel.h, bonsai_sort_indices): one call, as
-        // the parallel loop is one call, so that the runtime decides how
-        // to sort. The keys and the permutation are arrays, pointers here;
-        // the count is widened to the runtime's 64 bits.
+        // The runtime's sort of a queue's entry indices by their keys: one
+        // call, as the parallel loop is one call, so that the runtime
+        // decides how to sort. The host's (runtime/bonsai_parallel.h,
+        // bonsai_sort_indices) when the permutation is host memory; the
+        // device's (runtime/bonsai_cuda.h, bonsai_cuda_sort_indices, CUB's
+        // radix sort on the stream the launches use) when the permutation
+        // lives on the device -- a sorted queue whose drain is a kernel,
+        // whose keys and permutation the host holds as device addresses
+        // it never dereferences (device_resident). The keys and the
+        // permutation are arrays, pointers here; the count is widened to
+        // the runtime's 64 bits.
         internal_assert(node->args.size() == 3) << "sort_indices takes three";
+        const bool on_device = device_root_of(node->args[1]).has_value();
+        const char *runtime_sort =
+            on_device ? "bonsai_cuda_sort_indices" : "bonsai_sort_indices";
         llvm::Value *keys = codegen_expr(node->args[0]);
         llvm::Value *perm = codegen_expr(node->args[1]);
         llvm::Value *count = codegen_expr(node->args[2]);
@@ -3990,10 +3999,10 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         count = builder->CreateZExtOrTrunc(count, i64_t, "sort_count");
         llvm::FunctionType *sort_ty = llvm::FunctionType::get(
             llvm::Type::getVoidTy(*context), {ptr_t, ptr_t, i64_t}, false);
-        llvm::Function *sort = module->getFunction("bonsai_sort_indices");
+        llvm::Function *sort = module->getFunction(runtime_sort);
         if (!sort) {
             sort = llvm::Function::Create(sort_ty, llvm::Function::ExternalLinkage,
-                                          "bonsai_sort_indices", module.get());
+                                          runtime_sort, module.get());
         }
         builder->CreateCall(sort, {keys, perm, count});
         value = llvm::ConstantInt::get(codegen_type(node->type), 0);

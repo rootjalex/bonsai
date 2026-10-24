@@ -40,6 +40,8 @@ add_bonsai_tests(
     buffers-cpp.bonsai
     defer-capacity.bonsai
     defer-device.bonsai
+    defer-sorted-device.bonsai
+    sort-indices-cpp.bonsai
     defer-record-soa.bonsai
     defer-under-specialize.bonsai
     queue-managed.bonsai

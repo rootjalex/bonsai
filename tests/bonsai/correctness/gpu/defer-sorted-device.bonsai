@@ -1,0 +1,73 @@
+//! flags: -p ssa -b llvm -e
+
+// A deferred call sorted by a key, drained on the GPU: correctness/llvm/
+// defer-sorted-queue with its loops bound to GPU threads. The queue's
+// arrays, its header and the sort's permutation live on the device
+// (CodeGen_LLVM::device_resident; the sort's operands count as the
+// device's, CodeGen_LLVM_SSA::device_resident_allocations), and the sort
+// before each round's pass is the device sort (runtime/bonsai_cuda_sort.cu,
+// CUB's radix sort, reached through runtime/bonsai_cuda.h), issued on the
+// stream between the pushes and the drain. The threads of a drain run at
+// once, so the order log of the CPU test would race here and is left out:
+// what is checked is that the sorted drain runs every entry exactly once
+// -- the total of the keys over both rounds, the same as `plain_run`
+// computes with nothing scheduled -- through the permutation the device
+// sort wrote. The permutation itself is checked against std::stable_sort
+// in sort-indices-cpp.
+import stdlib/numerics;
+
+func step(x : Float, n : i32, total : reduce(+) Float) -> void {
+    total += x;
+    if n == 0 {
+        return;
+    }
+    step(x, n - 1, total);
+    return;
+}
+
+func run(values : array[Float, 40], total : reduce(+) Float) -> void {
+    parfor i in 0:40 {
+        step(values[i], i % 2, total);
+    }
+    return;
+}
+
+func plain_step(x : Float, n : i32, total : reduce(+) Float) -> void {
+    total += x;
+    if n == 0 {
+        return;
+    }
+    plain_step(x, n - 1, total);
+    return;
+}
+
+func plain_run(values : array[Float, 40], total : reduce(+) Float) -> void {
+    parfor i in 0:40 {
+        plain_step(values[i], i % 2, total);
+    }
+    return;
+}
+
+func main() -> i32 {
+    // The keys 0..39 scrambled: x * 4 is the key.
+    values : array[Float, 40] = {7.25, 0.0, 9.5, 3.75, 1.0, 8.0, 2.5, 6.0, 4.25, 9.75,
+                                 0.5, 5.75, 1.5, 7.0, 3.0, 8.75, 2.0, 6.25, 4.5, 9.0,
+                                 0.25, 5.5, 1.75, 7.5, 3.25, 8.25, 2.75, 6.5, 4.0, 9.25,
+                                 0.75, 5.0, 1.25, 7.75, 3.5, 8.5, 2.25, 6.75, 4.75, 5.25};
+    total : reduce(+) Float = 0.0;
+    run(values, total);
+    print(total);
+    plain_total : reduce(+) Float = 0.0;
+    plain_run(values, plain_total);
+    print(plain_total);
+    return 0;
+}
+
+schedule {
+    rays = run.queue(root);
+    run.sort(step, |x : Float| cast[[i32]](x * 4.0));
+    run.defer(step, rays);
+    step.defer(step, rays);
+    run.bind(i, GPUThread);
+    run.bind(rays, GPUThread);
+}

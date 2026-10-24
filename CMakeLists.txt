@@ -150,6 +150,32 @@ else ()
                    "the ray tracing runtime is a stub in this build.")
 endif ()
 
+# The device sort of a sorted queue's entry indices (runtime/
+# bonsai_cuda_sort.cu: CUB's radix sort) is device code the CUDA toolkit's
+# compiler builds, so it is a shared library beside the compiler rather than
+# part of the header-only runtime, loaded at the first device sort
+# (bonsai_cuda.h, bonsai_cuda_sort_indices) the way the runtime loads the
+# driver: nothing here links CUDA's runtime library, and a program without
+# a sorted queue on the GPU never needs it. Built when nvcc is found, and
+# the compiler and the headers it generates are told where it is.
+include(CheckLanguage)
+check_language(CUDA)
+if (CMAKE_CUDA_COMPILER)
+    enable_language(CUDA)
+    find_package(CUDAToolkit REQUIRED)
+    add_library(bonsai_cuda_sort SHARED runtime/bonsai_cuda_sort.cu)
+    set_target_properties(bonsai_cuda_sort PROPERTIES
+                          CUDA_ARCHITECTURES native
+                          POSITION_INDEPENDENT_CODE ON)
+    target_link_libraries(bonsai_cuda_sort PRIVATE CUDA::cudart_static)
+    target_compile_definitions(
+        bonsai_library PUBLIC
+        "BONSAI_CUDA_SORT_LIB=\"$<TARGET_FILE:bonsai_cuda_sort>\"")
+else ()
+    message(STATUS "No CUDA compiler: a sorted queue drained on the GPU has "
+                   "no sort in this build (bonsai_cuda_sort).")
+endif ()
+
 target_sources(
     bonsai_library
     PRIVATE

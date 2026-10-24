@@ -11,6 +11,7 @@
 #include <map>
 #include <mutex>
 #include <string>
+#include <string>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -116,6 +117,21 @@ void bonsai_cuda_free(void *device);
 // call measures the render -- pbrt's GPUWait at the end of Render. A
 // program with no device does nothing.
 void bonsai_cuda_synchronize();
+// The device sort of a sorted queue's entry indices by their keys -- the
+// device form of runtime/bonsai_parallel.h's bonsai_sort_indices, with the
+// same meaning: perm[0..n) holds 0..n-1 by ascending keys[index], ties in
+// index order, both arrays device addresses. Issued on the null stream
+// behind the launches before it and ahead of the drain after it, so the
+// host neither waits nor reads anything back. The sort itself is CUB's
+// radix sort, device code built by the CUDA toolkit's compiler into the
+// shared library bonsai_cuda_sort (runtime/bonsai_cuda_sort.cu,
+// CMakeLists.txt), which this loads at the first call as it loads the
+// driver: from BONSAI_CUDA_SORT_LIB in the environment, else the path the
+// generated header set (bonsai_cuda_set_sort_library: where the compiler
+// was built, CodeGen/CPP.cpp), else the loader's own search. A program
+// without a sorted queue on the device never loads it.
+void bonsai_cuda_sort_indices(const uint64_t *keys, uint32_t *perm, int64_t n);
+void bonsai_cuda_set_sort_library(const char *path);
 void bonsai_cuda_copy_to_device(void *device, const void *host, uint64_t bytes);
 void bonsai_cuda_copy_to_host(void *host, const void *device, uint64_t bytes);
 // A host-to-device copy on the stream, without the host waiting: OptiX's
@@ -1079,6 +1095,50 @@ bonsai_cuda_launch(const char *ptx, const char *kernel, int64_t grid_x,
         check(d, d.cuMemFree(device_memory[b]), "cuMemFree");
         *static_cast<void **>(params[buffer.param]) = buffer.host;
     }
+}
+
+// The device sort's library (see the declaration): the path set by the
+// generated header, the library once loaded, and its one entry point.
+inline std::string *bonsai_cuda_sort_library_path() {
+    static std::string path;
+    return &path;
+}
+
+inline void bonsai_cuda_set_sort_library(const char *path) {
+    *bonsai_cuda_sort_library_path() = path != nullptr ? path : "";
+}
+
+inline void bonsai_cuda_sort_indices(const uint64_t *keys, uint32_t *perm, int64_t n) {
+    using Sort = void (*)(const uint64_t *, uint32_t *, int64_t);
+    static Sort sort = [] {
+        const char *from_env = std::getenv("BONSAI_CUDA_SORT_LIB");
+        const std::string &set = *bonsai_cuda_sort_library_path();
+        const char *path = from_env != nullptr && *from_env != '\0' ? from_env
+                           : !set.empty()                             ? set.c_str()
+                                                                      : "libbonsai_cuda_sort.so";
+        void *library = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+        if (library == nullptr) {
+            std::fprintf(stderr,
+                         "bonsai_cuda_sort_indices: a sorted queue drained on the GPU "
+                         "needs the device sort library, and %s could not be loaded "
+                         "(%s). It is built beside the compiler when CMake finds the "
+                         "CUDA toolkit's compiler (runtime/bonsai_cuda_sort.cu); "
+                         "BONSAI_CUDA_SORT_LIB in the environment names it.\n",
+                         path, dlerror());
+            std::abort();
+        }
+        auto entry = reinterpret_cast<Sort>(dlsym(library, "bonsai_cuda_sort_pairs"));
+        if (entry == nullptr) {
+            std::fprintf(stderr, "bonsai_cuda_sort_indices: %s has no bonsai_cuda_sort_pairs\n",
+                         path);
+            std::abort();
+        }
+        return entry;
+    }();
+    if (n <= 0) {
+        return;
+    }
+    sort(keys, perm, n);
 }
 
 } // extern "C"

@@ -1,0 +1,5 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/gpu/main_sort_indices_cpp.cpp -I. -o tests/bonsai/correctness/gpu/main_sort_indices_cpp.o
+[test] clang++ tests/bonsai/correctness/gpu/main_sort_indices_cpp.o tests/bonsai/correctness/gpu/sort-indices-cpp.o -o tests/bonsai/correctness/gpu/sort-indices-cpp
+[test] ./tests/bonsai/correctness/gpu/sort-indices-cpp
+sorted 1000003 keys: ok
+sorted 1000 equal keys: ok

@@ -46,6 +46,7 @@ add_bonsai_tests(
     gate-drains-nested.bonsai
     gate-drains-gang.bonsai
     defer-sorted-queue.bonsai
+    defer-sorted-queue-device.bonsai
     defer-nest-inner-bound.bonsai
     defer-nest-guard.bonsai
     defer-thread-queue.bonsai

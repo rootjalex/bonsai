@@ -453,6 +453,20 @@ class BonsaiToCpp : ir::Printer {
                   "launches a kernel.\n"
                   "#define BONSAI_HAS_GPU 1\n"
                   "void bonsai_gpu_prepare(void);\n";
+#ifdef BONSAI_CUDA_SORT_LIB
+            // Where the device sort's library is (runtime/bonsai_cuda_sort.cu,
+            // CMakeLists.txt): built beside the compiler, and the compiler
+            // was told its path, so the generated header tells the runtime
+            // (bonsai_cuda.h, bonsai_cuda_sort_indices loads it at the first
+            // sort of a queue drained on the device). Set by an initializer
+            // so that the header's include order does not matter.
+            ss << "// The device sort of a sorted queue (runtime/bonsai_cuda.h, "
+                  "bonsai_cuda_sort_indices):\n// the library built beside the "
+                  "compiler that generated this header.\n"
+                  "static const int bonsai_cuda_sort_library_set =\n"
+                  "    (bonsai_cuda_set_sort_library(\""
+               << BONSAI_CUDA_SORT_LIB << "\"), 0);\n";
+#endif
         }
         emit_epilogue(allow_mangling);
         if (optix) {

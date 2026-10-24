@@ -1,0 +1,121 @@
+type Entry_rays = struct Entry_rays{ x : f32; n : i32; _sort_key : u64 }
+type Float = f32
+type Half = f16
+type Queue_rays = struct Queue_rays{ count : u32; x : f32[]; n : i32[]; _sort_key : u64[] }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+extern func bonsai_cuda_round_guard(round : u32, count : (u32*)) -> u32;
+
+func run(values : f32[40], total : mut (f32*)) -> void {
+  rays!round : mut u32
+  alloc rays_x_0 : mut f32[40] device
+  alloc rays_n_0 : mut i32[40] device
+  alloc rays__sort_key_0 : mut u64[40] device
+  alloc rays_x_1 : mut f32[40] device
+  alloc rays_n_1 : mut i32[40] device
+  alloc rays__sort_key_1 : mut u64[40] device
+  alloc rays__perm : mut u32[40] device
+  alloc rays_queue : mut Queue_rays[2] device
+  let @5 = build<Queue_rays>(0u, rays_x_0, rays_n_0, rays__sort_key_0) in
+  rays_queue[0u] = @5
+  let @7 = build<Queue_rays>(0u, rays_x_1, rays_n_1, rays__sort_key_1) in
+  rays_queue[1u] = @7
+  parfor i in [0:40:1] {
+    let _t22 = values[i] in
+    let @42 = i >> 31 in
+    let @43 = reinterpret_cast<u32>(@42) in
+    let @44 = @43 >> 31u in
+    let @45 = reinterpret_cast<i32>(@44) in
+    let @46 = i + @45 in
+    let @47 = @46 >> 1 in
+    let @48 = @47 * 2 in
+    let @1 = i - @48 in
+    let @2 = _t22 * 4f in
+    let @3 = cast<i32>(@2) in
+    let @4 = cast<u64>(@3) in
+    let @10 = build<Entry_rays>(_t22, @1, @4) in
+    let @54 = atomic_add((&rays_queue[0u].count), 1u) in
+    let @56 = rays_queue[0u].x in
+    @56[@54] = _t22
+    let @59 = rays_queue[0u].n in
+    @59[@54] = @1
+    let @62 = rays_queue[0u]._sort_key in
+    @62[@54] = @4
+    continue
+  }
+  rays!round = 0u
+  do {
+    let @14 = (*rays!round) & 1u in
+    let @15 = rays_queue[@14] in
+    let @16 = @15.count in
+    let @49 = bonsai_cuda_round_guard((*rays!round), (&rays_queue[@14].count)) in
+    let @50 = @49 == 0u in
+    if (@50) {
+      return
+    } else {
+      let @18 = @14 ^ 1u in
+      rays_queue[@18].count = 0u
+      let @23 = rays_queue[@14]._sort_key in
+      let @24 = sort_indices(@23, rays__perm, @16) in
+      let @36 = cast<u32>(40) in
+      parfor rays in [0u:@36:1u] {
+        let @19 = (&rays_queue[@18]) in
+        let @39 = (&rays_queue[@14].count) in
+        let @40 = (*@39) in
+        let @41 = rays < @40 in
+        if (@41) {
+          let @25 = rays__perm[rays] in
+          let @28 = rays_queue[@14].x in
+          let @29 = @28[@25] in
+          let @31 = rays_queue[@14].n in
+          let @32 = @31[@25] in
+          let @34 = rays_queue[@14]._sort_key in
+          let @35 = @34[@25] in
+          step(@29, @32, total, @35, @19)
+          continue
+        } else {
+          continue
+        }
+      }
+      let @13 = (*rays!round) + 1u in
+      rays!round = @13
+      continue
+    }
+  } while (true)
+}
+
+func step(x : f32, n : i32, total : mut (f32*), _sort_key : u64, _queue_rays : mut (Queue_rays*)) -> void {
+  atomic total += x
+  let @0 = n == 0 in
+  if (@0) {
+    return
+  } else {
+    let @1 = n - 1 in
+    let @2 = x * 4f in
+    let @3 = cast<i32>(@2) in
+    let @4 = cast<u64>(@3) in
+    let @5 = build<Entry_rays>(x, @1, @4) in
+    let @8 = atomic_add((&(*_queue_rays).count), 1u) in
+    let @10 = (*_queue_rays).x in
+    @10[@8] = x
+    let @13 = (*_queue_rays).n in
+    @13[@8] = @1
+    let @16 = (*_queue_rays)._sort_key in
+    @16[@8] = @4
+    return
+  }
+}
+
+
+schedule {
+    rays = run.queue(root, DeviceGlobal);
+    run.sort(step, |x : f32| cast<i32>(x * (f32)4))
+       .defer(step, rays)
+       .bind(i, GPUThread)
+       .bind(rays, GPUThread)
+    step.defer(step, rays)
+
+}

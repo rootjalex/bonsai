@@ -1750,7 +1750,24 @@ struct CodeGen_LLVM::SSALowering {
                         note(instr->operands[0], device);
                     }
                     break;
-                case Instruction::Op::Intrinsic:
+                case Instruction::Op::Intrinsic: {
+                    // A sorted queue's sort (ir::Intrinsic::sort_indices)
+                    // sits in the block ahead of its drain; when the drain
+                    // is a kernel, the sort is the device's too -- the
+                    // device sort over the queue's keys, filling the
+                    // permutation the kernel reads (CodeGen_LLVM,
+                    // sort_indices) -- so its operands are touched by the
+                    // device, though the call is issued from the host.
+                    const auto *drain =
+                        std::get_if<Terminator::ParFor>(&block->terminator.data);
+                    const bool device_sort =
+                        instr->intrinsic == ir::Intrinsic::sort_indices &&
+                        drain != nullptr && is_gpu_bound(*drain);
+                    for (const auto &operand : instr->operands) {
+                        note(operand, device || device_sort);
+                    }
+                    break;
+                }
                 case Instruction::Op::Print:
                     for (const auto &operand : instr->operands) {
                         note(operand, device);

@@ -1,0 +1,40 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/gpu/sort-indices-cpp
+//! commands: clang++ -std=c++20 -O3 -c $<>/main_sort_indices_cpp.cpp -I. -o $<>/main_sort_indices_cpp.o, clang++ $<>/main_sort_indices_cpp.o $<>/sort-indices-cpp.o -o $<>/sort-indices-cpp, ./$<>/sort-indices-cpp, rm $<>/sort-indices-cpp, rm $<>/main_sort_indices_cpp.o, rm $<>/sort-indices-cpp.h, rm $<>/sort-indices-cpp.o
+
+// The device sort of a sorted queue's indices (runtime/bonsai_cuda.h,
+// bonsai_cuda_sort_indices; runtime/bonsai_cuda_sort.cu), checked from
+// C++ against std::stable_sort: a million random 36-bit keys (the width
+// of a ray reordering key) with repeats, then a thousand equal keys, whose
+// permutation must be the identity -- the sort is stable, ties in index
+// order, as the host's is. The program is defer-sorted-device's, exported:
+// its generated header carries the runtime, and, when the compiler was
+// built beside the device sort's library, the line that tells the runtime
+// where that library is (CodeGen/CPP.cpp), which is how the driver finds
+// it here. The driver does not call `run`: what a sorted drain on the
+// device computes is defer-sorted-device's check.
+import stdlib/numerics;
+
+func step(x : Float, n : i32, total : reduce(+) Float) -> void {
+    total += x;
+    if n == 0 {
+        return;
+    }
+    step(x, n - 1, total);
+    return;
+}
+
+func run(values : array[Float, 40], total : reduce(+) Float) -> void {
+    parfor i in 0:40 {
+        step(values[i], i % 2, total);
+    }
+    return;
+}
+
+schedule {
+    rays = run.queue(root);
+    run.sort(step, |x : Float| cast[[i32]](x * 4.0));
+    run.defer(step, rays);
+    step.defer(step, rays);
+    run.bind(i, GPUThread);
+    run.bind(rays, GPUThread);
+}

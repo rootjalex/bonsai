@@ -1,0 +1,36 @@
+//! flags: -p ssa
+
+// ssa/defer-sorted-queue with the queue in device memory and its drains
+// bound to GPU threads: the sort's permutation (`rays__perm`) is allocated
+// where the queue's header is -- in the memory the storage word names,
+// DeviceGlobal here, never the caller's even for an Extern queue (SSA/
+// Defer.cpp) -- and the sort before each round's pass is the same
+// `sort_indices` intrinsic, which the backend sends to the device sort when
+// the permutation lives on the device (CodeGen_LLVM, sort_indices;
+// runtime/bonsai_cuda_sort.cu).
+import stdlib/numerics;
+
+func step(x : Float, n : i32, total : reduce(+) Float) -> void {
+    total += x;
+    if n == 0 {
+        return;
+    }
+    step(x, n - 1, total);
+    return;
+}
+
+func run(values : array[Float, 40], total : reduce(+) Float) -> void {
+    parfor i in 0:40 {
+        step(values[i], i % 2, total);
+    }
+    return;
+}
+
+schedule {
+    rays = run.queue(root, DeviceGlobal);
+    run.sort(step, |x : Float| cast[[i32]](x * 4.0));
+    run.defer(step, rays);
+    step.defer(step, rays);
+    run.bind(i, GPUThread);
+    run.bind(rays, GPUThread);
+}

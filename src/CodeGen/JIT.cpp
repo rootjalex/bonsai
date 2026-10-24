@@ -109,8 +109,17 @@ void jit(const ir::Program &program, const CompilerOptions &options) {
         // entry is in the module and has to link.
         define("bonsai_buffer_require", &bonsai_buffer_require);
         define("bonsai_buffer_mark_dirty", &bonsai_buffer_mark_dirty);
-        // A sorted queue's permutation (ir::Intrinsic::sort_indices).
+        // A sorted queue's permutation (ir::Intrinsic::sort_indices): on
+        // the host, and on the device for a queue whose drain runs there
+        // (runtime/bonsai_cuda.h, which loads runtime/bonsai_cuda_sort.cu's
+        // library at the first call).
         define("bonsai_sort_indices", &jit_sort_indices);
+        define("bonsai_cuda_sort_indices", &bonsai_cuda_sort_indices);
+#ifdef BONSAI_CUDA_SORT_LIB
+        // The device sort's library, built beside this compiler
+        // (CMakeLists.txt): where the runtime finds it under the JIT.
+        bonsai_cuda_set_sort_library(BONSAI_CUDA_SORT_LIB);
+#endif
         llvm::cantFail(JIT->getMainJITDylib().define(
             llvm::orc::absoluteSymbols(std::move(runtime))));
     }

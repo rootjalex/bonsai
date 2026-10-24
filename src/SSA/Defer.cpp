@@ -4490,25 +4490,6 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                         (double_buffered ? "_" + std::to_string(i) : "")))));
         }
     }
-    // The sort's permutation, one index per entry, filled before each pass
-    // from the key leaf (QueueSpec::sort_key) and read by the pass's entry
-    // loads in place of the loop's index. One array serves a
-    // double-buffered queue's two buffers, since one of them is drained at
-    // a time; a queue split by a key would want one per leaf queue, and is
-    // refused until it is wanted.
-    shared_ptr<Value> perm_array;
-    if (!queue.sort_key.empty()) {
-        internal_assert(sort_leaf.has_value())
-            << what << ": the sort key " << queue.sort_key << " is not a parameter of "
-            << callee_name;
-        internal_assert(!many || double_buffered)
-            << "[unimplemented] " << what << ": a sort of a queue split by a key ("
-            << queue.name << ")";
-        perm_array = stored_in(
-            queue.storage,
-            scratch(make_alloca(*O, alloc_point, Array_t::make(u32(), as_expr(size)),
-                                queue.name + "__perm")));
-    }
     // The header too, in the same memory -- except that an Extern queue's
     // header stays the function's own, in the memory the Extern names: the
     // arrays are what the caller provides, sized by the capacity; the header
@@ -4522,6 +4503,29 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         : *queue.storage == ir::Storage::ExternManaged
             ? std::optional(ir::Storage::Managed)
             : queue.storage;
+    // The sort's permutation, one index per entry, filled before each pass
+    // from the key leaf (QueueSpec::sort_key) and read by the pass's entry
+    // loads in place of the loop's index. One array serves a
+    // double-buffered queue's two buffers, since one of them is drained at
+    // a time; a queue split by a key would want one per leaf queue, and is
+    // refused until it is wanted. It lives where the header does: the
+    // drain's own business, in the memory the drain reads, and never the
+    // caller's even for an Extern queue -- the runtime fills it before each
+    // pass (ir::Intrinsic::sort_indices; on the device, the device sort of
+    // runtime/bonsai_cuda_sort.cu).
+    shared_ptr<Value> perm_array;
+    if (!queue.sort_key.empty()) {
+        internal_assert(sort_leaf.has_value())
+            << what << ": the sort key " << queue.sort_key << " is not a parameter of "
+            << callee_name;
+        internal_assert(!many || double_buffered)
+            << "[unimplemented] " << what << ": a sort of a queue split by a key ("
+            << queue.name << ")";
+        perm_array = stored_in(
+            header_memory,
+            scratch(make_alloca(*O, alloc_point, Array_t::make(u32(), as_expr(size)),
+                                queue.name + "__perm")));
+    }
     const shared_ptr<Value> queues = stored_in(
         header_memory,
         scratch(many ? make_alloca(*O, alloc_point,
