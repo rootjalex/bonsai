@@ -16511,3 +16511,196 @@ take the launch gaps out, which pbrt's wavefront also pays for and which
 would help every GPU schedule; the megakernel's ganesha loss under the
 kernel profile (which material kernels diverge most), which is the paper's
 megakernel-versus-wavefront point in numbers.
+
+### The GPU schedule space explored: is the best schedule data-dependent? (10-24)
+
+The user's question of 10-24 00:10: "The plot looks like Bonsai wf is
+always the best schedule. Can you try exploring to see if there's any
+better schedule, even if only better on a scene or scene x spp pair? I
+want to know if there are data-dependent best schedules." And, on the
+sort: "Definitely only sort the live bits for keys too ... Shouldn't the
+compiler be able to analyze the possible bits set on the sort key?"
+
+**The compiler reads a sort key's live bits off its arithmetic
+(c9d0b824).** IR/KnownBits.h: `possible_bits(e, funcs)` is a mask of the
+bits an integer expression may have set, over constants, masks, shifts by
+constants, ors, xors, casts and selects, with a sound widening for add
+(one bit past the wider operand), mul (the widths' sum), unsigned div and
+mod (no wider than the dividend), everything else and any float cast every
+bit of the type; a call to one of the program's functions is followed
+into its body (to depth eight), read as straight-line statements with
+branches (`let`, a plain variable's store, an allocation with its initial
+value, if/else merged by or, return), and a body with a loop or an
+indexed store gives every bit. Lower/Sorts.cpp's apply_queue_sort ors the
+mask over every call site's key and leaves the width on the Sort
+transform (`Sort::key_bits`); SSA/Convert.cpp carries it to the queue
+(`QueueSpec::sort_key_bits`); Defer.cpp passes it as the fourth argument
+of `sort_indices(keys, perm, count, bits)`; CodeGen_LLVM hands it to the
+runtime, whose host radix sort runs ceil(bits / 11) passes (still skipping
+a pass whose digit is constant) and whose device sort gives CUB `end_bit`
+(ceil(bits / 8) passes). Tests: ssa/defer-sorted-queue-bits (a key of
+`spread(x & 15) | (y & 1) << 12` through a function: 13 bits), the two
+earlier IR goldens (a float cast's key: 64), correctness/gpu/
+sort-indices-cpp (the device sort told 36 bits on 36-bit keys agrees with
+std::stable_sort), correctness/cpp/defer_sorted_queue (the host radix
+sort told 60 bits on 60-bit hashes).
+
+**Found on the way: the two-point key was lossy (fixed in 508bc091).**
+`spread_bits_6` used the every-third-bit masks of a 3D Morton code
+(0x1249249249249249 and its ladder) while `ray_sort_key` ors six
+coordinates at offsets 0..5, so coordinates two apart landed on the same
+bits and the key lost information at every level. Every ray-sort
+measurement before 10-24 -- the band sort of 10-20/10-21, the per-thread
+sort of 10-23, the GPU wf-sort of 10-23 23:00 -- ran on that key. The
+spread is now ten explicit terms, bit k to bit 6k, so the fine key is a
+true 60-bit code; `ray_sort_key_coarse` beside it quantizes to six bits
+per axis and masks them in the open, a 36-bit code (the analysis above
+reads 60 and 36 off the two). The CPU sorted schedules are re-measured
+with the fixed key below.
+
+**The variants** (apps/pbrt/schedules/gpu-optix-*.bonsai, every one from
+directives the language already had, nothing added): `b128` and `b512`
+(the CUDA drains in blocks of 128 or 512 threads instead of 256); `fused`
+(no hit queue: `vol_surface`, the material evaluation, the light sample
+and the next ray's push, runs in the trace program right after the hit
+is routed, as a megakernel's does; the material specialization goes with
+the queue); `fused-ser` (the same with `vol_route.sort(vol_surface,
+material)`, shader execution reordering before the switch); `sort36`
+(the wavefront sorted by the coarse key); `mega-ser-ray` (the megakernel
+with the material reordering and, on each call that continues the path --
+`vol_surface`, `vol_route`, `vol_medium_scatter`, `vol_exit` calling
+`vol_path_step`, the loop's back edges after loopify -- a reordering by
+the top sixteen bits of the coarse ray key, so a wave enters each
+bounce's trace with rays of one region and direction); `ps` (no
+`reorder(p, s)`: a pass is a band of pixels with all their samples).
+Two did not run. `ps` is refused by the compiler: without the reorder the
+band's queue is made once per band iteration and cannot be hoisted to
+the one allocation the caller's storage (ExternDevice) requires
+(SSA/QueueStorage.cpp); withdrawn (deb8b53d), the pixel-major GPU pass
+wants a queue sized by the whole band, a schedule question for later.
+`fused-ser` fails OptiX's module compile: `Illegal call to optixReorder in
+function __closesthit__trace with semantic type CLOSESTHIT` -- the
+reordering hint was emitted into the closest-hit program, where OptiX
+forbids it; Lower/Sorts.cpp's contract is that the hint is nothing
+anywhere but a raygen (CodeGen_LLVM::codegen_rt_intrinsic), so the hint
+has to be dropped or hoisted wherever the fused material stage is
+reached from the closest-hit side. A compiler bug, first in the to-do.
+
+**The run**: `gpu_compare.sh --out apps/pbrt/gpu-compare-out-explore
+--spp "16 64 128"` with gpu-optix beside the six variants that compile,
+03:12 to 03:39 on 10-24, three repeats a side, the least, every image
+checked: 120 sides, all matching. The compiler at c9d0b824. The figure:
+`plots/gpu-wavefront-explore.pdf` (`plot_gpu_wavefront.py ... --sides`
+with these seven); the paper's figure stays the four-schedule one.
+
+Wall seconds (least of 3 a side; pbrt's own timer, ours the driver's):
+
+| scene | spp | PBRT wf | mk-ser-ray | wf | wf-b128 | wf-b512 | wf-fused | wf-sort | wf-sort36 |
+|---|---|---|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 0.110 | 0.047 | 0.038 | 0.037 | 0.038 | 0.038 | 0.055 | 0.050 |
+| killeroo-simple | 64 | 0.220 | 0.187 | 0.140 | 0.139 | 0.140 | 0.147 | 0.211 | 0.191 |
+| killeroo-simple | 128 | 0.420 | 0.376 | 0.275 | 0.275 | 0.278 | 0.294 | 0.419 | 0.377 |
+| killeroo-gold | 16 | 0.220 | 0.115 | 0.089 | 0.088 | 0.089 | 0.092 | 0.128 | 0.115 |
+| killeroo-gold | 64 | 0.720 | 0.464 | 0.336 | 0.333 | 0.340 | 0.363 | 0.483 | 0.441 |
+| killeroo-gold | 128 | 1.320 | 0.928 | 0.664 | 0.662 | 0.671 | 0.725 | 0.960 | 0.877 |
+| book | 16 | 0.230 | 0.164 | 0.107 | 0.107 | 0.108 | 0.117 | 0.144 | 0.131 |
+| book | 64 | 0.730 | 0.666 | 0.410 | 0.410 | 0.411 | 0.465 | 0.546 | 0.509 |
+| book | 128 | 1.330 | 1.339 | 0.812 | 0.813 | 0.815 | 0.928 | 1.085 | 1.010 |
+| ganesha | 16 | 0.230 | 0.433 | 0.121 | 0.120 | 0.122 | 0.127 | 0.158 | 0.150 |
+| ganesha | 64 | 0.830 | 1.737 | 0.460 | 0.460 | 0.464 | 0.503 | 0.604 | 0.570 |
+| ganesha | 128 | 1.530 | 3.491 | 0.913 | 0.910 | 0.922 | 1.006 | 1.199 | 1.132 |
+| sanmiguel-courtyard | 16 | 0.240 | 0.221 | 0.128 | 0.126 | 0.127 | 0.118 | 0.160 | 0.152 |
+| sanmiguel-courtyard | 64 | 0.740 | 0.906 | 0.488 | 0.484 | 0.493 | 0.468 | 0.630 | 0.596 |
+| sanmiguel-courtyard | 128 | 1.340 | 1.816 | 0.970 | 0.965 | 0.986 | 0.937 | 1.256 | 1.186 |
+
+Kernel milliseconds (pbrt's --stats profile; ours BONSAI_KERNEL_STATS of the fastest render):
+
+| scene | spp | PBRT wf | mk-ser-ray | wf | wf-b128 | wf-b512 | wf-fused | wf-sort | wf-sort36 |
+|---|---|---|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 49.3 | 47.2 | 27.9 | 27.8 | 28.2 | 31.6 | 30.2 | 29.7 |
+| killeroo-simple | 64 | 197.1 | 187.0 | 111.4 | 111.2 | 112.8 | 126.3 | 120.8 | 119.3 |
+| killeroo-simple | 128 | 395.0 | 374.1 | 223.5 | 222.2 | 226.4 | 253.0 | 241.3 | 239.1 |
+| killeroo-gold | 16 | 149.2 | 115.0 | 68.2 | 68.3 | 69.3 | 78.7 | 74.6 | 73.4 |
+| killeroo-gold | 64 | 597.9 | 462.8 | 272.6 | 272.8 | 277.2 | 312.7 | 298.1 | 293.2 |
+| killeroo-gold | 128 | 1199.3 | 926.4 | 545.7 | 545.7 | 554.7 | 626.5 | 596.5 | 586.5 |
+| book | 16 | 152.8 | 164.2 | 83.6 | 84.0 | 84.6 | 101.1 | 91.5 | 90.4 |
+| book | 64 | 617.5 | 665.2 | 335.2 | 334.6 | 338.0 | 401.8 | 364.8 | 361.2 |
+| book | 128 | 1227.0 | 1339.9 | 671.4 | 672.6 | 675.5 | 806.1 | 731.2 | 721.8 |
+| ganesha | 16 | 176.8 | 432.9 | 96.4 | 96.3 | 98.1 | 110.1 | 103.6 | 104.9 |
+| ganesha | 64 | 708.5 | 1734.8 | 385.6 | 384.2 | 389.9 | 441.0 | 415.0 | 418.1 |
+| ganesha | 128 | 1418.9 | 3493.2 | 773.3 | 769.0 | 785.1 | 879.9 | 830.3 | 836.5 |
+| sanmiguel-courtyard | 16 | 149.1 | 220.8 | 108.2 | 107.9 | 110.2 | 106.1 | 114.7 | 114.9 |
+| sanmiguel-courtyard | 64 | 597.6 | 904.9 | 433.9 | 430.8 | 441.6 | 423.8 | 458.4 | 460.3 |
+| sanmiguel-courtyard | 128 | 1197.7 | 1818.6 | 870.3 | 865.0 | 886.1 | 850.5 | 919.2 | 924.2 |
+
+Wall speedup over the PBRT wf (pbrt --gpu) of the same run:
+
+| scene | spp | PBRT wf | mk-ser-ray | wf | wf-b128 | wf-b512 | wf-fused | wf-sort | wf-sort36 |
+|---|---|---|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 1.00 | 2.32 | 2.91 | 2.93 | 2.86 | 2.91 | 1.98 | 2.18 |
+| killeroo-simple | 64 | 1.00 | 1.17 | 1.57 | 1.58 | 1.57 | 1.49 | 1.04 | 1.15 |
+| killeroo-simple | 128 | 1.00 | 1.12 | 1.53 | 1.53 | 1.51 | 1.43 | 1.00 | 1.11 |
+| killeroo-gold | 16 | 1.00 | 1.91 | 2.48 | 2.50 | 2.47 | 2.39 | 1.72 | 1.92 |
+| killeroo-gold | 64 | 1.00 | 1.55 | 2.14 | 2.16 | 2.12 | 1.98 | 1.49 | 1.63 |
+| killeroo-gold | 128 | 1.00 | 1.42 | 1.99 | 1.99 | 1.97 | 1.82 | 1.37 | 1.50 |
+| book | 16 | 1.00 | 1.40 | 2.14 | 2.14 | 2.14 | 1.96 | 1.59 | 1.75 |
+| book | 64 | 1.00 | 1.10 | 1.78 | 1.78 | 1.77 | 1.57 | 1.34 | 1.43 |
+| book | 128 | 1.00 | 0.99 | 1.64 | 1.64 | 1.63 | 1.43 | 1.23 | 1.32 |
+| ganesha | 16 | 1.00 | 0.53 | 1.90 | 1.91 | 1.88 | 1.81 | 1.45 | 1.53 |
+| ganesha | 64 | 1.00 | 0.48 | 1.80 | 1.80 | 1.79 | 1.65 | 1.37 | 1.46 |
+| ganesha | 128 | 1.00 | 0.44 | 1.68 | 1.68 | 1.66 | 1.52 | 1.28 | 1.35 |
+| sanmiguel-courtyard | 16 | 1.00 | 1.09 | 1.88 | 1.91 | 1.89 | 2.03 | 1.50 | 1.58 |
+| sanmiguel-courtyard | 64 | 1.00 | 0.82 | 1.52 | 1.53 | 1.50 | 1.58 | 1.17 | 1.24 |
+| sanmiguel-courtyard | 128 | 1.00 | 0.74 | 1.38 | 1.39 | 1.36 | 1.43 | 1.07 | 1.13 |
+
+What it says:
+
+- **Yes, there is a data-dependent best schedule, and it is the fused
+  wavefront on sanmiguel.** With the materials inside the trace program
+  (wf-fused) sanmiguel renders 4-8% faster by wall than the plain
+  wavefront at every count (2.03x / 1.58x / 1.43x against 1.88x / 1.52x /
+  1.38x) and 2% faster by kernel (106.1 / 423.8 / 850.5 ms against
+  108.2 / 433.9 / 870.3), while every other scene is slower fused: book
+  by 20% of kernel time (101.1 against 83.6 ms at 16 spp), the killeroos
+  and ganesha by 13-15%. The queue a hit crosses costs a write of the
+  record, a launch and a reload; the material switch inside the trace
+  program costs the divergence of a wave that holds many materials. On
+  sanmiguel -- the most materials and textures of the five, the heaviest
+  shading per hit -- the queue's cost is the larger; on book the
+  divergence is. This is the paper's point in one scene: the schedule
+  that wins is a property of the scene, and both are the same program
+  under two schedules.
+- **The CUDA drains' block size is not a knob**: 128 is within 1% of 256
+  on every cell (ahead by 0.5-1% on the killeroos and sanmiguel, which is
+  the reference's own spread between runs: pbrt's killeroo-simple at 64
+  spp read 0.26 s in the evening's run and 0.22 s in this one); 512 is
+  0.5-2% behind. pbrt sizes each kernel by occupancy; one size for all is
+  not what holds this renderer back.
+- **The megakernel wants reordering by ray more than by material.**
+  mega-ser-ray against mega-ser: killeroo-gold 1.91x against 1.38x at 16
+  spp (kernel 115 ms against 159), book 1.40x against 1.11x (164 against
+  208), ganesha 0.53x against 0.46x, sanmiguel 1.09x against 1.04x; on
+  killeroo-simple the two are level (47.2 against 49.0 ms). It is the
+  best megakernel measured and still behind the wavefront on every cell:
+  the hardware's gathering by ray key recovers coherence for the trace,
+  not the register pressure and the code size of one program holding
+  every stage.
+- **Sorting the ray queue never pays on this GPU, with either key, and
+  the compiler's live-bits analysis is worth what the key's width lets
+  it be.** With the fixed 60-bit key wf-sort is 20-36% behind wf by wall
+  (kernel +8-9%, the rest the sort's dozen launches per round); with the
+  36-bit key and five digit passes wf-sort36 is 8-10% faster than
+  wf-sort by wall (its kernel time is the same, 29.7 against 30.2 ms, so
+  the saving is the three passes' launches) and still 17-27% behind wf.
+  A queue sort of the wavefront is the wrong place for coherence on
+  hardware that reorders its own traversal; the megakernel's reordering
+  hint is where the ray key earns its keep.
+
+To do, from this: the fused-ser compiler bug (the reordering hint reaching
+the closest-hit program); the fused wavefront's own figure beside the
+plain one if the paper wants the data-dependent point drawn (both are in
+`plot_gpu_wavefront.py`'s sides); the reordering hint's key taken from
+the sort key's live bits too (a 16-bit hint from a 36-bit key wants the
+top sixteen, which the schedule shifts by hand today); the pixel-major GPU
+pass as a schedule that sizes the band's queue by the whole band; the CPU
+sorted schedules re-measured with the fixed key (running, 10-24 03:50).

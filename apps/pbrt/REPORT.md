@@ -19,6 +19,78 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
+## Where it stands (2026-10-24, 04:00): the GPU schedule space explored; a data-dependent winner
+
+**Asked whether any schedule beats the matching wavefront on any scene or
+scene x spp cell, seven variants of the OptiX schedules were measured on
+the five scenes at 16, 64 and 128 spp against `pbrt --gpu` in one run
+(`gpu_compare.sh --out apps/pbrt/gpu-compare-out-explore`, 03:12 to
+03:39, 120 sides, every image matching), and one does: the wavefront with
+the material stage inside the trace program (gpu-optix-fused: no hit
+queue, `vol_surface` runs in the raygen right after the hit is routed) is
+faster than the plain wavefront on sanmiguel-courtyard at every sample
+count -- 2.03x / 1.58x / 1.43x against 1.88x / 1.52x / 1.38x by wall, and
+by kernel too (106.1 / 423.8 / 850.5 ms against 108.2 / 433.9 / 870.3) --
+and slower everywhere else, by 8 to 13% on book and 3 to 7% on the
+killeroos and ganesha.** sanmiguel is the scene with the most materials
+and textures per wave: there the hit queue's write, its launch and its
+reload cost more than the divergence of a material switch in the trace
+program, which is the trade the two schedules make. The other findings:
+
+- **Block size is not a knob here.** 128-thread blocks for the CUDA drains
+  are level with 256 within 1% on every cell (ahead by 0.5-1% on the
+  killeroos and sanmiguel, which is inside the run-to-run spread of the
+  reference itself); 512 is 0.5-2% behind.
+- **The megakernel gains most from reordering by ray.** Shader execution
+  reordering at every bounce by the top sixteen bits of the ray's
+  two-point key, on top of the material reordering (gpu-optix-mega-ser-ray),
+  lifts the megakernel from 1.38x to 1.91x on killeroo-gold at 16 spp,
+  from 1.11x to 1.40x on book, from 0.46x to 0.53x on ganesha and from
+  1.04x to 1.09x on sanmiguel; it still trails the wavefront on every cell.
+- **The ray sort of the wavefront's queue never pays, with either key.**
+  The sort key had a bug until tonight -- the two-point code's six
+  coordinates overlapped (every-third-bit masks for a six-way interleave),
+  so every ray-sort result before 10-24 ran on a lossy key; fixed in
+  render.bonsai (508bc091). With the true 60-bit key the sorted wavefront
+  is 20 to 36% behind the unsorted one; with a 36-bit key (six bits per
+  axis, ray_sort_key_coarse) and the compiler telling the sort its live
+  bits (IR/KnownBits: five digit passes instead of eight) it is 8 to 10%
+  faster than the 60-bit sort and still 17 to 27% behind unsorted. The
+  CPU sorted schedules are being re-measured with the fixed key.
+- Two variants did not run: gpu-optix-ps (pixel-major passes without
+  `reorder(p, s)`) is refused by the compiler, since the band's queue is
+  then not hoistable to the one allocation the caller's storage requires;
+  gpu-optix-fused-ser (the fused wavefront with the material reordering)
+  fails OptiX's module compile, `optixReorder` landing in the closest-hit
+  program, where it is illegal -- the hint is meant to be nothing outside
+  a raygen (Lower/Sorts.cpp's contract), so this is a compiler bug to fix.
+
+Wall speedup over `pbrt --gpu` of the same run (the full tables, with
+seconds and kernel milliseconds, are in PLAN.md "The GPU schedule space
+explored"):
+
+| scene | spp | PBRT wf | mk-ser-ray | wf | wf-b128 | wf-b512 | wf-fused | wf-sort | wf-sort36 |
+|---|---|---|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 1.00 | 2.32 | 2.91 | 2.93 | 2.86 | 2.91 | 1.98 | 2.18 |
+| killeroo-simple | 64 | 1.00 | 1.17 | 1.57 | 1.58 | 1.57 | 1.49 | 1.04 | 1.15 |
+| killeroo-simple | 128 | 1.00 | 1.12 | 1.53 | 1.53 | 1.51 | 1.43 | 1.00 | 1.11 |
+| killeroo-gold | 16 | 1.00 | 1.91 | 2.48 | 2.50 | 2.47 | 2.39 | 1.72 | 1.92 |
+| killeroo-gold | 64 | 1.00 | 1.55 | 2.14 | 2.16 | 2.12 | 1.98 | 1.49 | 1.63 |
+| killeroo-gold | 128 | 1.00 | 1.42 | 1.99 | 1.99 | 1.97 | 1.82 | 1.37 | 1.50 |
+| book | 16 | 1.00 | 1.40 | 2.14 | 2.14 | 2.14 | 1.96 | 1.59 | 1.75 |
+| book | 64 | 1.00 | 1.10 | 1.78 | 1.78 | 1.77 | 1.57 | 1.34 | 1.43 |
+| book | 128 | 1.00 | 0.99 | 1.64 | 1.64 | 1.63 | 1.43 | 1.23 | 1.32 |
+| ganesha | 16 | 1.00 | 0.53 | 1.90 | 1.91 | 1.88 | 1.81 | 1.45 | 1.53 |
+| ganesha | 64 | 1.00 | 0.48 | 1.80 | 1.80 | 1.79 | 1.65 | 1.37 | 1.46 |
+| ganesha | 128 | 1.00 | 0.44 | 1.68 | 1.68 | 1.66 | 1.52 | 1.28 | 1.35 |
+| sanmiguel-courtyard | 16 | 1.00 | 1.09 | 1.88 | 1.91 | 1.89 | 2.03 | 1.50 | 1.58 |
+| sanmiguel-courtyard | 64 | 1.00 | 0.82 | 1.52 | 1.53 | 1.50 | 1.58 | 1.17 | 1.24 |
+| sanmiguel-courtyard | 128 | 1.00 | 0.74 | 1.38 | 1.39 | 1.36 | 1.43 | 1.07 | 1.13 |
+
+The figure of this run is `plots/gpu-wavefront-explore.pdf`
+(`plot_gpu_wavefront.py ... --sides` with these seven); the paper's GPU
+figure stays the four-schedule one of the entry below.
+
 ## Where it stands (2026-10-24, 00:20): the GPU matrix measured, the GPU figure drawn
 
 **The paper's GPU figure, the CPU figure's twin, is drawn from
