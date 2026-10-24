@@ -48,9 +48,11 @@ as the user asked on 10-24:
     python3 apps/pbrt/plot_gpu_wavefront.py apps/pbrt/gpu-compare-out/table.tsv \
         apps/pbrt/gpu-compare-out-sort/table.tsv \
         apps/pbrt/gpu-compare-out-explore/table.tsv \
-        --width 11 -o apps/pbrt/plots/pbrt-gpu-sweep.pdf
+        -o apps/pbrt/plots/pbrt-gpu-sweep.pdf
 
-Everything else about the drawing is plot_cpu_wavefront.py's `draw`.
+Everything else about the drawing is plot_cpu_wavefront.py's `draw`,
+including the size: the paper's text width, the same as the CPU figure's,
+so that the two stack as subfigures of one float at one scale.
 """
 import argparse
 import csv
@@ -60,7 +62,7 @@ from plot_cpu_wavefront import YLGNBU, add_figure_arguments, choose_sides, draw
 
 REFERENCE = "pbrt --gpu"
 REFERENCE_LABEL = "PBRT wf"
-Y_LABEL = "Speedup over PBRT wf"
+Y_LABEL = "Speedup over\nPBRT wf"
 
 # (side in the table, label in the legend): the drawing order, the
 # megakernels first and then the wavefronts, each family from its plain

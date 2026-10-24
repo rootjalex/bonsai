@@ -26,6 +26,16 @@ of each scene; a purely volumetric scene has one or two shapes and comes
 first. The order and its counts are printed. The figure has no title
 unless `--title` gives one, the axes read "scene" and "spp" and the colour
 bar "Speedup" (the user, 10-24).
+
+The figure is the paper's text width (figure_style.py: acmsmall, 5.478 in,
+10 pt labels, TrueType fonts embedded as ACM requires) and the scenes are
+cut into bands of at most `--per-band` (default 15) stacked down the
+figure, each band the sample counts down and its scenes across, in the
+order chosen, continuing from one band to the next; the one colour bar at
+the right is for all of them. Thirty scenes in one band were 0.18 in wide
+each at text width and unreadable (the user, 10-24); in two they are
+0.3 in, room for the ratio in each cell at 8 pt (without its "x", which
+the colour bar carries).
 """
 
 import argparse
@@ -40,6 +50,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.colors import TwoSlopeNorm  # noqa: E402
+
+from figure_style import TEXT_WIDTH, TICK_FONT, paper_style  # noqa: E402
 
 
 def number(text):
@@ -133,6 +145,10 @@ def main(argv):
                         help="the order of the scenes across; geometry = by the shapes "
                              "pbrt built, from the .pbrt.stats beside each pbrt image")
     parser.add_argument("--title", default=None)
+    parser.add_argument("--per-band", type=int, default=15,
+                        help="scenes across one band; more scenes make more bands")
+    parser.add_argument("--width", type=float, default=TEXT_WIDTH,
+                        help="inches; the default is the paper's text width")
     args = parser.parse_args(argv[1:])
 
     scenes, spps, cells, labels, stats = read_tables(args.tables, args.schedule)
@@ -161,60 +177,78 @@ def main(argv):
     # log2 of the speedup, parity at zero; the scale is symmetric about it
     # so that the colours mean the same thing on every plot of the same
     # range, and wide enough for whatever the tables hold.
-    values = [[cells[(sc, s)][0] if (sc, s) in cells else None for sc in scenes] for s in spps]
-    logs = [[math.log2(v) if v else float("nan") for v in row] for row in values]
-    extent = max((abs(x) for row in logs for x in row if not math.isnan(x)), default=1.0)
+    all_logs = [math.log2(cells[(sc, s)][0]) for sc in scenes for s in spps if (sc, s) in cells]
+    extent = max((abs(x) for x in all_logs), default=1.0)
     extent = max(1.0, math.ceil(extent * 2) / 2)
     norm = TwoSlopeNorm(vmin=-extent, vcenter=0.0, vmax=extent)
 
-    width = max(6.0, 0.9 * len(scenes) + 2.5)
-    height = max(2.6, 0.75 * len(spps) + 1.8)
-    fig, ax = plt.subplots(figsize=(width, height))
-    image = ax.imshow(logs, cmap="RdYlGn", norm=norm, aspect="auto")
-    ax.set_xticks(range(len(scenes)))
-    ax.set_xticklabels([labels[sc] for sc in scenes], rotation=35, ha="right")
-    ax.set_yticks(range(len(spps)))
-    ax.set_yticklabels([str(s) for s in spps])
-    ax.set_ylabel("spp")
-    ax.set_xlabel("scene")
+    per = max(1, args.per_band)
+    bands = [scenes[i:i + per] for i in range(0, len(scenes), per)]
+    across = min(per, len(scenes))
+    cell_h = 0.22                                   # inches, one sample count's row
+    label_h = 1.25                                  # the rotated scene names under a band
+    height = len(bands) * (len(spps) * cell_h + label_h) + 0.2
+    paper_style()
+    # Constrained layout keeps the bands, their names and the colour bar
+    # inside a figure of exactly the width asked, so the PDF is the text width.
+    fig, axes = plt.subplots(len(bands), 1, figsize=(args.width, height), squeeze=False,
+                             layout="constrained")
+    axes = [row[0] for row in axes]
+    image = None
+    for ax, band in zip(axes, bands):
+        logs = [[math.log2(cells[(sc, s)][0]) if (sc, s) in cells else float("nan")
+                 for sc in band] for s in spps]
+        image = ax.imshow(logs, cmap="RdYlGn", norm=norm, aspect="auto")
+        ax.set_xlim(-0.5, across - 0.5)             # every band's cells the same width
+        ax.set_xticks(range(len(band)))
+        ax.set_xticklabels([labels[sc] for sc in band], rotation=40, ha="right",
+                           rotation_mode="anchor")
+        ax.set_yticks(range(len(spps)))
+        ax.set_yticklabels([str(s) for s in spps])
+        ax.set_ylabel("spp")
+        ax.tick_params(length=0)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        # Cell borders, as a table has.
+        ax.set_xticks([i - 0.5 for i in range(len(band) + 1)], minor=True)
+        ax.set_yticks([i - 0.5 for i in range(len(spps) + 1)], minor=True)
+        ax.grid(which="minor", color="white", linewidth=1.0)
+        ax.tick_params(which="minor", length=0)
+
+        for i, s in enumerate(spps):
+            for j, sc in enumerate(band):
+                cell = cells.get((sc, s))
+                if cell is None:
+                    ax.add_patch(plt.Rectangle((j - 0.5, i - 0.5), 1, 1, facecolor="#eeeeee",
+                                               edgecolor="white", linewidth=1.0))
+                    continue
+                v, matched = cell
+                # Dark text on the pale middle of the scale, light on its ends.
+                dark = abs(math.log2(v)) < 0.6 * extent
+                # The ratio alone; the colour bar carries the "x", and
+                # "1.60x" at 8 pt would overflow a 0.3 in cell.
+                ax.text(j, i, f"{v:.2f}", ha="center", va="center", fontsize=TICK_FONT - 1,
+                        color="black" if dark else "white",
+                        fontweight="bold" if not dark else "normal")
+                if not matched:
+                    ax.add_patch(plt.Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False,
+                                               hatch="///", edgecolor="black", linewidth=0))
+                    ax.plot([j - 0.3, j + 0.3], [i, i], color="black", linewidth=0.9)
+    axes[-1].set_xlabel("scene")
     if args.title:
-        ax.set_title(args.title)
-    # Cell borders, as a table has.
-    ax.set_xticks([i - 0.5 for i in range(len(scenes) + 1)], minor=True)
-    ax.set_yticks([i - 0.5 for i in range(len(spps) + 1)], minor=True)
-    ax.grid(which="minor", color="white", linewidth=1.5)
-    ax.tick_params(which="minor", length=0)
+        axes[0].set_title(args.title)
 
-    for i, s in enumerate(spps):
-        for j, sc in enumerate(scenes):
-            cell = cells.get((sc, s))
-            if cell is None:
-                ax.add_patch(plt.Rectangle((j - 0.5, i - 0.5), 1, 1, facecolor="#eeeeee",
-                                           edgecolor="white", linewidth=1.5))
-                continue
-            v, matched = cell
-            # Dark text on the pale middle of the scale, light on its ends.
-            dark = abs(math.log2(v)) < 0.6 * extent
-            text = f"{v:.2f}x"
-            ax.text(j, i, text, ha="center", va="center", fontsize=9,
-                    color="black" if dark else "white",
-                    fontweight="bold" if not dark else "normal")
-            if not matched:
-                ax.add_patch(plt.Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False,
-                                           hatch="///", edgecolor="black", linewidth=0))
-                ax.plot([j - 0.3, j + 0.3], [i, i], color="black", linewidth=1.2)
-
-    bar = fig.colorbar(image, ax=ax, fraction=0.03, pad=0.02)
+    bar = fig.colorbar(image, ax=axes, fraction=0.025, pad=0.015, aspect=12 * len(bands))
     ticks = [t for t in range(-int(extent), int(extent) + 1)]
     bar.set_ticks(ticks)
     bar.set_ticklabels([f"{2.0 ** t:g}x" for t in ticks])
     bar.set_label("Speedup")
-    fig.tight_layout()
-    fig.savefig(args.out, dpi=130)
+    bar.outline.set_linewidth(0.6)
+    fig.savefig(args.out, dpi=200)
     blank = sum(1 for s in spps for sc in scenes if (sc, s) not in cells)
     wrong = sum(1 for c in cells.values() if not c[1])
-    print(f"wrote {args.out}: {len(scenes)} scenes x {len(spps)} sample counts, "
-          f"{blank} blank, {wrong} not matching pbrt")
+    print(f"wrote {args.out}: {len(scenes)} scenes x {len(spps)} sample counts in "
+          f"{len(bands)} band(s), {blank} blank, {wrong} not matching pbrt")
     return 0
 
 

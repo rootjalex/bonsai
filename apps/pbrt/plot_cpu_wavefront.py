@@ -39,10 +39,15 @@ ever failed (sanmiguel 16 spp against pbrt's volpath) was pbrt's own two
 integrators disagreeing by more than we differ from either, which the user
 ruled fine (10-23). The bars carry no numbers (the user, 10-22: they made
 the figure noisy; the CSV has them; `--values` puts them back). `--width`
-and `--height` are the figure size in inches (the defaults fit a two-column
-page's full width); `--log` puts the speedup axis on a log scale, where the
-line at 1 sits mid-axis. The output format follows the extension (.pdf for
-the paper, .png to look at); fonts are embedded as TrueType (fonttype 42).
+and `--height` are the figure size in inches; the defaults are the paper's
+text width (acmsmall, 5.478 in; figure_style.py has the format, the fonts
+and their sizes, so a figure included at `\\textwidth` is not rescaled and
+its 10 pt labels stay 10 pt) by 2.7 in, the legend in three columns above
+the axes (three rows for nine sides; the user asked for five over four on
+10-24, which the nine labels at 10 pt do not fit into 5.478 in). `--log`
+puts the speedup axis on a log scale, where the line at 1 sits mid-axis.
+The output format follows the extension (.pdf for the paper, .png to look
+at); fonts are embedded as TrueType (fonttype 42, as ACM requires).
 
 The drawing is `draw`, shared with plot_gpu_wavefront.py, which draws the
 GPU study's table the same way with its own sides and reference.
@@ -58,9 +63,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
+from figure_style import FONT, TEXT_WIDTH, TICK_FONT, paper_style  # noqa: E402
+
 REFERENCE = "pbrt-wavefront"
 REFERENCE_LABEL = "PBRT wf"
-Y_LABEL = "Speedup over PBRT wf"   # the user's wording (10-23)
+Y_LABEL = "Speedup over\nPBRT wf"   # the user's wording (10-23), on two lines at 10 pt
 EDGE = "#333333"             # every bar's thin edge
 
 # ColorBrewer YlGnBu, nine classes, lightest first (the user's palette, 10-23).
@@ -143,8 +150,10 @@ def add_figure_arguments(ap):
     ap.add_argument("-o", "--out", default=None)
     ap.add_argument("--sides", default=None,
                     help="comma-separated side names to draw, in this order")
-    ap.add_argument("--width", type=float, default=7.0)
-    ap.add_argument("--height", type=float, default=3.4)
+    ap.add_argument("--width", type=float, default=TEXT_WIDTH,
+                    help="inches; the default is the paper's text width (figure_style.py)")
+    ap.add_argument("--height", type=float, default=2.7,
+                    help="inches, the axes and the legend above them")
     ap.add_argument("--log", action="store_true", help="log-scale speedup axis")
     ap.add_argument("--values", action="store_true", help="the speedup written on each bar")
     ap.add_argument("--title", default=None)
@@ -195,14 +204,14 @@ def draw(rows, sides, reference, reference_label, y_label, args):
         # that a side is always measured against the pbrt that ran beside it.
         return c["reference"] if c.get("reference") is not None else reference_seconds(scene, spp)
 
-    plt.rcParams.update({"pdf.fonttype": 42, "ps.fonttype": 42,
-                         "font.size": 8, "axes.titlesize": 8,
-                         "legend.fontsize": 7})
-    fig, ax = plt.subplots(figsize=(args.width, args.height))
+    paper_style()
+    # Constrained layout keeps the legend, the scene names and the y label
+    # inside a figure of exactly the size asked, so the PDF is the text width.
+    fig, ax = plt.subplots(figsize=(args.width, args.height), layout="constrained")
 
     bar = 1.0                     # one bar's width in x units
-    gap_spp = 2.0                 # between the sample counts of a scene
-    gap_scene = 4.0               # between scenes
+    gap_spp = 1.5                 # between the sample counts of a scene
+    gap_scene = 3.0               # between scenes
     x = 0.0
     scene_centres, spp_centres, spp_labels = [], [], []
     for scene in scenes:
@@ -215,10 +224,10 @@ def draw(rows, sides, reference, reference_label, y_label, args):
                 if c is not None and ref is not None:
                     speedup = ref / c["seconds"]
                     ax.bar(x, speedup, bar * 0.9, color=colour,
-                           edgecolor=EDGE, linewidth=0.4, zorder=2)
+                           edgecolor=EDGE, linewidth=0.3, zorder=2)
                     if args.values:
                         ax.text(x, speedup, f"{speedup:.2f}", ha="center", va="bottom",
-                                fontsize=5.5, rotation=90, zorder=4)
+                                fontsize=TICK_FONT - 2, rotation=90, zorder=4)
                 x += bar
             spp_centres.append((group_start + x - bar) / 2)
             spp_labels.append(f"{spp}")       # "spp" is written once, at the left
@@ -228,16 +237,21 @@ def draw(rows, sides, reference, reference_label, y_label, args):
         x += gap_scene
 
     right = x - gap_scene
-    ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=1.2, zorder=3)
-    ax.text(right + 0.3, 1.0, reference_label, ha="left", va="center", fontsize=6.5)
+    ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=0.9, zorder=3)
+    ax.text(right + 0.3, 1.0, reference_label, ha="left", va="center", fontsize=TICK_FONT)
     ax.set_xticks(spp_centres)
     ax.set_xticklabels(spp_labels)
     ax.tick_params(axis="x", length=0)
-    ax.text(-bar, -0.045, "spp", ha="right", va="top",
-            transform=ax.get_xaxis_transform(), fontsize=8)
+    ax.text(-bar, -0.03, "spp", ha="right", va="top",
+            transform=ax.get_xaxis_transform(), fontsize=TICK_FONT)
     for centre, scene in zip(scene_centres, scenes):
-        ax.text(centre, -0.16, scene, ha="center", va="top",
-                transform=ax.get_xaxis_transform(), fontsize=8)
+        # A long name breaks at its last hyphen onto a second line, so that
+        # five scenes' names fit side by side at text width.
+        if len(scene) > 10 and "-" in scene:
+            head, tail = scene.rsplit("-", 1)
+            scene = f"{head}-\n{tail}"
+        ax.text(centre, -0.15, scene, ha="center", va="top", linespacing=1.1,
+                transform=ax.get_xaxis_transform(), fontsize=TICK_FONT)
     ax.set_ylabel(y_label)
     if args.log:
         ax.set_yscale("log")
@@ -247,24 +261,26 @@ def draw(rows, sides, reference, reference_label, y_label, args):
     ax.set_xlim(-bar, right + 0.3)
     for spine in ("top", "right"):
         ax.spines[spine].set_visible(False)
-    ax.yaxis.grid(True, linewidth=0.4, alpha=0.5, zorder=0)
+    ax.yaxis.grid(True, linewidth=0.3, alpha=0.5, zorder=0)
     ax.set_axisbelow(True)
     if args.title:
         ax.set_title(args.title)
 
-    handles = [Patch(facecolor=colour, edgecolor=EDGE, linewidth=0.4, label=label)
+    handles = [Patch(facecolor=colour, edgecolor=EDGE, linewidth=0.3, label=label)
                for _, label, colour in sides]
-    ncol = 3 if len(handles) > 6 else 2 if len(handles) > 4 else len(handles)
+    # Nine labels of "Bonsai wf-t-v-ps-sort" at 10 pt do not fit five across
+    # the paper's 5.478 in (the user's two-row layout, 10-24, needs about
+    # 8 in): three columns, three rows.
+    ncol = len(handles) if len(handles) <= 4 else 3
     legend_rows = (len(handles) + ncol - 1) // ncol
     ax.legend(handles=handles, ncol=ncol, frameon=False, loc="lower center",
-              bbox_to_anchor=(0.5, 1.0 + 0.02), handlelength=2.2, handleheight=1.2,
-              borderaxespad=0.0, columnspacing=1.2)
+              bbox_to_anchor=(0.5, 1.0 + 0.02),
+              borderaxespad=0.0, columnspacing=1.0, handletextpad=0.5)
 
-    fig.tight_layout()
     out_dir = os.path.dirname(args.out)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
-    fig.savefig(args.out, bbox_inches="tight", dpi=200)
+    fig.savefig(args.out, dpi=200)
     print(f"wrote {args.out} ({len(scenes)} scenes, {len(spps)} sample counts, "
           f"{len(sides)} sides, {legend_rows} legend rows)")
     return legend_rows

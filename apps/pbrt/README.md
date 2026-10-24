@@ -135,7 +135,16 @@ before it.
     `pbrt --gpu` on all thirty scenes x 16/64/128/256 spp, the scenes in
     order of the geometry pbrt built for them, volumes first (`--sort
     geometry`; plot_gpu_heatmap.py from the last heatmap run,
-    compare-out-heatmap7).
+    compare-out-heatmap7), in two bands of fifteen scenes.
+
+  All three are drawn for the paper's page (figure_style.py): ACM's
+  acmsmall format, a 5.478 in text block, so each PDF is exactly that
+  wide and `\includegraphics[width=\textwidth]` does not rescale it;
+  labels and legends 10 pt and tick labels 9 pt as printed (the user,
+  10-24); Liberation Sans embedded as TrueType (fonttype 42), since ACM's
+  production rejects the Type 3 fonts matplotlib emits by default (check a
+  PDF with `pdffonts`). The two sweeps are the same size so they stack as
+  one float's subfigures.
 
   The runs are variables at the top of the script (`CPU_CSVS`,
   `GPU_TABLES`, `HEATMAP_TABLE`), overridable in the environment when a
@@ -160,8 +169,13 @@ before it.
   wrote, plotted -- each schedule's speedup over `pbrt --gpu` and every
   side's kernel time, a group of bars per scene and a row of panels per
   table (sample count); a bar whose image did not match pbrt's is hatched.
+- `figure_style.py`: the paper's figure style the three plotters import --
+  `TEXT_WIDTH` (5.478 in, acmsmall's text block), `paper_style()` (TrueType
+  embedding, Liberation Sans, 10 pt labels, 9 pt ticks, thin axes).
 - `plot_gpu_heatmap.py OUT.png TABLE.tsv... [--schedule S] [--sort
-  table|name|speedup|geometry]`: the same tables as a heatmap -- scenes across,
+  table|name|speedup|geometry] [--per-band N] [--width IN]`: the same
+  tables as a heatmap -- scenes across in bands of at most N (default 15,
+  so the thirty scenes are two bands at text width, 0.3 in a cell),
   sample counts down, each cell one schedule's speedup over `pbrt --gpu`
   (default `gpu-optix`), coloured on a log scale centred on parity with the
   ratio printed in the cell, the GraphIt paper's figure for a schedule
