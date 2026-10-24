@@ -27,16 +27,18 @@ hue and the figure reads in greyscale and under the common colour
 deficiencies (ColorBrewer marks the ramp colour-blind safe and
 print-friendly; no nine-colour qualitative palette is). Every bar has a
 thin dark edge so the pale end stays visible on white. The figure does not
-mark the image checks: the CSV's
-verdict column has them, and the one that ever failed (sanmiguel 16 spp
-against pbrt's volpath) was pbrt's own two integrators disagreeing by more
-than we differ from either, which the user ruled fine (10-23). The bars carry no
-numbers (the user, 10-22: they made the figure noisy; the CSV has them;
-`--values` puts them back). `--width` and `--height` are the figure
-size in inches (the defaults fit a two-column page's full width); `--log`
-puts the speedup axis on a log scale, where the line at 1 sits mid-axis.
-The output format follows the extension (.pdf for the paper, .png to look
-at); fonts are embedded as TrueType (fonttype 42).
+mark the image checks: the CSV's verdict column has them, and the one that
+ever failed (sanmiguel 16 spp against pbrt's volpath) was pbrt's own two
+integrators disagreeing by more than we differ from either, which the user
+ruled fine (10-23). The bars carry no numbers (the user, 10-22: they made
+the figure noisy; the CSV has them; `--values` puts them back). `--width`
+and `--height` are the figure size in inches (the defaults fit a two-column
+page's full width); `--log` puts the speedup axis on a log scale, where the
+line at 1 sits mid-axis. The output format follows the extension (.pdf for
+the paper, .png to look at); fonts are embedded as TrueType (fonttype 42).
+
+The drawing is `draw`, shared with plot_gpu_wavefront.py, which draws the
+GPU study's table the same way with its own sides and reference.
 """
 import argparse
 import csv
@@ -86,6 +88,9 @@ SIDES = [
 
 
 def load(path):
+    """cpu_compare.sh's CSV as rows with `scene`, `spp` (int), `side`,
+    `seconds` (float) and `verdict`; a row whose run produced no time draws
+    nothing and is dropped."""
     with open(path, newline="") as f:
         rows = list(csv.DictReader(f))
     out = []
@@ -94,7 +99,7 @@ def load(path):
             r["spp"] = int(r["spp"])
             r["seconds"] = float(r["seconds"])
         except (ValueError, KeyError):
-            continue       # a row whose run produced no time draws nothing
+            continue
         out.append(r)
     return out
 
@@ -107,11 +112,9 @@ def ordered(values):
     return seen
 
 
-def main(argv):
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("csv")
-    ap.add_argument("-o", "--out", default="cpu-wavefront-speedups.pdf")
+def add_figure_arguments(ap):
+    """The arguments the CPU and GPU figures share."""
+    ap.add_argument("-o", "--out", default=None)
     ap.add_argument("--sides", default=None,
                     help="comma-separated side names to draw, in this order")
     ap.add_argument("--width", type=float, default=7.0)
@@ -119,34 +122,45 @@ def main(argv):
     ap.add_argument("--log", action="store_true", help="log-scale speedup axis")
     ap.add_argument("--values", action="store_true", help="the speedup written on each bar")
     ap.add_argument("--title", default=None)
-    args = ap.parse_args(argv[1:])
 
-    rows = load(args.csv)
-    scenes = ordered(r["scene"] for r in rows)
-    spps = sorted(ordered(r["spp"] for r in rows))
-    sides = SIDES
-    if args.sides:
-        wanted = args.sides.split(",")
-        known = {s[0]: s for s in SIDES}
-        missing = [w for w in wanted if w not in known]
+
+def choose_sides(rows, all_sides, wanted):
+    """The sides to draw: `wanted` (comma-separated names) in that order, or
+    all of `all_sides`; either way only those the rows have. None, with a
+    message on stderr, when nothing can be drawn."""
+    sides = all_sides
+    if wanted:
+        names = wanted.split(",")
+        known = {s[0]: s for s in all_sides}
+        missing = [w for w in names if w not in known]
         if missing:
             print(f"unknown sides: {', '.join(missing)}", file=sys.stderr)
-            return 1
-        sides = [known[w] for w in wanted]
+            return None
+        sides = [known[w] for w in names]
     present = {r["side"] for r in rows}
     sides = [s for s in sides if s[0] in present]
     if not sides:
-        print("no side of the CSV is one SIDES knows", file=sys.stderr)
-        return 1
+        print("no side of the table is one the figure knows", file=sys.stderr)
+        return None
+    return sides
+
+
+def draw(rows, sides, reference, reference_label, y_label, args):
+    """The figure: a bar per side of `sides` ((side, label, colour), in
+    drawing order) in a subgroup per sample count in a group per scene, each
+    bar the `reference` side's seconds over the side's, from `rows` as `load`
+    returns them. Written to args.out; returns the number of legend rows."""
+    scenes = ordered(r["scene"] for r in rows)
+    spps = sorted(ordered(r["spp"] for r in rows))
 
     def cell(scene, spp, side):
         return next((r for r in rows if r["scene"] == scene and r["spp"] == spp
                      and r["side"] == side), None)
 
-    def reference(scene, spp):
+    def reference_seconds(scene, spp):
         # The least of the cell's reference rows, should a run have more than one.
         times = [r["seconds"] for r in rows
-                 if r["scene"] == scene and r["spp"] == spp and r["side"] == REFERENCE]
+                 if r["scene"] == scene and r["spp"] == spp and r["side"] == reference]
         return min(times) if times else None
 
     plt.rcParams.update({"pdf.fonttype": 42, "ps.fonttype": 42,
@@ -162,7 +176,7 @@ def main(argv):
     for scene in scenes:
         scene_start = x
         for j, spp in enumerate(spps):
-            ref = reference(scene, spp)
+            ref = reference_seconds(scene, spp)
             group_start = x
             for side, label, colour in sides:
                 c = cell(scene, spp, side)
@@ -183,7 +197,7 @@ def main(argv):
 
     right = x - gap_scene
     ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=1.2, zorder=3)
-    ax.text(right + 0.3, 1.0, REFERENCE_LABEL, ha="left", va="center", fontsize=6.5)
+    ax.text(right + 0.3, 1.0, reference_label, ha="left", va="center", fontsize=6.5)
     ax.set_xticks(spp_centres)
     ax.set_xticklabels(spp_labels)
     ax.tick_params(axis="x", length=0)
@@ -192,7 +206,7 @@ def main(argv):
     for centre, scene in zip(scene_centres, scenes):
         ax.text(centre, -0.16, scene, ha="center", va="top",
                 transform=ax.get_xaxis_transform(), fontsize=8)
-    ax.set_ylabel(Y_LABEL)
+    ax.set_ylabel(y_label)
     if args.log:
         ax.set_yscale("log")
     else:
@@ -221,6 +235,23 @@ def main(argv):
     fig.savefig(args.out, bbox_inches="tight", dpi=200)
     print(f"wrote {args.out} ({len(scenes)} scenes, {len(spps)} sample counts, "
           f"{len(sides)} sides, {legend_rows} legend rows)")
+    return legend_rows
+
+
+def main(argv):
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("csv")
+    add_figure_arguments(ap)
+    args = ap.parse_args(argv[1:])
+    if args.out is None:
+        args.out = "cpu-wavefront-speedups.pdf"
+
+    rows = load(args.csv)
+    sides = choose_sides(rows, SIDES, args.sides)
+    if sides is None:
+        return 1
+    draw(rows, sides, REFERENCE, REFERENCE_LABEL, Y_LABEL, args)
     return 0
 
 

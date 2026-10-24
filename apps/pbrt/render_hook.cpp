@@ -2540,7 +2540,7 @@ int main(int argc, char **argv) {
     for (uint32_t i = 0; i < shapes.size(); i++) {
         scene_bounds = merge(scene_bounds, bounds_of(shapes[i], pool, shape_pools));
     }
-    for (const auto &p : pool.positions) {
+    for (const auto &p : positions) {
         scene_bounds = merge(scene_bounds, Meshes::widen(p));
     }
     // The hardware's structure is built over the primitives in this order:
