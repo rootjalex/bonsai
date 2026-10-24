@@ -32,7 +32,14 @@ so the line at 1 is the matching schedule and the colour says which tree.
 The colours are apps/pbrt's figures' (the user's choice, 10-24): two classes
 of ColorBrewer's nine-class YlGnBu ramp, far enough apart to tell with the
 hatches over them -- the light second for Embree, the fifth for FCPW -- and
-the bars' edge and the line at 1 as there.
+the bars' edge and the line at 1 as there. The figures are drawn at the
+size they are printed (the user's rule, 10-24; apps/pbrt/figure_style.py
+has the format): 5.478 in wide, acmsmall's text block, what
+\\includegraphics[width=\\textwidth] scales a figure to in the paper, so that
+a 10 pt label comes out 10 pt on the page, in TrueType (pdf.fonttype 42),
+which ACM's production accepts where matplotlib's default Type 3 fonts are
+refused; the mesh labels are turned 45 degrees, since nineteen names and
+their triangle counts do not fit upright in five and a half inches.
 """
 import argparse
 import csv
@@ -45,6 +52,12 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
+from matplotlib.ticker import MaxNLocator  # noqa: E402
+
+# The paper's figure style, apps/pbrt's module: acmsmall's text width, 10 pt
+# labels and legend, 9 pt ticks, Liberation Sans embedded as TrueType.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pbrt"))
+from figure_style import FONT, TEXT_WIDTH, paper_style  # noqa: E402
 
 EDGE = "#333333"  # every bar's thin edge, as apps/pbrt/plot_cpu_wavefront.py
 # ColorBrewer YlGnBu, nine classes, lightest first (apps/pbrt's palette).
@@ -66,6 +79,48 @@ FIGURES = [
 # figure, since the packet comparison is one comparison (Embree's
 # rtcIntersect<K> and rtcOccluded<K> against the rays in gangs of K).
 PACKET_SETS = [("nearest", "primary"), ("nearest", "diffuse"), ("any", "ao")]
+# A height three of these stack in on one page with their captions.
+HEIGHT = 2.1
+
+
+def new_figure():
+    paper_style()
+    return plt.subplots(figsize=(TEXT_WIDTH, HEIGHT))
+
+
+def mesh_ticks(ax, meshes, tris):
+    """The meshes along the x axis, each with its triangle count, turned 45
+    degrees to fit."""
+    ax.set_xticks(range(len(meshes)))
+    ax.set_xticklabels([f"{m} {tris[m] / 1e6:.2g}M" if tris[m] >= 1e6
+                        else f"{m} {tris[m] // 1000}k" if tris[m] >= 1000
+                        else f"{m} {tris[m]}" for m in meshes],
+                       rotation=45, ha="right", rotation_mode="anchor")
+    ax.set_xlim(-0.6, len(meshes) - 0.4)
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
+
+
+def legend_above(ax, handles):
+    """The legend above the axes, clear of the tallest bar: one row where its
+    labels fit the width (a character about 0.6 em, a handle and its gaps
+    about 4 em), two otherwise; no title (the figure's caption says which
+    query it is, and which schedules)."""
+    points = sum(len(h.get_label()) * 0.6 * FONT + 4 * FONT for h in handles)
+    ncol = len(handles) if points <= TEXT_WIDTH * 72 else (len(handles) + 1) // 2
+    ax.legend(handles=handles, ncol=ncol, loc="lower left", frameon=False,
+              bbox_to_anchor=(0, 1.0), borderaxespad=0)
+
+
+def save(fig, out_dir, name, formats):
+    """The page exactly the figure's size (no cropping to the content, which
+    would leave LaTeX to rescale it): the layout fits the labels and the
+    legend inside it."""
+    fig.tight_layout(pad=0.3)
+    for fmt in formats:
+        path = os.path.join(out_dir, f"{name}.{fmt}")
+        fig.savefig(path, dpi=200)
+        print(path)
+    plt.close(fig)
 
 
 def load(path):
@@ -163,7 +218,7 @@ def draw_packet(rows, schedule, out_dir, formats, exclude):
     k = width_match.group(1) if width_match else "K"
     n = len(PACKET_SETS)
     width = 0.8 / n
-    fig, ax = plt.subplots(figsize=(13, 3.4))
+    fig, ax = new_figure()
     top = 1.0
     for i, mesh in enumerate(meshes):
         for j, (_, rays) in enumerate(PACKET_SETS):
@@ -175,10 +230,7 @@ def draw_packet(rows, schedule, out_dir, formats, exclude):
                    edgecolor=EDGE, linewidth=0.4)
             top = max(top, v)
     ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=1.2, zorder=3)
-    ax.set_xticks(range(len(meshes)))
-    ax.set_xticklabels([f"{m}\n{tris[m] / 1e6:.2g}M" if tris[m] >= 1e6 else f"{m}\n{tris[m] // 1000}k"
-                        for m in meshes], fontsize=8)
-    ax.set_xlim(-0.6, len(meshes) - 0.4)
+    mesh_ticks(ax, meshes, tris)
     ax.set_ylim(0, top * 1.08)
     ax.set_ylabel("Speedup over reference")
     ax.spines["top"].set_visible(False)
@@ -189,14 +241,8 @@ def draw_packet(rows, schedule, out_dir, formats, exclude):
                      label=f"Embree, packets of {k} (rtcIntersect{k}, rtcOccluded{k})")]
     handles += [Patch(facecolor="white", edgecolor=EDGE, linewidth=0.4,
                       hatch=HATCH[rays], label=LABEL[rays]) for _, rays in PACKET_SETS]
-    ax.legend(handles=handles, fontsize=8, ncol=len(handles), loc="lower left",
-              frameon=False, bbox_to_anchor=(0, 1.0), borderaxespad=0)
-    fig.tight_layout()
-    for fmt in formats:
-        path = os.path.join(out_dir, f"rtq-packet.{fmt}")
-        fig.savefig(path, dpi=160)
-        print(path)
-    plt.close(fig)
+    legend_above(ax, handles)
+    save(fig, out_dir, "rtq-packet", formats)
 
 
 def draw(rows, schedules, out_dir, suffix, formats, exclude, tuned):
@@ -213,7 +259,7 @@ def draw(rows, schedules, out_dir, suffix, formats, exclude, tuned):
             continue
         n = len(sets) * len(refs)
         width = 0.8 / n
-        fig, ax = plt.subplots(figsize=(13, 3.4))
+        fig, ax = new_figure()
         top = 1.0
         for i, mesh in enumerate(meshes):
             for j, rays in enumerate(sets):
@@ -226,10 +272,7 @@ def draw(rows, schedules, out_dir, suffix, formats, exclude, tuned):
                            edgecolor=EDGE, linewidth=0.4)
                     top = max(top, v)
         ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=1.2, zorder=3)
-        ax.set_xticks(range(len(meshes)))
-        ax.set_xticklabels([f"{m}\n{tris[m] / 1e6:.2g}M" if tris[m] >= 1e6 else f"{m}\n{tris[m] // 1000}k"
-                            for m in meshes], fontsize=8)
-        ax.set_xlim(-0.6, len(meshes) - 0.4)
+        mesh_ticks(ax, meshes, tris)
         ax.set_ylim(0, top * 1.08)
         ax.set_ylabel("Speedup over matching schedule" if tuned else "Speedup over reference")
         ax.spines["top"].set_visible(False)
@@ -241,16 +284,8 @@ def draw(rows, schedules, out_dir, suffix, formats, exclude, tuned):
                    for ref, _ in refs]
         handles += [Patch(facecolor="white", edgecolor=EDGE, linewidth=0.4,
                           hatch=HATCH[s], label=LABEL[s]) for s in sets]
-        # The legend above the axes, clear of the tallest bar; no title (the
-        # figure's caption says which query it is, and which schedules).
-        ax.legend(handles=handles, fontsize=8, ncol=len(handles), loc="lower left",
-                  frameon=False, bbox_to_anchor=(0, 1.0), borderaxespad=0)
-        fig.tight_layout()
-        for fmt in formats:
-            path = os.path.join(out_dir, f"rtq-{name}{suffix}.{fmt}")
-            fig.savefig(path, dpi=160)
-            print(path)
-        plt.close(fig)
+        legend_above(ax, handles)
+        save(fig, out_dir, f"rtq-{name}{suffix}", formats)
 
 
 def main():
