@@ -17,14 +17,22 @@ through, so that a speedup on a wrong picture cannot be read as a speedup.
 Colour is log2 of the speedup on a diverging scale centred on parity --
 green above one, red below -- so 2x and 0.5x are equally far from the
 middle; the numbers are the ratios themselves, as the table prints them.
-Scenes are in the tables' order, or by name, or by their mean speedup. The
-figure has no title unless `--title` gives one, the axes read "scene" and
-"spp" and the colour bar "Speedup" (the user, 10-24).
+Scenes are in the tables' order, or by name, or by their mean speedup, or
+(`--sort geometry`) by how much geometry pbrt built for them -- the shapes
+counted in the Geometry section of the `.pbrt.stats` file gpu_compare.sh
+keeps beside each pbrt image (`Triangles per mesh N / M` counts N; spheres,
+disks, curves and bilinear patches count too), read from the first pbrt row
+of each scene; a purely volumetric scene has one or two shapes and comes
+first. The order and its counts are printed. The figure has no title
+unless `--title` gives one, the axes read "scene" and "spp" and the colour
+bar "Speedup" (the user, 10-24).
 """
 
 import argparse
 import csv
 import math
+import os
+import re
 import sys
 
 import matplotlib
@@ -50,17 +58,24 @@ def read_tables(paths, schedule):
     cells = {}
     scenes = []
     names = {}
+    stats = {}
     spps = set()
     for path in paths:
         with open(path, newline="") as f:
             for r in csv.DictReader(f, delimiter="\t"):
+                key = r.get("path") or r["scene"]
+                if r["side"].startswith("pbrt"):
+                    # The pbrt side's `.stats` lies beside its image.
+                    image = r.get("image") or ""
+                    if key not in stats and image.endswith(".png"):
+                        stats[key] = image[:-len(".png")] + ".stats"
+                    continue
                 if r["side"] != schedule:
                     continue
                 v = number(r["speedup"])
                 if v is None:
                     continue
                 spp = int(r["spp"])
-                key = r.get("path") or r["scene"]
                 if key not in scenes:
                     scenes.append(key)
                     names[key] = r["scene"]
@@ -70,7 +85,40 @@ def read_tables(paths, schedule):
     for key in scenes:
         shared = sum(1 for k in scenes if names[k] == names[key]) > 1
         labels[key] = key if shared else names[key]
-    return scenes, sorted(spps), cells, labels
+    return scenes, sorted(spps), cells, labels, stats
+
+
+def shape_count(stats_path):
+    """The shapes pbrt built for a scene, summed over the Geometry section of
+    its `--stats` output: the numerator of `Triangles per mesh N / M`, and
+    the counts of spheres, disks, cylinders, curves and bilinear patches.
+    Instances are not expanded -- the count is of base geometry. None when
+    the file is missing or has no Geometry section."""
+    try:
+        with open(stats_path) as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    total = None
+    section = None
+    for line in lines:
+        if line.startswith("Statistics:"):
+            section = ""
+            continue
+        if section is None:
+            continue
+        if line.startswith("  ") and not line.startswith("    "):
+            section = line.strip()
+            continue
+        if section != "Geometry":
+            continue
+        # Only the shape counts: pbrt also lists its buffer cache here and
+        # the triangles displacement mapping added (already in the total).
+        m = re.match(r"\s+(Triangles per mesh|Bilinear patches per mesh|Spheres|Disks|"
+                     r"Cylinders|Curves)\s+(\d+)\b", line)
+        if m:
+            total = (total or 0) + int(m.group(2))
+    return total
 
 
 def main(argv):
@@ -80,12 +128,14 @@ def main(argv):
     parser.add_argument("tables", nargs="+")
     parser.add_argument("--schedule", default="gpu-optix",
                         help="the side of the table to plot (default gpu-optix)")
-    parser.add_argument("--sort", choices=["table", "name", "speedup"], default="table",
-                        help="the order of the scenes across")
+    parser.add_argument("--sort", choices=["table", "name", "speedup", "geometry"],
+                        default="table",
+                        help="the order of the scenes across; geometry = by the shapes "
+                             "pbrt built, from the .pbrt.stats beside each pbrt image")
     parser.add_argument("--title", default=None)
     args = parser.parse_args(argv[1:])
 
-    scenes, spps, cells, labels = read_tables(args.tables, args.schedule)
+    scenes, spps, cells, labels, stats = read_tables(args.tables, args.schedule)
     if not scenes:
         print(f"no rows of schedule {args.schedule} in the tables given", file=sys.stderr)
         return 1
@@ -96,6 +146,17 @@ def main(argv):
             vs = [math.log2(cells[(scene, s)][0]) for s in spps if (scene, s) in cells]
             return sum(vs) / len(vs) if vs else 0.0
         scenes.sort(key=mean_log, reverse=True)
+    elif args.sort == "geometry":
+        counts = {sc: shape_count(stats.get(sc, "")) for sc in scenes}
+        missing = [sc for sc in scenes if counts[sc] is None]
+        if missing:
+            print("no pbrt .stats with a Geometry section for: " + ", ".join(
+                f"{sc} ({os.path.basename(stats[sc])})" if sc in stats else sc
+                for sc in missing), file=sys.stderr)
+            return 1
+        scenes.sort(key=lambda sc: (counts[sc], sc))
+        for sc in scenes:
+            print(f"{counts[sc]:>12,}  {labels[sc]}")
 
     # log2 of the speedup, parity at zero; the scale is symmetric about it
     # so that the colours mean the same thing on every plot of the same

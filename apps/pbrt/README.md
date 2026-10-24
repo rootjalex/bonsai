@@ -132,8 +132,10 @@ before it.
     on the same cells (plot_gpu_wavefront.py from gpu-compare-out,
     gpu-compare-out-sort and gpu-compare-out-explore);
   - `pbrt-gpu-heatmap.pdf`: the matching GPU wavefront (gpu-optix) over
-    `pbrt --gpu` on all thirty scenes x 16/64/128/256 spp
-    (plot_gpu_heatmap.py from the last heatmap run, compare-out-heatmap7).
+    `pbrt --gpu` on all thirty scenes x 16/64/128/256 spp, the scenes in
+    order of the geometry pbrt built for them, volumes first (`--sort
+    geometry`; plot_gpu_heatmap.py from the last heatmap run,
+    compare-out-heatmap7).
 
   The runs are variables at the top of the script (`CPU_CSVS`,
   `GPU_TABLES`, `HEATMAP_TABLE`), overridable in the environment when a
@@ -159,7 +161,7 @@ before it.
   side's kernel time, a group of bars per scene and a row of panels per
   table (sample count); a bar whose image did not match pbrt's is hatched.
 - `plot_gpu_heatmap.py OUT.png TABLE.tsv... [--schedule S] [--sort
-  table|name|speedup]`: the same tables as a heatmap -- scenes across,
+  table|name|speedup|geometry]`: the same tables as a heatmap -- scenes across,
   sample counts down, each cell one schedule's speedup over `pbrt --gpu`
   (default `gpu-optix`), coloured on a log scale centred on parity with the
   ratio printed in the cell, the GraphIt paper's figure for a schedule
@@ -167,7 +169,13 @@ before it.
   with its number struck through; a cell no table has is blank. Several
   counts come from `gpu_compare.sh --spp "16 64 256"` into one table. No
   title unless `--title`; the axes read "scene" and "spp", the colour bar
-  "Speedup" (the user, 10-24).
+  "Speedup" (the user, 10-24). `--sort geometry` orders the scenes by the
+  shapes pbrt built for them -- the Geometry section of the `.pbrt.stats`
+  beside each scene's pbrt image: triangles (displacement included),
+  bilinear patches, spheres, disks, cylinders, curves; base geometry, not
+  instances expanded -- so a purely volumetric scene (one or two shapes)
+  comes first and kroken (288M triangles) last; the order and counts are
+  printed.
 - `report_stages.py OUT_DIR [--spp 16] [--report REPORT.md]`: the
   stage-by-stage tables of REPORT.md from a heatmap run's `.stats` files
   -- our kernel profile and pbrt's wavefront kernel profile paired into
