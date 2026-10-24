@@ -901,20 +901,35 @@ the baseline", and three things to fix in the language. All four are in.
 
 Each departs from the matching schedule in one thing:
 
-- `fcpwb-gpu-flat`: no persistent workers; every (walk, point) pair a
+- `fcpwb-gpu-parallel`: no persistent workers; every (walk, point) pair a
   thread of one launch in blocks of 256, the hardware's block scheduler
   doing the balancing. What the persistent claim is worth here.
-- `fcpwb-gpu-walks`: the walk fastest -- a warp's claims are one point's
+- `fcpwb-gpu-reorder`: the walk fastest -- a warp's claims are one point's
   thirty-two walks, which start at the same place -- against WoSX's
   consecutive points. Coherence.
-- `fcpwb-gpu-points`: a point a claim, its walks in sequence on one
+- `fcpwb-gpu-point`: a point a claim, its walks in sequence on one
   thread (the CPU persistent schedule's grain). What the grain costs.
-- `fcpwb2-gpu`: the matching kernel over the layout that stores the
-  children's boxes in the parent (one row read a visit where FCPW's layout
-  reads three). What the layout alone is worth.
-- `fcpw4w16-gpu`: the matching kernel over FCPW's four-wide tree in FCPW's
-  bytes (the CPU comparison's tree), which FCPW cannot put on a GPU: four
-  boxes a node, sixteen triangles a leaf, half the depth.
+- `fcpwb-gpu-256k`: the matching kernel with 262144 workers where WoSX's
+  has 131072 -- more than the card holds, so the hardware fills its
+  residency and the late blocks find the counter spent and leave. From
+  the exploration below.
+- `fcpwb-gpu-reorder-256k`: the walk fastest with those workers. From
+  the exploration below.
+- `fcpwb-gpu-parallel-reorder-blk64`: the flat launch with the walk
+  fastest, in blocks of 64, so that a mesh of few points still reaches
+  every multiprocessor. From the exploration below.
+
+The figure's legend names them persistent, parallel, persistent-reorder,
+persistent-point, persistent-256k, persistent-reorder-256k and
+parallel-reorder-blk64 (the user, 2026-10-24: names as short as the pbrt
+figures', and schedules only). Two more schedules are measured on request
+but are a sweep of their own, not the figure's, since they change the
+layout or the tree rather than the schedule: `fcpwb2-gpu`, the matching
+kernel over the layout that stores the children's boxes in the parent
+(one row read a visit where FCPW's layout reads three), and
+`fcpw4w16-gpu`, the matching kernel over FCPW's four-wide tree in FCPW's
+bytes, which FCPW cannot put on a GPU (four boxes a node, sixteen
+triangles a leaf, half the depth).
 
 ### The reference's side, and the harness
 
@@ -951,9 +966,9 @@ as in the plot), before -> after, with the whale's cell:
 | schedule | before | after | whale | after's range |
 |---|---|---|---|---|
 | `fcpwb-gpu` (matching) | 1.099 | 1.161 | 1.12 -> 1.21 | 0.94 (beast) .. 1.27 (dragon) |
-| `fcpwb-gpu-flat` | 1.042 | 1.094 | 1.09 -> 1.17 | 0.90 (zero-day) .. 1.17 |
-| `fcpwb-gpu-walks` | 1.180 | 1.257 | 1.19 -> 1.27 | 0.98 (beast) .. 1.49 (ganesha) |
-| `fcpwb-gpu-points` | 0.094 | 0.102 | 0.07 -> 0.07 | 0.03 .. 0.17 |
+| `fcpwb-gpu-parallel` | 1.042 | 1.094 | 1.09 -> 1.17 | 0.90 (zero-day) .. 1.17 |
+| `fcpwb-gpu-reorder` | 1.180 | 1.257 | 1.19 -> 1.27 | 0.98 (beast) .. 1.49 (ganesha) |
+| `fcpwb-gpu-point` | 0.094 | 0.102 | 0.07 -> 0.07 | 0.03 .. 0.17 |
 | `fcpwb2-gpu` | 1.051 | 1.067 | 1.09 -> 1.16 | 0.84 (beast) .. 1.19 (ivy) |
 | `fcpw4w16-gpu` | 0.946 | 0.989 | 0.91 -> 0.94 | 0.72 (comb) .. 1.30 (lte-orb) |
 
@@ -984,6 +999,96 @@ cells went the other way: the beast, 0.90 -> 0.84 (bonsai 75.2 -> 72.6
 Msteps/s), and the dragon, 1.10 -> 1.03; the other four schedules gained
 on both meshes, so this is the wide-row kernel alone, to be read from
 the PTX before anything is concluded.
+
+### The schedule exploration (2026-10-24)
+
+The user asked for at least two more GPU schedules that are the best
+schedule on at least one mesh, found by a real exploration, profile-
+guided where it helps. Two rounds on a few meshes, then the table.
+
+**What the kernel's PTX says.** A kept build of `fcpwb-gpu` (compare.sh
+with WOSX_KEEP, the PTX read out of wosx.out, `ptxas -v` for sm_120):
+64 registers a thread, a 528-byte stack frame (the traversal's stack of
+64), no spills. At 64 registers a multiprocessor holds 1024 threads, so
+the RTX 5090's 170 multiprocessors hold 174080 of this kernel, and WoSX's
+131072 resident workers fill three quarters of the card. That is the one
+number the exploration turned on.
+
+**Round 1** (crown, beast, whale, head, dragon; scratch/gpu-explore/
+round1.csv; bonsai's rate in Msteps/s, the matching schedule's first):
+
+| schedule | crown | beast | whale | head | dragon |
+|---|---|---|---|---|---|
+| persistent (131072 workers) | 69 | 82 | 222 | 528 | 40.8 |
+| 65536 workers | 70 | 70 | 151 | 353 | 25.4 |
+| 262144 workers | 68 | 84 | 242 | 577 | 46.1 |
+| blocks of 128 | 68 | 83 | 219 | 524 | 40.4 |
+| blocks of 1024 | 67 | 76 | 201 | 461 | 38.3 |
+| four walks a claim (split, then persistent) | 24 | 31 | 149 | 426 | 34.6 |
+| walk fastest, two walks a claim | 41 | 48 | 216 | 536 | 44.4 |
+| walk fastest, four a claim | 25 | 27 | 138 | 467 | 37.7 |
+| walk fastest, eight a claim | 14 | 15 | 80 | 344 | 29.4 |
+| flat launch, walk fastest | 60 | 74 | 226 | 564 | 44.2 |
+
+Twice the workers is worth nine to thirteen percent on every mesh with
+enough walks to fill them, and costs nothing on the small ones; half the
+workers costs a fifth. Blocks of 1024 lose because 131072 workers are
+then 128 blocks, fewer than the 170 multiprocessors. Claiming several
+walks at once is a disaster on a mesh of few points -- the crown's 29440
+walks in claims of four are 7360 busy threads on a card of 174080 -- and
+no better than one at a time on the large ones; `fcpwb-gpu-point`, a
+claim of sixty-four, is the end of that curve.
+
+**Round 2** (crown, beast, comb, octopus, whale, head, dragon;
+round2.csv), combining the worker count with the walk-fastest order and
+trying small blocks for the flat launch on the meshes of few points:
+
+| schedule | crown | beast | comb | octopus | whale | head | dragon |
+|---|---|---|---|---|---|---|---|
+| persistent | 68 | 85 | 805 | 65 | 219 | 525 | 40.7 |
+| 196608 workers | 70 | 84 | 811 | 72 | 239 | 581 | 45.9 |
+| 262144 workers | 69 | 82 | 781 | 74 | 244 | 579 | 46.2 |
+| walk fastest, 196608 | 69 | 77 | 861 | 73 | 249 | 618 | 52.5 |
+| walk fastest, 262144 | 66 | 79 | 871 | 71 | 245 | 627 | 52.3 |
+| flat, walk fastest, blocks of 256 | 60 | 74 | 1022 | 65 | 221 | 572 | 44.3 |
+| flat, blocks of 64 | 70 | 78 | 880 | 71 | 220 | 545 | 42.5 |
+| flat, blocks of 128 | 68 | 79 | 896 | 70 | 220 | 543 | 41.0 |
+| flat, walk fastest, blocks of 64 | 65 | 78 | 1074 | 71 | 236 | 602 | 48.5 |
+
+196608 and 262144 workers are the same within noise everywhere (both
+fill the card); 262144 is kept, since it needs no knowledge of the card.
+The walk-fastest order with the card full is the best schedule on the
+whale, the head and the dragon by fifteen to twenty-eight percent over
+the matching one. The flat launch with the walk fastest in blocks of 64
+is the best on the comb by a third (its 143360 walks are 560 blocks of
+256 for a card of 170 multiprocessors with six block slots each; of 64,
+2240) and close behind on the large meshes. On the crown and the beast,
+the two meshes with the fewest points (460 and 1344: fewer walks than
+the card has threads), every schedule is within noise of WoSX's, and no
+schedule finds anything there -- both sides are at the floor of a launch
+whose threads mostly claim nothing. The losers' files were removed; the
+three winners are `fcpwb-gpu-256k`, `fcpwb-gpu-reorder-256k` and
+`fcpwb-gpu-parallel-reorder-blk64`.
+
+**The table** (2026-10-24 10:26-10:42, every mesh, the seven schedules;
+the compiler at 0751d3c2, which differs from 688a8802's only in the
+sorted queue's key, nothing this program uses; WoSX's rates as before).
+Geomeans over the eighteen plotted meshes, and where each is the best:
+
+| schedule | geomean | least | greatest | best on |
+|---|---|---|---|---|
+| persistent (matching) | 1.172 | 0.99 (beast) | 1.28 (dragon) | -- |
+| parallel | 1.094 | 0.89 (zero-day) | 1.18 (ivy) | -- |
+| persistent-reorder | 1.258 | 0.94 (beast) | 1.49 (ganesha) | octopus (by our rate) |
+| persistent-point | 0.100 | 0.03 | 0.17 | -- |
+| persistent-256k | 1.270 | 0.96 (beast) | 1.44 (dragon) | beast |
+| persistent-reorder-256k | 1.361 | 0.98 (beast) | 1.61 (ganesha) | the other fifteen |
+| parallel-reorder-blk64 | 1.308 | 0.96 (beast) | 1.53 (ganesha, dragon) | comb |
+
+The best schedule of the seven, `persistent-reorder-256k`, is WoSX's
+kernel with two changes of the schedule and none of the program: a
+warp's claims one point's walks, and the card full. The beast stays
+the one mesh under WoSX on every schedule (0.94 to 0.99).
 
 ### Next
 

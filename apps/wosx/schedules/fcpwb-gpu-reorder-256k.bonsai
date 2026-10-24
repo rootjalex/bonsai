@@ -1,0 +1,16 @@
+// fcpwb-gpu-reorder.bonsai with twice the resident workers: the walk
+// fastest, so that a warp's claims are one point's walks, and 262144
+// workers where WoSX's kernel has 131072 -- more than the card holds, so
+// the hardware fills its residency and the late blocks find the counter
+// spent and leave.
+import apps/wosx/schedules/kernel/fcpwb;
+
+schedule {
+    solve_all.reorder(i, w);
+    solve_all.reorder(w, i);
+    solve_all.collapse(i, w, k);
+    solve_all.persistent(k, t, 262144);
+    solve_all.split(t, t_blk, t_thr, 256, true);
+    solve_all.bind(t_blk, GPUBlock);
+    solve_all.bind(t_thr, GPUThread);
+}

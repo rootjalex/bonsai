@@ -67,9 +67,9 @@ YLGNBU = ["#FFFFD9", "#EDF8B1", "#C7E9B4", "#7FCDBB", "#41B6C4",
 # legend label, colour), in drawing order. Three bars take classes 1, 4 and
 # 7 of the ramp, far enough apart to tell at a glance.
 CPU_BARS = [
-    ("", "one thread against one thread", YLGNBU[1]),
-    ("-threads", "the threads against the threads (TBB on both sides)", YLGNBU[4]),
-    ("-persistent", "16 persistent workers against WoSX's threads", YLGNBU[7]),
+    ("", "single-threaded", YLGNBU[1]),
+    ("-threads", "parallel", YLGNBU[4]),
+    ("-persistent", "persistent", YLGNBU[7]),
 ]
 # (schedule base, figure name): the two trees.
 CPU_TREES = [
@@ -78,16 +78,18 @@ CPU_TREES = [
 ]
 CPU_REFERENCE = "WoSX"
 # The GPU figure's bars, every one over WoSX's persistent-thread kernel:
-# (schedule, legend label, colour), classes 1 to 6 of the ramp.
+# (schedule, legend label, colour), the labels apps/pbrt's figures' kind --
+# the schedule's shape in a word or two; README.md's schedule list says
+# what each is. Schedules only: the other layout and the other tree
+# (fcpwb2-gpu, fcpw4w16-gpu) are a sweep of their own, not this figure's.
 GPU_BARS = [
-    ("fcpwb-gpu", "matching WoSX's kernel: a walk a claim, a warp's claims neighbouring points",
-     YLGNBU[1]),
-    ("fcpwb-gpu-flat", "one flat launch, a thread per walk, no persistent claim", YLGNBU[2]),
-    ("fcpwb-gpu-walks", "a walk a claim, a warp's claims one point's walks", YLGNBU[3]),
-    ("fcpwb-gpu-points", "a point a claim, its walks in sequence on one thread", YLGNBU[4]),
-    ("fcpwb2-gpu", "the matching kernel over the layout with the children's boxes in the parent",
-     YLGNBU[5]),
-    ("fcpw4w16-gpu", "the matching kernel over FCPW's four-wide tree", YLGNBU[6]),
+    ("fcpwb-gpu", "persistent", YLGNBU[1]),
+    ("fcpwb-gpu-parallel", "parallel", YLGNBU[2]),
+    ("fcpwb-gpu-reorder", "persistent-reorder", YLGNBU[3]),
+    ("fcpwb-gpu-point", "persistent-point", YLGNBU[4]),
+    ("fcpwb-gpu-256k", "persistent-256k", YLGNBU[5]),
+    ("fcpwb-gpu-reorder-256k", "persistent-reorder-256k", YLGNBU[6]),
+    ("fcpwb-gpu-parallel-reorder-blk64", "parallel-reorder-blk64", YLGNBU[7]),
 ]
 GPU_REFERENCE = "WoSX's persistent kernel"
 

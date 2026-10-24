@@ -1,0 +1,13 @@
+// fcpwb-gpu.bonsai with twice the resident workers: 262144 claiming walks
+// where WoSX's kernel (and the matching schedule) has 131072 -- the card's
+// whole residency, if its registers allow it, against half of it.
+import apps/wosx/schedules/kernel/fcpwb;
+
+schedule {
+    solve_all.reorder(i, w);
+    solve_all.collapse(w, i, k);
+    solve_all.persistent(k, t, 262144);
+    solve_all.split(t, t_blk, t_thr, 256, true);
+    solve_all.bind(t_blk, GPUBlock);
+    solve_all.bind(t_thr, GPUThread);
+}

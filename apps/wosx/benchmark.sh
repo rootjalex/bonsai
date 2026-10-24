@@ -18,8 +18,8 @@
 # the threads.
 #
 # --gpu runs the GPU comparison instead: the schedules default to the GPU
-# ones (fcpwb2-gpu, the schedule matching WoSX's persistent-thread kernel,
-# and its variants; compare.sh's *-gpu* rule builds the driver against
+# ones (fcpwb-gpu, the schedule matching WoSX's persistent-thread kernel,
+# and its six variants, README.md's list; compare.sh's *-gpu* rule builds the driver against
 # slang-rhi and runs both sides on the card), the logs go to
 # apps/wosx/results/gpu-logs, the CSV to apps/wosx/results/wosx-gpu-results.csv
 # and the plot to apps/wosx/plots/wosx-gpu-speedup.*; the idle check also
@@ -39,7 +39,10 @@
 # each, the threads each, and the threads with the points claimed by sixteen
 # persistent workers instead of TBB's partition), --meshes
 # (default all, names as below), --out DIR for the logs (default
-# apps/wosx/results/logs), --side / --walks / --repeats (default 128 / 64 /
+# apps/wosx/results/logs) and --csv FILE for the table folded from them
+# (default apps/wosx/results/wosx-results.csv; an exploration names both,
+# so that the results directory keeps the table), --side / --walks /
+# --repeats (default 128 / 64 /
 # 3: the driver's slice, walks per point, and runs per side with the least
 # kept), --fresh to measure every cell again rather than resuming,
 # --table-only to skip the measuring. RTQ_SCENES names the pbrt-v4-scenes
@@ -87,6 +90,7 @@ while [[ $# -gt 0 ]]; do
     --schedules) SCHEDULES="$2"; shift 2 ;;
     --meshes) MESHES="$2"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
+    --csv) CSV="$2"; shift 2 ;;
     --side) SIDE="$2"; shift 2 ;;
     --walks) WALKS="$2"; shift 2 ;;
     --repeats) REPEATS="$2"; shift 2 ;;
@@ -101,7 +105,7 @@ done
 # FCPW's four-wide Mbvh (both sides vectorized) and WoSX's default, FCPW's
 # scalar binary BVH (both sides as WoSX ships) -- or the GPU table's.
 if (( GPU )); then
-  SCHEDULES="${SCHEDULES:-fcpwb-gpu,fcpwb-gpu-flat,fcpwb-gpu-walks,fcpwb-gpu-points,fcpwb2-gpu,fcpw4w16-gpu}"
+  SCHEDULES="${SCHEDULES:-fcpwb-gpu,fcpwb-gpu-parallel,fcpwb-gpu-reorder,fcpwb-gpu-point,fcpwb-gpu-256k,fcpwb-gpu-reorder-256k,fcpwb-gpu-parallel-reorder-blk64}"
   OUT="${OUT:-apps/wosx/results/gpu-logs}"
   CSV="${CSV:-apps/wosx/results/wosx-gpu-results.csv}"
 else

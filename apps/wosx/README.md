@@ -98,7 +98,8 @@ apps/wosx/benchmark.sh --gpu           # the GPU table: WoSX's GPU solver agains
 ```
 
 `--gpu` runs the GPU comparison over the same meshes: the schedules
-default to `fcpwb2-gpu` and its variants, the logs go to
+default to `fcpwb-gpu` (the matching schedule) and the six variants
+listed under "Layout of the files", the logs go to
 `apps/wosx/results/gpu-logs`, the CSV to
 `apps/wosx/results/wosx-gpu-results.csv` and the figure to
 `apps/wosx/plots/wosx-gpu-speedup.*` (`plot.py --gpu`), and the idle check
@@ -293,10 +294,19 @@ in question (PLAN.md, the persistent schedule).
   too), where the `fcpw4w16*` schedules take `metrics/fcpw.bonsai`, the
   vectorized build's.
   `schedules/fcpwb-gpu.bonsai`: the schedule matching WoSX's GPU solver
-  (above), and its variants `fcpwb-gpu-flat` (every walk a thread of one
-  launch, no persistent workers), `fcpwb-gpu-walks` (the walks fastest: a
-  warp's claims are one point's walks) and `fcpwb-gpu-points` (a point a
-  claim, its walks in sequence). All four take their traversal from
+  (above), and its variants `fcpwb-gpu-parallel` (every walk a thread of one
+  launch, no persistent workers), `fcpwb-gpu-reorder` (the walks fastest: a
+  warp's claims are one point's walks), `fcpwb-gpu-point` (a point a
+  claim, its walks in sequence), `fcpwb-gpu-256k` (262144 workers where
+  WoSX has 131072: more than the card holds, so the hardware fills its
+  residency), `fcpwb-gpu-reorder-256k` (the walks fastest with those
+  workers) and `fcpwb-gpu-parallel-reorder-blk64` (the flat launch with the
+  walks fastest, in blocks of 64). The figure's legend names them
+  persistent, parallel, persistent-reorder, persistent-point,
+  persistent-256k, persistent-reorder-256k and parallel-reorder-blk64;
+  the last three came out of the exploration PLAN.md records (2026-10-24),
+  each the best schedule on at least one mesh. All seven take their
+  traversal from
   `schedules/kernel/fcpwb.bonsai`, which orders the children as WoSX's GPU
   kernel does (bvh.slang: by the distance to the box alone, the left
   child on a tie) where the CPU schedules order as FCPW's CPU traversal

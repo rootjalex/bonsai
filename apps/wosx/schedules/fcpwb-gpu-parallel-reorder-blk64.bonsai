@@ -1,0 +1,18 @@
+// fcpwb-gpu-parallel.bonsai with the walk fastest and blocks of 64: one
+// flat launch, a thread per (walk, point) pair, the pairs numbered with the
+// walk fastest (fcpwb-gpu-reorder.bonsai's order, the nest interchanged
+// twice so that `collapse` meets a perfect nest) so that a block is two
+// warps of ONE point's walks, and blocks of 64 rather than 256 so that a
+// mesh of few points still reaches every multiprocessor (the crown's 29440
+// walks are 115 blocks of 256, fewer than the card's 170). The best
+// schedule on the comb in the exploration of 2026-10-24 (PLAN.md).
+import apps/wosx/schedules/kernel/fcpwb;
+
+schedule {
+    solve_all.reorder(i, w);
+    solve_all.reorder(w, i);
+    solve_all.collapse(i, w, k);
+    solve_all.split(k, k_blk, k_thr, 64, true);
+    solve_all.bind(k_blk, GPUBlock);
+    solve_all.bind(k_thr, GPUThread);
+}
