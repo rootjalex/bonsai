@@ -264,8 +264,20 @@ def main(argv):
     bands = [scenes[i:i + per] for i in range(0, len(scenes), per)]
     across = min(per, len(scenes))
     cell_h = 0.2                                    # inches, one sample count's row
+    # The scene names lean at the smallest angle at which neighbours do not
+    # overlap -- a line of text is TICK_FONT * 1.15 points high and the
+    # columns are pitch inches apart, so sin(angle) >= line / pitch -- which
+    # is the least height the names can take (the user, 10-24: upright names
+    # wasted a third of the figure). Thirty columns at text width lean 45
+    # degrees or so; a few columns lie flat.
+    pitch = (args.width - 0.5) / across
+    line = TICK_FONT * 1.15 / 72
+    angle = min(90.0, math.degrees(math.asin(min(1.0, line / pitch))) + 4.0)
+    if angle < 12.0:
+        angle = 0.0
     longest = max(len(labels[sc]) for sc in scenes)
-    label_h = 0.09 + 0.052 * longest                # the upright scene names under a band
+    name_len = 0.07 + 0.5 * TICK_FONT / 72 * longest          # inches, the longest name
+    label_h = 0.08 + name_len * math.sin(math.radians(angle)) + line * math.cos(math.radians(angle))
     bar_h = 0.45                                    # the colour bar above, with its label
     height = len(bands) * (len(spps) * cell_h + label_h) + bar_h
     paper_style()
@@ -281,7 +293,11 @@ def main(argv):
         image = ax.imshow(logs, cmap=cmap, norm=norm, aspect="auto")
         ax.set_xlim(-0.5, across - 0.5)             # every band's cells the same width
         ax.set_xticks(range(len(band)))
-        ax.set_xticklabels([labels[sc] for sc in band], rotation=90, fontsize=TICK_FONT)
+        if angle == 0.0:
+            ax.set_xticklabels([labels[sc] for sc in band], fontsize=TICK_FONT)
+        else:
+            ax.set_xticklabels([labels[sc] for sc in band], fontsize=TICK_FONT, rotation=angle,
+                               ha="right", va="top", rotation_mode="anchor")
         ax.set_yticks(range(len(spps)))
         ax.set_yticklabels([str(s) for s in spps])
         ax.set_ylabel("spp")
