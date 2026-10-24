@@ -61,7 +61,8 @@ at the size they are printed (apps/pbrt/figure_style.py has the format):
 \\textwidth] scales a figure to in the paper, 8 pt labels and 7 pt ticks in
 Liberation Sans embedded as TrueType (pdf.fonttype 42, which ACM's
 production accepts where matplotlib's default Type 3 fonts are refused),
-the mesh names turned 45 degrees.
+the mesh names leaning only as far as eighteen of them must to clear each
+other (figure_style.lean_labels).
 """
 import argparse
 import csv
@@ -80,7 +81,8 @@ from matplotlib.ticker import MultipleLocator  # noqa: E402
 # font sizes, the YlGnBu ramp, Liberation Sans embedded as TrueType, and
 # the summary written beside a figure.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pbrt"))
-from figure_style import TEXT_WIDTH, YLGNBU, describe, paper_style, ratios, write_summary  # noqa: E402
+from figure_style import (TEXT_WIDTH, YLGNBU, describe, lean_labels, paper_style,  # noqa: E402
+                          ratios, write_summary)
 
 EDGE = "#333333"  # every bar's thin edge, as apps/pbrt's figures
 
@@ -188,7 +190,10 @@ def figure(rows, meshes, bars, ylabel, height):
     line = ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=0.8, zorder=3,
                       label=REFERENCE)
     ax.set_xticks(range(len(meshes)))
-    ax.set_xticklabels(meshes, rotation=45, ha="right", rotation_mode="anchor")
+    # The names lean only as far as they must to clear their neighbours
+    # (the user, 10-24: no needless whitespace under the axes); the pitch
+    # is the axes' width less what the y label takes, over the meshes.
+    lean_labels(ax, meshes, (TEXT_WIDTH - 0.6) / len(meshes))
     ax.set_xlim(-0.6, len(meshes) - 0.4)
     ax.set_ylim(0, top * 1.08)
     ax.yaxis.set_major_locator(MultipleLocator(0.5))
