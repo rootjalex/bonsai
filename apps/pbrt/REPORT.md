@@ -19,6 +19,35 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
+## Where it stands (2026-10-24, 10:00): why the fused wavefront wins sanmiguel; all GPU schedules on one figure
+
+**Asked why the fused wavefront wins sanmiguel and whether sanmiguel has
+few material types, the exploration run's kernel profiles say the
+opposite: sanmiguel runs four material kernels (CoatedDiffuse,
+Dielectric, Diffuse, DiffuseTransmission) where every other scene runs
+two, and its shading is not heavier per hit (its material kernels sum to
+0.8 of its trace time, against 0.7 to 1.1 elsewhere). What differs is
+the price of fusing: the fused raygen costs 20-31% more than the plain
+wavefront's trace raygen plus material kernels on the other four scenes,
+a per-scene constant across sample counts (killeroo-simple 1.20, gold
+1.23, ganesha 1.22, book 1.29-1.31), and 2-3% less on sanmiguel (0.97-
+0.98).** The table, read off the `.stats` files by a scratch script, is in
+PLAN.md ("The fused wavefront's trade read off the profiles"). The
+reading it supports, unproven without the profiler: the fused program's
+cost is the bigger raygen's lower occupancy slowing the trace, and
+sanmiguel's trace (1.6 M triangles and 69 040 instances, a two-level
+traversal, the heaviest trace launch of the five) is bound by the
+traversal's latency rather than by occupancy, so the shading rides along.
+Two of sanmiguel's four material kernels run at the launch floor (9 and
+19 us a launch), the wavefront's most fragmented launches of the five,
+which is a few ms of the gap and not its sixty.
+
+**All nine measured GPU schedules are on one figure**,
+`plots/gpu-wavefront-all.pdf` (and `.png`): the three megakernels and the
+six wavefronts, the YlGnBu ramp's nine classes over the nine sides, from
+the three tables joined. `plot_gpu_wavefront.py` now colours the sides
+from how many it draws, four still as the paper figure has them.
+
 ## Where it stands (2026-10-24, 06:00): the CPU sorted schedules re-measured with the fixed key; the ray sort pays where the shading is heavy
 
 **The two CPU schedules that sort the rays queue were re-measured with
@@ -79,7 +108,10 @@ and slower everywhere else, by 8 to 13% on book and 3 to 7% on the
 killeroos and ganesha.** sanmiguel is the scene with the most materials
 and textures per wave: there the hit queue's write, its launch and its
 reload cost more than the divergence of a material switch in the trace
-program, which is the trade the two schedules make. The other findings:
+program, which is the trade the two schedules make. (Read against the
+profiles at 10:00, below: the hit queue is not dearer there; fusing costs
+sanmiguel nothing where it costs every other scene a fifth to a third.)
+The other findings:
 
 - **Block size is not a knob here.** 128-thread blocks for the CUDA drains
   are level with 256 within 1% on every cell (ahead by 0.5-1% on the

@@ -16667,7 +16667,9 @@ What it says:
   program costs the divergence of a wave that holds many materials. On
   sanmiguel -- the most materials and textures of the five, the heaviest
   shading per hit -- the queue's cost is the larger; on book the
-  divergence is. This is the paper's point in one scene: the schedule
+  divergence is. (The "heaviest shading per hit" was a guess and the
+  profiles say otherwise; see "The fused wavefront's trade read off the
+  profiles" below.) This is the paper's point in one scene: the schedule
   that wins is a property of the scene, and both are the same program
   under two schedules.
 - **The CUDA drains' block size is not a knob**: 128 is within 1% of 256
@@ -16703,6 +16705,76 @@ plain one if the paper wants the data-dependent point drawn (both are in
 the sort key's live bits too (a 16-bit hint from a 36-bit key wants the
 top sixteen, which the schedule shifts by hand today); the pixel-major GPU
 pass as a schedule that sizes the band's queue by the whole band.
+
+### The fused wavefront's trade read off the profiles; all GPU schedules on one figure (10-24)
+
+Asked why the fused wavefront wins sanmiguel and whether sanmiguel has
+few material types, the kernel profiles of the exploration run
+(`gpu-compare-out-explore/*.stats`, read by a scratch script, nothing
+typed) answer both. **sanmiguel has the most material types of the five,
+not the fewest**: four material kernels run there (CoatedDiffuse,
+Dielectric, Diffuse, DiffuseTransmission) against two on every other
+scene. The trade, per scene and sample count -- the plain wavefront's
+trace raygen and the sum of its material kernels against the fused
+schedule's raygen, which holds both:
+
+| scene | spp | trace raygen | hit kernels | hits sum | smallest hit kernel avg/launch | fused raygen | fused / (trace + hits) |
+|---|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 8.6 ms | 2: CoatedDiffuse, Diffuse | 9.5 ms | 48 us | 21.7 ms | 1.20 |
+| killeroo-simple | 64 | 34.1 ms | 2: CoatedDiffuse, Diffuse | 37.9 ms | 48 us | 86.7 ms | 1.20 |
+| killeroo-simple | 128 | 68.8 ms | 2: CoatedDiffuse, Diffuse | 75.7 ms | 48 us | 173.7 ms | 1.20 |
+| killeroo-gold | 16 | 25.5 ms | 2: Conductor, Diffuse | 18.3 ms | 30 us | 54.3 ms | 1.24 |
+| killeroo-gold | 64 | 102.0 ms | 2: Conductor, Diffuse | 73.2 ms | 30 us | 215.7 ms | 1.23 |
+| killeroo-gold | 128 | 204.3 ms | 2: Conductor, Diffuse | 146.6 ms | 30 us | 432.7 ms | 1.23 |
+| book | 16 | 28.6 ms | 2: CoatedDiffuse, Diffuse | 27.5 ms | 70 us | 73.2 ms | 1.31 |
+| book | 64 | 114.3 ms | 2: CoatedDiffuse, Diffuse | 111.4 ms | 71 us | 291.0 ms | 1.29 |
+| book | 128 | 228.8 ms | 2: CoatedDiffuse, Diffuse | 223.1 ms | 71 us | 583.9 ms | 1.29 |
+| ganesha | 16 | 31.9 ms | 2: CoatedDiffuse, Diffuse | 33.4 ms | 53 us | 79.5 ms | 1.22 |
+| ganesha | 64 | 128.5 ms | 2: CoatedDiffuse, Diffuse | 133.5 ms | 53 us | 319.2 ms | 1.22 |
+| ganesha | 128 | 256.8 ms | 2: CoatedDiffuse, Diffuse | 269.2 ms | 53 us | 636.8 ms | 1.21 |
+| sanmiguel-courtyard | 16 | 42.3 ms | 4: CoatedDiffuse, Dielectric, Diffuse, DiffuseTransmission | 33.7 ms | 9 us | 74.4 ms | 0.98 |
+| sanmiguel-courtyard | 64 | 169.4 ms | 4: CoatedDiffuse, Dielectric, Diffuse, DiffuseTransmission | 135.3 ms | 9 us | 296.6 ms | 0.97 |
+| sanmiguel-courtyard | 128 | 339.5 ms | 4: CoatedDiffuse, Dielectric, Diffuse, DiffuseTransmission | 271.1 ms | 9 us | 595.5 ms | 0.98 |
+
+What it says:
+
+- **The fused program's penalty is a per-scene constant, independent of
+  the sample count**: 20% on killeroo-simple, 23% on gold, 22% on
+  ganesha, 29-31% on book, and *nothing* on sanmiguel (2-3% below the
+  sum). The win on sanmiguel is not that its hit queue is dearer; it is
+  that fusing costs it nothing where it costs every other scene a
+  fifth to a third of its trace-plus-shade time.
+- **Shading is not heavier per hit on sanmiguel.** Its material kernels
+  sum to 0.8 of its trace time (0.7 on gold, 1.0 on book and ganesha,
+  1.1 on killeroo-simple), and two of its four material kernels run at
+  the launch floor (9 and 19 us a launch against the 4 us of an empty
+  one, 768 launches each at 64 spp): the wavefront's per-material
+  launches are the most fragmented there, which is a few ms of the gap,
+  not its 60.
+- **What is different about sanmiguel is the trace itself**: 1.6 M
+  triangles in 368 meshes plus 69 040 instances of 428 objects (a
+  two-level traversal), the heaviest trace raygen of the five per sample
+  (0.22 ms a launch at 64 spp against 0.15 on book). The reading this
+  supports, not yet proven: the fused raygen's cost elsewhere is the
+  bigger program's register pressure and divergence lowering the
+  occupancy of the *trace*; on sanmiguel the trace is bound by the
+  traversal's own latency, not by occupancy, so the shading rides along
+  for free. The proof would be the fused raygen's register count and
+  achieved occupancy per scene under the profiler, which crashes the
+  driver on the heavy scenes (the standing rule: not without the user).
+  An alternative to rule out: the per-hit payload the fused program
+  avoids writing is larger on sanmiguel (textured materials carry more
+  per hit), which a count of hit-queue bytes per scene would settle.
+
+**All nine measured GPU schedules on one figure**, as the user asked:
+`plots/gpu-wavefront-all.pdf` (`plot_gpu_wavefront.py` on the three
+tables, `--width 11`), the YlGnBu ramp's nine classes spread over the
+nine sides in drawing order (the megakernels, then the wavefronts, each
+family from plain to variants), the palest told from the page by the
+bar's edge. The script now assigns colours from the number of sides
+drawn -- four sides still take the classes 1, 3, 5 and 7, so the paper's
+`gpu-wavefront-speedups.pdf` is unchanged -- and refuses more than nine.
+gpu-optix-fused-ser has no bar until its compiler bug is fixed.
 
 ### The CPU sorted schedules re-measured with the fixed key (10-24)
 
