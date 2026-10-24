@@ -43,10 +43,16 @@ Two of sanmiguel's four material kernels run at the launch floor (9 and
 which is a few ms of the gap and not its sixty.
 
 **All nine measured GPU schedules are on one figure**,
-`plots/gpu-wavefront-all.pdf` (and `.png`): the three megakernels and the
-six wavefronts, the YlGnBu ramp's nine classes over the nine sides, from
-the three tables joined. `plot_gpu_wavefront.py` now colours the sides
-from how many it draws, four still as the paper figure has them.
+`plots/pbrt-gpu-sweep.pdf`: the three megakernels and the six wavefronts,
+the YlGnBu ramp's nine classes over the nine sides, from the three tables
+joined. `plot_gpu_wavefront.py` now colours the sides from how many it
+draws. **The figures have fixed names from now on** (the user, 10-24:
+"so I'm not guessing what is what"): `plots/` holds exactly
+`pbrt-cpu-sweep.pdf`, `pbrt-gpu-sweep.pdf` and `pbrt-gpu-heatmap.pdf`
+(gpu-optix over `pbrt --gpu` on the thirty scenes at 16/64/128/256 spp,
+from compare-out-heatmap7), all drawn by `plots.sh`; the names earlier
+entries use (cpu-wavefront-speedups, gpu-wavefront-speedups,
+gpu-wavefront-explore) are the first two of these.
 
 ## Where it stands (2026-10-24, 06:00): the CPU sorted schedules re-measured with the fixed key; the ray sort pays where the shading is heavy
 

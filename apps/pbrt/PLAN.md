@@ -16767,8 +16767,13 @@ What it says:
   per hit), which a count of hit-queue bytes per scene would settle.
 
 **All nine measured GPU schedules on one figure**, as the user asked:
-`plots/gpu-wavefront-all.pdf` (`plot_gpu_wavefront.py` on the three
-tables, `--width 11`), the YlGnBu ramp's nine classes spread over the
+`plots/pbrt-gpu-sweep.pdf` (`plot_gpu_wavefront.py` on the three
+tables, `--width 11`; the figures' fixed names since 10-24 -- the user:
+"so I'm not guessing what is what" -- are `pbrt-cpu-sweep.pdf`,
+`pbrt-gpu-sweep.pdf` and `pbrt-gpu-heatmap.pdf`, the three that
+`plots.sh` draws and all that `plots/` holds; earlier sections name the
+first two cpu-wavefront-speedups and gpu-wavefront-speedups/-explore),
+the YlGnBu ramp's nine classes spread over the
 nine sides in drawing order (the megakernels, then the wavefronts, each
 family from plain to variants), the palest told from the page by the
 bar's edge. The script now assigns colours from the number of sides
