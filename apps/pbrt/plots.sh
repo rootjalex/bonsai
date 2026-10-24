@@ -43,7 +43,6 @@ for ext in "${formats[@]}"; do
   python3 "$PREFIX/plot_cpu_wavefront.py" $CPU_CSVS -o "$OUT/pbrt-cpu-sweep.$ext"
   python3 "$PREFIX/plot_gpu_wavefront.py" $GPU_TABLES --width 11 --height 3.8 \
     -o "$OUT/pbrt-gpu-sweep.$ext"
-  python3 "$PREFIX/plot_gpu_heatmap.py" "$OUT/pbrt-gpu-heatmap.$ext" "$HEATMAP_TABLE" \
-    --sort name --title "Bonsai wf over PBRT wf, GPU"
+  python3 "$PREFIX/plot_gpu_heatmap.py" "$OUT/pbrt-gpu-heatmap.$ext" "$HEATMAP_TABLE" --sort name
 done
 ls -la "$OUT"

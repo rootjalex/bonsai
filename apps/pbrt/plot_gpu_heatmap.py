@@ -17,7 +17,9 @@ through, so that a speedup on a wrong picture cannot be read as a speedup.
 Colour is log2 of the speedup on a diverging scale centred on parity --
 green above one, red below -- so 2x and 0.5x are equally far from the
 middle; the numbers are the ratios themselves, as the table prints them.
-Scenes are in the tables' order, or by name, or by their mean speedup.
+Scenes are in the tables' order, or by name, or by their mean speedup. The
+figure has no title unless `--title` gives one, the axes read "scene" and
+"spp" and the colour bar "Speedup" (the user, 10-24).
 """
 
 import argparse
@@ -112,9 +114,10 @@ def main(argv):
     ax.set_xticklabels([labels[sc] for sc in scenes], rotation=35, ha="right")
     ax.set_yticks(range(len(spps)))
     ax.set_yticklabels([str(s) for s in spps])
-    ax.set_ylabel("samples per pixel")
+    ax.set_ylabel("spp")
     ax.set_xlabel("scene")
-    ax.set_title(args.title or f"{args.schedule}: speedup over pbrt --gpu")
+    if args.title:
+        ax.set_title(args.title)
     # Cell borders, as a table has.
     ax.set_xticks([i - 0.5 for i in range(len(scenes) + 1)], minor=True)
     ax.set_yticks([i - 0.5 for i in range(len(spps) + 1)], minor=True)
@@ -144,7 +147,7 @@ def main(argv):
     ticks = [t for t in range(-int(extent), int(extent) + 1)]
     bar.set_ticks(ticks)
     bar.set_ticklabels([f"{2.0 ** t:g}x" for t in ticks])
-    bar.set_label("speedup (log scale, parity in the middle)")
+    bar.set_label("Speedup")
     fig.tight_layout()
     fig.savefig(args.out, dpi=130)
     blank = sum(1 for s in spps for sc in scenes if (sc, s) not in cells)

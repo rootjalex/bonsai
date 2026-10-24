@@ -69,9 +69,16 @@ before it.
   disagreement` -- when pbrt's two renderers disagree with each other more
   than ours disagrees with the GPU one, on each check that failed (the
   user's rule of 2026-10-18; `compare_gbuffer.py --pbrt-spread`). A pixel
-  of ours that is not a number (NaN or infinite) fails the cell whatever
-  the spread says: pbrt's film admits none, and such a pixel is left out
-  of the mean rather than making it NaN, which passed every tolerance.
+  of ours that is not a number (NaN or infinite) -- pbrt's film admits
+  none -- is left out of the mean rather than making it NaN (which passed
+  every tolerance once) and counted as one lit-pixel disagreement against
+  the lit-pixel allowance, named in the verdict either way (the user,
+  10-24: a cell that differs from pbrt by less than pbrt's own two
+  renderers differ is not marked; a handful of NaN pixels in two million
+  is not, thousands are). `recompare.py OUT_DIR` re-derives a table's
+  `agree` and `verdict` columns from the images a run kept, under the
+  rules as they stand, without re-rendering (the old table is kept as
+  `table.tsv.before-recompare`).
   Scenes are `<dir>/<name>` under `~/projects/pbrt-v4-scenes`
   (`SCENES_DIR=`). Every timed run waits for the machine to be idle and is
   watched while it runs (anything else on the GPU, or another user's
@@ -158,7 +165,9 @@ before it.
   ratio printed in the cell, the GraphIt paper's figure for a schedule
   against its baselines. A cell whose image did not match pbrt's is hatched
   with its number struck through; a cell no table has is blank. Several
-  counts come from `gpu_compare.sh --spp "16 64 256"` into one table.
+  counts come from `gpu_compare.sh --spp "16 64 256"` into one table. No
+  title unless `--title`; the axes read "scene" and "spp", the colour bar
+  "Speedup" (the user, 10-24).
 - `report_stages.py OUT_DIR [--spp 16] [--report REPORT.md]`: the
   stage-by-stage tables of REPORT.md from a heatmap run's `.stats` files
   -- our kernel profile and pbrt's wavefront kernel profile paired into
