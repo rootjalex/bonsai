@@ -54,6 +54,21 @@ from compare-out-heatmap7), all drawn by `plots.sh`; the names earlier
 entries use (cpu-wavefront-speedups, gpu-wavefront-speedups,
 gpu-wavefront-explore) are the first two of these.
 
+**The heatmap's three hatched cells are gone, under the user's rule
+that a cell differing from pbrt by less than pbrt's two renderers differ
+is not marked.** They were kroken at 128 spp and watercolor at 128 and
+256, failed for one, two and ten pixels of ours that are not a number
+(NaN) in two to three million, every finite pixel matching (0.99976x
+and 0.99997x of pbrt's mean) and pbrt's own lit-pixel gaps on those cells
+115 and 11. compare_gbuffer.py now counts a non-finite pixel as one
+lit-pixel disagreement against the usual allowance instead of failing the
+image, and names it in the verdict; `recompare.py` re-derived the 120
+verdicts of compare-out-heatmap7 from the kept images (10:14 to 10:19,
+under the lock, bonsai-ac's window) and exactly those three changed. The
+heatmap has no title, its axes read "scene" and "spp" and its colour bar
+"Speedup". The NaN pixels themselves remain ours to find (PLAN, "The NaN
+itself: open").
+
 ## Where it stands (2026-10-24, 06:00): the CPU sorted schedules re-measured with the fixed key; the ray sort pays where the shading is heavy
 
 **The two CPU schedules that sort the rays queue were re-measured with

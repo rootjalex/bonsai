@@ -15391,6 +15391,23 @@ row at 128 spp is a failure under this rule (its mean, over the finite
 pixels, is 0.871x: the regression of the section below), and
 watercolor's 128-spp cell is too (its mean is right).
 
+**The marking, revised 10-24.** The user: a cell that differs from pbrt by
+less than pbrt's two renderers differ from each other is not marked. One
+NaN pixel in 2.2 million at 128 spp (kroken), two and ten in 2.8 million
+(watercolor at 128 and 256) are smaller disagreements than pbrt's own
+lit-pixel gaps on those cells (115 and 11), and the finite pixels match
+(0.99976x and 0.99997x of pbrt's mean). So compare_gbuffer.py no longer
+fails an image for a non-finite pixel of ours; each counts as one
+lit-pixel disagreement against the usual allowance (lit_gap_check: a
+pixel we got wrong where pbrt wrote a value), named in every verdict so
+it is never hidden, and thousands of them still fail the cell.
+`recompare.py OUT_DIR` re-derives a table's verdicts from the images a
+run kept; on compare-out-heatmap7 (120 rows, 10-24 10:14-10:19, under
+the lock) exactly those three verdicts changed, FAILED to
+`ok: the image matches pbrt; N pixels here are not finite ... counted as
+lit-pixel disagreements`, and `plots/pbrt-gpu-heatmap.pdf` has no hatched
+cell. The NaN is still ours and still open, below.
+
 **The NaN itself: open.** What the two scenes share is their author and
 their lighting: an `infinite` light through a `portal` (kroken's one
 window, lights.pbrt; watercolor's two, lights-with-windowglass.pbrt),
