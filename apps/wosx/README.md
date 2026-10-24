@@ -93,7 +93,7 @@ environment, with the compiler built:
 ```bash
 apps/wosx/benchmark.sh                 # every mesh, both schedules, CSV, table, geomeans, plot
 apps/wosx/benchmark.sh --table-only    # fold, print and plot the logs already there
-python3 apps/wosx/plot.py apps/wosx/results/wosx-results.csv -o apps/wosx/plots   # the plot alone
+python3 apps/wosx/plot.py apps/wosx/results/wosx-results.csv -o apps/wosx/plots   # the two CPU figures alone
 apps/wosx/benchmark.sh --gpu           # the GPU table: WoSX's GPU solver against the GPU schedules
 ```
 
@@ -115,12 +115,17 @@ resuming a stopped run (a mesh's log exists only when complete; `--fresh`
 measures again; `PAUSE` holds at a boundary); folds the logs into
 `apps/wosx/results/wosx-results.csv`, each row stamped with the compiler's
 commit; prints, per schedule, every mesh's row and the geomean of the
-speedups with the least and the greatest named; and draws the plot into
-`apps/wosx/plots` (`plot.py`: the meshes along the x axis by triangle
-count, two bars each -- one thread against one thread, solid, and the
-threads against the threads, hatched -- each bonsai's rate over WoSX's,
-the line at 1 WoSX; the landscape is left out, since nearly every walk on
-it escapes on its first step, and `--exclude` names the meshes left out).
+speedups with the least and the greatest named; and draws the two CPU
+figures into `apps/wosx/plots`, one per tree:
+`wosx-cpu-fcpw4w16-speedup.*` (FCPW's four-wide tree, both sides
+vectorized) and `wosx-cpu-fcpwb-speedup.*` (WoSX's default binary tree,
+both sides as WoSX ships). In each (`plot.py`) the meshes run along the
+x axis by triangle count with three bars a mesh -- one thread against one
+thread, the threads against the threads, sixteen persistent workers
+against WoSX's threads -- each bonsai's rate over WoSX's, the line at 1
+WoSX, a colour a bar from the YlGnBu ramp apps/pbrt's figures use; the
+landscape is left out, since nearly every walk on it escapes on its first
+step, and `--exclude` names the meshes left out.
 There is no parameter the speedup is swept over, as apps/pbrt sweeps the
 samples per pixel: a step is one distance query, and the epsilon shell
 and the walk count set how many steps a point takes, not what a step

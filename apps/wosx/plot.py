@@ -6,28 +6,46 @@ steps per second, the speedup).
     python apps/wosx/plot.py apps/wosx/results/wosx-results.csv -o apps/wosx/plots/
     python apps/wosx/plot.py apps/wosx/results/wosx-gpu-results.csv -o apps/wosx/plots/ --gpu
 
-The CPU figure has two panels, one per tree, the meshes along the x axis
-in order of triangle count and three bars a mesh: sequential (one thread
-against one thread), parallel (the threads against the threads) and
-persistent (sixteen persistent workers against the threads). The upper
-panel is FCPW's four-wide tree, both sides vectorized (`fcpw4w16*`); the
-lower is WoSX's default tree, FCPW's scalar binary BVH, both sides as WoSX
-ships (`fcpwb*`). A bar is bonsai's rate over WoSX's on that cell; the
-line at 1 is WoSX. Walk on spheres has one schedule per thread count and
-no parameter the speedup is swept over: a step is one distance query, and
-the epsilon shell and the walk count set how many steps a point takes, not
-what a step costs (benchmark.sh fixes them at WoSX's demo defaults). The
-landscape is left out by default (--exclude names the meshes left out):
-its normalized box is a thousandth thick, nearly every walk escapes on its
-first step, and its bar measures the cost of an escaping walk, not the
-traversal. The colour is apps/rtq's for FCPW (the Okabe-Ito orange), the
-trees being FCPW's.
+Two CPU figures, one per tree, the meshes along the x axis in order of
+triangle count and three bars a mesh; a bar is bonsai's rate over WoSX's
+on that cell, and the line at 1 is WoSX:
 
---gpu draws the GPU table (benchmark.sh --gpu): every bar is a GPU
-schedule of the program over WoSX's GPU solver, its persistent-thread
-kernel on FCPW's binary tree -- the matching schedule (`fcpwb-gpu`, solid)
-and the variants that depart from it (--gpu-schedules names them), each a
-bar.
+  wosx-cpu-fcpw4w16-speedup  FCPW's four-wide tree, both sides vectorized
+                             (`fcpw4w16*`)
+  wosx-cpu-fcpwb-speedup     WoSX's default tree, FCPW's scalar binary BVH,
+                             both sides as WoSX ships (`fcpwb*`)
+
+The three bars, on either tree: one thread against one thread (`fcpwb`,
+`fcpw4w16`); the threads against the threads (`-threads`: WoSX's
+tbb::parallel_for over the points against the program's parfor bound to the
+same pinned threads, the same TBB); and sixteen persistent workers against
+those same threads (`-persistent`: the workers claim points from a counter;
+WoSX has no persistent CPU solver, so its side is the threaded solve again).
+Walk on spheres has one schedule per thread count and no parameter the
+speedup is swept over: a step is one distance query, and the epsilon shell
+and the walk count set how many steps a point takes, not what a step costs
+(benchmark.sh fixes them at WoSX's demo defaults). The landscape is left out
+by default (--exclude names the meshes left out): its normalized box is a
+thousandth thick, nearly every walk escapes on its first step, and its bar
+measures the cost of an escaping walk, not the traversal.
+
+--gpu draws the GPU figure, wosx-gpu-speedup (benchmark.sh --gpu): every
+bar is a GPU schedule of the program over the one reference, WoSX's GPU
+solver -- its persistent-thread kernel on FCPW's binary tree, 131072
+resident threads each claiming one walk at a time from a counter, a warp's
+consecutive claims neighbouring points. The matching schedule (`fcpwb-gpu`)
+does the same; the variants each depart from it in one thing
+(--gpu-schedules names them): no persistent claim (`-flat`, one launch, a
+thread per walk), a warp's claims one point's walks (`-walks`), a point a
+claim with its walks in sequence (`-points`), the matching kernel over the
+layout that stores the children's boxes in the parent's row (`fcpwb2-gpu`)
+and over FCPW's four-wide tree (`fcpw4w16-gpu`), which FCPW cannot put on a
+GPU.
+
+The colours are apps/pbrt's figures' (the user's choice, 10-24):
+ColorBrewer's nine-class YlGnBu ramp, a colour a schedule, no hatches, the
+edge and the line at 1 as there. No titles: the file's name says which tree
+and which side, the legend what each bar compares.
 """
 import argparse
 import csv
@@ -40,25 +58,38 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
-COLOUR = "#E69F00"  # FCPW's orange in apps/rtq/plot.py (CUD)
-HATCHES = ["", "///", "xxx", "...", "\\\\\\", "++", "oo"]
-# The CPU table's bars, on either tree. sequential: bonsai on one thread
-# over WoSX on one thread; parallel: bonsai on the threads over WoSX on the
-# threads; persistent: bonsai's persistent workers over WoSX on the threads.
-CPU_KINDS = ["sequential", "parallel", "persistent"]
-CPU_TREES = [
-    ("fcpw4w16", "FCPW's four-wide tree (both sides vectorized)"),
-    ("fcpwb", "WoSX's default tree: FCPW's binary BVH (both sides as WoSX ships)"),
+EDGE = "#333333"  # every bar's thin edge, as apps/pbrt/plot_cpu_wavefront.py
+# ColorBrewer YlGnBu, nine classes, lightest first (apps/pbrt's palette).
+YLGNBU = ["#FFFFD9", "#EDF8B1", "#C7E9B4", "#7FCDBB", "#41B6C4",
+          "#1D91C0", "#225EA8", "#253494", "#081D58"]
+
+# The CPU figures' bars, on either tree: (suffix of the tree's schedule,
+# legend label, colour), in drawing order. Three bars take classes 1, 4 and
+# 7 of the ramp, far enough apart to tell at a glance.
+CPU_BARS = [
+    ("", "one thread against one thread", YLGNBU[1]),
+    ("-threads", "the threads against the threads (TBB on both sides)", YLGNBU[4]),
+    ("-persistent", "16 persistent workers against WoSX's threads", YLGNBU[7]),
 ]
-CPU_SUFFIX = {"sequential": "", "parallel": "-threads", "persistent": "-persistent"}
-# The GPU table, every bar over WoSX's persistent-thread kernel: the
-# schedule matching that kernel on FCPW's bytes (a walk a claim, the points
-# fastest), the same walks as one flat launch, the walks fastest, a point a
-# claim, the matching kernel over the layout that stores the children's
-# boxes in the parent, and over FCPW's four-wide tree.
-GPU_LABEL = {"fcpwb-gpu": "matching", "fcpwb-gpu-flat": "flat launch",
-             "fcpwb-gpu-walks": "walks fastest", "fcpwb-gpu-points": "a point a claim",
-             "fcpwb2-gpu": "children's boxes in the parent", "fcpw4w16-gpu": "four-wide tree"}
+# (schedule base, figure name): the two trees.
+CPU_TREES = [
+    ("fcpw4w16", "wosx-cpu-fcpw4w16-speedup"),
+    ("fcpwb", "wosx-cpu-fcpwb-speedup"),
+]
+CPU_REFERENCE = "WoSX"
+# The GPU figure's bars, every one over WoSX's persistent-thread kernel:
+# (schedule, legend label, colour), classes 1 to 6 of the ramp.
+GPU_BARS = [
+    ("fcpwb-gpu", "matching WoSX's kernel: a walk a claim, a warp's claims neighbouring points",
+     YLGNBU[1]),
+    ("fcpwb-gpu-flat", "one flat launch, a thread per walk, no persistent claim", YLGNBU[2]),
+    ("fcpwb-gpu-walks", "a walk a claim, a warp's claims one point's walks", YLGNBU[3]),
+    ("fcpwb-gpu-points", "a point a claim, its walks in sequence on one thread", YLGNBU[4]),
+    ("fcpwb2-gpu", "the matching kernel over the layout with the children's boxes in the parent",
+     YLGNBU[5]),
+    ("fcpw4w16-gpu", "the matching kernel over FCPW's four-wide tree", YLGNBU[6]),
+]
+GPU_REFERENCE = "WoSX's persistent kernel"
 
 
 def load(path):
@@ -101,90 +132,86 @@ def tick_labels(meshes, tris):
             else f"{m}\n{tris[m]}" for m in meshes]
 
 
-def bars(ax, rows, meshes, schedules, labels, ylabel, title=None):
-    """One panel: the schedules' bars per mesh, a hatch per schedule, the
-    line at 1, the legend above the axes. Returns the drawn schedules."""
-    data = {s: cells(rows, s) for s in schedules}
-    drawn = [s for s in schedules if data[s]]
+def figure(rows, meshes, tris, bars, reference, ylabel):
+    """One figure: a bar per (schedule, label, colour) of `bars` per mesh, the
+    dashed line at 1 named `reference` at its right end, the legend above the
+    axes. Returns the figure and the schedules drawn, or (None, [])."""
+    data = {s: cells(rows, s) for s, _, _ in bars}
+    drawn = [(s, label, colour) for s, label, colour in bars if data[s]]
     if not drawn:
-        return []
-    hatch = {s: HATCHES[k % len(HATCHES)] for k, s in enumerate(drawn)}
+        return None, []
+    plt.rcParams.update({"pdf.fonttype": 42, "ps.fonttype": 42,
+                         "font.size": 8, "legend.fontsize": 7})
+    fig, ax = plt.subplots(figsize=(13, 3.4))
     width = 0.8 / len(drawn)
     top = 1.0
     for i, mesh in enumerate(meshes):
-        for k, s in enumerate(drawn):
+        for k, (s, _, colour) in enumerate(drawn):
             v = data[s].get(mesh)
             if v is None:
                 continue
             x = i - 0.4 + width * (k + 0.5)
-            ax.bar(x, v, width, color=COLOUR, hatch=hatch[s], edgecolor="black", linewidth=0.5)
+            ax.bar(x, v, width, color=colour, edgecolor=EDGE, linewidth=0.4, zorder=2)
             top = max(top, v)
-    ax.axhline(1.0, color="black", linewidth=0.8)
+    right = len(meshes) - 0.4
+    ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=1.2, zorder=3)
+    ax.text(right + 0.05, 1.0, reference, ha="left", va="center", fontsize=6.5)
     ax.set_xticks(range(len(meshes)))
-    ax.set_xlim(-0.6, len(meshes) - 0.4)
+    ax.set_xticklabels(tick_labels(meshes, tris), fontsize=8)
+    ax.set_xlim(-0.6, right)
     ax.set_ylim(0, top * 1.08)
     ax.set_ylabel(ylabel)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.yaxis.grid(True, linewidth=0.4, alpha=0.5)
+    for spine in ("top", "right"):
+        ax.spines[spine].set_visible(False)
+    ax.yaxis.grid(True, linewidth=0.4, alpha=0.5, zorder=0)
     ax.set_axisbelow(True)
-    handles = [Patch(facecolor=COLOUR, edgecolor="black", linewidth=0.5, hatch=hatch[s],
-                     label=labels.get(s, s)) for s in drawn]
-    if title:
-        ax.text(0, 1.02, title, transform=ax.transAxes, fontsize=8, ha="left", va="bottom")
-    # The legend above the axes, clear of the tallest bar, right of the
-    # panel's title; no figure title (the caption says which tree and which
-    # schedules).
-    ax.legend(handles=handles, fontsize=8, ncol=len(handles), loc="lower right",
-              frameon=False, bbox_to_anchor=(1.0, 1.0), borderaxespad=0)
-    return drawn
+    handles = [Patch(facecolor=colour, edgecolor=EDGE, linewidth=0.4, label=label)
+               for _, label, colour in drawn]
+    ncol = 3 if len(handles) > 3 else len(handles)
+    ax.legend(handles=handles, ncol=ncol, frameon=False, loc="lower center",
+              bbox_to_anchor=(0.5, 1.02), handlelength=2.2, handleheight=1.2,
+              borderaxespad=0.0, columnspacing=1.2)
+    return fig, [s for s, _, _ in drawn]
 
 
 def save(fig, out_dir, name, formats):
     fig.tight_layout()
     for fmt in formats:
         path = os.path.join(out_dir, f"{name}.{fmt}")
-        fig.savefig(path, dpi=160)
+        fig.savefig(path, bbox_inches="tight", dpi=200)
         print(path)
     plt.close(fig)
 
 
 def draw_cpu(rows, out_dir, formats, exclude):
     meshes, tris = meshes_by_triangles(rows, exclude)
-    trees = [(base, title) for base, title in CPU_TREES
-             if any(cells(rows, base + CPU_SUFFIX[k]) for k in CPU_KINDS)]
-    if not trees:
-        print("no rows for either tree's schedules; nothing drawn", file=sys.stderr)
-        return
-    fig, axes = plt.subplots(len(trees), 1, figsize=(13, 3.2 * len(trees)), sharex=True,
-                             squeeze=False)
-    for ax, (base, title) in zip(axes[:, 0], trees):
-        schedules = [base + CPU_SUFFIX[k] for k in CPU_KINDS]
-        labels = {base + CPU_SUFFIX[k]: k for k in CPU_KINDS}
-        bars(ax, rows, meshes, schedules, labels, "Speedup over WoSX", title)
-    axes[-1, 0].set_xticklabels(tick_labels(meshes, tris), fontsize=8)
-    save(fig, out_dir, "wosx-speedup", formats)
+    for base, name in CPU_TREES:
+        bars = [(base + suffix, label, colour) for suffix, label, colour in CPU_BARS]
+        fig, drawn = figure(rows, meshes, tris, bars, CPU_REFERENCE, "Speedup over WoSX")
+        if fig is None:
+            print(f"{name}: no rows for {base}'s schedules; skipped", file=sys.stderr)
+            continue
+        save(fig, out_dir, name, formats)
 
 
 def draw_gpu(rows, schedules, out_dir, formats, exclude):
     meshes, tris = meshes_by_triangles(rows, exclude)
-    fig, ax = plt.subplots(figsize=(13, 3.4))
-    drawn = bars(ax, rows, meshes, schedules, GPU_LABEL, "Speedup over WoSX (GPU)")
-    if not drawn:
+    known = {s: (label, colour) for s, label, colour in GPU_BARS}
+    bars = [(s, *known.get(s, (s, YLGNBU[8]))) for s in schedules]
+    fig, drawn = figure(rows, meshes, tris, bars, GPU_REFERENCE, "Speedup over WoSX (GPU)")
+    if fig is None:
         print(f"no rows for {schedules}; nothing drawn", file=sys.stderr)
-        plt.close(fig)
         return
-    ax.set_xticklabels(tick_labels(meshes, tris), fontsize=8)
     save(fig, out_dir, "wosx-gpu-speedup", formats)
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("csv")
-    p.add_argument("-o", "--out", default=".", help="directory for the figure")
+    p.add_argument("-o", "--out", default=".", help="directory for the figures")
     p.add_argument("--gpu", action="store_true",
-                   help="draw the GPU table: the GPU schedules over WoSX's GPU solver")
-    p.add_argument("--gpu-schedules", default=",".join(GPU_LABEL),
+                   help="draw the GPU figure: the GPU schedules over WoSX's GPU solver")
+    p.add_argument("--gpu-schedules", default=",".join(s for s, _, _ in GPU_BARS),
                    help="the GPU schedules, in the order of their bars (default: the matching "
                         "schedule and its variants, as benchmark.sh --gpu measures them)")
     p.add_argument("--format", default="pdf,png", help="comma-separated formats (default pdf,png)")
@@ -199,7 +226,7 @@ def main():
         schedules = [s for s in a.gpu_schedules.split(",") if s]
         draw_gpu(rows, schedules, a.out, a.format.split(","), exclude)
     else:
-        schedules = [base + CPU_SUFFIX[k] for base, _ in CPU_TREES for k in CPU_KINDS]
+        schedules = [base + suffix for base, _ in CPU_TREES for suffix, _, _ in CPU_BARS]
         draw_cpu(rows, a.out, a.format.split(","), exclude)
     geomeans(rows, schedules, exclude)
 

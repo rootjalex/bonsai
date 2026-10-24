@@ -11,9 +11,11 @@
 #     apps/wosx/benchmark.sh --table-only        # fold, print and plot what is logged
 #     apps/wosx/benchmark.sh --gpu               # the GPU table: WoSX's GPU solver against the GPU schedules
 #
-# The plot (plot.py) goes into apps/wosx/plots: the meshes along the x axis
-# by triangle count, two bars each, one thread against one thread and the
-# threads against the threads.
+# The figures (plot.py) go into apps/wosx/plots, one per tree
+# (wosx-cpu-fcpw4w16-speedup.*, wosx-cpu-fcpwb-speedup.*): the meshes along
+# the x axis by triangle count, three bars each -- one thread against one
+# thread, the threads against the threads, the persistent workers against
+# the threads.
 #
 # --gpu runs the GPU comparison instead: the schedules default to the GPU
 # ones (fcpwb2-gpu, the schedule matching WoSX's persistent-thread kernel,
