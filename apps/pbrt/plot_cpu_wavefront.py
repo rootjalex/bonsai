@@ -163,6 +163,12 @@ def draw(rows, sides, reference, reference_label, y_label, args):
                  if r["scene"] == scene and r["spp"] == spp and r["side"] == reference]
         return min(times) if times else None
 
+    def reference_of(c, scene, spp):
+        # A row from a run of its own carries that run's reference seconds
+        # (`reference`, set by the loader: the GPU figure joins tables), so
+        # that a side is always measured against the pbrt that ran beside it.
+        return c["reference"] if c.get("reference") is not None else reference_seconds(scene, spp)
+
     plt.rcParams.update({"pdf.fonttype": 42, "ps.fonttype": 42,
                          "font.size": 8, "axes.titlesize": 8,
                          "legend.fontsize": 7})
@@ -176,10 +182,10 @@ def draw(rows, sides, reference, reference_label, y_label, args):
     for scene in scenes:
         scene_start = x
         for j, spp in enumerate(spps):
-            ref = reference_seconds(scene, spp)
             group_start = x
             for side, label, colour in sides:
                 c = cell(scene, spp, side)
+                ref = reference_of(c, scene, spp) if c is not None else None
                 if c is not None and ref is not None:
                     speedup = ref / c["seconds"]
                     ax.bar(x, speedup, bar * 0.9, color=colour,

@@ -70,7 +70,11 @@ PREFIX="apps/pbrt"
 SPPS="16"
 REPEATS=3
 OUT="$PREFIX/gpu-compare-out"
-SCHEDULES="gpu-optix gpu-optix-mega gpu-optix-mega-ser"
+# The schedules on the ray tracing hardware (the user, 10-23: the GPU
+# figure compares techniques that use OptiX): the matching wavefront, the
+# same with its ray queue sorted on the device, the megakernel, and the
+# megakernel with shader execution reordering.
+SCHEDULES="gpu-optix gpu-optix-sort gpu-optix-mega gpu-optix-mega-ser"
 SCENES="killeroos/killeroo-simple killeroos/killeroo-gold pbrt-book/book"
 RESUME=0
 while [[ $# -gt 0 ]]; do

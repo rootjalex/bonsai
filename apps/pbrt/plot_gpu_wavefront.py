@@ -5,10 +5,11 @@ bars per scene, a subgroup per sample count, from the table gpu_compare.sh
 writes.
 
     python3 apps/pbrt/plot_gpu_wavefront.py apps/pbrt/gpu-compare-out/table.tsv \
+        [apps/pbrt/gpu-compare-out-sort/table.tsv ...] \
         -o apps/pbrt/plots/gpu-wavefront-speedups.pdf
 
-The table is tab-separated, one row per measured cell and side (scene,
-spp, side, wall_s, kernel_ms, speedup, agree, verdict, note, image, path;
+A table is tab-separated, one row per measured cell and side (scene, spp,
+side, wall_s, kernel_ms, speedup, agree, verdict, note, image, path;
 gpu_compare.sh's header says what each is). The side `pbrt --gpu` is the
 reference and draws no bar: the dashed line at 1 is it, labelled "PBRT wf"
 since pbrt's GPU renderer is its wavefront (pbrt has no GPU megakernel, so
@@ -16,7 +17,11 @@ the GPU figure has no black bar). The bars are the wall-clock speedup, the
 least of the run's repeats on each side, as the table's own speedup column
 is; `--kernel` draws the kernel-time speedup instead (pbrt's from
 `--stats`, ours from BONSAI_KERNEL_STATS), the device's busy time apart
-from either side's launch gaps.
+from either side's launch gaps. Several tables are several runs joined
+(a schedule added later and measured on its own, as gpu-optix-sort was on
+10-23): every side's bar is its speedup over the pbrt that ran in the same
+run, so a run's own reference never stands in for another's; a side in
+more than one table takes the first table's row.
 
 The sides, in the user's order (10-23): the OptiX megakernel (`Bonsai mk`,
 gpu-optix-mega: a path per sample in one raygen program, tracing through
@@ -50,28 +55,45 @@ SIDES = [
 ]
 
 
-def load(path, kernel=False):
-    """gpu_compare.sh's table as rows with `scene`, `spp` (int), `side`,
+def load(paths, kernel=False):
+    """gpu_compare.sh's tables as rows with `scene`, `spp` (int), `side`,
     `seconds` (float: the wall time, or the kernel time in seconds with
-    `kernel`) and `verdict`; a row without a time draws nothing."""
-    with open(path, newline="") as f:
-        rows = list(csv.DictReader(f, delimiter="\t"))
+    `kernel`), `verdict` and `reference` (the seconds of the `pbrt --gpu`
+    row of the same cell in the same table); a row without a time draws
+    nothing, and a (scene, spp, side) a later table repeats is dropped."""
     out = []
-    for r in rows:
-        try:
-            r["spp"] = int(r["spp"])
-            r["seconds"] = (float(r["kernel_ms"]) / 1000.0 if kernel
-                            else float(r["wall_s"]))
-        except (ValueError, KeyError):
-            continue
-        out.append(r)
+    seen = set()
+    for path in paths:
+        with open(path, newline="") as f:
+            rows = list(csv.DictReader(f, delimiter="\t"))
+        table = []
+        for r in rows:
+            try:
+                r["spp"] = int(r["spp"])
+                r["seconds"] = (float(r["kernel_ms"]) / 1000.0 if kernel
+                                else float(r["wall_s"]))
+            except (ValueError, KeyError):
+                continue
+            table.append(r)
+        references = {}
+        for r in table:
+            if r["side"] == REFERENCE:
+                key = (r["scene"], r["spp"])
+                references[key] = min(r["seconds"], references.get(key, r["seconds"]))
+        for r in table:
+            key = (r["scene"], r["spp"], r["side"])
+            if key in seen:
+                continue
+            seen.add(key)
+            r["reference"] = references.get((r["scene"], r["spp"]))
+            out.append(r)
     return out
 
 
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("table")
+    ap.add_argument("tables", nargs="+")
     add_figure_arguments(ap)
     ap.add_argument("--kernel", action="store_true",
                     help="the kernel-time speedup instead of the wall-clock one")
@@ -79,7 +101,7 @@ def main(argv):
     if args.out is None:
         args.out = "gpu-wavefront-speedups.pdf"
 
-    rows = load(args.table, kernel=args.kernel)
+    rows = load(args.tables, kernel=args.kernel)
     sides = choose_sides(rows, SIDES, args.sides)
     if sides is None:
         return 1
