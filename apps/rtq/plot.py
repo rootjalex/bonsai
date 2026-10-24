@@ -69,7 +69,7 @@ from matplotlib.ticker import MaxNLocator  # noqa: E402
 # font sizes, the YlGnBu ramp, Liberation Sans embedded as TrueType, and
 # the summary written beside a figure.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pbrt"))
-from figure_style import TEXT_WIDTH, YLGNBU, paper_style, write_summary  # noqa: E402
+from figure_style import TEXT_WIDTH, YLGNBU, lean_labels, paper_style, write_summary  # noqa: E402
 
 EDGE = "#333333"  # every bar's thin edge, as apps/pbrt's figures
 COLOUR = {"embree": YLGNBU[1], "fcpw": YLGNBU[5]}
@@ -190,10 +190,12 @@ def new_figure():
 
 def mesh_ticks(ax, meshes):
     """The meshes along the x axis by name alone (their facts are in the
-    mesh table), turned 45 degrees to fit."""
+    mesh table), leaning only as far as they must not to overlap
+    (figure_style.lean_labels; twelve names at text width lean about 20
+    degrees -- the user, 10-24: 45 degrees left the figure mostly white)."""
     ax.set_xticks(range(len(meshes)))
-    ax.set_xticklabels(meshes, rotation=45, ha="right", rotation_mode="anchor")
     ax.set_xlim(-0.6, len(meshes) - 0.4)
+    lean_labels(ax, meshes, (TEXT_WIDTH - 0.6) / len(meshes))
     ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
 
 
