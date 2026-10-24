@@ -1,0 +1,118 @@
+// gpu-optix-sort.bonsai with the coarse key: the ray queue sorted on the
+// device by ray_sort_key_coarse (render.bonsai), the two-point Morton code
+// at six bits per axis -- 36 live bits where ray_sort_key has 60 -- so the
+// radix sort runs five digit passes instead of eight (the compiler reads
+// the key's live bits off its arithmetic, Lower/Sorts.cpp, and the sort
+// is told them). The exploration of 10-24: whether a coarser key, cheaper
+// to sort and still gathering rays by region and direction, pays where
+// the fine one did not. Nothing else differs from gpu-optix.bonsai.
+import apps/pbrt/schedules/trees/optix;
+
+schedule {
+    li_vol_path.sort(vol_path_step,
+                     |ray : Ray, scene_bounds : AABB| ray_sort_key_coarse(ray, scene_bounds));
+
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_shadow_track.loopify();
+    vol_probe_step.loopify();
+
+    render.specialize(integrator);
+    render[VolPath].specialize(film_visible_surface);
+    render[VolPath].reorder(p, s);
+    render[VolPath].split(p, p_band, p_in, pass_pixels, true);
+
+    rays = render[VolPath].queue(p_band, ExternDevice);
+    li_vol_path.defer(vol_path_step, rays);
+    vol_medium_scatter.defer(vol_path_step, rays);
+    vol_surface.defer(vol_path_step, rays);
+    vol_route.defer(vol_path_step, rays);
+    vol_exit.defer(vol_path_step, rays);
+    vol_path_step.stage(vol_ray_samples, rays, samples);
+
+    medium_samples = render[VolPath].queue(p_band, ExternDevice);
+    vol_path_step.defer(vol_medium_sample, medium_samples);
+    medium_scatters = render[VolPath].queue(p_band, ExternDevice);
+    vol_medium_sample.defer(vol_medium_scatter, medium_scatters);
+
+    escaped = render[VolPath].queue(p_band, ExternDevice);
+    vol_route.defer(escaped_contribution, escaped);
+    emissive = render[VolPath].queue(p_band, ExternDevice);
+    vol_route.defer(emissive_contribution, emissive);
+    hits = render[VolPath].queue(p_band, ExternDevice);
+    vol_route.defer(vol_surface, hits);
+    hits.specialize(evaluator);
+    hits[Basic].specialize(material);
+    hits[Universal].specialize(material);
+    shadow = render[VolPath].queue(p_band, ExternDevice);
+    vol_sample_ld.defer(shadow_contribution, shadow);
+    bssrdfs = render[VolPath].queue(p_band, ExternDevice);
+    vol_surface.defer(vol_subsurface, bssrdfs);
+    probes = render[VolPath].queue(p_band, ExternDevice);
+    vol_subsurface.defer(vol_probe, probes);
+    exits = render[VolPath].queue(p_band, ExternDevice);
+    vol_probe.defer(vol_exit, exits);
+    exit_shadow = render[VolPath].queue(p_band, ExternDevice);
+    vol_exit.defer(exit_shadow_contribution, exit_shadow);
+
+    trace.bind(RTCore);
+    trace_any.bind(RTCore);
+
+    render.bind(rays, OptixThread);
+    render.bind(shadow, OptixThread);
+    render.bind(probes, OptixThread);
+    render.bind(exit_shadow, OptixThread);
+    render.specialize(shadow, have_media);
+    render.specialize(exit_shadow, have_media);
+
+    render.split(p_in, p_blk, p_thr, 256, true);
+    render.bind(p_blk, GPUBlock);
+    render.bind(p_thr, GPUThread);
+    render.split(samples, samples_blk, samples_thr, 256, true);
+    render.bind(samples_blk, GPUBlock);
+    render.bind(samples_thr, GPUThread);
+    render.specialize(p_blk, sampler);
+    render.specialize(samples_blk, sampler);
+    render.split(medium_samples, medium_samples_blk, medium_samples_thr, 256, true);
+    render.bind(medium_samples_blk, GPUBlock);
+    render.bind(medium_samples_thr, GPUThread);
+    render.split(medium_scatters, medium_scatters_blk, medium_scatters_thr, 256, true);
+    render.bind(medium_scatters_blk, GPUBlock);
+    render.bind(medium_scatters_thr, GPUThread);
+    render.split(escaped, escaped_blk, escaped_thr, 256, true);
+    render.bind(escaped_blk, GPUBlock);
+    render.bind(escaped_thr, GPUThread);
+    render.split(emissive, emissive_blk, emissive_thr, 256, true);
+    render.bind(emissive_blk, GPUBlock);
+    render.bind(emissive_thr, GPUThread);
+    render.split(hits, hits_blk, hits_thr, 256, true);
+    render.bind(hits_blk, GPUBlock);
+    render.bind(hits_thr, GPUThread);
+    render.split(bssrdfs, bssrdfs_blk, bssrdfs_thr, 256, true);
+    render.bind(bssrdfs_blk, GPUBlock);
+    render.bind(bssrdfs_thr, GPUThread);
+    render.split(exits, exits_blk, exits_thr, 256, true);
+    render.bind(exits_blk, GPUBlock);
+    render.bind(exits_thr, GPUThread);
+    render.split(rays_rest, rays_rest_blk, rays_rest_thr, 256, true);
+    render.bind(rays_rest_blk, GPUBlock);
+    render.bind(rays_rest_thr, GPUThread);
+    render.split(q, q_blk, q_thr, 256, true);
+    render.bind(q_blk, GPUBlock);
+    render.bind(q_thr, GPUThread);
+
+    texture_filter.bind(TextureUnit,
+                        |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                         dstdy : vec2f|
+                        texture_filter_unit(texture_handles[t.id], st, dstdx,
+                                            dstdy));
+    texture_filter_float.bind(TextureUnit,
+                              |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                               dstdy : vec2f|
+                              texture_filter_float_unit(
+                                  texture_handles[t.id], t.average_channels,
+                                  st, dstdx, dstdy));
+}

@@ -1236,25 +1236,32 @@ func transform_bounds(t : Transform, b : AABB) -> AABB {
 // A 10-bit coordinate spread to every sixth bit of a 64-bit word, so that
 // six such coordinates interleave into one Morton code (bit k of the input
 // lands at bit 6k).
+// Ten bits of `v` spread to every sixth bit (bit k to bit 6k), so that six
+// such values at offsets 0..5 interleave into one Morton code without
+// overlapping -- the two-point key below has six coordinates. Written as
+// ten terms rather than a shift-and-mask ladder so that the bits a key can
+// have are plain to read, for a reader and for the compiler's analysis of
+// a sort key's live bits (Lower/Sorts.cpp): a value masked to m bits here
+// fills bits 0..6m-1 and no others. (Until 10-24 this used the classic
+// every-third-bit masks of a 3D Morton code, so the six coordinates
+// overlapped and the key lost bits of each; the CPU sort of 10-20 to 10-23
+// was measured with that key.)
 func spread_bits_6(v : u32) -> u64 {
-    x : mut u64 = cast[[u64]](v & 1023u);
-    x = (x | (x << 32u)) & 0x1f00000000ff;
-    x = (x | (x << 16u)) & 0x1f0000ff0000ff;
-    x = (x | (x << 8u)) & 0x100f00f00f00f00f;
-    x = (x | (x << 4u)) & 0x10c30c30c30c30c3;
-    x = (x | (x << 2u)) & 0x1249249249249249;
-    return x;
+    x = cast[[u64]](v & 1023u);
+    return (x & 1) | ((x & 2) << 5u) | ((x & 4) << 10u) | ((x & 8) << 15u) |
+           ((x & 16) << 20u) | ((x & 32) << 25u) | ((x & 64) << 30u) |
+           ((x & 128) << 35u) | ((x & 256) << 40u) | ((x & 512) << 45u);
 }
 
 // A point of the scene's box quantized to ten bits per axis: 0 at the low
 // corner, 1023 at the high, clamped, so that a point the estimate puts
 // outside the box sorts with the face it left through. As floats, each
 // component an integer in 0..1023, for the caller to cast.
-func quantize_in_box(p : vec3f, b : AABB) -> vec3f {
+func quantize_in_box(p : vec3f, b : AABB, levels : Float) -> vec3f {
     extent = max(b.high - b.low, vec3f{1e-30, 1e-30, 1e-30});
     t = min(max((p - b.low) / extent, vec3f{0.0, 0.0, 0.0}),
             vec3f{1.0, 1.0, 1.0});
-    return t * 1023.0;
+    return t * levels;
 }
 
 // The key a schedule sorts the trace queue by: the "two point" key of
@@ -1273,14 +1280,32 @@ func quantize_in_box(p : vec3f, b : AABB) -> vec3f {
 func ray_sort_key(ray : Ray, b : AABB) -> u64 {
     extent = b.high - b.low;
     t_est = 0.25 * max(extent.x, max(extent.y, extent.z));
-    o = quantize_in_box(ray.o, b);
-    e = quantize_in_box(ray.o + t_est * ray.d, b);
+    o = quantize_in_box(ray.o, b, 1023.0);
+    e = quantize_in_box(ray.o + t_est * ray.d, b, 1023.0);
     return (spread_bits_6(cast[[u32]](o.x)) << 5u) |
            (spread_bits_6(cast[[u32]](o.y)) << 4u) |
            (spread_bits_6(cast[[u32]](o.z)) << 3u) |
            (spread_bits_6(cast[[u32]](e.x)) << 2u) |
            (spread_bits_6(cast[[u32]](e.y)) << 1u) |
            spread_bits_6(cast[[u32]](e.z));
+}
+
+// The same key at six bits per axis: a 36-bit code, coarser by four levels
+// of the box's octree, for a sort that pays by the bit (a radix sort's
+// passes; a reordering hint's sixteen bits). The mask to six bits is
+// written on the quantized value so that the key's live bits are plain:
+// bits 0..35 and no others.
+func ray_sort_key_coarse(ray : Ray, b : AABB) -> u64 {
+    extent = b.high - b.low;
+    t_est = 0.25 * max(extent.x, max(extent.y, extent.z));
+    o = quantize_in_box(ray.o, b, 63.0);
+    e = quantize_in_box(ray.o + t_est * ray.d, b, 63.0);
+    return (spread_bits_6(cast[[u32]](o.x) & 63u) << 5u) |
+           (spread_bits_6(cast[[u32]](o.y) & 63u) << 4u) |
+           (spread_bits_6(cast[[u32]](o.z) & 63u) << 3u) |
+           (spread_bits_6(cast[[u32]](e.x) & 63u) << 2u) |
+           (spread_bits_6(cast[[u32]](e.y) & 63u) << 1u) |
+           spread_bits_6(cast[[u32]](e.z) & 63u);
 }
 
 // `pull_ray` and `push_surface` -- pbrt's ApplyInverse of a ray and its
