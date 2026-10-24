@@ -21,7 +21,8 @@ from either side's launch gaps. Several tables are several runs joined
 (a schedule added later and measured on its own, as gpu-optix-sort was on
 10-23): every side's bar is its speedup over the pbrt that ran in the same
 run, so a run's own reference never stands in for another's; a side in
-more than one table takes the first table's row.
+more than one table takes the last table's row (a re-measurement
+replaces what it re-measures), as the CPU figure's join does.
 
 The sides, in the user's order (10-23): the OptiX megakernel (`Bonsai mk`,
 gpu-optix-mega: a path per sample in one raygen program, tracing through
@@ -70,9 +71,10 @@ def load(paths, kernel=False):
     `seconds` (float: the wall time, or the kernel time in seconds with
     `kernel`), `verdict` and `reference` (the seconds of the `pbrt --gpu`
     row of the same cell in the same table); a row without a time draws
-    nothing, and a (scene, spp, side) a later table repeats is dropped."""
-    out = []
-    seen = set()
+    nothing, and a (scene, spp, side) a later table repeats replaces the
+    earlier row."""
+    joined = {}
+    order = []
     for path in paths:
         with open(path, newline="") as f:
             rows = list(csv.DictReader(f, delimiter="\t"))
@@ -92,12 +94,11 @@ def load(paths, kernel=False):
                 references[key] = min(r["seconds"], references.get(key, r["seconds"]))
         for r in table:
             key = (r["scene"], r["spp"], r["side"])
-            if key in seen:
-                continue
-            seen.add(key)
             r["reference"] = references.get((r["scene"], r["spp"]))
-            out.append(r)
-    return out
+            if key not in joined:
+                order.append(key)
+            joined[key] = r
+    return [joined[key] for key in order]
 
 
 def main(argv):

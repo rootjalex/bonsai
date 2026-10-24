@@ -4,12 +4,17 @@ pbrt's CPU wavefront (`pbrt --wavefront` without `--gpu`), a group of bars
 per scene, a subgroup per sample count, from the CSV cpu_compare.sh writes.
 
     python3 apps/pbrt/plot_cpu_wavefront.py apps/pbrt/cpu-compare-out/cpu-results.csv \
+        [apps/pbrt/cpu-compare-out-sortfix/cpu-results.csv ...] \
         -o apps/pbrt/plots/cpu-wavefront-speedups.pdf
 
-The CSV has one row per measured cell and side (scene, spp, side, render
+A CSV has one row per measured cell and side (scene, spp, side, render
 seconds, speedup, verdict, ...; cpu_compare.sh's header says what each
 column is). The side `pbrt-wavefront` is the reference and draws no bar:
-the dashed line at 1 is it. The other sides are drawn in the order of SIDES
+the dashed line at 1 is it. Several CSVs are several runs joined: a later
+file's row replaces an earlier one's for the same (scene, spp, side), and
+every side's bar is its speedup over the pbrt that ran in the same CSV
+(the sorted schedules were re-measured on 10-24 with the ray key fixed,
+into a CSV of their own). The other sides are drawn in the order of SIDES
 below -- pbrt's megakernel first, then this renderer's schedules named by
 the encoding SIDES explains (type-parallelism-SIMD-order[-sort]: mk-b-s-ps
 is the path-per-sample `scalar` schedule, wf-b-v-sp-sort the band
@@ -87,21 +92,40 @@ SIDES = [
 ]
 
 
-def load(path):
-    """cpu_compare.sh's CSV as rows with `scene`, `spp` (int), `side`,
-    `seconds` (float) and `verdict`; a row whose run produced no time draws
-    nothing and is dropped."""
-    with open(path, newline="") as f:
-        rows = list(csv.DictReader(f))
-    out = []
-    for r in rows:
-        try:
-            r["spp"] = int(r["spp"])
-            r["seconds"] = float(r["seconds"])
-        except (ValueError, KeyError):
-            continue
-        out.append(r)
-    return out
+def load(paths, reference=REFERENCE):
+    """cpu_compare.sh's CSVs as rows with `scene`, `spp` (int), `side`,
+    `seconds` (float), `verdict` and `reference` (the seconds of the
+    reference side of the same cell in the same CSV); a row whose run
+    produced no time draws nothing and is dropped. Several CSVs are
+    several runs joined, a later file's row replacing an earlier one's for
+    the same (scene, spp, side) -- a schedule re-measured after a fix, as
+    the sorted CPU schedules were on 10-24 -- and every side measured
+    against the reference that ran beside it."""
+    joined = {}
+    order = []
+    for path in paths:
+        with open(path, newline="") as f:
+            rows = list(csv.DictReader(f))
+        table = []
+        for r in rows:
+            try:
+                r["spp"] = int(r["spp"])
+                r["seconds"] = float(r["seconds"])
+            except (ValueError, KeyError):
+                continue
+            table.append(r)
+        references = {}
+        for r in table:
+            if r["side"] == reference:
+                key = (r["scene"], r["spp"])
+                references[key] = min(r["seconds"], references.get(key, r["seconds"]))
+        for r in table:
+            key = (r["scene"], r["spp"], r["side"])
+            r["reference"] = references.get((r["scene"], r["spp"]))
+            if key not in joined:
+                order.append(key)
+            joined[key] = r
+    return [joined[key] for key in order]
 
 
 def ordered(values):
@@ -247,13 +271,13 @@ def draw(rows, sides, reference, reference_label, y_label, args):
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("csv")
+    ap.add_argument("csvs", nargs="+")
     add_figure_arguments(ap)
     args = ap.parse_args(argv[1:])
     if args.out is None:
         args.out = "cpu-wavefront-speedups.pdf"
 
-    rows = load(args.csv)
+    rows = load(args.csvs)
     sides = choose_sides(rows, SIDES, args.sides)
     if sides is None:
         return 1
