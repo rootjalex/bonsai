@@ -856,10 +856,46 @@ the baseline", and three things to fix in the language. All four are in.
    node index alone and re-tests the popped node's box against the radius,
    where our kernels carry the bound with the index and test that.
 
-   **Measured** (after bonsai-f9's matrix, 2026-10-23): pending -- the
-   before-tables are apps/wosx/results/wosx-results.csv (CPU, 23:58),
-   wosx-gpu-results.csv (22:16) and apps/rtq/results/rtq-results.csv
-   (19:56), all with the exact baseline and the old compiler.
+   **Measured** (2026-10-23/24, the three tables rerun under the compiler
+   with both fixes, 688a8802; the before-tables under the old compiler
+   with the exact baseline, kept in scratch/before-1023/). WoSX's and
+   Embree's own rates agree run to run within a percent on every column,
+   so every movement below is ours. Geomeans over the eighteen plotted
+   meshes:
+
+   | CPU schedule | before | after |
+   |---|---|---|
+   | `fcpwb` (matching, sequential) | 0.798 | 0.963 |
+   | `fcpwb-threads` | 0.914 | 1.097 |
+   | `fcpwb-persistent` | 0.946 | 1.139 |
+   | `fcpw4w16` | 1.187 | 1.174 |
+   | `fcpw4w16-threads` | 1.229 | 1.219 |
+   | `fcpw4w16-persistent` | 1.314 | 1.299 |
+
+   The binary tree's three schedules gained twenty percent each, every
+   one of the nineteen cells (the comb 0.55 -> 0.73, the whale 0.83 ->
+   0.99, the pavilion 0.63 -> 0.84): the 0.83x is 0.963, behind WoSX
+   still on seven meshes (comb 0.73, pavilion 0.84, crown 0.93, head
+   0.94, car and sportscar 0.95, bmw 0.96), level or ahead on the eleven
+   others, and the threaded and persistent forms are ahead on every mesh
+   but the comb. What remains of the gap is the two differences the
+   section above leaves unmatched (the pop's re-test, the four-wide
+   network's tie order do not apply here; the binary CPU walk's remaining
+   difference is to be read from the assembly again). The four-wide
+   tree's three schedules are each one percent down, every cell by one
+   to two percent, bonsai's rate alone. The rtq table (apps/rtq) moved
+   the same way: its closest-point rows on the four-wide tree, `fcpw4w16`
+   near 1.189 -> 1.176 and volume 1.207 -> 1.193, where its ray rows
+   gained (primary 1.506 -> 1.531, diffuse 1.634 -> 1.642, ao 1.869 ->
+   1.885) and Embree's five matching rows stayed within noise (nearest
+   primary 1.005, diffuse 1.047, any ao 1.010 -> 1.023, closest near
+   2.362 -> 2.356, volume 2.994 -> 2.976; tuned rows carried over). The
+   unconditional tightening is the one change that touches a
+   closest-point traversal and not a ray's, so it is the likely cost on
+   the wide tree -- four far corners folded in a visit where the entry
+   test used to fold one or two -- to be confirmed in the generated code
+   before it is acted on. The GPU table is in its own section below
+   (the matching kernel 1.099 -> 1.161).
 
 ### The variants, for (b)
 
@@ -902,7 +938,52 @@ on the card; benchmark.sh --gpu waits for an empty GPU and honours
 
 ### Measured
 
-(to be filled in: the whale first, then the table over the meshes)
+The table over the nineteen meshes (side 128, 64 walks a point, least of
+three), twice: 2026-10-22 22:16 under the old compiler (875c374a with the
+exact baseline uncommitted) and 2026-10-24 00:04-00:25 under the compiler
+after the two fixes above (688a8802; the bit-word pass b48a0dde and the
+unconditional tightening, plus bonsai-f9's device sort, which a program
+without a sorted GPU queue never reaches). WoSX's own rates agree run to
+run within a percent on every schedule's column, so the movement is
+ours. Geomeans over the eighteen plotted meshes (the landscape left out,
+as in the plot), before -> after, with the whale's cell:
+
+| schedule | before | after | whale | after's range |
+|---|---|---|---|---|
+| `fcpwb-gpu` (matching) | 1.099 | 1.161 | 1.12 -> 1.21 | 0.94 (beast) .. 1.27 (dragon) |
+| `fcpwb-gpu-flat` | 1.042 | 1.094 | 1.09 -> 1.17 | 0.90 (zero-day) .. 1.17 |
+| `fcpwb-gpu-walks` | 1.180 | 1.257 | 1.19 -> 1.27 | 0.98 (beast) .. 1.49 (ganesha) |
+| `fcpwb-gpu-points` | 0.094 | 0.102 | 0.07 -> 0.07 | 0.03 .. 0.17 |
+| `fcpwb2-gpu` | 1.051 | 1.067 | 1.09 -> 1.16 | 0.84 (beast) .. 1.19 (ivy) |
+| `fcpw4w16-gpu` | 0.946 | 0.989 | 0.91 -> 0.94 | 0.72 (comb) .. 1.30 (lte-orb) |
+
+What the table says. The matching kernel is faster than WoSX's
+persistent kernel on seventeen of eighteen meshes, level on the crown
+(1.00) and behind on the beast (0.94); those two are where every one of
+our kernels does worst, and the table does not say why (their walks are
+of middling length, 6.6 and 11.7 steps against the ivy's 22.6). The
+walk-fastest grain is worth another eight percent over the matching
+claim on every mesh but the crown (coherence of a warp's thirty-two
+walks from one point against WoSX's consecutive points). The flat launch
+gives up six percent to the persistent claim, so the claim is worth that
+here. The layout that stores the children's boxes in the parent is
+slower than FCPW's layout on this kernel (1.067 against 1.161) though
+it reads one row a visit where FCPW's reads three; why, the PTX has to
+say. A point a claim is a tenth of WoSX: the sixty-four walks of a point
+in sequence on one thread is the CPU's grain, and the GPU has no use for
+it. The four-wide tree, which FCPW cannot put on a GPU, is level with
+WoSX's binary one (0.989): half the depth, but four boxes tested a visit
+against the two the binary tree's sort tests, and sixteen triangles a
+leaf.
+
+The compiler's two fixes (the bit word for the sort's hit flags, and the
+radius tightened by the far corner at every child) moved the three
+schedules on FCPW's layout by five to seven percent, the four-wide tree
+by five, and the wide-row layout by one and a half. Two of that layout's
+cells went the other way: the beast, 0.90 -> 0.84 (bonsai 75.2 -> 72.6
+Msteps/s), and the dragon, 1.10 -> 1.03; the other four schedules gained
+on both meshes, so this is the wide-row kernel alone, to be read from
+the PTX before anything is concluded.
 
 ### Next
 
