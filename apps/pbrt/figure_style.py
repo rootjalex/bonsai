@@ -21,7 +21,9 @@ Arial, Helvetica and DejaVu Sans when a machine lacks it.
     paper_style()
     fig, ax = plt.subplots(figsize=(TEXT_WIDTH, 2.3))
 
-`write_summary` writes the statistics the paper quotes beside a figure,
+`lean_labels(ax, labels, pitch)` sets x tick labels at the least angle at
+which they do not overlap (`lean_angle`, `lean_height` size a figure for
+them). `write_summary` writes the statistics the paper quotes beside a figure,
 `<figure>.txt`: for each series the geometric mean, the least and greatest
 value and which point each is (the user, 10-24). `YLGNBU` is the paper's
 one colour ramp.
@@ -53,6 +55,50 @@ def paper_style(font=FONT, tick=TICK_FONT):
         "legend.handlelength": 1.4, "legend.handleheight": 0.8,
         "legend.borderpad": 0.2, "legend.labelspacing": 0.3,
     })
+
+
+def text_width(text, font=TICK_FONT):
+    """About how long `text` runs in inches at `font` points (half an em a
+    character, Liberation Sans' average), a shade over for safety."""
+    return 0.07 + 0.5 * font / 72 * len(text)
+
+
+def lean_angle(labels, pitch, font=TICK_FONT, margin=4.0):
+    """The least angle, in degrees, at which the tick labels `labels` set
+    `pitch` inches apart do not run into each other: 0 when the longest
+    lies within the pitch, else the angle at which neighbouring lines of
+    text (font * 1.15 points high) are a line apart, sin(angle) = line /
+    pitch, plus `margin` degrees; 90 at most. The least height the labels
+    can take (the user, 10-24: upright names wasted a third of the heatmap,
+    and 45 degrees most of the rtq figures)."""
+    longest = max((text_width(t, font) for t in labels), default=0.0)
+    if longest <= pitch:
+        return 0.0
+    line = font * 1.15 / 72
+    return min(90.0, math.degrees(math.asin(min(1.0, line / pitch))) + margin)
+
+
+def lean_height(labels, angle, font=TICK_FONT):
+    """The inches the labels take below the axis at `angle` degrees."""
+    longest = max((text_width(t, font) for t in labels), default=0.0)
+    line = font * 1.15 / 72
+    a = math.radians(angle)
+    return 0.08 + longest * math.sin(a) + line * math.cos(a)
+
+
+def lean_labels(ax, labels, pitch, font=TICK_FONT):
+    """Set `labels` as the x tick labels of `ax`, leaning by `lean_angle`
+    for `pitch` inches between ticks; returns the angle. The ticks
+    themselves are set to 0..n-1 first if the axis has not that many."""
+    if len(ax.get_xticks()) != len(labels):
+        ax.set_xticks(range(len(labels)))
+    angle = lean_angle(labels, pitch, font)
+    if angle == 0.0:
+        ax.set_xticklabels(labels, fontsize=font)
+    else:
+        ax.set_xticklabels(labels, fontsize=font, rotation=angle, ha="right", va="top",
+                           rotation_mode="anchor")
+    return angle
 
 
 def describe(points):
