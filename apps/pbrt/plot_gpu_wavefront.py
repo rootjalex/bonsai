@@ -6,7 +6,10 @@ writes.
 
     python3 apps/pbrt/plot_gpu_wavefront.py apps/pbrt/gpu-compare-out/table.tsv \
         [apps/pbrt/gpu-compare-out-sort/table.tsv ...] \
-        -o apps/pbrt/plots/gpu-wavefront-speedups.pdf
+        -o apps/pbrt/plots/pbrt-gpu-sweep.pdf
+
+(plots.sh draws it under that name from the three tables below, the
+figure's one name since 10-24.)
 
 A table is tab-separated, one row per measured cell and side (scene, spp,
 side, wall_s, kernel_ms, speedup, agree, verdict, note, image, path;
@@ -45,7 +48,7 @@ as the user asked on 10-24:
     python3 apps/pbrt/plot_gpu_wavefront.py apps/pbrt/gpu-compare-out/table.tsv \
         apps/pbrt/gpu-compare-out-sort/table.tsv \
         apps/pbrt/gpu-compare-out-explore/table.tsv \
-        --width 11 -o apps/pbrt/plots/gpu-wavefront-all.pdf
+        --width 11 -o apps/pbrt/plots/pbrt-gpu-sweep.pdf
 
 Everything else about the drawing is plot_cpu_wavefront.py's `draw`.
 """
@@ -138,7 +141,7 @@ def main(argv):
                     help="the kernel-time speedup instead of the wall-clock one")
     args = ap.parse_args(argv[1:])
     if args.out is None:
-        args.out = "gpu-wavefront-speedups.pdf"
+        args.out = "pbrt-gpu-sweep.pdf"
 
     rows = load(args.tables, kernel=args.kernel)
     sides = choose_sides(rows, SIDES, args.sides)

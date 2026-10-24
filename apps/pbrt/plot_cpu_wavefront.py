@@ -5,7 +5,9 @@ per scene, a subgroup per sample count, from the CSV cpu_compare.sh writes.
 
     python3 apps/pbrt/plot_cpu_wavefront.py apps/pbrt/cpu-compare-out/cpu-results.csv \
         [apps/pbrt/cpu-compare-out-sortfix/cpu-results.csv ...] \
-        -o apps/pbrt/plots/cpu-wavefront-speedups.pdf
+        -o apps/pbrt/plots/pbrt-cpu-sweep.pdf
+
+(plots.sh draws it under that name, the figure's one name since 10-24.)
 
 A CSV has one row per measured cell and side (scene, spp, side, render
 seconds, speedup, verdict, ...; cpu_compare.sh's header says what each
@@ -275,7 +277,7 @@ def main(argv):
     add_figure_arguments(ap)
     args = ap.parse_args(argv[1:])
     if args.out is None:
-        args.out = "cpu-wavefront-speedups.pdf"
+        args.out = "pbrt-cpu-sweep.pdf"
 
     rows = load(args.csvs)
     sides = choose_sides(rows, SIDES, args.sides)

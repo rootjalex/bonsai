@@ -114,18 +114,39 @@ before it.
   sorted before the trace -- so `scalar` is mk-b-s-ps,
   `wavefront-thread-packet` is wf-t-v-ps and `wavefront-thread-packet-sort`
   is wf-t-v-ps-sort (the table is in the script).
-  `plots/` holds the drawn figures and is not committed.
+- `plots.sh [--png]`: every figure of this directory, drawn into `plots/`
+  under its one fixed name from the runs that are the current
+  measurements (the user, 10-24: no guessing what is what). `plots/` holds
+  exactly these and is not committed:
+  - `pbrt-cpu-sweep.pdf`: the CPU schedules over pbrt's CPU wavefront,
+    five scenes x 16/64/128 spp (plot_cpu_wavefront.py from
+    cpu-compare-out and cpu-compare-out-sortfix);
+  - `pbrt-gpu-sweep.pdf`: every measured OptiX schedule over `pbrt --gpu`
+    on the same cells (plot_gpu_wavefront.py from gpu-compare-out,
+    gpu-compare-out-sort and gpu-compare-out-explore);
+  - `pbrt-gpu-heatmap.pdf`: the matching GPU wavefront (gpu-optix) over
+    `pbrt --gpu` on all thirty scenes x 16/64/128/256 spp
+    (plot_gpu_heatmap.py from the last heatmap run, compare-out-heatmap7).
+
+  The runs are variables at the top of the script (`CPU_CSVS`,
+  `GPU_TABLES`, `HEATMAP_TABLE`), overridable in the environment when a
+  figure is to be drawn from another run; `--png` draws a `.png` beside
+  each `.pdf` to look at.
 - `plot_gpu_wavefront.py DIR/table.tsv -o OUT.pdf [--kernel] [--sides a,b,...]
   [--log] [--values] [--width W --height H]`: the GPU twin of that figure
   from gpu_compare.sh's table -- every OptiX schedule's speedup over
   `pbrt --gpu` (the dashed line at 1, "PBRT wf": pbrt's GPU renderer is
   its wavefront, and it has no GPU megakernel), wall-clock as the table's
   speedup column is, or kernel time with `--kernel`; the bars in order
-  `Bonsai mk` (gpu-optix-mega), `Bonsai mk-ser` (gpu-optix-mega-ser),
-  `Bonsai wf` (gpu-optix) and `Bonsai wf-sort` (gpu-optix-sort), four
-  classes of the same YlGnBu ramp. Only schedules on the ray tracing
-  hardware are drawn (the user, 10-23): the software traversals never won
-  a cell. The drawing is plot_cpu_wavefront.py's.
+  `Bonsai mk` (gpu-optix-mega), `Bonsai mk-ser`, `Bonsai mk-ser-ray`,
+  `Bonsai wf` (gpu-optix), `Bonsai wf-b128`, `Bonsai wf-b512`,
+  `Bonsai wf-fused`, `Bonsai wf-sort` (gpu-optix-sort) and
+  `Bonsai wf-sort36`, whichever the tables hold -- the megakernels then
+  the wavefronts, each family from plain to variants -- coloured with the
+  same YlGnBu ramp spread over the sides drawn (four sides: classes 1, 3,
+  5, 7; nine: the whole ramp). Only schedules on the ray tracing hardware
+  are drawn (the user, 10-23): the software traversals never won a cell.
+  The drawing is plot_cpu_wavefront.py's.
 - `plot_gpu_table.py OUT.png TABLE.tsv...`: the tables gpu_compare.sh
   wrote, plotted -- each schedule's speedup over `pbrt --gpu` and every
   side's kernel time, a group of bars per scene and a row of panels per
