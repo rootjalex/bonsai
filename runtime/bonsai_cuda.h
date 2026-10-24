@@ -1099,16 +1099,17 @@ bonsai_cuda_launch(const char *ptx, const char *kernel, int64_t grid_x,
 
 // The device sort's library (see the declaration): the path set by the
 // generated header, the library once loaded, and its one entry point.
-inline std::string *bonsai_cuda_sort_library_path() {
+__attribute__((used)) inline std::string *bonsai_cuda_sort_library_path() {
     static std::string path;
     return &path;
 }
 
-inline void bonsai_cuda_set_sort_library(const char *path) {
+__attribute__((used)) inline void bonsai_cuda_set_sort_library(const char *path) {
     *bonsai_cuda_sort_library_path() = path != nullptr ? path : "";
 }
 
-inline void bonsai_cuda_sort_indices(const uint64_t *keys, uint32_t *perm, int64_t n) {
+__attribute__((used)) inline void bonsai_cuda_sort_indices(const uint64_t *keys,
+                                                           uint32_t *perm, int64_t n) {
     using Sort = void (*)(const uint64_t *, uint32_t *, int64_t);
     static Sort sort = [] {
         const char *from_env = std::getenv("BONSAI_CUDA_SORT_LIB");
