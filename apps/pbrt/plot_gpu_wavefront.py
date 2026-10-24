@@ -58,31 +58,55 @@ import argparse
 import csv
 import sys
 
-from plot_cpu_wavefront import YLGNBU, add_figure_arguments, choose_sides, draw
+from figure_style import YLGNBU
+from plot_cpu_wavefront import add_figure_arguments, choose_sides, draw
 
 REFERENCE = "pbrt --gpu"
 REFERENCE_LABEL = "PBRT wf"
-Y_LABEL = "Speedup over\nPBRT wf"
+Y_LABEL = "Speedup"
 
 # (side in the table, label in the legend): the drawing order, the
 # megakernels first and then the wavefronts, each family from its plain
 # schedule to its variants. The colour is assigned by `colour_sides` from the
 # number of sides drawn.
 SIDES = [
-    ("gpu-optix-mega", "Bonsai mk"),
-    ("gpu-optix-mega-ser", "Bonsai mk-ser"),
+    ("gpu-optix-mega", "mk"),
+    ("gpu-optix-mega-ser", "mk-ser"),
     # The exploration of 10-24 (apps/pbrt/schedules/gpu-optix-*.bonsai):
     # variants of the megakernel and the wavefront, drawn when a table has
     # them or `--sides` asks; more than nine sides exceed the ramp.
-    ("gpu-optix-mega-ser-ray", "Bonsai mk-ser-ray"),
-    ("gpu-optix", "Bonsai wf"),
-    ("gpu-optix-b128", "Bonsai wf-b128"),
-    ("gpu-optix-b512", "Bonsai wf-b512"),
-    ("gpu-optix-fused", "Bonsai wf-fused"),
-    ("gpu-optix-fused-ser", "Bonsai wf-fused-ser"),
-    ("gpu-optix-sort", "Bonsai wf-sort"),
-    ("gpu-optix-sort36", "Bonsai wf-sort36"),
+    ("gpu-optix-mega-ser-ray", "mk-ser-ray"),
+    ("gpu-optix", "wf"),
+    ("gpu-optix-b128", "wf-b128"),
+    ("gpu-optix-b512", "wf-b512"),
+    ("gpu-optix-fused", "wf-fused"),
+    ("gpu-optix-fused-ser", "wf-fused-ser"),
+    ("gpu-optix-sort", "wf-sort"),
+    ("gpu-optix-sort36", "wf-sort36"),
 ]
+# Pairs of sides differing by one decision, for the summary's reading of
+# the figure (plot_cpu_wavefront.COMPARISONS explains).
+COMPARISONS = [
+    ("wf", "mk", "pbrt's wavefront schedule, matched, against the OptiX megakernel"),
+    ("mk-ser", "mk", "shader execution reordering before the material stage"),
+    ("mk-ser-ray", "mk-ser", "reordering keyed by the ray instead of the material"),
+    ("wf-b128", "wf", "bands of 128 pixel rows instead of the matching band size"),
+    ("wf-b512", "wf", "bands of 512 pixel rows instead of the matching band size"),
+    ("wf-fused", "wf", "the camera-ray generation fused into the first trace"),
+    ("wf-sort", "wf", "the ray queue sorted by the 60-bit two-point Morton key before each trace"),
+    ("wf-sort36", "wf-sort", "the coarse 36-bit sort key instead of the 60-bit one"),
+]
+CAUSES = [
+    "causes measured, apps/pbrt/PLAN.md: 'The GPU matrix measured: five scenes, three sample",
+    "  counts, four OptiX sides (10-24)' -- the reading of the four paper sides, the sort's own",
+    "  time against what coherence saves on the RT cores; 'The GPU schedule space explored: is",
+    "  the best schedule data-dependent? (10-24)' -- the band sizes, the fused wavefront and the",
+    "  reorder keys; 'The fused wavefront's trade read off the profiles (10-24)' -- fusing costs",
+    "  a fifth to a third where the trace is cheap and nothing on sanmiguel, whose two-level",
+    "  trace is latency-bound. REPORT.md 10-23..10-24 has each run's numbers.",
+]
+
+
 def colour_sides(sides):
     """`sides` ((side, label) in drawing order) with a YlGnBu class each:
     the classes spread evenly over 1..7 for up to seven sides (four sides:
@@ -149,7 +173,7 @@ def main(argv):
     sides = choose_sides(rows, SIDES, args.sides)
     if sides is None:
         return 1
-    draw(rows, colour_sides(sides), REFERENCE, REFERENCE_LABEL, Y_LABEL, args)
+    draw(rows, colour_sides(sides), REFERENCE, REFERENCE_LABEL, Y_LABEL, args, COMPARISONS, CAUSES)
     return 0
 
 

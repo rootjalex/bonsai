@@ -18,6 +18,11 @@
 #                              spp, from the last heatmap run
 #                              (plot_gpu_heatmap.py)
 #
+# Each plotter also writes <figure>.txt beside its figure: the summary
+# statistics the paper quotes (geomeans, min and max and which cell each
+# is, what each scheduling decision bought, the trend with spp) and where
+# the measured causes are written up (the user, 10-24).
+#
 # --png draws a .png beside each .pdf to look at. The runs each figure is
 # drawn from are the variables below; override one in the environment to
 # draw from another run (CPU_CSVS="..." bash apps/pbrt/plots.sh). Several

@@ -14,9 +14,13 @@ one may hold several sample counts (gpu_compare.sh --spp "16 64 256", or
 collected by (scene, spp); a cell no table has is left blank, and a cell
 whose image did not match pbrt's is drawn hatched with its number struck
 through, so that a speedup on a wrong picture cannot be read as a speedup.
-Colour is log2 of the speedup on a diverging scale centred on parity --
-green above one, red below -- so 2x and 0.5x are equally far from the
-middle; the numbers are the ratios themselves, as the table prints them.
+Colour is log2 of the speedup on the paper's YlGnBu ramp, parity its
+palest class and the top of the data (rounded up to a half power of two)
+its darkest; a cell below parity would be red (none is). The numbers are
+the ratios to two digits ("1.6"), what a cell holds at text width (the
+user, 10-24). Beside the figure goes `<figure>.txt`, the summary the paper
+quotes: geometric mean, least and greatest cell and which they are, over
+everything, per sample count and per scene (figure_style.write_summary).
 Scenes are in the tables' order, or by name, or by their mean speedup, or
 (`--sort geometry`) by how much geometry pbrt built for them -- the shapes
 counted in the Geometry section of the `.pbrt.stats` file gpu_compare.sh
@@ -49,9 +53,14 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.colors import TwoSlopeNorm  # noqa: E402
 
-from figure_style import TEXT_WIDTH, TICK_FONT, paper_style  # noqa: E402
+from matplotlib.colors import LinearSegmentedColormap, Normalize  # noqa: E402
+
+from figure_style import (TEXT_WIDTH, TICK_FONT, YLGNBU, geomean,  # noqa: E402
+                          paper_style, write_summary)
+
+
+BELOW = "#d7301f"       # a cell below parity, off the ramp
 
 
 def number(text):
@@ -95,8 +104,10 @@ def read_tables(paths, schedule):
                 cells[(key, spp)] = (v, r["verdict"].startswith("ok"))
     labels = {}
     for key in scenes:
+        # Two scenes named alike (kroken/camera-1, watercolor/camera-1) are
+        # told apart by their directory, the scene's own name.
         shared = sum(1 for k in scenes if names[k] == names[key]) > 1
-        labels[key] = key if shared else names[key]
+        labels[key] = key.split("/")[0] if shared and "/" in key else names[key]
     return scenes, sorted(spps), cells, labels, stats
 
 
@@ -133,6 +144,67 @@ def shape_count(stats_path):
     return total
 
 
+def reading(scenes, spps, cells, labels, stats):
+    """Lines that read the heatmap from its own data (the user, 10-24: the
+    statistics should explain the speedups where they can): the trend from
+    the fewest samples to the most and how many scenes follow it; the
+    volume scenes against the surface scenes; the rank correlation of the
+    speedup with the geometry pbrt built (from the `.pbrt.stats` beside
+    each pbrt image, when present); and where the measured causes are."""
+    notes = []
+    if len(spps) > 1:
+        lo, hi = spps[0], spps[-1]
+        at_lo = geomean([(sc, cells[(sc, lo)][0]) for sc in scenes if (sc, lo) in cells])
+        at_hi = geomean([(sc, cells[(sc, hi)][0]) for sc in scenes if (sc, hi) in cells])
+        falling = sum(1 for sc in scenes if (sc, lo) in cells and (sc, hi) in cells
+                      and cells[(sc, hi)][0] < cells[(sc, lo)][0])
+        both = sum(1 for sc in scenes if (sc, lo) in cells and (sc, hi) in cells)
+        if at_lo and at_hi:
+            notes.append(f"with more samples the speedup falls: geomean {at_lo:.2f}x at {lo} spp, "
+                         f"{at_hi:.2f}x at {hi} spp, lower at {hi} than at {lo} on {falling} of "
+                         f"{both} scenes -- consistent with the per-frame costs we save (pbrt's "
+                         f"launches, queue resets, camera rays) being a smaller share of a "
+                         f"longer render")
+    counts = {sc: shape_count(stats.get(sc, "")) for sc in scenes}
+    with_counts = [sc for sc in scenes if counts[sc]]
+    if len(with_counts) >= 4:
+        volumes = [sc for sc in with_counts if counts[sc] <= 8]
+        surfaces = [sc for sc in with_counts if counts[sc] > 8]
+        per_scene = {sc: geomean([(s, cells[(sc, s)][0]) for s in spps if (sc, s) in cells])
+                     for sc in with_counts}
+        if volumes and surfaces:
+            gv = geomean([(sc, per_scene[sc]) for sc in volumes])
+            gs = geomean([(sc, per_scene[sc]) for sc in surfaces])
+            notes.append(f"volume scenes (at most 8 shapes: {', '.join(labels[sc] for sc in volumes)})"
+                         f" geomean {gv:.2f}x; surface scenes {gs:.2f}x -- a volume render is "
+                         f"mostly ray marching in the medium stage, where our kernel and pbrt's "
+                         f"do the same work, so the surface stages' gains weigh less")
+        # Spearman's rank correlation of the speedup with the geometry.
+        ranked = sorted(surfaces, key=lambda sc: counts[sc])
+        if len(ranked) >= 4:
+            def rank(order):
+                return {sc: i for i, sc in enumerate(order)}
+            r_geo = rank(ranked)
+            r_speed = rank(sorted(surfaces, key=lambda sc: per_scene[sc]))
+            n = len(surfaces)
+            d2 = sum((r_geo[sc] - r_speed[sc]) ** 2 for sc in surfaces)
+            rho = 1 - 6 * d2 / (n * (n * n - 1))
+            notes.append(f"rank correlation of the speedup with the geometry built, over the "
+                         f"{n} surface scenes: Spearman rho = {rho:+.2f} -- "
+                         + ("the speedup does not follow scene size" if abs(rho) < 0.3 else
+                            ("a weak" if abs(rho) < 0.6 else "a strong") + " tendency for larger "
+                            "scenes to speed up " + ("more" if rho > 0 else "less"))
+                         + "; the trace itself both sides do on the RT cores, so what the "
+                           "schedule saves is around it (queues, the material dispatch, launches)")
+    notes.extend([
+        "causes measured, apps/pbrt/PLAN.md: 'The GPU matrix measured: five scenes, three sample",
+        "  counts, four OptiX sides (10-24)' -- what the matching wavefront saves over pbrt's;",
+        "  'The fused wavefront's trade read off the profiles (10-24)' -- the per-scene kernel",
+        "  profiles; the heatmap7 entries of REPORT.md (10-19..10-24) -- each cell's run.",
+    ])
+    return notes
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -145,8 +217,9 @@ def main(argv):
                         help="the order of the scenes across; geometry = by the shapes "
                              "pbrt built, from the .pbrt.stats beside each pbrt image")
     parser.add_argument("--title", default=None)
-    parser.add_argument("--per-band", type=int, default=15,
-                        help="scenes across one band; more scenes make more bands")
+    parser.add_argument("--per-band", type=int, default=0,
+                        help="scenes across one band, more scenes making more bands "
+                             "stacked down the figure; 0 (the default) is one band")
     parser.add_argument("--width", type=float, default=TEXT_WIDTH,
                         help="inches; the default is the paper's text width")
     args = parser.parse_args(argv[1:])
@@ -177,20 +250,27 @@ def main(argv):
     # log2 of the speedup, parity at zero; the scale is symmetric about it
     # so that the colours mean the same thing on every plot of the same
     # range, and wide enough for whatever the tables hold.
+    # Colour: log2 of the speedup from parity (the ramp's palest class) up
+    # to the top of the data rounded to a half power of two (its darkest),
+    # on the paper's YlGnBu ramp; a cell below parity, should one appear,
+    # is red (none of the 120 is).
     all_logs = [math.log2(cells[(sc, s)][0]) for sc in scenes for s in spps if (sc, s) in cells]
-    extent = max((abs(x) for x in all_logs), default=1.0)
-    extent = max(1.0, math.ceil(extent * 2) / 2)
-    norm = TwoSlopeNorm(vmin=-extent, vcenter=0.0, vmax=extent)
+    top = max(1.0, math.ceil(max(all_logs, default=1.0) * 2) / 2)
+    norm = Normalize(vmin=0.0, vmax=top)
+    cmap = LinearSegmentedColormap.from_list("ylgnbu", YLGNBU)
+    cmap.set_under(BELOW)
 
-    per = max(1, args.per_band)
+    per = args.per_band if args.per_band > 0 else len(scenes)
     bands = [scenes[i:i + per] for i in range(0, len(scenes), per)]
     across = min(per, len(scenes))
-    cell_h = 0.22                                   # inches, one sample count's row
-    label_h = 1.25                                  # the rotated scene names under a band
-    height = len(bands) * (len(spps) * cell_h + label_h) + 0.2
+    cell_h = 0.2                                    # inches, one sample count's row
+    longest = max(len(labels[sc]) for sc in scenes)
+    label_h = 0.09 + 0.052 * longest                # the upright scene names under a band
+    bar_h = 0.45                                    # the colour bar above, with its label
+    height = len(bands) * (len(spps) * cell_h + label_h) + bar_h
     paper_style()
-    # Constrained layout keeps the bands, their names and the colour bar
-    # inside a figure of exactly the width asked, so the PDF is the text width.
+    # Constrained layout keeps the names and the colour bar inside a figure
+    # of exactly the width asked, so the PDF is the text width.
     fig, axes = plt.subplots(len(bands), 1, figsize=(args.width, height), squeeze=False,
                              layout="constrained")
     axes = [row[0] for row in axes]
@@ -198,21 +278,20 @@ def main(argv):
     for ax, band in zip(axes, bands):
         logs = [[math.log2(cells[(sc, s)][0]) if (sc, s) in cells else float("nan")
                  for sc in band] for s in spps]
-        image = ax.imshow(logs, cmap="RdYlGn", norm=norm, aspect="auto")
+        image = ax.imshow(logs, cmap=cmap, norm=norm, aspect="auto")
         ax.set_xlim(-0.5, across - 0.5)             # every band's cells the same width
         ax.set_xticks(range(len(band)))
-        ax.set_xticklabels([labels[sc] for sc in band], rotation=40, ha="right",
-                           rotation_mode="anchor")
+        ax.set_xticklabels([labels[sc] for sc in band], rotation=90, fontsize=TICK_FONT)
         ax.set_yticks(range(len(spps)))
         ax.set_yticklabels([str(s) for s in spps])
         ax.set_ylabel("spp")
-        ax.tick_params(length=0)
+        ax.tick_params(length=0, pad=2)
         for spine in ax.spines.values():
             spine.set_visible(False)
         # Cell borders, as a table has.
         ax.set_xticks([i - 0.5 for i in range(len(band) + 1)], minor=True)
         ax.set_yticks([i - 0.5 for i in range(len(spps) + 1)], minor=True)
-        ax.grid(which="minor", color="white", linewidth=1.0)
+        ax.grid(which="minor", color="white", linewidth=0.8)
         ax.tick_params(which="minor", length=0)
 
         for i, s in enumerate(spps):
@@ -220,35 +299,48 @@ def main(argv):
                 cell = cells.get((sc, s))
                 if cell is None:
                     ax.add_patch(plt.Rectangle((j - 0.5, i - 0.5), 1, 1, facecolor="#eeeeee",
-                                               edgecolor="white", linewidth=1.0))
+                                               edgecolor="white", linewidth=0.8))
                     continue
                 v, matched = cell
-                # Dark text on the pale middle of the scale, light on its ends.
-                dark = abs(math.log2(v)) < 0.6 * extent
-                # The ratio alone; the colour bar carries the "x", and
-                # "1.60x" at 8 pt would overflow a 0.3 in cell.
-                ax.text(j, i, f"{v:.2f}", ha="center", va="center", fontsize=TICK_FONT - 1,
-                        color="black" if dark else "white",
-                        fontweight="bold" if not dark else "normal")
+                # Two digits ("1.6", "3.2"): what a 0.16 in cell holds at
+                # 6.5 pt (the user, 10-24). Dark text on the pale half of
+                # the ramp, white on the dark half and on red.
+                dark = 0.0 <= math.log2(v) < 0.55 * top
+                ax.text(j, i, f"{v:.1f}", ha="center", va="center", fontsize=TICK_FONT - 0.5,
+                        color="black" if dark else "white")
                 if not matched:
                     ax.add_patch(plt.Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False,
                                                hatch="///", edgecolor="black", linewidth=0))
-                    ax.plot([j - 0.3, j + 0.3], [i, i], color="black", linewidth=0.9)
-    axes[-1].set_xlabel("scene")
+                    ax.plot([j - 0.3, j + 0.3], [i, i], color="black", linewidth=0.8)
     if args.title:
         axes[0].set_title(args.title)
 
-    bar = fig.colorbar(image, ax=axes, fraction=0.025, pad=0.015, aspect=12 * len(bands))
-    ticks = [t for t in range(-int(extent), int(extent) + 1)]
+    # The colour bar lies along the top, so the cells have the whole width.
+    bar = fig.colorbar(image, ax=axes, location="top", orientation="horizontal",
+                       fraction=0.06, pad=0.02, shrink=0.45, aspect=35)
+    ticks = [t for t in (0.0, math.log2(1.5), 1.0, math.log2(3), 2.0, math.log2(6), 3.0)
+             if t <= top + 1e-9]
     bar.set_ticks(ticks)
     bar.set_ticklabels([f"{2.0 ** t:g}x" for t in ticks])
-    bar.set_label("Speedup")
-    bar.outline.set_linewidth(0.6)
+    bar.set_label("Speedup over PBRT wf", labelpad=2)
+    bar.outline.set_linewidth(0.5)
+    bar.ax.tick_params(length=2, pad=1.5)
     fig.savefig(args.out, dpi=200)
+    # The summary beside the figure: every cell, then each sample count's
+    # row, then each scene's column.
+    def points(keys):
+        return [(f"{labels[sc]} {s} spp", cells[(sc, s)][0]) for sc, s in keys if (sc, s) in cells]
+    sections = [("every scene and sample count",
+                 [(args.schedule, points((sc, s) for sc in scenes for s in spps))]),
+                ("by sample count", [(f"{s} spp", points((sc, s) for sc in scenes)) for s in spps]),
+                ("by scene", [(labels[sc], points((sc, s) for s in spps)) for sc in scenes])]
+    notes = reading(scenes, spps, cells, labels, stats)
+    summary = write_summary(args.out, f"Speedup of {args.schedule} over pbrt --gpu "
+                            f"({len(scenes)} scenes x {len(spps)} sample counts)", sections, notes)
     blank = sum(1 for s in spps for sc in scenes if (sc, s) not in cells)
     wrong = sum(1 for c in cells.values() if not c[1])
     print(f"wrote {args.out}: {len(scenes)} scenes x {len(spps)} sample counts in "
-          f"{len(bands)} band(s), {blank} blank, {wrong} not matching pbrt")
+          f"{len(bands)} band(s), {blank} blank, {wrong} not matching pbrt; and {summary}")
     return 0
 
 

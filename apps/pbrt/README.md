@@ -135,13 +135,27 @@ before it.
     `pbrt --gpu` on all thirty scenes x 16/64/128/256 spp, the scenes in
     order of the geometry pbrt built for them, volumes first (`--sort
     geometry`; plot_gpu_heatmap.py from the last heatmap run,
-    compare-out-heatmap7), in two bands of fifteen scenes.
+    compare-out-heatmap7), one band of thirty, the ratio in each cell to
+    two digits, the colour bar along the top.
 
   All three are drawn for the paper's page (figure_style.py): ACM's
   acmsmall format, a 5.478 in text block, so each PDF is exactly that
   wide and `\includegraphics[width=\textwidth]` does not rescale it;
-  labels and legends 10 pt and tick labels 9 pt as printed (the user,
-  10-24); Liberation Sans embedded as TrueType (fonttype 42), since ACM's
+  labels and legends 8 pt and tick labels 7 pt as printed (the user,
+  10-24: readable, not necessarily the body's 10 pt); one palette, the
+  YlGnBu ramp, for bars and cells alike; the sweeps' y axis reads
+  "Speedup" with the dashed PBRT line named in the legend, the legend in
+  two rows with the schedule codes alone (pbrt's two say "PBRT"; the rest
+  are Bonsai's). Beside each figure the plotter writes `<figure>.txt`,
+  the statistics the paper quotes (the user, 10-24): for every series the
+  geometric mean, the least and greatest value and which scene and sample
+  count each is, over everything and per sample count (the heatmap also
+  per scene); then a reading of the figure -- what each scheduling
+  decision bought, as the ratio of the two sides that differ by it, bar by
+  bar; the trend from the fewest samples to the most; the heatmap's
+  volume-against-surface split and the rank correlation of the speedup
+  with the geometry built -- and the PLAN.md sections where the causes
+  were measured. Liberation Sans embedded as TrueType (fonttype 42), since ACM's
   production rejects the Type 3 fonts matplotlib emits by default (check a
   PDF with `pdffonts`). The two sweeps are the same size so they stack as
   one float's subfigures.
@@ -171,11 +185,14 @@ before it.
   table (sample count); a bar whose image did not match pbrt's is hatched.
 - `figure_style.py`: the paper's figure style the three plotters import --
   `TEXT_WIDTH` (5.478 in, acmsmall's text block), `paper_style()` (TrueType
-  embedding, Liberation Sans, 10 pt labels, 9 pt ticks, thin axes).
+  embedding, Liberation Sans, 8 pt labels, 7 pt ticks, thin axes),
+  `YLGNBU` (the nine-class ramp), `describe`, `ratios` and `write_summary`
+  (the `.txt` beside a figure). apps/rtq/plot.py and apps/wosx/plot.py
+  import it too.
 - `plot_gpu_heatmap.py OUT.png TABLE.tsv... [--schedule S] [--sort
   table|name|speedup|geometry] [--per-band N] [--width IN]`: the same
-  tables as a heatmap -- scenes across in bands of at most N (default 15,
-  so the thirty scenes are two bands at text width, 0.3 in a cell),
+  tables as a heatmap -- scenes across (one band by default; `--per-band
+  N` cuts them into bands of N stacked down the figure),
   sample counts down, each cell one schedule's speedup over `pbrt --gpu`
   (default `gpu-optix`), coloured on a log scale centred on parity with the
   ratio printed in the cell, the GraphIt paper's figure for a schedule
