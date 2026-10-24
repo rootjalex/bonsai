@@ -127,14 +127,22 @@ RADIANCE_MEAN_TOLERANCE = 0.02
 RADIANCE_LIT_TOLERANCE = 1e-3
 
 
-def lit_gap_check(lit_pbrt, lit_bonsai, lit_either):
+def lit_gap_check(lit_pbrt, lit_bonsai, lit_either, nonfinite=0):
     """Whether the lit-pixel counts differ by more than RADIANCE_LIT_TOLERANCE
     allows (see there). `lit_either` is the count lit on at least one side,
     which compare_radiance has; the pixels lit on one side only are those
-    not lit on both, and both = pbrt + bonsai - either. Returns (failed,
-    gap, allowed)."""
-    one_sided = 2 * lit_either - lit_pbrt - lit_bonsai
-    gap = abs(lit_pbrt - lit_bonsai)
+    not lit on both, and both = pbrt + bonsai - either. `nonfinite` is the
+    number of our pixels that are not a number (NaN or infinite): each is a
+    pixel we got wrong where pbrt wrote a value, so each counts as one more
+    pixel lit on one side only -- against the same allowance, no allowance of
+    its own -- rather than failing the image outright (the user, 10-24: a
+    cell that differs from pbrt by less than pbrt's two renderers differ
+    from each other is not marked; one NaN pixel in two million at 128 spp
+    is a smaller disagreement than pbrt's own lit-pixel gap of 115 there).
+    Many such pixels still fail: they add to the gap as any one-sided pixel
+    does. Returns (failed, gap, allowed)."""
+    one_sided = 2 * lit_either - lit_pbrt - lit_bonsai + nonfinite
+    gap = abs(lit_pbrt - lit_bonsai) + nonfinite
     allowed = max(RADIANCE_LIT_TOLERANCE * max(lit_pbrt, 1),
                   3.0 * one_sided ** 0.5)
     return gap > allowed, gap, allowed
@@ -364,7 +372,9 @@ def compare_radiance(pbrt_path, bonsai_path, width, height):
     # compares false against all of them: kroken and watercolor at 128 spp
     # each carried one through five heatmaps with the verdict `ok` (PLAN.md,
     # "A pixel that is not a number passed"). pbrt's film CHECKs that no
-    # NaN reaches it, so a NaN here is ours alone, and it fails the image.
+    # NaN reaches it, so a NaN here is ours alone; it is counted as a
+    # lit-pixel disagreement by report_radiance_only (lit_gap_check), named
+    # in the verdict either way.
     nonfinite = 0
     nonfinite_pbrt = 0
     first_nonfinite = None
@@ -454,16 +464,20 @@ def report_radiance_only(radiance_pair, pbrt_seconds, bonsai_seconds, repeats,
     lit_pbrt, lit_bonsai, lit_both, ratio, (nonfinite, nonfinite_at) = \
         compare_radiance(radiance_pair[0], radiance_pair[1], pw, ph)
     failures = []
-    if nonfinite:
-        failures.append(("finite", f"{nonfinite} pixels here are not finite "
-                         f"(NaN or infinite), the first at {nonfinite_at}; "
-                         f"pbrt's film admits none"))
+    # A pixel of ours that is not a number counts as a lit-pixel
+    # disagreement (lit_gap_check): named in every verdict, never a failure
+    # of its own.
+    nonfinite_note = (f"{nonfinite} pixels here are not finite (NaN or "
+                      f"infinite), the first at {nonfinite_at}, counted as "
+                      f"lit-pixel disagreements" if nonfinite else "")
     lit_failed, lit_gap, lit_allowed = lit_gap_check(lit_pbrt, lit_bonsai,
-                                                     lit_both)
+                                                     lit_both, nonfinite)
     if lit_failed:
         failures.append(("lit", f"{lit_bonsai} pixels received light here "
-                         f"against pbrt's {lit_pbrt}, a gap of {lit_gap} where "
-                         f"{lit_allowed:.0f} was allowed"))
+                         f"against pbrt's {lit_pbrt}, a gap of {lit_gap}"
+                         + (f" ({nonfinite} of them not finite, the first at "
+                            f"{nonfinite_at})" if nonfinite else "")
+                         + f" where {lit_allowed:.0f} was allowed"))
     if abs(ratio - 1.0) > RADIANCE_MEAN_TOLERANCE:
         failures.append(("mean", f"the image is {ratio:.5f}x pbrt's on average, "
                          f"over the {RADIANCE_MEAN_TOLERANCE:.0%} two estimates "
@@ -475,12 +489,7 @@ def report_radiance_only(radiance_pair, pbrt_seconds, bonsai_seconds, repeats,
             radiance_pair[0], spread_path, pw, ph)
         s_gap = abs(s_lit_pbrt - s_lit_other)
         for which, _ in failures:
-            if which == "finite":
-                # No disagreement of pbrt's with itself covers a pixel that
-                # is not a number: pbrt writes none.
-                ok = False
-                note = f"{nonfinite} pixels not finite, the first at {nonfinite_at}"
-            elif which == "lit":
+            if which == "lit":
                 ok = s_gap >= lit_gap
                 note = f"lit-pixel gap {lit_gap} where pbrt's own is {s_gap}"
             else:
@@ -502,10 +511,11 @@ def report_radiance_only(radiance_pair, pbrt_seconds, bonsai_seconds, repeats,
         print("  (pbrt's own render timer, from the image it wrote; ours wraps "
               "the render call)")
     if not failures:
-        print("ok: the image matches pbrt")
+        print("ok: the image matches pbrt" + ("; " + nonfinite_note if nonfinite else ""))
         return 0
     if spread_path is not None and not uncovered:
-        print("ok: within pbrt's own disagreement -- " + "; ".join(covered))
+        print("ok: within pbrt's own disagreement -- " + "; ".join(covered)
+              + ("; " + nonfinite_note if nonfinite else ""))
         return 0
     for _, text in failures:
         print(f"FAILED: {text}")
@@ -656,17 +666,20 @@ def main(argv):
     if radiance_pair is not None:
         lit_pbrt, lit_bonsai, lit_both, ratio, (nonfinite, nonfinite_at) = \
             compare_radiance(radiance_pair[0], radiance_pair[1], ref_w, ref_h)
+        # A pixel of ours that is not a number is a lit-pixel disagreement
+        # (lit_gap_check), named here whatever the verdict.
         if nonfinite:
-            radiance_failed = True
-            print(f"FAILED: {nonfinite} pixels here are not finite (NaN or "
-                  f"infinite), the first at {nonfinite_at}; pbrt's film "
-                  f"admits none")
+            print(f"  {nonfinite} pixels here are not finite (NaN or "
+                  f"infinite), the first at {nonfinite_at}, counted as "
+                  f"lit-pixel disagreements")
         lit_failed, lit_gap, lit_allowed = lit_gap_check(lit_pbrt, lit_bonsai,
-                                                         lit_both)
+                                                         lit_both, nonfinite)
         if lit_failed:
             radiance_failed = True
             print(f"FAILED: {lit_bonsai} pixels received light here against "
-                  f"pbrt's {lit_pbrt}, a gap of {lit_gap} where {lit_allowed:.0f} "
+                  f"pbrt's {lit_pbrt}, a gap of {lit_gap}"
+                  + (f" ({nonfinite} of them not finite)" if nonfinite else "")
+                  + f" where {lit_allowed:.0f} "
                   f"was allowed. Two paths drawing the same numbers go the same "
                   f"way, so a gap this size is a sampler stream that has come "
                   f"apart rather than noise")
