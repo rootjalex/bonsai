@@ -29,8 +29,10 @@ other matching schedules. With --tuned the bars are the tuning's gain alone:
 bonsai's rate under the tuned schedule (`tuned`, `fcpw4w16t`; --embree-tuned, --fcpw-tuned)
 over its rate under the matching one, cell by cell, the reference out of it,
 so the line at 1 is the matching schedule and the colour says which tree.
-The colours are the paper's (graphs.py), the Okabe-Ito colour-blind palette:
-sky blue for Embree, orange for FCPW.
+The colours are apps/pbrt's figures' (the user's choice, 10-24): two classes
+of ColorBrewer's nine-class YlGnBu ramp, far enough apart to tell with the
+hatches over them -- the light second for Embree, the fifth for FCPW -- and
+the bars' edge and the line at 1 as there.
 """
 import argparse
 import csv
@@ -44,7 +46,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
-COLOUR = {"embree": "#56B4E9", "fcpw": "#E69F00"}  # sky blue, orange (CUD)
+EDGE = "#333333"  # every bar's thin edge, as apps/pbrt/plot_cpu_wavefront.py
+# ColorBrewer YlGnBu, nine classes, lightest first (apps/pbrt's palette).
+YLGNBU = ["#FFFFD9", "#EDF8B1", "#C7E9B4", "#7FCDBB", "#41B6C4",
+          "#1D91C0", "#225EA8", "#253494", "#081D58"]
+COLOUR = {"embree": YLGNBU[1], "fcpw": YLGNBU[5]}
 HATCH = {"primary": "", "ao": "///", "diffuse": "xxx", "near": "", "volume": "///"}
 LABEL = {"primary": "primary rays", "ao": "ambient-occlusion rays",
          "diffuse": "diffuse rays", "near": "points near surface",
@@ -166,9 +172,9 @@ def draw_packet(rows, schedule, out_dir, formats, exclude):
                 continue
             x = i - 0.4 + width * (j + 0.5)
             ax.bar(x, v, width, color=COLOUR["embree"], hatch=HATCH[rays],
-                   edgecolor="black", linewidth=0.5)
+                   edgecolor=EDGE, linewidth=0.4)
             top = max(top, v)
-    ax.axhline(1.0, color="black", linewidth=0.8)
+    ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=1.2, zorder=3)
     ax.set_xticks(range(len(meshes)))
     ax.set_xticklabels([f"{m}\n{tris[m] / 1e6:.2g}M" if tris[m] >= 1e6 else f"{m}\n{tris[m] // 1000}k"
                         for m in meshes], fontsize=8)
@@ -179,9 +185,9 @@ def draw_packet(rows, schedule, out_dir, formats, exclude):
     ax.spines["right"].set_visible(False)
     ax.yaxis.grid(True, linewidth=0.4, alpha=0.5)
     ax.set_axisbelow(True)
-    handles = [Patch(facecolor=COLOUR["embree"], edgecolor="black", linewidth=0.5,
+    handles = [Patch(facecolor=COLOUR["embree"], edgecolor=EDGE, linewidth=0.4,
                      label=f"Embree, packets of {k} (rtcIntersect{k}, rtcOccluded{k})")]
-    handles += [Patch(facecolor="white", edgecolor="black", linewidth=0.5,
+    handles += [Patch(facecolor="white", edgecolor=EDGE, linewidth=0.4,
                       hatch=HATCH[rays], label=LABEL[rays]) for _, rays in PACKET_SETS]
     ax.legend(handles=handles, fontsize=8, ncol=len(handles), loc="lower left",
               frameon=False, bbox_to_anchor=(0, 1.0), borderaxespad=0)
@@ -217,9 +223,9 @@ def draw(rows, schedules, out_dir, suffix, formats, exclude, tuned):
                         continue
                     x = i - 0.4 + width * (j * len(refs) + k + 0.5)
                     ax.bar(x, v, width, color=COLOUR[ref], hatch=HATCH[rays],
-                           edgecolor="black", linewidth=0.5)
+                           edgecolor=EDGE, linewidth=0.4)
                     top = max(top, v)
-        ax.axhline(1.0, color="black", linewidth=0.8)
+        ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=1.2, zorder=3)
         ax.set_xticks(range(len(meshes)))
         ax.set_xticklabels([f"{m}\n{tris[m] / 1e6:.2g}M" if tris[m] >= 1e6 else f"{m}\n{tris[m] // 1000}k"
                             for m in meshes], fontsize=8)
@@ -230,10 +236,10 @@ def draw(rows, schedules, out_dir, suffix, formats, exclude, tuned):
         ax.spines["right"].set_visible(False)
         ax.yaxis.grid(True, linewidth=0.4, alpha=0.5)
         ax.set_axisbelow(True)
-        handles = [Patch(facecolor=COLOUR[ref], edgecolor="black", linewidth=0.5,
+        handles = [Patch(facecolor=COLOUR[ref], edgecolor=EDGE, linewidth=0.4,
                          label=("Embree" if ref == "embree" else "FCPW") + ("'s tree" if tuned else ""))
                    for ref, _ in refs]
-        handles += [Patch(facecolor="white", edgecolor="black", linewidth=0.5,
+        handles += [Patch(facecolor="white", edgecolor=EDGE, linewidth=0.4,
                           hatch=HATCH[s], label=LABEL[s]) for s in sets]
         # The legend above the axes, clear of the tallest bar; no title (the
         # figure's caption says which query it is, and which schedules).
