@@ -316,8 +316,15 @@ driver, the two sides' kernels told apart by symbol).
   apps/wosx's driver shares.
 - `plot.py`: the comparison as three figures (first hit, any hit, closest
   point; meshes by triangle count, the ray or point sets by hatching, the
-  reference by colour) from the results CSV, `python apps/rtq/plot.py
-  apps/rtq/results/rtq-results.csv -o apps/rtq/plots`. Each reference on
+  reference by colour; the y axis Speedup, the legend saying over which
+  reference) from the results CSV, `python apps/rtq/plot.py
+  apps/rtq/results/rtq-results.csv -o apps/rtq/plots`, drawn at the
+  paper's page width in apps/pbrt/figure_style.py's style. Beside each
+  figure a `.txt` of the statistics the paper quotes (per reference and
+  set the geomean, the least and greatest cell and its mesh, notes reading
+  the figure), and the mesh facts in one table rather than on every plot,
+  `rtq-meshes.txt` and `rtq-meshes.tex` (a tabular to `\input`), so the
+  figures carry the mesh names alone. Each reference on
   its own default tree: Embree's BVH8 (`embree`) and FCPW's four-wide Mbvh
   with sixteen-lane leaves (`fcpw4w16` -- FCPW's default branching, the
   tree its author calls the better tested, and the leaf width its build

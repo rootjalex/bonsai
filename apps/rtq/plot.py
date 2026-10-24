@@ -11,15 +11,17 @@ first hit (`nearest`) and the any hit (`any`) with six bars a mesh -- the
 three ray sets (primary, ao, diffuse) by hatching, the two references
 (Embree, FCPW) by colour -- and the closest point with four, the near and
 volume batches by hatching. Every bar is bonsai's rate over the reference's
-on that cell; the line at 1 is the reference. lte-orb is left out by default
-(--exclude names the meshes left out): FCPW's triangle test finds no hit at
-all on that small-unit mesh, so its ao, diffuse and point batches are empty
-and the mesh says nothing about the comparison. A fourth figure, the
-packets, is drawn when the CSV has rows of the packet schedule (`packet16`;
---packet names another): three bars a mesh, the program's rays in gangs of
-sixteen over Embree's rtcIntersect16 (primary and diffuse rays) and
-rtcOccluded16 (ambient-occlusion rays), the ray sets by hatching, both sides
-over the same BVH8 and the same sixteen consecutive rays a packet.
+on that cell: the y axis reads Speedup, the legend says over which
+reference each colour is, and the line at 1 is the reference. lte-orb is
+left out by default (--exclude names the meshes left out): FCPW's triangle
+test finds no hit at all on that small-unit mesh, so its ao, diffuse and
+point batches are empty and the mesh says nothing about the comparison. A
+fourth figure, the packets, is drawn when the CSV has rows of the packet
+schedule (`packet16`; --packet names another): three bars a mesh, the
+program's rays in gangs of sixteen over Embree's rtcIntersect16 (primary
+and diffuse rays) and rtcOccluded16 (ambient-occlusion rays), the ray sets
+by hatching, both sides over the same BVH8 and the same sixteen consecutive
+rays a packet.
 
 Each reference on its own default tree: Embree's BVH8 (`embree`) and FCPW's
 four-wide Mbvh with sixteen-lane leaves (`fcpw4w16`, FCPW's default branching
@@ -29,17 +31,26 @@ other matching schedules. With --tuned the bars are the tuning's gain alone:
 bonsai's rate under the tuned schedule (`tuned`, `fcpw4w16t`; --embree-tuned, --fcpw-tuned)
 over its rate under the matching one, cell by cell, the reference out of it,
 so the line at 1 is the matching schedule and the colour says which tree.
+
+Beside each figure (the user's rule, 10-24) go the statistics the paper
+quotes, `<figure>.txt`: per reference and ray or point set the geomean over
+the plotted meshes, the least and greatest cell and which mesh each is, and
+notes reading the figure; and the mesh facts go in one table rather than
+on every plot, `rtq-meshes.txt` to read and `rtq-meshes.tex` to \\input
+(a booktabs tabular: triangles, each reference's node count), so the tick
+labels are the mesh names alone.
+
 The colours are apps/pbrt's figures' (the user's choice, 10-24): two classes
 of ColorBrewer's nine-class YlGnBu ramp, far enough apart to tell with the
 hatches over them -- the light second for Embree, the fifth for FCPW -- and
 the bars' edge and the line at 1 as there. The figures are drawn at the
-size they are printed (the user's rule, 10-24; apps/pbrt/figure_style.py
-has the format): 5.478 in wide, acmsmall's text block, what
-\\includegraphics[width=\\textwidth] scales a figure to in the paper, so that
-a 10 pt label comes out 10 pt on the page, in TrueType (pdf.fonttype 42),
-which ACM's production accepts where matplotlib's default Type 3 fonts are
-refused; the mesh labels are turned 45 degrees, since nineteen names and
-their triangle counts do not fit upright in five and a half inches.
+size they are printed (apps/pbrt/figure_style.py has the format): 5.478 in
+wide, acmsmall's text block, what \\includegraphics[width=\\textwidth]
+scales a figure to in the paper, 1.5 in tall so that the three stack in
+half a page, 8 pt labels and 7 pt ticks in Liberation Sans embedded as
+TrueType (pdf.fonttype 42, which ACM's production accepts where
+matplotlib's default Type 3 fonts are refused), the mesh names turned 45
+degrees, and the legend in one row above the axes.
 """
 import argparse
 import csv
@@ -54,20 +65,19 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 from matplotlib.ticker import MaxNLocator  # noqa: E402
 
-# The paper's figure style, apps/pbrt's module: acmsmall's text width, 10 pt
-# labels and legend, 9 pt ticks, Liberation Sans embedded as TrueType.
+# The paper's figure style, apps/pbrt's module: acmsmall's text width, the
+# font sizes, the YlGnBu ramp, Liberation Sans embedded as TrueType, and
+# the summary written beside a figure.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pbrt"))
-from figure_style import FONT, TEXT_WIDTH, paper_style  # noqa: E402
+from figure_style import TEXT_WIDTH, YLGNBU, paper_style, write_summary  # noqa: E402
 
-EDGE = "#333333"  # every bar's thin edge, as apps/pbrt/plot_cpu_wavefront.py
-# ColorBrewer YlGnBu, nine classes, lightest first (apps/pbrt's palette).
-YLGNBU = ["#FFFFD9", "#EDF8B1", "#C7E9B4", "#7FCDBB", "#41B6C4",
-          "#1D91C0", "#225EA8", "#253494", "#081D58"]
+EDGE = "#333333"  # every bar's thin edge, as apps/pbrt's figures
 COLOUR = {"embree": YLGNBU[1], "fcpw": YLGNBU[5]}
+NAME = {"embree": "Embree", "fcpw": "FCPW"}
 HATCH = {"primary": "", "ao": "///", "diffuse": "xxx", "near": "", "volume": "///"}
-LABEL = {"primary": "primary rays", "ao": "ambient-occlusion rays",
-         "diffuse": "diffuse rays", "near": "points near surface",
-         "volume": "points in volume"}
+# The legend's words for the sets; the caption says they are rays or points.
+LABEL = {"primary": "primary", "ao": "ambient occlusion", "diffuse": "diffuse",
+         "near": "near surface", "volume": "in volume"}
 # Aila and Laine's three ray sets, each under the query it is for: the first
 # hit of primary and diffuse rays, the any hit of ambient-occlusion rays.
 FIGURES = [
@@ -79,48 +89,8 @@ FIGURES = [
 # figure, since the packet comparison is one comparison (Embree's
 # rtcIntersect<K> and rtcOccluded<K> against the rays in gangs of K).
 PACKET_SETS = [("nearest", "primary"), ("nearest", "diffuse"), ("any", "ao")]
-# A height three of these stack in on one page with their captions.
-HEIGHT = 2.1
-
-
-def new_figure():
-    paper_style()
-    return plt.subplots(figsize=(TEXT_WIDTH, HEIGHT))
-
-
-def mesh_ticks(ax, meshes, tris):
-    """The meshes along the x axis, each with its triangle count, turned 45
-    degrees to fit."""
-    ax.set_xticks(range(len(meshes)))
-    ax.set_xticklabels([f"{m} {tris[m] / 1e6:.2g}M" if tris[m] >= 1e6
-                        else f"{m} {tris[m] // 1000}k" if tris[m] >= 1000
-                        else f"{m} {tris[m]}" for m in meshes],
-                       rotation=45, ha="right", rotation_mode="anchor")
-    ax.set_xlim(-0.6, len(meshes) - 0.4)
-    ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
-
-
-def legend_above(ax, handles):
-    """The legend above the axes, clear of the tallest bar: one row where its
-    labels fit the width (a character about 0.6 em, a handle and its gaps
-    about 4 em), two otherwise; no title (the figure's caption says which
-    query it is, and which schedules)."""
-    points = sum(len(h.get_label()) * 0.6 * FONT + 4 * FONT for h in handles)
-    ncol = len(handles) if points <= TEXT_WIDTH * 72 else (len(handles) + 1) // 2
-    ax.legend(handles=handles, ncol=ncol, loc="lower left", frameon=False,
-              bbox_to_anchor=(0, 1.0), borderaxespad=0)
-
-
-def save(fig, out_dir, name, formats):
-    """The page exactly the figure's size (no cropping to the content, which
-    would leave LaTeX to rescale it): the layout fits the labels and the
-    legend inside it."""
-    fig.tight_layout(pad=0.3)
-    for fmt in formats:
-        path = os.path.join(out_dir, f"{name}.{fmt}")
-        fig.savefig(path, dpi=200)
-        print(path)
-    plt.close(fig)
+# A height three of these stack in on half a page with their captions.
+HEIGHT = 1.5
 
 
 def load(path):
@@ -165,6 +135,17 @@ def packet_cells(rows, schedule):
     return out
 
 
+def callbacks_per_query(rows, meshes, schedule, rays):
+    """The mean over the plotted meshes of the triangles Embree handed its
+    rtcPointQuery callback per query (the CSV's callbacks_per_query), for
+    the closest-point notes."""
+    values = [float(r["callbacks_per_query"]) for r in rows
+              if r["reference"] == "embree" and r["schedule"] == schedule
+              and r["query"] == "closest" and r["rays"] == rays
+              and r["mesh"] in meshes and r.get("callbacks_per_query")]
+    return sum(values) / len(values) if values else None
+
+
 def geomeans(rows, schedules, exclude, tuned, packet=None):
     """The geometric mean of each figure's bars over the plotted meshes, per
     reference and ray or point set: the one number per cell kind the
@@ -202,6 +183,132 @@ def geomeans(rows, schedules, exclude, tuned, packet=None):
             row("embree", packet, query, rays, data)
 
 
+def new_figure():
+    paper_style()
+    return plt.subplots(figsize=(TEXT_WIDTH, HEIGHT))
+
+
+def mesh_ticks(ax, meshes):
+    """The meshes along the x axis by name alone (their facts are in the
+    mesh table), turned 45 degrees to fit."""
+    ax.set_xticks(range(len(meshes)))
+    ax.set_xticklabels(meshes, rotation=45, ha="right", rotation_mode="anchor")
+    ax.set_xlim(-0.6, len(meshes) - 0.4)
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
+
+
+def legend_above(ax, handles):
+    """The legend in one row above the axes, clear of the tallest bar; no
+    title (the figure's caption says which query it is, and which
+    schedules)."""
+    ax.legend(handles=handles, ncol=len(handles), loc="lower left", frameon=False,
+              bbox_to_anchor=(0, 1.0), borderaxespad=0, columnspacing=1.0)
+
+
+def save(fig, out_dir, name, formats):
+    """The page exactly the figure's size (no cropping to the content, which
+    would leave LaTeX to rescale it): the layout fits the labels and the
+    legend inside it. Returns the path of the first format written."""
+    fig.tight_layout(pad=0.3)
+    paths = []
+    for fmt in formats:
+        path = os.path.join(out_dir, f"{name}.{fmt}")
+        fig.savefig(path, dpi=200)
+        print(path)
+        paths.append(path)
+    plt.close(fig)
+    return paths[0]
+
+
+def tex_number(n):
+    return f"{n:,}".replace(",", "\\,")
+
+
+def mesh_table(rows, meshes, tris, schedules, out_dir, exclude):
+    """The mesh facts in one table rather than on every plot (the user,
+    10-24): rtq-meshes.txt to read and rtq-meshes.tex to \\input, a booktabs
+    tabular. Each mesh's triangles and the node count of each reference's
+    tree, read off its matching schedule's rows."""
+    nodes = {}
+    for r in rows:
+        if r["schedule"] in schedules.values() and r.get("nodes"):
+            nodes[(r["reference"], r["mesh"])] = int(r["nodes"])
+    columns = [("mesh", lambda m: m), ("triangles", lambda m: tris[m]),
+               ("Embree BVH8 nodes", lambda m: nodes.get(("embree", m), "")),
+               ("FCPW Mbvh nodes", lambda m: nodes.get(("fcpw", m), ""))]
+    table = [[f(m) for _, f in columns] for m in meshes]
+    txt = os.path.join(out_dir, "rtq-meshes.txt")
+    with open(txt, "w") as f:
+        widths = [max(len(h), *(len(f"{row[i]:,}" if isinstance(row[i], int) else str(row[i]))
+                                for row in table)) for i, (h, _) in enumerate(columns)]
+        f.write("  ".join(h.ljust(w) if i == 0 else h.rjust(w)
+                          for i, ((h, _), w) in enumerate(zip(columns, widths))) + "\n")
+        for row in table:
+            f.write("  ".join((str(v) if i == 0 else f"{v:,}" if isinstance(v, int) else str(v))
+                              .ljust(w) if i == 0 else
+                              (f"{v:,}" if isinstance(v, int) else str(v)).rjust(w)
+                              for i, (v, w) in enumerate(zip(row, widths))) + "\n")
+        if exclude:
+            f.write(f"\nleft out of the figures: {', '.join(sorted(exclude))}\n")
+    print(txt)
+    tex = os.path.join(out_dir, "rtq-meshes.tex")
+    with open(tex, "w") as f:
+        f.write("% apps/rtq/plot.py: the meshes of the rtq figures, in order of triangle\n"
+                "% count, with the node count of each reference's tree. \\usepackage{booktabs}.\n")
+        f.write("\\begin{tabular}{l" + "r" * (len(columns) - 1) + "}\n\\toprule\n")
+        f.write(" & ".join(h for h, _ in columns) + " \\\\\n\\midrule\n")
+        for row in table:
+            f.write(" & ".join(tex_number(v) if isinstance(v, int) else str(v) for v in row)
+                    + " \\\\\n")
+        f.write("\\bottomrule\n\\end{tabular}\n")
+    print(tex)
+
+
+def series(data, meshes, rays):
+    """The (mesh, speedup) points of one ray or point set, in mesh order."""
+    return [(m, data[(m, rays)]) for m in meshes if (m, rays) in data]
+
+
+def notes_for(name, rows, meshes, schedules, tuned):
+    """What the paper says beside each figure: where the gains come from and
+    where their causes are measured (apps/rtq/PLAN.md)."""
+    if tuned:
+        return ["every bar is bonsai under the tuned schedule over bonsai under the "
+                "matching one, cell by cell: the tuning's gain alone, the reference out of it"]
+    notes = []
+    if name == "firsthit":
+        notes += [
+            "over Embree: Embree's own traversal order over Embree's BVH8 bytes against "
+            "rtcIntersect1; level is the target of a matching schedule, and the bars are "
+            "level within the run-to-run spread",
+            "over FCPW: the same four-wide Mbvh with sixteen-lane leaves on both sides, FCPW's "
+            "vectorized build (enoki); the gain is the generated traversal's, measured in "
+            "apps/rtq/PLAN.md (the fcpw4w16 sections)",
+        ]
+    elif name == "anyhit":
+        notes += [
+            "over Embree: rtcOccluded1 against the any hit in Embree's children order, both "
+            "leaving at the first hit; level by design",
+            "over FCPW: FCPW's any hit is its closest-hit traversal stopped at the first hit over "
+            "the same tree; the gain is the generated traversal's (apps/rtq/PLAN.md)",
+        ]
+    elif name == "closestpoint":
+        near = callbacks_per_query(rows, meshes, schedules["embree"], "near")
+        volume = callbacks_per_query(rows, meshes, schedules["embree"], "volume")
+        handed = (f" -- {near:.0f} triangles a near query and {volume:.0f} a volume query on "
+                  f"these meshes (the CSV's callbacks_per_query)" if near and volume else "")
+        notes += [
+            "over Embree: Embree offers the closest point only as rtcPointQuery with a user "
+            "callback per leaf triangle, its tutorial's form, and hands the callback every "
+            f"triangle of every leaf it reaches{handed}; its traversal cannot shrink the radius "
+            "by a child's far corner, which ours does, so the gain grows with the mesh "
+            "(apps/rtq/PLAN.md, 'The closest point against Embree's rtcPointQuery')",
+            "over FCPW: FCPW's findClosestPoint over the same four-wide tree, the smallest of "
+            "the gains over FCPW",
+        ]
+    return notes
+
+
 def draw_packet(rows, schedule, out_dir, formats, exclude):
     """The packet figure: the program's rays in gangs of K over Embree's
     packets of K, three bars a mesh (primary and diffuse rays under the
@@ -229,20 +336,27 @@ def draw_packet(rows, schedule, out_dir, formats, exclude):
             ax.bar(x, v, width, color=COLOUR["embree"], hatch=HATCH[rays],
                    edgecolor=EDGE, linewidth=0.4)
             top = max(top, v)
-    ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=1.2, zorder=3)
-    mesh_ticks(ax, meshes, tris)
+    ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=0.8, zorder=3)
+    mesh_ticks(ax, meshes)
     ax.set_ylim(0, top * 1.08)
-    ax.set_ylabel("Speedup over reference")
+    ax.set_ylabel("Speedup")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.yaxis.grid(True, linewidth=0.4, alpha=0.5)
     ax.set_axisbelow(True)
     handles = [Patch(facecolor=COLOUR["embree"], edgecolor=EDGE, linewidth=0.4,
-                     label=f"Embree, packets of {k} (rtcIntersect{k}, rtcOccluded{k})")]
+                     label=f"over Embree's packets of {k}")]
     handles += [Patch(facecolor="white", edgecolor=EDGE, linewidth=0.4,
                       hatch=HATCH[rays], label=LABEL[rays]) for _, rays in PACKET_SETS]
     legend_above(ax, handles)
-    save(fig, out_dir, "rtq-packet", formats)
+    path = save(fig, out_dir, "rtq-packet", formats)
+    print(write_summary(
+        path, f"Speedup over Embree's packets of {k} (rtcIntersect{k}, rtcOccluded{k}), "
+              f"{len(meshes)} meshes",
+        [("every mesh", [(f"{LABEL[rays]} ({query})", series(data, meshes, rays))
+                         for query, rays in PACKET_SETS])],
+        ["the program's rays in gangs of sixteen against Embree's packet kernels, both sides "
+         "over the same BVH8 and the same sixteen consecutive rays a packet"]))
 
 
 def draw(rows, schedules, out_dir, suffix, formats, exclude, tuned):
@@ -271,21 +385,33 @@ def draw(rows, schedules, out_dir, suffix, formats, exclude, tuned):
                     ax.bar(x, v, width, color=COLOUR[ref], hatch=HATCH[rays],
                            edgecolor=EDGE, linewidth=0.4)
                     top = max(top, v)
-        ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=1.2, zorder=3)
-        mesh_ticks(ax, meshes, tris)
+        ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=0.8, zorder=3)
+        mesh_ticks(ax, meshes)
         ax.set_ylim(0, top * 1.08)
-        ax.set_ylabel("Speedup over matching schedule" if tuned else "Speedup over reference")
+        ax.set_ylabel("Speedup")
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         ax.yaxis.grid(True, linewidth=0.4, alpha=0.5)
         ax.set_axisbelow(True)
+        # The colours say what the bar is over (the user, 10-24: the y axis
+        # reads Speedup, the legend what over); with --tuned, which tree.
         handles = [Patch(facecolor=COLOUR[ref], edgecolor=EDGE, linewidth=0.4,
-                         label=("Embree" if ref == "embree" else "FCPW") + ("'s tree" if tuned else ""))
+                         label=(f"{NAME[ref]}'s tree, over matching" if tuned
+                                else f"over {NAME[ref]}"))
                    for ref, _ in refs]
         handles += [Patch(facecolor="white", edgecolor=EDGE, linewidth=0.4,
                           hatch=HATCH[s], label=LABEL[s]) for s in sets]
         legend_above(ax, handles)
-        save(fig, out_dir, f"rtq-{name}{suffix}", formats)
+        path = save(fig, out_dir, f"rtq-{name}{suffix}", formats)
+        what = "tuned schedule over matching" if tuned else "bonsai over the reference"
+        kind = "points" if query == "closest" else "rays"
+        sections = [(f"over {NAME[ref]} ({schedules[ref]}{', tuned ' + tuned[ref] if tuned else ''})",
+                     [(f"{LABEL[s]} {kind}", series(data[ref], meshes, s)) for s in sets])
+                    for ref, _ in refs if data[ref]]
+        notes = notes_for(name, rows, meshes, schedules, tuned)
+        if exclude:
+            notes.append(f"left out: {', '.join(sorted(exclude))} (FCPW finds no hit on lte-orb)")
+        print(write_summary(path, f"{title}: {what}, {len(meshes)} meshes", sections, notes))
 
 
 def main():
@@ -314,6 +440,8 @@ def main():
          exclude, tuned)
     if not a.tuned:
         draw_packet(rows, a.packet, a.out, a.format.split(","), exclude)
+        meshes, tris = meshes_by_triangles(rows, exclude)
+        mesh_table(rows, meshes, tris, schedules, a.out, exclude)
     geomeans(rows, schedules, exclude, tuned, None if a.tuned else a.packet)
 
 
