@@ -128,10 +128,17 @@ vectorized) and `wosx-cpu-fcpwb-speedup.*` (WoSX's default binary tree,
 both sides as WoSX ships). In each (`plot.py`) the meshes run along the
 x axis by triangle count with three bars a mesh -- one thread against one
 thread, the threads against the threads, sixteen persistent workers
-against WoSX's threads -- each bonsai's rate over WoSX's, the line at 1
-WoSX, a colour a bar from the YlGnBu ramp apps/pbrt's figures use; the
-landscape is left out, since nearly every walk on it escapes on its first
-step, and `--exclude` names the meshes left out.
+against WoSX's threads -- each bonsai's rate over WoSX's, the y axis
+Speedup and the dashed line at 1 WoSX, named in the legend, a colour a
+bar from the YlGnBu ramp apps/pbrt's figures use, drawn at the paper's
+page width in apps/pbrt/figure_style.py's style. Beside each figure a
+`.txt` of the statistics the paper quotes (per schedule the geomean, the
+least and greatest cell and its mesh, what each change of schedule bought,
+notes reading the figure), and the mesh facts in one table rather than on
+every plot, `wosx-meshes.txt` and `wosx-meshes.tex` (a tabular to
+`\input`), so the figures carry the mesh names alone. The landscape is
+left out, since nearly every walk on it escapes on its first step, and
+`--exclude` names the meshes left out.
 There is no parameter the speedup is swept over, as apps/pbrt sweeps the
 samples per pixel: a step is one distance query, and the epsilon shell
 and the walk count set how many steps a point takes, not what a step
