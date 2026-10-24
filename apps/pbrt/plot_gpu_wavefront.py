@@ -52,6 +52,16 @@ SIDES = [
     ("gpu-optix-mega-ser", "Bonsai mk-ser", YLGNBU[3]),
     ("gpu-optix", "Bonsai wf", YLGNBU[5]),
     ("gpu-optix-sort", "Bonsai wf-sort", YLGNBU[7]),
+    # The exploration of 10-24 (apps/pbrt/schedules/gpu-optix-*.bonsai):
+    # variants of the wavefront and the megakernel, drawn when a table has
+    # them or `--sides` asks; a figure of more than nine sides repeats a
+    # colour, so choose a subset for print.
+    ("gpu-optix-mega-ser-ray", "Bonsai mk-ser-ray", YLGNBU[2]),
+    ("gpu-optix-b128", "Bonsai wf-b128", YLGNBU[4]),
+    ("gpu-optix-b512", "Bonsai wf-b512", YLGNBU[6]),
+    ("gpu-optix-fused", "Bonsai wf-fused", YLGNBU[8]),
+    ("gpu-optix-fused-ser", "Bonsai wf-fused-ser", YLGNBU[0]),
+    ("gpu-optix-sort36", "Bonsai wf-sort36", YLGNBU[3]),
 ]
 
 

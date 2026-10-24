@@ -438,7 +438,11 @@ for sc in $SCENES; do
         echo "  pbrt's CPU render failed (see $cell.pbrt-cpu.log); the verdict stands" >&2
       fi
     fi
-    python3 $PREFIX/to_png.py "$cell.$s-radiance.pfm" "$cell.$s.png" > /dev/null
+    # (A schedule that failed wrote no image: its row says so, and the run
+    # goes on to the next schedule rather than ending here.)
+    if [[ -f "$cell.$s-radiance.pfm" ]]; then
+      python3 $PREFIX/to_png.py "$cell.$s-radiance.pfm" "$cell.$s.png" > /dev/null
+    fi
     speedup=$(awk -v p="$pbrt_wall" -v o="${wall:-0}" 'BEGIN{ if (o > 0) printf "%.2fx", p/o; else print "-" }')
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$SPP" "$s" "${wall:--}" "${kernel:--}" "$speedup" "${agree:-?}" "${verdict:-?}" "$(note_of)" "$cell.$s.png" "$sc" | tee -a "$TABLE"
   done
