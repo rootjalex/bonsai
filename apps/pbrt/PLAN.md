@@ -16356,3 +16356,158 @@ as `--pbrt-spread` for the scalar cell (compare.sh gaining the option);
 the chunk-size sweep (256 / 128 pixels) for the per-thread wavefront,
 which the sort cost's growth with spp and the killeroo 64/128 loss to the
 megakernel both point at; the ganesha band loss under perf stat.
+
+### The GPU matrix measured: five scenes, three sample counts, four OptiX sides (10-24)
+
+The user's ask of 10-23 17:25: the CPU figure's twin for the GPU --
+speedup over `pbrt --gpu` ("PBRT wf": pbrt's GPU renderer is its
+wavefront, and it has no GPU megakernel) with the bars mk, mk-ser, wf and
+wf with ray sorting, comparing only techniques that trace through OptiX
+unless a software traversal ever wins. None ever has (gpu-wavefront ran
+1.4x to 1.6x slower by kernel than gpu-optix wherever both were measured,
+10-03 and 10-04, and the user set the software traversals aside on
+10-04), so the figure's sides are the four OptiX schedules, and
+`gpu_compare.sh`'s default list is now those four.
+
+**The ray-sorted wavefront had to be built first.** `f.sort(g, |args|
+key)` on a deferred call (Intrinsic::sort_indices) had only the host
+runtime's sort (bonsai_parallel.h), so a sorted queue drained by a kernel
+was impossible. Added (40c07dc4): runtime/bonsai_cuda_sort.cu, CUB's
+radix sort of (key, index) pairs (Merrill and Grimshaw 2011; Adinets and
+Merrill's Onesweep 2022, which is what DeviceRadixSort runs here) over
+the full 64-bit key, the indices 0..n-1 written by a kernel, out of place
+into a scratch kept and grown between calls, issued on the null stream
+where the launches are, so the host neither waits nor reads back; built
+by CMake as the shared library bonsai_cuda_sort when nvcc is found
+(check_language(CUDA), cudart_static linked into the library alone) and
+loaded by bonsai_cuda.h's bonsai_cuda_sort_indices with dlopen at the
+first device sort -- BONSAI_CUDA_SORT_LIB in the environment, else the
+path the generated header sets (CPP.cpp emits an initializer with the
+compiler's build-time path), else the loader's search -- so the runtime
+stays header-only and links no CUDA library, as it loads the driver. In
+the compiler: the permutation array lives where the queue's header does
+(DeviceGlobal for an ExternDevice queue, never an Extern parameter;
+Defer.cpp); the residency analysis counts a sort_indices ahead of a
+GPU-bound drain as the device's touch of its keys and permutation
+(CodeGen_LLVM_SSA.cpp), and CodeGen_LLVM's sort_indices calls the device
+sort when the permutation is device-resident. Tests: ssa/
+defer-sorted-queue-device (the permutation allocated `device`, the sort
+over the count the host read), correctness/gpu/defer-sorted-device (the
+sorted drain on the GPU: the totals), correctness/gpu/sort-indices-cpp
+(the device sort against std::stable_sort on 1,000,003 random 36-bit keys
+with repeats, then a thousand equal keys). The schedule
+`schedules/gpu-optix-sort.bonsai` is gpu-optix plus the one sort line of
+the CPU sorted schedules. Found on the way: the driver had not compiled
+on the OptiX path since 10-21 (the scene-bounds loop for the sort key
+iterated a raw pointer); fixed in f36dc439.
+
+The run: `gpu_compare.sh --out apps/pbrt/gpu-compare-out --spp "16 64
+128"` with the three existing schedules, 18:19 to 18:53 on 10-23 (the
+first cell 21 minutes, the OptiX compiles of the two megakernel programs,
+cached for every later process; then about a minute a cell), and the new
+schedule alone into `gpu-compare-out-sort` with its own pbrt, 19:08 to
+19:20; three repeats a side, the least, pbrt's by its own timer and ours
+by the driver's around the render, every image checked: 90 measured
+sides, 60 images, all matching. The compiler was build/compiler at
+40c07dc4 (HEAD plus the committed sort work; the first run's compiler
+carried the same edits uncommitted, which change nothing for a program
+without a sorted queue on the device). The figure:
+`plots/gpu-wavefront-speedups.pdf` by `plot_gpu_wavefront.py` from the
+two tables, each side's bar its speedup over the pbrt of its own run.
+
+Wall seconds (least of 3 a side; pbrt's own timer, ours the driver's):
+
+| scene | spp | PBRT wf | mk | mk-ser | wf | PBRT wf (sort run) | wf-sort |
+|---|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 0.110 | 0.090 | 0.049 | 0.038 | 0.110 | 0.055 |
+| killeroo-simple | 64 | 0.260 | 0.357 | 0.197 | 0.141 | 0.260 | 0.206 |
+| killeroo-simple | 128 | 0.460 | 0.712 | 0.394 | 0.273 | 0.460 | 0.410 |
+| killeroo-gold | 16 | 0.220 | 0.187 | 0.159 | 0.089 | 0.170 | 0.128 |
+| killeroo-gold | 64 | 0.620 | 0.753 | 0.640 | 0.333 | 0.720 | 0.491 |
+| killeroo-gold | 128 | 1.220 | 1.507 | 1.281 | 0.661 | 1.320 | 0.976 |
+| book | 16 | 0.230 | 0.243 | 0.208 | 0.108 | 0.230 | 0.143 |
+| book | 64 | 0.730 | 1.010 | 0.829 | 0.410 | 0.730 | 0.551 |
+| book | 128 | 1.330 | 2.051 | 1.658 | 0.817 | 1.330 | 1.094 |
+| ganesha | 16 | 0.230 | 0.575 | 0.495 | 0.120 | 0.230 | 0.161 |
+| ganesha | 64 | 0.830 | 2.297 | 1.981 | 0.458 | 0.830 | 0.616 |
+| ganesha | 128 | 1.530 | 4.586 | 3.962 | 0.910 | 1.530 | 1.227 |
+| sanmiguel-courtyard | 16 | 0.240 | 0.289 | 0.231 | 0.126 | 0.240 | 0.163 |
+| sanmiguel-courtyard | 64 | 0.740 | 1.153 | 0.944 | 0.489 | 0.740 | 0.637 |
+| sanmiguel-courtyard | 128 | 1.340 | 2.308 | 1.905 | 0.972 | 1.340 | 1.269 |
+
+Kernel milliseconds (pbrt's --stats profile; ours BONSAI_KERNEL_STATS of the fastest render):
+
+| scene | spp | PBRT wf | mk | mk-ser | wf | PBRT wf (sort run) | wf-sort |
+|---|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 49.5 | 89.1 | 49.0 | 27.6 | 49.3 | 30.1 |
+| killeroo-simple | 64 | 197.3 | 354.4 | 195.9 | 110.3 | 198.1 | 120.8 |
+| killeroo-simple | 128 | 396.4 | 708.9 | 393.4 | 221.4 | 395.1 | 242.0 |
+| killeroo-gold | 16 | 148.6 | 187.4 | 159.5 | 68.1 | 149.5 | 78.0 |
+| killeroo-gold | 64 | 594.8 | 752.5 | 640.3 | 271.3 | 598.7 | 312.3 |
+| killeroo-gold | 128 | 1193.4 | 1505.7 | 1299.5 | 543.9 | 1197.7 | 624.4 |
+| book | 16 | 153.6 | 242.4 | 208.1 | 84.2 | 153.0 | 93.4 |
+| book | 64 | 612.3 | 1010.2 | 829.8 | 336.4 | 612.2 | 373.4 |
+| book | 128 | 1224.7 | 2052.1 | 1660.6 | 674.2 | 1224.1 | 746.1 |
+| ganesha | 16 | 177.1 | 574.7 | 494.7 | 95.8 | 177.1 | 108.9 |
+| ganesha | 64 | 711.1 | 2296.9 | 1982.4 | 383.2 | 708.1 | 435.2 |
+| ganesha | 128 | 1419.7 | 4578.0 | 3963.5 | 773.1 | 1419.4 | 870.8 |
+| sanmiguel-courtyard | 16 | 148.4 | 288.2 | 231.3 | 108.0 | 148.8 | 118.1 |
+| sanmiguel-courtyard | 64 | 598.7 | 1156.2 | 944.2 | 434.2 | 599.0 | 473.0 |
+| sanmiguel-courtyard | 128 | 1201.1 | 2320.1 | 1902.4 | 869.4 | 1200.1 | 946.4 |
+
+Wall speedup over the PBRT wf (pbrt --gpu) of the same run:
+
+| scene | spp | PBRT wf | mk | mk-ser | wf | PBRT wf (sort run) | wf-sort |
+|---|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 1.00 | 1.23 | 2.24 | 2.92 | 1.00 | 2.01 |
+| killeroo-simple | 64 | 1.00 | 0.73 | 1.32 | 1.84 | 1.00 | 1.26 |
+| killeroo-simple | 128 | 1.00 | 0.65 | 1.17 | 1.68 | 1.00 | 1.12 |
+| killeroo-gold | 16 | 1.00 | 1.17 | 1.38 | 2.47 | 1.00 | 1.33 |
+| killeroo-gold | 64 | 1.00 | 0.82 | 0.97 | 1.86 | 1.00 | 1.47 |
+| killeroo-gold | 128 | 1.00 | 0.81 | 0.95 | 1.85 | 1.00 | 1.35 |
+| book | 16 | 1.00 | 0.95 | 1.11 | 2.14 | 1.00 | 1.61 |
+| book | 64 | 1.00 | 0.72 | 0.88 | 1.78 | 1.00 | 1.32 |
+| book | 128 | 1.00 | 0.65 | 0.80 | 1.63 | 1.00 | 1.22 |
+| ganesha | 16 | 1.00 | 0.40 | 0.46 | 1.91 | 1.00 | 1.43 |
+| ganesha | 64 | 1.00 | 0.36 | 0.42 | 1.81 | 1.00 | 1.35 |
+| ganesha | 128 | 1.00 | 0.33 | 0.39 | 1.68 | 1.00 | 1.25 |
+| sanmiguel-courtyard | 16 | 1.00 | 0.83 | 1.04 | 1.91 | 1.00 | 1.47 |
+| sanmiguel-courtyard | 64 | 1.00 | 0.64 | 0.78 | 1.51 | 1.00 | 1.16 |
+| sanmiguel-courtyard | 128 | 1.00 | 0.58 | 0.70 | 1.38 | 1.00 | 1.06 |
+
+What it says:
+
+- **The matching wavefront on the RT cores (wf) beats pbrt's on every
+  cell, 1.38x to 2.92x by wall and 1.37x to 2.19x by kernel**, the
+  margin narrowing with spp and with scene weight (sanmiguel at 128 spp
+  is the least), as the heatmaps have shown since 10-11.
+- **The megakernel (mk) wins only the killeroos at 16 spp** (1.17x,
+  1.23x: pbrt's process pays its fixed costs there) and loses everywhere
+  else by kernel, 1.3x behind on killeroo-gold and 3.2x behind on ganesha.
+  pbrt's wavefront keeps a warp's threads on one material kernel; one
+  raygen running every material's code over divergent paths does not.
+- **Shader execution reordering (mk-ser) recovers between a fifth
+  (ganesha) and all (killeroo-simple) of the megakernel's kernel-time
+  loss**: killeroo-simple at pbrt's kernel time (49.0 ms against 49.5),
+  killeroo-gold within 7%, book, ganesha and sanmiguel still 1.4x to 2.8x
+  behind. The material key alone does not make a
+  megakernel a wavefront.
+- **The ray sort (wf-sort) never pays on the GPU.** By kernel it costs 9
+  to 15% over the unsorted wavefront (the sort's own passes plus the
+  permuted entry reads; the traces themselves gain nothing the hardware's
+  own scheduling did not already have); by wall it costs 20 to 31%,
+  because a sort is a dozen small launches and the wavefront sorts before
+  every trace of every pass -- 96 sorts in a 30 ms render at 16 spp. The
+  same verdict as the CPU's (the per-thread sort never beat unsorted),
+  for the opposite reason: there the sort was the cost, here the launches
+  are.
+
+To do, from this: the device sort over the key's live bits -- ray_sort_key
+is 36 bits, so five 8-bit passes instead of eight, with CUB's begin/end
+bits; the width would come from the schedule (a bits argument on `sort`,
+to be asked of the user) or from an OR-reduction of the keys per round;
+the round's launches (sort passes and drains) captured in a CUDA graph to
+take the launch gaps out, which pbrt's wavefront also pays for and which
+would help every GPU schedule; the megakernel's ganesha loss under the
+kernel profile (which material kernels diverge most), which is the paper's
+megakernel-versus-wavefront point in numbers.

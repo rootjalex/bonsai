@@ -19,6 +19,64 @@ generated: `python3 apps/pbrt/report_stages.py <heatmap dir> --report
 apps/pbrt/REPORT.md` rewrites them from a heatmap run's `.stats` files
 (README.md), so a new sweep updates them in one command.
 
+## Where it stands (2026-10-24, 00:20): the GPU matrix measured, the GPU figure drawn
+
+**The paper's GPU figure, the CPU figure's twin, is drawn from
+script-produced tables: the same five scenes at 16, 64 and 128 spp, the
+four schedules that trace on the ray tracing hardware against
+`pbrt --gpu`, three repeats a side, the least taken, all 60 images matching
+pbrt's** (`gpu_compare.sh`, 10-23 18:19 to 18:53 for the three existing
+schedules, 19:08 to 19:20 for the new sorted one in a run of its own with
+its own pbrt; the compiler at 40c07dc4; figure
+`plots/gpu-wavefront-speedups.pdf` by `plot_gpu_wavefront.py`). The
+wavefront on the RT cores (gpu-optix, the schedule that matches pbrt's)
+is 1.38x to 2.92x faster than pbrt's by wall clock and ahead on every
+cell; the megakernel through OptiX (gpu-optix-mega) wins only the two
+killeroos at 16 spp (1.17x, 1.23x) and loses everywhere else, down to
+0.33x on ganesha at 128 spp; shader execution reordering before the
+material stage (gpu-optix-mega-ser) recovers between a fifth (ganesha)
+and all (killeroo-simple, at pbrt's kernel time) of the megakernel's loss
+-- killeroo-simple 2.24x by wall at 16 spp, where the plain megakernel has
+1.23x -- but leaves it behind pbrt's wavefront on every cell except the
+killeroos at 16 spp, sanmiguel at 16 spp, and killeroo-simple at 64 and
+128 spp. The ray-sorted wavefront
+(gpu-optix-sort, new today: the ray queue sorted by the two-point Morton
+key on the device before every trace, CUB's radix sort) is 1.06x to 2.01x
+over pbrt and 20 to 31% behind the unsorted wavefront on every cell; its
+device cost is small -- kernel time 9 to 15% over the unsorted wavefront
+(27.6 to 30.1 ms on killeroo-simple at 16 spp, 95.8 to 108.9 on ganesha)
+-- and the rest of the gap is the host's: a sort is a dozen small launches,
+and the wavefront sorts before every trace of every pass (96 sorts on a
+30 ms render at 16 spp). Two obvious remedies are in PLAN.md's to-do:
+sorting the key's live 36 bits (five digit passes instead of eight) and
+batching a round's launches in a CUDA graph. The user's rule for this
+figure: only techniques on OptiX are compared; the software traversals
+(gpu, gpu-wavefront) never won a cell and are not drawn.
+
+Wall speedup over `pbrt --gpu` of the same run (`PBRT wf`; the sorted
+schedule's own pbrt column is beside it):
+
+| scene | spp | PBRT wf | mk | mk-ser | wf | PBRT wf (sort run) | wf-sort |
+|---|---|---|---|---|---|---|---|
+| killeroo-simple | 16 | 1.00 | 1.23 | 2.24 | 2.92 | 1.00 | 2.01 |
+| killeroo-simple | 64 | 1.00 | 0.73 | 1.32 | 1.84 | 1.00 | 1.26 |
+| killeroo-simple | 128 | 1.00 | 0.65 | 1.17 | 1.68 | 1.00 | 1.12 |
+| killeroo-gold | 16 | 1.00 | 1.17 | 1.38 | 2.47 | 1.00 | 1.33 |
+| killeroo-gold | 64 | 1.00 | 0.82 | 0.97 | 1.86 | 1.00 | 1.47 |
+| killeroo-gold | 128 | 1.00 | 0.81 | 0.95 | 1.85 | 1.00 | 1.35 |
+| book | 16 | 1.00 | 0.95 | 1.11 | 2.14 | 1.00 | 1.61 |
+| book | 64 | 1.00 | 0.72 | 0.88 | 1.78 | 1.00 | 1.32 |
+| book | 128 | 1.00 | 0.65 | 0.80 | 1.63 | 1.00 | 1.22 |
+| ganesha | 16 | 1.00 | 0.40 | 0.46 | 1.91 | 1.00 | 1.43 |
+| ganesha | 64 | 1.00 | 0.36 | 0.42 | 1.81 | 1.00 | 1.35 |
+| ganesha | 128 | 1.00 | 0.33 | 0.39 | 1.68 | 1.00 | 1.25 |
+| sanmiguel-courtyard | 16 | 1.00 | 0.83 | 1.04 | 1.91 | 1.00 | 1.47 |
+| sanmiguel-courtyard | 64 | 1.00 | 0.64 | 0.78 | 1.51 | 1.00 | 1.16 |
+| sanmiguel-courtyard | 128 | 1.00 | 0.58 | 0.70 | 1.38 | 1.00 | 1.06 |
+
+The wall seconds and kernel milliseconds behind these are in PLAN.md
+("The GPU matrix measured", 10-24), printed from the two tables.
+
 ## Where it stands (2026-10-23, 14:00): the CPU matrix measured, the figure drawn
 
 **The paper's CPU figure is drawn from a script-produced table: five scenes
