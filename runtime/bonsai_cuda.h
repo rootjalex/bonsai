@@ -120,7 +120,9 @@ void bonsai_cuda_synchronize();
 // The device sort of a sorted queue's entry indices by their keys -- the
 // device form of runtime/bonsai_parallel.h's bonsai_sort_indices, with the
 // same meaning: perm[0..n) holds 0..n-1 by ascending keys[index], ties in
-// index order, both arrays device addresses. Issued on the null stream
+// index order, both arrays device addresses; `bits` is how many low bits
+// of a key can be set (the compiler's analysis of the key, IR/KnownBits.h),
+// and the sort runs only those bits' digit passes. Issued on the null stream
 // behind the launches before it and ahead of the drain after it, so the
 // host neither waits nor reads anything back. The sort itself is CUB's
 // radix sort, device code built by the CUDA toolkit's compiler into the
@@ -130,7 +132,8 @@ void bonsai_cuda_synchronize();
 // generated header set (bonsai_cuda_set_sort_library: where the compiler
 // was built, CodeGen/CPP.cpp), else the loader's own search. A program
 // without a sorted queue on the device never loads it.
-void bonsai_cuda_sort_indices(const uint64_t *keys, uint32_t *perm, int64_t n);
+void bonsai_cuda_sort_indices(const uint64_t *keys, uint32_t *perm, int64_t n,
+                              uint32_t bits);
 void bonsai_cuda_set_sort_library(const char *path);
 void bonsai_cuda_copy_to_device(void *device, const void *host, uint64_t bytes);
 void bonsai_cuda_copy_to_host(void *host, const void *device, uint64_t bytes);
@@ -1109,8 +1112,9 @@ __attribute__((used)) inline void bonsai_cuda_set_sort_library(const char *path)
 }
 
 __attribute__((used)) inline void bonsai_cuda_sort_indices(const uint64_t *keys,
-                                                           uint32_t *perm, int64_t n) {
-    using Sort = void (*)(const uint64_t *, uint32_t *, int64_t);
+                                                           uint32_t *perm, int64_t n,
+                                                           uint32_t bits) {
+    using Sort = void (*)(const uint64_t *, uint32_t *, int64_t, uint32_t);
     static Sort sort = [] {
         const char *from_env = std::getenv("BONSAI_CUDA_SORT_LIB");
         const std::string &set = *bonsai_cuda_sort_library_path();
@@ -1139,7 +1143,7 @@ __attribute__((used)) inline void bonsai_cuda_sort_indices(const uint64_t *keys,
     if (n <= 0) {
         return;
     }
-    sort(keys, perm, n);
+    sort(keys, perm, n, bits);
 }
 
 } // extern "C"

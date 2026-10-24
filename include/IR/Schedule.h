@@ -201,6 +201,14 @@ struct Bind {
 struct Sort {
     Location loc;
     Expr lambda;
+    // For a sort of the queue a call is deferred onto (Lower/Sorts.cpp,
+    // apply_queue_sort): how many low bits of the key can be set, read off
+    // the key's arithmetic (IR/KnownBits.h) when the sort is applied and
+    // carried here to the queue's lowering (SSA/Convert.cpp, QueueSpec::
+    // sort_key_bits), which tells the runtime's radix sort how many digit
+    // passes matter. 64 until the analysis has run, or when it learns
+    // nothing.
+    uint32_t key_bits = 64;
 };
 
 // For-loop `i` becomes for-loop `io` over `i`'s range with stride=factor, and

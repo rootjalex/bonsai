@@ -4906,11 +4906,14 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         if (perm_array) {
             // The pass's order: the entry indices sorted by the key leaf,
             // written into the permutation by the runtime before the pass
-            // (ir::Intrinsic::sort_indices), the count being this round's.
+            // (ir::Intrinsic::sort_indices), the count being this round's
+            // and the key's live bits what the schedule's analysis found
+            // (QueueSpec::sort_key_bits).
             auto keys = storage_of(pre, cur)(*sort_leaf);
             auto sorted = pre->make_instruction(
                 u32(), Instruction::Op::Intrinsic,
-                {keys, reach(pre, perm_array), reach(pre, pending)});
+                {keys, reach(pre, perm_array), reach(pre, pending),
+                 constant_u32(queue.sort_key_bits)});
             std::get<shared_ptr<Instruction>>(sorted->data)->intrinsic =
                 ir::Intrinsic::sort_indices;
         }

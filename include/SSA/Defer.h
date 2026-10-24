@@ -243,6 +243,11 @@ struct QueueSpec {
     // the loop's index. The paper's ray reordering (Meister, Boksansky,
     // Guthe, Bittner 2025) as a schedule directive. Empty for no sort.
     std::string sort_key;
+    // How many low bits of the key can be set, from the key's arithmetic
+    // (IR/KnownBits.h, read in Lower/Sorts.cpp and carried on the Sort
+    // transform): the sort runs only that many bits' digit passes. 64 when
+    // nothing is known.
+    uint32_t sort_key_bits = 64;
     // How the program's variant types are stored, for the split's keys and
     // for the padding the entry leaves out.
     const std::map<std::string, ir::Program::AdtStorage> *adt_storages = nullptr;

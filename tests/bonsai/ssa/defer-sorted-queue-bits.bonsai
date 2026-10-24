@@ -1,0 +1,40 @@
+//! flags: -p ssa
+
+// The live bits of a sorted queue's key, read off its arithmetic
+// (IR/KnownBits.h, Lower/Sorts.cpp): the key is `spread(x & 15) | (y & 1)
+// << 12` through a function whose body is a straight line of masks and
+// shifts -- bits 0, 3, 6, 9 from the spread of a four-bit value and bit 12
+// from the flag -- so the sort is told 13 bits (`sort_indices(keys, perm,
+// count, 13u)`), where ssa/defer-sorted-queue's key, a cast of a float, is
+// told 64. The analysis follows the call into `spread`, tracks each bound
+// variable's bits through the ands, shifts and ors, and takes the or over
+// the two call sites' keys.
+import stdlib/numerics;
+
+func spread(v : u32) -> u64 {
+    x = cast[[u64]](v & 15u);
+    return (x & 1) | ((x & 2) << 2u) | ((x & 4) << 4u) | ((x & 8) << 6u);
+}
+
+func step(x : u32, y : u32, n : i32, total : reduce(+) i32) -> void {
+    total += cast[[i32]](x);
+    if n == 0 {
+        return;
+    }
+    step(x, y, n - 1, total);
+    return;
+}
+
+func run(values : array[u32, 40], total : reduce(+) i32) -> void {
+    parfor i in 0:40 {
+        step(values[i], cast[[u32]](i % 2), i % 2, total);
+    }
+    return;
+}
+
+schedule {
+    rays = run.queue(root);
+    run.sort(step, |x : u32, y : u32| spread(x) | (cast[[u64]](y & 1u) << 12u));
+    run.defer(step, rays);
+    step.defer(step, rays);
+}

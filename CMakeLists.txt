@@ -201,6 +201,7 @@ target_sources(
     src/CodeGen/CPP.cpp
     src/CodeGen/JIT.cpp
     src/IR/Analysis.cpp
+    src/IR/KnownBits.cpp
     src/IR/Equality.cpp
     src/IR/Rename.cpp
     src/IR/Expr.cpp

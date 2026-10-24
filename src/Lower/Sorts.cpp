@@ -4,6 +4,7 @@
 
 #include "IR/Analysis.h"
 #include "IR/Equality.h"
+#include "IR/KnownBits.h"
 #include "IR/Mutator.h"
 #include "IR/Operators.h"
 #include "IR/Printer.h"
@@ -543,8 +544,8 @@ bool deferred_callee(const TransformMap &transforms, const std::string &callee) 
 // lambda's parameters name parameters of `g`, as the hint's do; the key is
 // an integer, unsigned or signed, of at most 64 bits -- a Morton code of
 // where a ray starts and where it is expected to end, say.
-void apply_queue_sort(const std::string &caller, const std::string &callee,
-                      const Expr &lambda_expr, Program &program) {
+uint32_t apply_queue_sort(const std::string &caller, const std::string &callee,
+                          const Expr &lambda_expr, Program &program) {
     const Lambda *lambda = lambda_expr.as<Lambda>();
     internal_assert(lambda != nullptr)
         << caller << ".sort(" << callee << ", ...) expects a lambda for the key";
@@ -587,6 +588,11 @@ void apply_queue_sort(const std::string &caller, const std::string &callee,
             return found != repls.end() ? found->second : Expr(node);
         }
     };
+    // The bits any call's key can have set, over every call site: what
+    // the sort is told (IR/KnownBits.h), so that a radix sort runs only
+    // the digit passes the key's arithmetic can reach -- a Morton code of
+    // six ten-bit coordinates is 60 bits, of six six-bit ones 36.
+    uint64_t key_mask = 0;
     // The key of one call, from its arguments as they are passed.
     const auto key_of = [&](const std::vector<Expr> &args) -> Expr {
         std::map<std::string, Expr> repls;
@@ -603,7 +609,9 @@ void apply_queue_sort(const std::string &caller, const std::string &callee,
         internal_assert(key.type().bits() <= 64)
             << caller << ".sort(" << callee << ", ...): the key " << key
             << " is wider than the 64 bits a queue's sort compares";
-        return equals(key.type(), u64) ? key : cast(u64, key);
+        Expr wide = equals(key.type(), u64) ? key : cast(u64, key);
+        key_mask |= possible_bits(wide, program.funcs);
+        return wide;
     };
     // Every call of the callee, in every function, passes the key last;
     // the callee's type at the call grows by the parameter.
@@ -656,6 +664,11 @@ void apply_queue_sort(const std::string &caller, const std::string &callee,
     internal_assert(adder.placed > 0)
         << caller << ".sort(" << callee << ", ...): nothing calls " << callee;
     g->second->args.emplace_back(key_name, u64);
+    uint32_t bits = 0;
+    for (uint64_t m = key_mask; m != 0; m >>= 1) {
+        bits++;
+    }
+    return std::max<uint32_t>(bits, 1);
 }
 
 Program LowerSorts::run(Program program, const CompilerOptions &options) const {
@@ -665,7 +678,7 @@ Program LowerSorts::run(Program program, const CompilerOptions &options) const {
         return program;
     }
 
-    for (const auto &[name, ts] : transforms) {
+    for (auto &[name, ts] : transforms) {
         auto fiter = program.funcs.find(name);
         internal_assert(fiter != program.funcs.end());
 
@@ -675,7 +688,7 @@ Program LowerSorts::run(Program program, const CompilerOptions &options) const {
 
         size_t counter = 0;
         for (size_t i = 0; i < ts.size(); i++) {
-            const auto &t = ts[i];
+            auto &t = ts[i];
             if (std::holds_alternative<Sort>(t)) {
                 if (counter != i) {
                     internal_error
@@ -684,7 +697,7 @@ Program LowerSorts::run(Program program, const CompilerOptions &options) const {
                         << name;
                 }
                 counter++;
-                const Sort &sort = std::get<Sort>(t);
+                Sort &sort = std::get<Sort>(t);
                 // A sort on a call, when the location is a function the
                 // program defines: `f.sort(g, |args| key)`.
                 if (sort.loc.names.size() == 1 &&
@@ -693,9 +706,11 @@ Program LowerSorts::run(Program program, const CompilerOptions &options) const {
                         // A sort of the queue the call is deferred onto:
                         // every function's calls change, this one's
                         // included, so its body goes back for the walk.
+                        // The key's live bits stay on the transform for
+                        // the queue's lowering (Sort::key_bits).
                         func->body = std::move(body);
-                        apply_queue_sort(name, sort.loc.names[0], sort.lambda,
-                                         program);
+                        sort.key_bits = apply_queue_sort(name, sort.loc.names[0],
+                                                         sort.lambda, program);
                         body = std::move(func->body);
                         continue;
                     }

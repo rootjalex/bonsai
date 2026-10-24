@@ -3986,25 +3986,29 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         // whose keys and permutation the host holds as device addresses
         // it never dereferences (device_resident). The keys and the
         // permutation are arrays, pointers here; the count is widened to
-        // the runtime's 64 bits.
-        internal_assert(node->args.size() == 3) << "sort_indices takes three";
+        // the runtime's 64 bits; the key's live bits (IR/KnownBits.h) go
+        // last, so that the sort runs only their digit passes.
+        internal_assert(node->args.size() == 4) << "sort_indices takes four";
         const bool on_device = device_root_of(node->args[1]).has_value();
         const char *runtime_sort =
             on_device ? "bonsai_cuda_sort_indices" : "bonsai_sort_indices";
         llvm::Value *keys = codegen_expr(node->args[0]);
         llvm::Value *perm = codegen_expr(node->args[1]);
         llvm::Value *count = codegen_expr(node->args[2]);
+        llvm::Value *bits = codegen_expr(node->args[3]);
         llvm::Type *i64_t = llvm::Type::getInt64Ty(*context);
+        llvm::Type *i32_t = llvm::Type::getInt32Ty(*context);
         llvm::Type *ptr_t = llvm::PointerType::getUnqual(*context);
         count = builder->CreateZExtOrTrunc(count, i64_t, "sort_count");
+        bits = builder->CreateZExtOrTrunc(bits, i32_t, "sort_bits");
         llvm::FunctionType *sort_ty = llvm::FunctionType::get(
-            llvm::Type::getVoidTy(*context), {ptr_t, ptr_t, i64_t}, false);
+            llvm::Type::getVoidTy(*context), {ptr_t, ptr_t, i64_t, i32_t}, false);
         llvm::Function *sort = module->getFunction(runtime_sort);
         if (!sort) {
             sort = llvm::Function::Create(sort_ty, llvm::Function::ExternalLinkage,
                                           runtime_sort, module.get());
         }
-        builder->CreateCall(sort, {keys, perm, count});
+        builder->CreateCall(sort, {keys, perm, count, bits});
         value = llvm::ConstantInt::get(codegen_type(node->type), 0);
         return;
     }

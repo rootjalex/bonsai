@@ -10,13 +10,14 @@
 // Used in sort-indices-cpp.bonsai: the device sort against the standard
 // library's stable sort.
 
-// Sorts `keys` on the device and returns the permutation.
-static std::vector<uint32_t> device_sort(const std::vector<uint64_t> &keys) {
+// Sorts `keys` on the device, told that `bits` low bits of a key can be
+// set, and returns the permutation.
+static std::vector<uint32_t> device_sort(const std::vector<uint64_t> &keys, uint32_t bits) {
     const int64_t n = int64_t(keys.size());
     auto *d_keys = static_cast<uint64_t *>(bonsai_cuda_malloc(uint64_t(n) * sizeof(uint64_t)));
     auto *d_perm = static_cast<uint32_t *>(bonsai_cuda_malloc(uint64_t(n) * sizeof(uint32_t)));
     bonsai_cuda_copy_to_device(d_keys, keys.data(), uint64_t(n) * sizeof(uint64_t));
-    bonsai_cuda_sort_indices(d_keys, d_perm, n);
+    bonsai_cuda_sort_indices(d_keys, d_perm, n, bits);
     bonsai_cuda_synchronize();
     std::vector<uint32_t> perm(static_cast<size_t>(n));
     bonsai_cuda_copy_to_host(perm.data(), d_perm, uint64_t(n) * sizeof(uint32_t));
@@ -34,8 +35,8 @@ static std::vector<uint32_t> host_sort(const std::vector<uint64_t> &keys) {
     return perm;
 }
 
-static void check(const char *what, const std::vector<uint64_t> &keys) {
-    const std::vector<uint32_t> got = device_sort(keys);
+static void check(const char *what, const std::vector<uint64_t> &keys, uint32_t bits = 64) {
+    const std::vector<uint32_t> got = device_sort(keys, bits);
     const std::vector<uint32_t> want = host_sort(keys);
     for (size_t i = 0; i < keys.size(); i++) {
         if (got[i] != want[i]) {
@@ -60,6 +61,9 @@ int main() {
         keys[i] = keys[0];
     }
     check("sorted 1000003 keys", keys);
+    // The same keys with the sort told their width: 36 live bits, five
+    // digit passes instead of eight, the same order.
+    check("sorted 1000003 keys in 36 bits", keys, 36);
     // A second, smaller sort reuses the scratch of the first; all keys
     // equal, so the permutation is the identity.
     check("sorted 1000 equal keys", std::vector<uint64_t>(1000, 42));

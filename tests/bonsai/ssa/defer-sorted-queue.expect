@@ -68,7 +68,7 @@ func run(values : f32[40], counter : mut i32[1], order : mut i32[60], total : mu
     let @18 = @14 ^ 1u in
     rays_queue[@18].count = 0u
     let @23 = rays_queue[@14]._sort_key in
-    let @24 = sort_indices(@23, rays__perm, @16) in
+    let @24 = sort_indices(@23, rays__perm, @16, 64u) in
     parfor rays in [0u:@16:1u] {
       let @19 = (&rays_queue[@18]) in
       let @25 = rays__perm[rays] in

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <iostream>
 #include <numeric>
 #include <vector>
@@ -30,7 +31,11 @@ static uint64_t mix(uint64_t x) {
     return x;
 }
 
-using Sort = void (*)(const uint64_t *, uint32_t *, int64_t);
+// A sort of the host runtime's shape (keys, permutation, count), the key
+// width -- the fourth argument of bonsai_sort_indices, the compiler's
+// analysis of the key -- given as every bit here, since these keys are
+// hashes.
+using Sort = std::function<void(const uint64_t *, uint32_t *, int64_t)>;
 
 static int64_t check_sort(Sort sort, int64_t n) {
     std::vector<uint64_t> keys(static_cast<size_t>(n));
@@ -73,13 +78,30 @@ int main() {
     std::cout << "total: " << total[0] << '\n';
 
     for (int64_t n : {int64_t{100}, int64_t{5000}, (int64_t{1} << 20) + 5}) {
-        std::cout << "sort of " << n << ": " << check_sort(bonsai_sort_indices, n)
+        std::cout << "sort of " << n << ": "
+                  << check_sort([](const uint64_t *k, uint32_t *p, int64_t count) {
+                                    bonsai_sort_indices(k, p, count, 64);
+                                },
+                                n)
                   << " wrong\n";
     }
     // The two sorts the header falls back on, by name, so that they are
     // checked on a machine whose environment picks the vectorized one.
     std::cout << "std of 100: " << check_sort(bonsai_sort_detail::sort_std, 100)
               << " wrong\n";
-    std::cout << "radix of 5000: " << check_sort(bonsai_sort_detail::sort_radix, 5000)
+    std::cout << "radix of 5000: "
+              << check_sort([](const uint64_t *k, uint32_t *p, int64_t count) {
+                                bonsai_sort_detail::sort_radix(k, p, count, 64);
+                            },
+                            5000)
+              << " wrong\n";
+    // The radix sort told the keys' width: the hashes above use sixty bits
+    // (h >> 4), so sixty is the truth and the sort may skip nothing it
+    // needs; the order must be the same.
+    std::cout << "radix of 5000 in 60 bits: "
+              << check_sort([](const uint64_t *k, uint32_t *p, int64_t count) {
+                                bonsai_sort_detail::sort_radix(k, p, count, 60);
+                            },
+                            5000)
               << " wrong\n";
 }

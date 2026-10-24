@@ -13,9 +13,11 @@
 // Grimshaw, "High Performance and Scalable Radix Sorting" (2011); Adinets
 // and Merrill, "Onesweep: A Faster Least Significant Digit Radix Sort for
 // GPUs" (2022), which is the algorithm CUB's DeviceRadixSort runs on this
-// hardware -- over the full 64 bits of the key (ray reordering keys are
-// 64-bit Morton codes, Meister, Boksansky, Guthe, Bittner 2025), the values
-// the indices 0..n-1 written by a kernel here. CUB sorts out of place, so
+// hardware -- over the key's live bits (`bits`, the compiler's analysis of
+// the key's arithmetic, IR/KnownBits.h: a two-point Morton code of six
+// ten-bit coordinates lives in 60 bits, of six six-bit ones in 36), so the
+// sort runs ceil(bits / 8) digit passes rather than the type's eight; the
+// values are the indices 0..n-1 written by a kernel here. CUB sorts out of place, so
 // the keys are written sorted to a scratch array nobody reads (the queue's
 // own key array stays as the entries were pushed, read through `perm`),
 // and the scratch -- the sorted keys, the index values, CUB's temporary
@@ -72,10 +74,11 @@ void check(cudaError_t result, const char *what) {
 } // namespace
 
 extern "C" void bonsai_cuda_sort_pairs(const uint64_t *keys, uint32_t *perm,
-                                       int64_t n) {
+                                       int64_t n, uint32_t bits) {
     if (n <= 0) {
         return;
     }
+    const int end_bit = int(std::min<uint32_t>(std::max<uint32_t>(bits, 1), 64));
     Scratch &s = scratch();
     if (n > s.capacity) {
         // Grown to the count, doubling so that a queue filling round by
@@ -100,6 +103,6 @@ extern "C" void bonsai_cuda_sort_pairs(const uint64_t *keys, uint32_t *perm,
     write_indices<<<unsigned(blocks), 256>>>(s.indices, n);
     check(cudaGetLastError(), "write_indices");
     check(cub::DeviceRadixSort::SortPairs(s.temp, s.temp_bytes, keys, s.keys_out,
-                                          s.indices, perm, n, 0, 64, cudaStream_t(0)),
+                                          s.indices, perm, n, 0, end_bit, cudaStream_t(0)),
           "SortPairs");
 }

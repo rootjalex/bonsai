@@ -751,14 +751,19 @@ struct Intrinsic : ExprNode<Intrinsic> {
         // reordering hardware -- the host, a CUDA kernel -- it is nothing.
         rt_reorder,
         // The order a queue's entries are drained in, by a key each entry
-        // carries: `sort_indices(keys : u64[], perm : u32[], count : u32)
-        // -> u32` writes into `perm` the indices 0..count-1 ordered by
-        // ascending `keys[index]`, a stable sort, so that a drain reading
-        // its entries through `perm` runs them in key order (SSA/Defer.cpp,
-        // for `f.sort(g, |args| key)` on a call that `defer` sends to a
-        // queue; the paper's ray reordering, Meister et al. 2025). An effect
-        // on `perm` with a dummy result; the host runtime's
-        // bonsai_sort_indices (runtime/bonsai_parallel.h) does the sort.
+        // carries: `sort_indices(keys : u64[], perm : u32[], count : u32,
+        // bits : u32) -> u32` writes into `perm` the indices 0..count-1
+        // ordered by ascending `keys[index]`, a stable sort, so that a
+        // drain reading its entries through `perm` runs them in key order
+        // (SSA/Defer.cpp, for `f.sort(g, |args| key)` on a call that
+        // `defer` sends to a queue; the paper's ray reordering, Meister et
+        // al. 2025). `bits` is how many low bits of a key can be set -- the
+        // compiler reads it off the key's arithmetic (IR/KnownBits.h,
+        // Lower/Sorts.cpp) -- so that a radix sort runs only the digit
+        // passes that matter. An effect on `perm` with a dummy result; the
+        // runtime's bonsai_sort_indices (runtime/bonsai_parallel.h) or, for
+        // a queue on the device, bonsai_cuda_sort_indices (runtime/
+        // bonsai_cuda.h) does the sort.
         sort_indices,
         // `fill_bytes(dst : u8[], value : u8, count : u32) -> u32` sets the
         // first `count` bytes of `dst` to `value`: a memset, one instruction

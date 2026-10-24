@@ -394,14 +394,17 @@ inline void sort_std(const uint64_t *keys, uint32_t *perm, int64_t n) {
     scatter(pairs, perm, n);
 }
 
-// LSD radix sort: six passes of eleven bits cover the 64-bit key, every
-// pass's histogram taken in the one read that gathers the pairs, and a pass
-// whose digit is the same in every key -- the top passes of a Morton key
-// that uses sixty bits, say -- skipped.
-inline void sort_radix(const uint64_t *keys, uint32_t *perm, int64_t n) {
+// LSD radix sort: up to six passes of eleven bits cover the 64-bit key --
+// only as many as the key's live bits need (`bits`, the compiler's
+// analysis of the key) -- every pass's histogram taken in the one read
+// that gathers the pairs, and a pass whose digit is the same in every key
+// -- the top passes of a Morton key that uses sixty bits, say -- skipped.
+inline void sort_radix(const uint64_t *keys, uint32_t *perm, int64_t n,
+                       uint32_t bits = 64) {
     constexpr int kBits = 11;
-    constexpr int kPasses = 6;
+    constexpr int kMaxPasses = 6;
     constexpr int kBuckets = 1 << kBits;
+    const int kPasses = std::min<int>(kMaxPasses, (int(std::min<uint32_t>(bits, 64)) + kBits - 1) / kBits);
     std::vector<Pair> a(static_cast<size_t>(n)), b(static_cast<size_t>(n));
     std::vector<uint32_t> hist(static_cast<size_t>(kPasses * kBuckets), 0);
     for (int64_t i = 0; i < n; i++) {
@@ -476,8 +479,12 @@ inline void sort_parallel(const uint64_t *keys, uint32_t *perm, int64_t n) {
 
 }  // namespace bonsai_sort_detail
 
+// `bits` is how many low bits of a key can be set -- the compiler's
+// analysis of the key's arithmetic (IR/KnownBits.h) -- which bounds the
+// radix sort's passes from above; the sort also skips any pass whose digit
+// turns out constant. The comparison sorts have no use for it.
 extern "C" __attribute__((used)) inline void
-bonsai_sort_indices(const uint64_t *keys, uint32_t *perm, int64_t n) {
+bonsai_sort_indices(const uint64_t *keys, uint32_t *perm, int64_t n, uint32_t bits) {
     using namespace bonsai_sort_detail;
     if (n <= 0) {
         return;
@@ -489,12 +496,13 @@ bonsai_sort_indices(const uint64_t *keys, uint32_t *perm, int64_t n) {
     }
 #endif
 #if defined(BONSAI_SORT_X86_SIMD_SORT)
+    (void)bits;
     sort_simd(keys, perm, n);
 #else
     if (n < 1024) {
         sort_std(keys, perm, n);
     } else {
-        sort_radix(keys, perm, n);
+        sort_radix(keys, perm, n, bits);
     }
 #endif
 }

@@ -3116,6 +3116,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                                 if (sort != nullptr && sort->loc.names.size() == 1 &&
                                     sort->loc.names[0] == callee) {
                                     spec.sort_key = "_sort_key";
+                                    spec.sort_key_bits = sort->key_bits;
                                 }
                             }
                         }

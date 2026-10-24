@@ -1578,9 +1578,10 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             break;
         }
         case Intrinsic::sort_indices: {
-            internal_assert(args.size() == 3 && args[2].type().is_uint())
-                << "sort_indices takes the keys, the permutation to fill and "
-                << "the count, an unsigned";
+            internal_assert(args.size() == 4 && args[2].type().is_uint() &&
+                            args[3].type().is_uint())
+                << "sort_indices takes the keys, the permutation to fill, "
+                << "the count and the key's live bits, both unsigned";
             node->type = UInt_t::make(32);
             break;
         }

@@ -8,3 +8,4 @@ sort of 5000: 0 wrong
 sort of 1048581: 0 wrong
 std of 100: 0 wrong
 radix of 5000: 0 wrong
+radix of 5000 in 60 bits: 0 wrong

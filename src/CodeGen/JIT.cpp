@@ -17,8 +17,10 @@ namespace {
 // bonsai_sort_indices does, by the standard library, since that header's
 // sort runs on TBB wherever TBB is installed and the compiler links no TBB.
 // Same meaning: perm[0..n) holds 0..n-1 by ascending keys[index], ties in
-// index order.
-void jit_sort_indices(const uint64_t *keys, uint32_t *perm, int64_t n) {
+// index order; the key's live bits (`bits`) are a radix sort's business and
+// nothing here.
+void jit_sort_indices(const uint64_t *keys, uint32_t *perm, int64_t n, uint32_t bits) {
+    (void)bits;
     std::vector<uint32_t> order(static_cast<size_t>(std::max<int64_t>(n, 0)));
     for (int64_t i = 0; i < n; i++) {
         order[static_cast<size_t>(i)] = static_cast<uint32_t>(i);
