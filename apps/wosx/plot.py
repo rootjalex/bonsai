@@ -45,7 +45,14 @@ GPU.
 The colours are apps/pbrt's figures' (the user's choice, 10-24):
 ColorBrewer's nine-class YlGnBu ramp, a colour a schedule, no hatches, the
 edge and the line at 1 as there. No titles: the file's name says which tree
-and which side, the legend what each bar compares.
+and which side, the legend what each bar compares. The figures are drawn
+at the size they are printed (the user's rule, 10-24; apps/pbrt/
+figure_style.py has the format): 5.478 in wide, acmsmall's text block,
+what \\includegraphics[width=\\textwidth] scales a figure to in the paper,
+so that a 10 pt label comes out 10 pt on the page, in TrueType (pdf.fonttype
+42), which ACM's production accepts where matplotlib's default Type 3 fonts
+are refused; the mesh labels are turned 45 degrees, since eighteen names
+and their triangle counts do not fit upright in five and a half inches.
 """
 import argparse
 import csv
@@ -57,6 +64,12 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
+from matplotlib.ticker import MultipleLocator  # noqa: E402
+
+# The paper's figure style, apps/pbrt's module: acmsmall's text width, 10 pt
+# labels and legend, 9 pt ticks, Liberation Sans embedded as TrueType.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pbrt"))
+from figure_style import FONT, TEXT_WIDTH, paper_style  # noqa: E402
 
 EDGE = "#333333"  # every bar's thin edge, as apps/pbrt/plot_cpu_wavefront.py
 # ColorBrewer YlGnBu, nine classes, lightest first (apps/pbrt's palette).
@@ -91,7 +104,7 @@ GPU_BARS = [
     ("fcpwb-gpu-reorder-256k", "persistent-reorder-256k", YLGNBU[6]),
     ("fcpwb-gpu-parallel-reorder-blk64", "parallel-reorder-blk64", YLGNBU[7]),
 ]
-GPU_REFERENCE = "WoSX's persistent kernel"
+GPU_REFERENCE = "WoSX"
 
 
 def load(path):
@@ -129,12 +142,12 @@ def geomeans(rows, schedules, exclude):
 
 
 def tick_labels(meshes, tris):
-    return [f"{m}\n{tris[m] / 1e6:.2g}M" if tris[m] >= 1e6
-            else f"{m}\n{tris[m] // 1000}k" if tris[m] >= 1000
-            else f"{m}\n{tris[m]}" for m in meshes]
+    return [f"{m} {tris[m] / 1e6:.2g}M" if tris[m] >= 1e6
+            else f"{m} {tris[m] // 1000}k" if tris[m] >= 1000
+            else f"{m} {tris[m]}" for m in meshes]
 
 
-def figure(rows, meshes, tris, bars, reference, ylabel):
+def figure(rows, meshes, tris, bars, reference, ylabel, height=2.2):
     """One figure: a bar per (schedule, label, colour) of `bars` per mesh, the
     dashed line at 1 named `reference` at its right end, the legend above the
     axes. Returns the figure and the schedules drawn, or (None, [])."""
@@ -142,9 +155,8 @@ def figure(rows, meshes, tris, bars, reference, ylabel):
     drawn = [(s, label, colour) for s, label, colour in bars if data[s]]
     if not drawn:
         return None, []
-    plt.rcParams.update({"pdf.fonttype": 42, "ps.fonttype": 42,
-                         "font.size": 8, "legend.fontsize": 7})
-    fig, ax = plt.subplots(figsize=(13, 3.4))
+    paper_style()
+    fig, ax = plt.subplots(figsize=(TEXT_WIDTH, height))
     width = 0.8 / len(drawn)
     top = 1.0
     for i, mesh in enumerate(meshes):
@@ -157,11 +169,13 @@ def figure(rows, meshes, tris, bars, reference, ylabel):
             top = max(top, v)
     right = len(meshes) - 0.4
     ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=1.2, zorder=3)
-    ax.text(right + 0.05, 1.0, reference, ha="left", va="center", fontsize=6.5)
+    ax.text(right + 0.1, 1.0, reference, ha="left", va="center", fontsize=FONT - 1)
     ax.set_xticks(range(len(meshes)))
-    ax.set_xticklabels(tick_labels(meshes, tris), fontsize=8)
+    ax.set_xticklabels(tick_labels(meshes, tris), rotation=45, ha="right",
+                       rotation_mode="anchor")
     ax.set_xlim(-0.6, right)
     ax.set_ylim(0, top * 1.08)
+    ax.yaxis.set_major_locator(MultipleLocator(0.5))
     ax.set_ylabel(ylabel)
     for spine in ("top", "right"):
         ax.spines[spine].set_visible(False)
@@ -169,18 +183,21 @@ def figure(rows, meshes, tris, bars, reference, ylabel):
     ax.set_axisbelow(True)
     handles = [Patch(facecolor=colour, edgecolor=EDGE, linewidth=0.4, label=label)
                for _, label, colour in drawn]
-    ncol = 3 if len(handles) > 3 else len(handles)
+    # Two columns where the seven GPU labels would not fit a row at 10 pt.
+    ncol = 2 if len(handles) > 3 else len(handles)
     ax.legend(handles=handles, ncol=ncol, frameon=False, loc="lower center",
-              bbox_to_anchor=(0.5, 1.02), handlelength=2.2, handleheight=1.2,
-              borderaxespad=0.0, columnspacing=1.2)
+              bbox_to_anchor=(0.5, 1.02), borderaxespad=0.0, columnspacing=1.2)
     return fig, [s for s, _, _ in drawn]
 
 
 def save(fig, out_dir, name, formats):
-    fig.tight_layout()
+    """The page exactly the figure's size (no cropping to the content, which
+    would leave LaTeX to rescale it): the layout fits the labels, the legend
+    and the reference's name inside it."""
+    fig.tight_layout(pad=0.3)
     for fmt in formats:
         path = os.path.join(out_dir, f"{name}.{fmt}")
-        fig.savefig(path, bbox_inches="tight", dpi=200)
+        fig.savefig(path, dpi=200)
         print(path)
     plt.close(fig)
 
@@ -200,7 +217,9 @@ def draw_gpu(rows, schedules, out_dir, formats, exclude):
     meshes, tris = meshes_by_triangles(rows, exclude)
     known = {s: (label, colour) for s, label, colour in GPU_BARS}
     bars = [(s, *known.get(s, (s, YLGNBU[8]))) for s in schedules]
-    fig, drawn = figure(rows, meshes, tris, bars, GPU_REFERENCE, "Speedup over WoSX (GPU)")
+    # Taller: seven bars a mesh and a legend of four rows above them.
+    fig, drawn = figure(rows, meshes, tris, bars, GPU_REFERENCE, "Speedup over WoSX (GPU)",
+                        height=2.6)
     if fig is None:
         print(f"no rows for {schedules}; nothing drawn", file=sys.stderr)
         return
