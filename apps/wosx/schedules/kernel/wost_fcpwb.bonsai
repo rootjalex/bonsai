@@ -16,11 +16,14 @@
 // this file for the traversals and add how the walks are run.
 import apps/wosx/schedules/layouts/fcpw_stars;
 
+// Each traversal's two children's tests are written out (`unroll`), as
+// bvh.slang writes them, one after the other off each child's own row.
 schedule {
     walk_stars.loopify();
     closest_absorbing.sort(absorbing.Interior,
                            |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
                            distmin(s, AABB{lo[i], hi[i]}))
+                     .unroll(absorbing.Interior.children)
                      .loopify(64);
     closest_absorbing.skip(closest_point_fcpw);
     hit_reflecting.sort(reflecting.Interior,
@@ -28,11 +31,13 @@ schedule {
                          axis : vector[vec3f, 2], half_angle : vector[f32, 2],
                          radius : vector[f32, 2]|
                         distmin(r, AABB{lo[i], hi[i]}))
+                  .unroll(reflecting.Interior.children)
                   .loopify(64);
     closest_silhouette.sort(silhouettes.Interior,
                             |i : u32, q : StarQuery, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
                              axis : vector[vec3f, 2], half_angle : vector[f32, 2],
                              radius : vector[f32, 2]|
                             distmin(q, ConeBox{lo[i], hi[i], axis[i], half_angle[i], radius[i]}))
+                      .unroll(silhouettes.Interior.children)
                       .loopify(64);
 }

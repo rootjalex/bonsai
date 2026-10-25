@@ -11,6 +11,7 @@ schedule {
     closest_within.sort(triangles.Interior,
                         |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
                         distmin(s, AABB{lo[i], hi[i]}))
+                  .unroll(triangles.Interior.children)
                   .loopify(64);
     closest_within.skip(closest_point_fcpw);
 }

@@ -8,7 +8,10 @@
 // where FCPW's CPU traversal, which fcpwb.bonsai follows, orders two
 // children that both contain the point by their far corners instead. The
 // GPU schedules (fcpwb-gpu*.bonsai) import this file for the traversal and
-// add how the walks are run.
+// add how the walks are run. The two children's tests are written out
+// (`unroll`), as bvh.slang writes them -- the two boxes tested one after
+// the other, then the swap -- not left a loop of two (fcpwb.bonsai says
+// what the loop cost).
 import apps/wosx/schedules/layouts/fcpwb;
 
 schedule {
@@ -16,6 +19,7 @@ schedule {
     closest_within.sort(triangles.Interior,
                         |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
                         distmin(s, AABB{lo[i], hi[i]}))
+                  .unroll(triangles.Interior.children)
                   .loopify(64);
     closest_within.skip(closest_point_fcpw);
 }

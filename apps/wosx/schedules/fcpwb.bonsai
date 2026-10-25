@@ -14,9 +14,18 @@
 // -- and where both children contain the point, both d2Min zero, by the
 // far corner's distance, d2Max, the nearer far corner first. A tie keeps
 // the left child first, as FCPW's strict compares do. The key reads both
-// children's boxes, which the children's loop reads anyway. WoSX's GPU
+// children's boxes, which the children's tests read anyway. WoSX's GPU
 // kernel orders by d2Min alone, and the GPU schedules take their traversal
 // from kernel/fcpwb.bonsai for that.
+//
+// The two children's tests are written out (`unroll`), as FCPW writes them:
+// the left child's box read off its row and tested, then the right's, each
+// test tightening the far-corner bound; then the one comparison of the two
+// keys and the swap, the farther pushed and the nearer entered
+// (SSA/SortRecursion.cpp orders a run of two as scalars). Left a loop, the
+// two tests were a loop of two over the pair of boxes the layout presents,
+// each iteration picking its lane -- the sixty instructions over FCPW's
+// visit that PLAN.md's "The binary CPU walk's gap" found (2026-10-24).
 import apps/wosx/schedules/layouts/fcpwb;
 
 schedule {
@@ -27,6 +36,7 @@ schedule {
                                distmin(s, AABB{lo[1u], hi[1u]}) == 0.0,
                                distmax(s, AABB{lo[i], hi[i]}),
                                distmin(s, AABB{lo[i], hi[i]})))
+                  .unroll(triangles.Interior.children)
                   .loopify(64);
     closest_within.skip(closest_point_fcpw);
 }

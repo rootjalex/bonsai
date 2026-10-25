@@ -21,6 +21,7 @@ schedule {
                                distmin(s, AABB{lo[1u], hi[1u]}) == 0.0,
                                distmax(s, AABB{lo[i], hi[i]}),
                                distmin(s, AABB{lo[i], hi[i]})))
+                  .unroll(triangles.Interior.children)
                   .loopify(64);
     closest_within.skip(closest_point_fcpw);
 }
