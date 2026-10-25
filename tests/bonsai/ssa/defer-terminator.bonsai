@@ -1,0 +1,46 @@
+//! flags: -p ssa --dump-ssa-postschedule
+
+// FAILS, on purpose, until the push that ends an iteration is a terminator
+// of its own (the user, 10-25): `Defer <entry> <queue>`, the write of the
+// entry to the queue and the end of the activity in one, which
+// `lower_pushes` turns into the atomic count, the stores and the return.
+// Today the deferral writes `@4 = push _queue_q @3` as an instruction and a
+// `ret` after it, two things for one. The program is
+// correctness/llvm/defer-continuation's: `step` calls `work` and goes on,
+// and the call with its continuation is deferred.
+//
+// The expectation is the intended shape written by hand over today's dump:
+// the block `step` ending in `defer _queue_q @3` where it ended in the push
+// and the return. The spelling is a guess; when the terminator lands, read
+// the dump and bless it (BONSAI_UPDATE_EXPECT=1).
+import stdlib/numerics;
+
+func work(x : Float) -> Float {
+    return x * 0.5;
+}
+
+func step(x : Float, out : mut array[Float, 8], i : i32) -> void {
+    r = work(x);
+    out[i] = r + 1.0;
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        step(values[i], out, i);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(work, q);
+}

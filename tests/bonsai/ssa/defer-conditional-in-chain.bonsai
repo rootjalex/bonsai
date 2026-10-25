@@ -1,0 +1,60 @@
+//! flags: -p ssa --dump-ssa-postschedule
+
+// FAILS, on purpose, until the chain reports whether it deferred (the
+// user, 10-25): the program of correctness/llvm/defer-conditional-in-chain,
+// whose deferred call sits under a test *inside* the chain -- `step` calls
+// `work` only `if x > 4.0` and returns without it otherwise. The rule: a
+// deferral ends the parallel iteration only when the call is made, and an
+// iteration whose chain returned without deferring runs its continuation
+// where it stands, at once. For that the chain has to say which happened:
+// a function holding a conditional deferral returns a bool (an
+// `optional[ret]` when it returned a value), the push site returning true,
+// every other return false, and the owner dispatches on it -- the
+// continuation inline when false, the end of the iteration (`q!end`) when
+// true; a function with a deferral of its own in a callee tests the
+// callee's answer and returns it onward. Today the owner yields after every
+// call and the pass over the record runs every slot, the same result at a
+// record visit per iteration that pushed nothing.
+//
+// The expectation is the intended shape written by hand over today's
+// dump: `step` returning `(bool)1` at the push and `(bool)0` otherwise,
+// the owner's `callc step(..) !step_deferred_3(..)` dispatching on the
+// answer to an inline copy of the continuation or to `q!end`. Its exact
+// spelling is a guess; when the feature lands, read the dump and bless it
+// (BONSAI_UPDATE_EXPECT=1) rather than trust this file's letters.
+import stdlib/numerics;
+
+func work(x : Float, acc : reduce(+) Float) -> void {
+    acc += x * 0.5;
+    return;
+}
+
+func step(x : Float, acc : reduce(+) Float) -> void {
+    if x > 4.0 {
+        work(x, acc);
+    }
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        acc : reduce(+) Float = 0.0;
+        w = values[i] + 1.0;
+        step(values[i], acc);
+        out[i] = acc + w;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(work, q);
+}

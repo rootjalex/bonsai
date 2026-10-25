@@ -1,0 +1,154 @@
+; === ssa postschedule ===
+; --- main ---
+func main(): 
+  out = alloc<f32[8]>()
+  @0 = make_struct<f32[8]>((f32)0, (f32)0, (f32)0, (f32)0, (f32)0, (f32)0, (f32)0, (f32)0)
+  store out @0
+  @1 = make_struct<f32[8]>((f32)1, (f32)2, (f32)3, (f32)4, (f32)5, (f32)6, (f32)7, (f32)8)
+  call run(@1, out) !run_call_cont_0(out)
+
+!run_call_cont_0(out : f32[8]): // preds: main
+  print(out)
+  ret (i32)0
+
+; --- run ---
+func run(values : f32[8], out : f32[8]): 
+  q_x = alloca<f32[8]> scratch()
+  q_i = alloca<i32[8]> scratch()
+  q_queue = alloca<(Queue_q*)> scratch()
+  @1 = make_struct<Queue_q>((u32)0, q_x, q_i)
+  store q_queue @1
+  parfor i (i32)0:(i32)8:(i32)1 !par_body_0(values, out, q_queue) q!drain(q_queue, q_x, out, q_i)
+
+!par_body_0(i : i32, values : f32[8], out : f32[8], q_queue : (Queue_q*)): // preds: run
+  @0 = extract_idx(values, i)
+  call step(@0, out, i, q_queue) q!end()
+
+!par_cont_1(): // preds: q!exit
+  ret
+
+q!end(): // preds: !par_body_0
+  yield
+
+q!drain(q_queue : (Queue_q*), q_x : f32[8], out : f32[8], q_i : i32[8]): // preds: run
+  @2 = load(q_queue)
+  @3 = load_field(@2, (u32)0)
+  parfor q (u32)0:@3:(u32)1 q!run(q_x, out, q_i) q!exit(q_queue)
+
+q!run(q : u32, q_x : f32[8], out : f32[8], q_i : i32[8]): // preds: q!drain
+  @4 = extract_idx(q_x, q)
+  @5 = extract_idx(q_i, q)
+  call step!work!k(@4, out, @5) q!ran()
+
+q!ran(): // preds: q!run
+  yield
+
+q!exit(q_queue : (Queue_q*)): // preds: q!drain
+  @6 = field.ptr(q_queue, (u32)0)
+  store @6 (u32)0
+  jmp !par_cont_1()
+
+; --- step ---
+func step(x : f32, out : f32[8], i : i32, _queue_q : (Queue_q*)): 
+  @3 = make_struct<Entry_q>(x, i)
+  defer _queue_q @3
+
+; --- step!after ---
+func step!after(@0 : f32, out : f32[8], i : i32): 
+  r = set(@0)
+  @1 = add(r, (f32)1)
+  @2 = gep(out, i)
+  store @2 @1
+  ret
+
+; --- step!work!k ---
+func step!work!k(x : f32, out : f32[8], i : i32): 
+  callc work(x) step!work!k!ran(out, i)
+
+step!work!k!ran($work : f32, out : f32[8], i : i32): // preds: step!work!k
+  call step!after($work, out, i) step!work!k!done()
+
+step!work!k!done(): // preds: step!work!k!ran
+  ret
+
+; --- work ---
+func work(x : f32): 
+  @0 = mul(x, (f32)0.5)
+  ret @0
+
+type Entry_q = struct Entry_q{ x : f32; i : i32 }
+type Float = f32
+type Half = f16
+type Queue_q = struct Queue_q{ count : u32; x : f32[]; i : i32[] }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func main() -> i32 {
+  alloc out : mut f32[8]
+  let @0 = build<f32[8]>(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f) in
+  out = @0
+  let @1 = build<f32[8]>(1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f) in
+  run(@1, out)
+  print(out)
+  return 0
+}
+
+func run(values : f32[8], out : mut f32[8]) -> void {
+  q_x : mut f32[8]
+  q_i : mut i32[8]
+  q_queue : mut Queue_q
+  let @1 = build<Queue_q>(0u, q_x, q_i) in
+  q_queue = @1
+  parfor i in [0:8:1] {
+    let @0 = values[i] in
+    step(@0, out, i, q_queue)
+    continue
+  }
+  let @2 = (*q_queue) in
+  let @3 = @2.count in
+  parfor q in [0u:@3:1u] {
+    let @4 = q_x[q] in
+    let @5 = q_i[q] in
+    step!work!k(@4, out, @5)
+    continue
+  }
+  q_queue.count = 0u
+  return
+}
+
+func step(x : f32, out : mut f32[8], i : i32, _queue_q : mut (Queue_q*)) -> void {
+  let @3 = build<Entry_q>(x, i) in
+  let @6 = atomic_add((&(*_queue_q).count), 1u) in
+  let @8 = (*_queue_q).x in
+  @8[@6] = x
+  let @11 = (*_queue_q).i in
+  @11[@6] = i
+  return
+}
+
+func step!after(@0 : f32, out : mut f32[8], i : i32) -> void {
+  let r = @0 in
+  let @1 = r + 1f in
+  out[i] = @1
+  return
+}
+
+func step!work!k(x : f32, out : mut f32[8], i : i32) -> void {
+  let $work = work(x) in
+  step!after($work, out, i)
+  return
+}
+
+func work(x : f32) -> f32 {
+  let @0 = x * 0.5f in
+  return @0
+}
+
+
+schedule {
+    q = run.queue(root);
+    step.defer(work, q)
+
+}

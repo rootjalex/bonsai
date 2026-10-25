@@ -1,0 +1,58 @@
+//! flags: -p ssa -b llvm -e
+
+// correctness/gpu/defer-record-soa with one more statement after the
+// deferred call: `rec.hits = rec.hits * 2`, a store into the record's slot
+// from the continuation, which the pass over the record runs on the device.
+// The record is a struct of arrays; the rest pass's kernel has to be bound
+// the slot the store reaches as well as the ones the reads do. Written as
+// the small form of a failure seen in apps/pbrt (10-25: a store to
+// `visible.set` after the camera's deferred path, "rays_visible_set_slots is
+// not bound in _kernel_rays_rest_...", CodeGen_LLVM.cpp:1756, under the
+// gpu-optix schedule with its specializations). This small form passes; the
+// renderer's shape that fails is not reproduced here yet, and stays on
+// apps/pbrt/PLAN.md's list. Prints 2 * hits + p.x where seen: 2, 5, 8, 11,
+// 6, 9, 12, 15.
+import stdlib/numerics;
+
+element Record {
+    p : vec3f;
+    w : Float;
+    hits : i32;
+    seen : bool;
+}
+
+func step(x : Float, n : i32, rec : mut Record) -> void {
+    rec.hits = rec.hits + 1;
+    if n == 0 {
+        rec.seen = true;
+        return;
+    }
+    step(x * 0.5, n - 1, rec);
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        rec : mut Record = {vec3f{values[i], 0.0, 1.0}, 2.0, 0, false};
+        step(values[i], i % 4, rec);
+        rec.hits = rec.hits * 2;
+        out[i] = select(rec.seen, cast[[Float]](rec.hits) + rec.p.x, 0.0);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : mut array[Float, 8] = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(step, q);
+    run.bind(i, GPUThread);
+    run.bind(q, GPUThread);
+    run.bind(q_rest, GPUThread);
+}
