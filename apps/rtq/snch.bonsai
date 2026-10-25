@@ -1,0 +1,31 @@
+// apps/rtq over FCPW's normal cone hierarchy (SNCH): rtq.bonsai's three
+// queries over its triangles and the silhouette query over its edges, each
+// as a batch -- the program compare.sh compiles for the schedules named
+// fcpws* (schedules/fcpws.bonsai over layouts/fcpws.bonsai), against FCPW's
+// scalar build with silhouettes computed (Scene::computeSilhouettes, then
+// the build, which then makes Bvh<3, SnchNode<3>, Triangle, SilhouetteEdge>:
+// each node a box and a normal cone, each leaf its triangles and its
+// silhouette edges) and against FCPW's GPU, which traverses the same rows.
+// These are the trees the walk on stars of apps/wosx traverses for its ray
+// cast and its star radius, isolated.
+//
+// The silhouette batch is answered with FCPW's record (SilhouetteHit: the
+// edge's index, the distance, the closest point on the edge; a miss `d`
+// infinite and the index -1, as FCPW's Interaction is left), made once per
+// query for the edge the argmin settled on.
+import apps/rtq/rtq;
+import apps/rtq/silhouette;
+
+func [[export]] silhouette_all(n : u32, queries : array[SilhouetteQuery, n],
+                               hits : mut array[SilhouetteHit, n]) {
+    parfor i in 0u:n {
+        h = closest_silhouette(queries[i]);
+        if h {
+            found = *h;
+            hits[i] = found[1];
+        } else {
+            hits[i] = no_silhouette();
+        }
+    }
+    return;
+}

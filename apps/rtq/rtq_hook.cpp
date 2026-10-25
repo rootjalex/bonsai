@@ -48,15 +48,34 @@
 // for the same three queries. Which configuration of FCPW's tree is being
 // compared (its branching factor and the width of its leaf packets) is
 // FCPW's own compile-time choice, FCPW_USE_EIGHT_WIDE_BRANCHING and
-// FCPW_SIMD_WIDTH, which compare.sh sets from the schedule's name.
+// FCPW_SIMD_WIDTH, which compare.sh sets from the schedule's name. Built
+// with RTQ_FCPW_BINARY beside it (compare.sh does so for the fcpwb
+// schedule), FCPW is built scalar instead -- FCPW_USE_ENOKI off, the build
+// WoSX ships and the tree the walks of apps/wosx traverse -- its binary BVH
+// copied into the layout of schedules/layouts/fcpwb.bonsai, and the same
+// three queries compared on it. With RTQ_FCPW_SNCH (the fcpws schedule),
+// FCPW's silhouettes are computed first and the scalar build makes its
+// normal cone hierarchy -- SnchNode, a box and a cone of normals, each leaf
+// its triangles and its silhouette edges -- copied into the two layouts of
+// schedules/layouts/fcpws.bonsai (snch.bonsai's program), and a fourth
+// query is compared on it, FCPW's closest silhouette point
+// (findClosestSilhouettePoint) over spheres of a tenth of the diagonal
+// about the two point sets: the trees and the queries of apps/wosx's walk
+// on stars, isolated.
 #define BONSAI_PARALLEL_EXTERNAL
 #include "rtq.h"
 
 // The mesh and its reader, and the copy of FCPW's tree into the layout, are
-// shared with apps/wosx's driver (mesh.h, fcpw_tree.h).
+// shared with apps/wosx's driver (mesh.h, fcpw_tree.h, fcpw_bvh.h).
 #include "apps/rtq/mesh.h"
 #ifdef RTQ_FCPW
+#if defined(RTQ_FCPW_SNCH)
+#include "apps/rtq/fcpw_snch.h"
+#elif defined(RTQ_FCPW_BINARY)
+#include "apps/rtq/fcpw_bvh.h"
+#else
 #include "apps/rtq/fcpw_tree.h"
+#endif
 #else
 #include <embree4/rtcore.h>
 #include <embree4/rtcore_builder.h>
@@ -127,6 +146,24 @@ struct RefClosest {
     Vec3 p{0, 0, 0};
     float u = 0, v = 0;
 };
+
+#ifdef RTQ_FCPW_SNCH
+// FCPW's answer to a silhouette query, out of its Interaction: the edge's
+// index (primitiveIndex), the distance and the closest point on the edge.
+struct RefSilhouette {
+    uint32_t edge = kNoHit;
+    float d = kInf;
+    Vec3 p{0, 0, 0};
+};
+
+RefSilhouette as_ref(const SilhouetteHit &h) {
+    RefSilhouette r;
+    r.edge = h.index;
+    r.d = h.d;
+    r.p = Vec3{h.p.x, h.p.y, h.p.z};
+    return r;
+}
+#endif
 
 #ifdef RTQ_FCPW
 RefHit as_ref(const Hit &h) {
@@ -759,10 +796,26 @@ constexpr const char *kReferenceTitle = "FCPW";
 // (Scene::build with the surface-area heuristic, vectorized) into its Mbvh
 // -- a binary BVH with leaves of FCPW_SIMD_WIDTH triangles collapsed into
 // nodes of FCPW_MBVH_BRANCHING_FACTOR children (mbvh.inl, collapseBvh) --
-// which answers findClosestPoint and intersect as shipped.
+// which answers findClosestPoint and intersect as shipped. Under
+// RTQ_FCPW_BINARY the build is scalar (`vectorize` false): the binary BVH
+// itself, Bvh<3, BvhNode<3>, Triangle>, leaves of up to four triangles,
+// answering the same calls through bvh.inl's scalar traversals.
 struct Reference {
     fcpw::Scene<3> scene;
 };
+
+#if defined(RTQ_FCPW_BINARY) || defined(RTQ_FCPW_SNCH)
+constexpr bool kVectorized = false;
+#else
+constexpr bool kVectorized = true;
+#endif
+
+#ifdef RTQ_FCPW_SNCH
+// The silhouette precision FCPW's edge test classifies by, WoSX's default
+// (WalkSettings::silhouettePrecision, 1e-3), which apps/wosx's walk on
+// stars passes too.
+constexpr float kSilhouettePrecision = 1e-3f;
+#endif
 
 void make_reference(Reference &ref, const Mesh &mesh, bool stats) {
     std::vector<fcpw::Vector3> vertices;
@@ -779,12 +832,98 @@ void make_reference(Reference &ref, const Mesh &mesh, bool stats) {
     ref.scene.setObjectCount(1);
     ref.scene.setObjectVertices(vertices, 0);
     ref.scene.setObjectTriangles(indices, 0);
-    ref.scene.build(fcpw::AggregateType::Bvh_SurfaceArea, /*vectorize=*/true,
+#ifdef RTQ_FCPW_SNCH
+    // FCPW's silhouette edges, computed before the build so that the build
+    // makes the normal cone hierarchy, with the edges WoSX's reflecting
+    // boundary handler asks FCPW to leave out
+    // (getIgnoreCandidateSilhouetteCallback for a single-sided problem: an
+    // edge whose signed dihedral angle is under the precision, a convex
+    // edge seen from the interior, is never a silhouette there).
+    ref.scene.computeSilhouettes(
+        [](float dihedral_angle, int) { return dihedral_angle < kSilhouettePrecision; });
+#endif
+    ref.scene.build(fcpw::AggregateType::Bvh_SurfaceArea, kVectorized,
                     /*printStats=*/stats, /*reduceMemoryFootprint=*/false);
 }
 
 void release_reference(Reference &) {}
 
+#if defined(RTQ_FCPW_SNCH)
+// FCPW's normal cone hierarchy in the two layouts of layouts/fcpws.bonsai,
+// the triangles' (`_tree_layout5`, the exports' `triangles`: `_tree_layout6`
+// a triangle row, `_tree_layout7` a node row) and the silhouette edges'
+// (`_tree_layout0`, `silhouette_all`'s `silhouettes`: `_tree_layout1` an
+// edge row, `_tree_layout2` the same node row), both pointing at one
+// allocation of node rows; the rows written by fcpw_snch.h, shared with
+// apps/wosx's walk on stars.
+using SnchTriangleRow = _tree_layout6;
+using SnchNodeRow = _tree_layout7;
+using SnchEdgeRow = _tree_layout1;
+using SilhouetteNodeRow = _tree_layout2;
+static_assert(sizeof(SilhouetteNodeRow) == sizeof(SnchNodeRow) &&
+                  offsetof(SilhouetteNodeRow, silhouetteOffset) ==
+                      offsetof(SnchNodeRow, silhouetteOffset),
+              "the two layouts read the same node row");
+
+struct Tree {
+    _tree_layout5 layout{};
+    _tree_layout0 silhouettes{};
+    rtq_snch::Rows nodes, prims, edges;
+    rtq_snch::Counts counts;
+    Tree() = default;
+    Tree(const Tree &) = delete;
+    Tree &operator=(const Tree &) = delete;
+    Tree(Tree &&other) noexcept { *this = std::move(other); }
+    Tree &operator=(Tree &&other) noexcept {
+        nodes = std::move(other.nodes);
+        prims = std::move(other.prims);
+        edges = std::move(other.edges);
+        counts = other.counts;
+        point();
+        return *this;
+    }
+    // The layouts' pointers, at the buffers where they sit now.
+    void point() {
+        layout.pCount = uint32_t(counts.triangles);
+        layout.group0_prims = &prims.buffer;
+        layout.nNodes = uint32_t(counts.nodes);
+        layout.group1_index = &nodes.buffer;
+        silhouettes.eCount = uint32_t(counts.edges);
+        silhouettes.group0_edges = &edges.buffer;
+        silhouettes.sNodes = uint32_t(counts.nodes);
+        silhouettes.group1_snode = &nodes.buffer;
+    }
+};
+
+Tree build_tree(Reference &ref, const Mesh &) {
+    Tree tree;
+    tree.counts = rtq_snch::copy_snch<SnchNodeRow, SnchTriangleRow, SnchEdgeRow>(
+        ref.scene, tree.nodes, tree.prims, tree.edges, "the");
+    tree.point();
+    return tree;
+}
+
+void describe_tree(const Tree &tree) {
+    std::cout << "tree: FCPW's normal cone hierarchy, " << tree.counts.nodes
+              << " binary nodes with cones (" << tree.counts.nodes * sizeof(SnchNodeRow)
+              << " bytes), " << tree.counts.leaves << " of them leaves of at most "
+              << tree.counts.max_leaf_triangles << " triangles and "
+              << tree.counts.max_leaf_edges << " edges, " << tree.counts.triangles
+              << " triangles as FCPW's GPUTriangle rows ("
+              << tree.counts.triangles * sizeof(SnchTriangleRow) << " bytes), "
+              << tree.counts.edges << " silhouette edge references as FCPW's GPUEdge rows ("
+              << tree.counts.edges * sizeof(SnchEdgeRow) << " bytes)\n";
+}
+#elif defined(RTQ_FCPW_BINARY)
+// FCPW's binary tree in the layout -- its node rows copied byte for byte,
+// its triangles written as FCPW's own GPU rows -- is fcpw_bvh.h's, shared
+// with apps/wosx's driver.
+using Tree = rtq_bvh::Tree;
+
+Tree build_tree(Reference &ref, const Mesh &) { return rtq_bvh::copy_fcpw_bvh(ref.scene); }
+
+void describe_tree(const Tree &tree) { rtq_bvh::describe(tree); }
+#else
 // FCPW's tree in the layout -- its two arrays copied byte for byte, the
 // structs checked against FCPW's -- is fcpw_tree.h's, shared with
 // apps/wosx's driver.
@@ -793,6 +932,7 @@ using Tree = rtq::FcpwTree;
 Tree build_tree(Reference &ref, const Mesh &) { return rtq::copy_fcpw_tree(ref.scene); }
 
 void describe_tree(const Tree &tree) { rtq::describe(tree); }
+#endif
 
 #endif // RTQ_FCPW
 
@@ -1485,6 +1625,37 @@ void bonsai_closest(const Tree &tree, const std::vector<Point> &points,
     closest_all(uint32_t(points.size()), points.data(), hits.data(), tree.layout);
 }
 
+#ifdef RTQ_FCPW_SNCH
+//===----------------------------------------------------------------------===//
+// The closest silhouette point, both sides
+//===----------------------------------------------------------------------===//
+
+// The silhouette queries about a set of points: a sphere of the given
+// radius about each (FCPW's BoundingSphere: the center and the squared
+// radius the search begins at), no minimum radius -- so both sides find the
+// exact closest, where WoSX's walk hands FCPW its reflecting shell and FCPW
+// stops at the first silhouette within it -- WoSX's precision, and the
+// normals flipped as WoSX hands them for a single-sided problem (FCPW's own
+// convention has them flipped).
+std::vector<SilhouetteQuery> silhouette_queries(const std::vector<Point> &points, float radius) {
+    std::vector<SilhouetteQuery> out(points.size());
+    for (size_t i = 0; i < points.size(); i++) {
+        out[i].c = points[i].p;
+        out[i].r2 = radius * radius;
+        out[i].min_r2 = 0.0f;
+        out[i].precision = kSilhouettePrecision;
+        out[i].flip = 1u;
+    }
+    return out;
+}
+
+void bonsai_silhouette(const Tree &tree, const std::vector<SilhouetteQuery> &queries,
+                       std::vector<SilhouetteHit> &hits) {
+    hits.resize(queries.size());
+    silhouette_all(uint32_t(queries.size()), queries.data(), hits.data(), tree.silhouettes);
+}
+#endif
+
 // The CPUs this process may run on -- what numactl left it -- for the record
 // at the top of the output.
 std::string allowed_cpus() {
@@ -1794,6 +1965,58 @@ Agreement compare_closest(const Mesh &mesh, const std::vector<Point> &points,
     return a;
 }
 
+#ifdef RTQ_FCPW_SNCH
+void deviate(Deviation &d, const RefSilhouette &e, const RefSilhouette &b, double diagonal) {
+    d.t = std::max(d.t, std::fabs(double(e.d) - b.d) / diagonal);
+    d.p = std::max(d.p, double(length(e.p - b.p)) / diagonal);
+}
+
+// The two sides' silhouette answers: the same edge, or none on both sides,
+// agree; two edges are a tie where their distances agree to a hundred
+// thousandth of the diagonal (the query point equally far from two
+// silhouette edges, which the two sides' last bits may order either way;
+// an edge's distance is the record's, since the mesh here has no edge
+// list to recompute it from); anything else differs, one side finding a
+// silhouette the other did not included -- with no minimum radius both
+// search to the exact closest.
+Agreement compare_silhouette(const Mesh &mesh, const std::vector<SilhouetteQuery> &queries,
+                             const std::vector<RefSilhouette> &reference,
+                             const std::vector<SilhouetteHit> &ours) {
+    const double diagonal = length(mesh.hi - mesh.lo);
+    Agreement a;
+    a.rays = queries.size();
+    for (size_t i = 0; i < queries.size(); i++) {
+        const RefSilhouette &er = reference[i];
+        const RefSilhouette br = as_ref(ours[i]);
+        const uint32_t e = er.edge;
+        const uint32_t b = br.edge;
+        a.embree_hits += e != kNoHit;
+        a.bonsai_hits += b != kNoHit;
+        if (e == b) {
+            a.same++;
+            if (e != kNoHit) {
+                deviate(a.dev, er, br, diagonal);
+            }
+            continue;
+        }
+        if (e != kNoHit && b != kNoHit && std::fabs(double(er.d) - br.d) <= 1e-5 * diagonal) {
+            a.ties++;
+            a.tie_gap = std::max(a.tie_gap, std::fabs(double(er.d) - br.d) / diagonal);
+        } else {
+            if (int(a.differ) < explain_limit) {
+                std::fprintf(stderr,
+                             "  query %zu (%g %g %g) radius %g: %s edge %d at %g, bonsai "
+                             "edge %d at %g\n",
+                             i, queries[i].c.x, queries[i].c.y, queries[i].c.z,
+                             std::sqrt(queries[i].r2), kReference, int(e), er.d, int(b), br.d);
+            }
+            a.differ++;
+        }
+    }
+    return a;
+}
+#endif
+
 //===----------------------------------------------------------------------===//
 // The reference's answers, timed
 //===----------------------------------------------------------------------===//
@@ -2029,6 +2252,52 @@ double reference_closest(const Reference &ref, const Mesh &, const std::vector<P
     return seconds;
 }
 
+#ifdef RTQ_FCPW_SNCH
+// FCPW: Scene::findClosestSilhouettePoint -- the sphere made of the point
+// and the squared radius, the aggregate's findClosestSilhouettePoint over
+// the normal cone hierarchy (bvh.inl, processSubtreeForClosestSilhouette
+// Point), the Interaction filled with the distance, the point on the edge
+// and the edge's index. The interactions are reset between runs off the
+// clock, as the point query's are.
+double reference_silhouette(const Reference &ref, const std::vector<SilhouetteQuery> &queries,
+                            int repeats, std::vector<RefSilhouette> &records) {
+    std::vector<fcpw::Vector3> centers;
+    centers.reserve(queries.size());
+    for (const SilhouetteQuery &q : queries) {
+        centers.emplace_back(q.c.x, q.c.y, q.c.z);
+    }
+    std::vector<fcpw::Interaction<3>> its(queries.size());
+    std::vector<uint8_t> found(queries.size());
+    const double seconds = timed(
+        repeats,
+        [&] {
+            for (size_t i = 0; i < queries.size(); i++) {
+                its[i] = fcpw::Interaction<3>();
+            }
+        },
+        [&] {
+            for (size_t i = 0; i < queries.size(); i++) {
+                const SilhouetteQuery &q = queries[i];
+                found[i] = ref.scene.findClosestSilhouettePoint(centers[i], its[i], q.flip != 0,
+                                                                q.min_r2, q.r2, q.precision)
+                               ? 1
+                               : 0;
+            }
+        });
+    records.assign(queries.size(), RefSilhouette{});
+    for (size_t i = 0; i < queries.size(); i++) {
+        if (!found[i]) {
+            continue;
+        }
+        const fcpw::Interaction<3> &it = its[i];
+        records[i].edge = uint32_t(it.primitiveIndex);
+        records[i].d = it.d;
+        records[i].p = Vec3{it.p[0], it.p[1], it.p[2]};
+    }
+    return seconds;
+}
+#endif
+
 #endif // RTQ_FCPW
 
 void usage() {
@@ -2041,7 +2310,12 @@ void usage() {
            "  --batch B      only the rays or points named: primary, ao, "
            "diffuse, near or volume (default all)\n"
            "  --query Q      only the query named: intersect, occluded or "
-           "closest (default all)\n"
+           "closest (default all)"
+#ifdef RTQ_FCPW_SNCH
+           ", or silhouette, the closest silhouette point over FCPW's normal cone "
+           "hierarchy, about the two point sets within a tenth of the diagonal"
+#endif
+           "\n"
            "By default each ray set runs the query it is for: primary and "
            "diffuse rays the nearest hit, ambient-occlusion rays the any hit "
            "(Aila and Laine's sets); --batch with --query runs another "
@@ -2092,7 +2366,7 @@ int main(int argc, char **argv) {
         } else if (arg == "--query" && i + 1 < argc) {
             only_query = argv[++i];
             if (only_query != "intersect" && only_query != "occluded" &&
-                only_query != "closest") {
+                only_query != "closest" && only_query != "silhouette") {
                 usage();
             }
 #ifndef RTQ_FCPW
@@ -2229,29 +2503,53 @@ int main(int argc, char **argv) {
     for (const PointBatch &batch : point_batches) {
         const std::vector<Point> &points = *batch.points;
         if (points.empty() || (!only_batch.empty() && only_batch != batch.name) ||
-            (!only_query.empty() && only_query != "closest")) {
+            (!only_query.empty() && only_query != "closest" && only_query != "silhouette")) {
             continue;
         }
-        std::vector<RefClosest> ref_closest;
-        std::vector<ClosestHit> ours;
-        double callbacks_per_query = 0;
-        const double te =
-            reference_closest(ref, mesh, points, repeats, ref_closest, callbacks_per_query);
-        const double tb = timed(repeats, [&] { bonsai_closest(tree, points, ours); });
-        const Agreement c = compare_closest(mesh, points, ref_closest, ours);
-        std::printf("%-10s %-10s %10zu %12.2f %12.2f %9.2fx  %zu same, %zu ties, %zu "
-                    "differ (%s found %zu, bonsai %zu; ties agree to %.1e of the "
-                    "diagonal; records within d %.1e, p %.1e, uv %.1e",
-                    batch.name, "closest", points.size(), points.size() / te * 1e-6,
-                    points.size() / tb * 1e-6, te / tb, c.same, c.ties, c.differ,
-                    kReference, c.embree_hits, c.bonsai_hits, c.tie_gap, c.dev.t, c.dev.p,
-                    c.dev.uv);
-        if (!std::isnan(callbacks_per_query)) {
-            std::printf("; %s's callback ran %.1f times a query", kReference,
-                        callbacks_per_query);
+        if (only_query.empty() || only_query == "closest") {
+            std::vector<RefClosest> ref_closest;
+            std::vector<ClosestHit> ours;
+            double callbacks_per_query = 0;
+            const double te =
+                reference_closest(ref, mesh, points, repeats, ref_closest, callbacks_per_query);
+            const double tb = timed(repeats, [&] { bonsai_closest(tree, points, ours); });
+            const Agreement c = compare_closest(mesh, points, ref_closest, ours);
+            std::printf("%-10s %-10s %10zu %12.2f %12.2f %9.2fx  %zu same, %zu ties, %zu "
+                        "differ (%s found %zu, bonsai %zu; ties agree to %.1e of the "
+                        "diagonal; records within d %.1e, p %.1e, uv %.1e",
+                        batch.name, "closest", points.size(), points.size() / te * 1e-6,
+                        points.size() / tb * 1e-6, te / tb, c.same, c.ties, c.differ,
+                        kReference, c.embree_hits, c.bonsai_hits, c.tie_gap, c.dev.t, c.dev.p,
+                        c.dev.uv);
+            if (!std::isnan(callbacks_per_query)) {
+                std::printf("; %s's callback ran %.1f times a query", kReference,
+                            callbacks_per_query);
+            }
+            std::printf(")\n");
+            all_agree = all_agree && c.differ == 0;
         }
-        std::printf(")\n");
-        all_agree = all_agree && c.differ == 0;
+#ifdef RTQ_FCPW_SNCH
+        // The silhouette query about the same points: spheres of a tenth of
+        // the diagonal, the ambient-occlusion rays' reach, which on a mesh
+        // of this benchmark's kind finds a silhouette for some of the points
+        // and none for the rest -- both of the query's paths.
+        if (only_query.empty() || only_query == "silhouette") {
+            const std::vector<SilhouetteQuery> queries =
+                silhouette_queries(points, 0.1f * length(mesh.hi - mesh.lo));
+            std::vector<RefSilhouette> ref_sil;
+            std::vector<SilhouetteHit> our_sil;
+            const double te = reference_silhouette(ref, queries, repeats, ref_sil);
+            const double tb = timed(repeats, [&] { bonsai_silhouette(tree, queries, our_sil); });
+            const Agreement s = compare_silhouette(mesh, queries, ref_sil, our_sil);
+            std::printf("%-10s %-10s %10zu %12.2f %12.2f %9.2fx  %zu same, %zu ties, %zu "
+                        "differ (%s found %zu, bonsai %zu; ties agree to %.1e of the "
+                        "diagonal; records within d %.1e, p %.1e)\n",
+                        batch.name, "silhouette", queries.size(), queries.size() / te * 1e-6,
+                        queries.size() / tb * 1e-6, te / tb, s.same, s.ties, s.differ,
+                        kReference, s.embree_hits, s.bonsai_hits, s.tie_gap, s.dev.t, s.dev.p);
+            all_agree = all_agree && s.differ == 0;
+        }
+#endif
     }
 
     std::printf("\n%s %s%s\n", all_agree ? "every ray agrees with" : "DISAGREEMENTS with",

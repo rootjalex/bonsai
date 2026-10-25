@@ -49,7 +49,9 @@ set -euo pipefail
 # LLVM the compiler needs, which is said when it is picked); BONSAI_CXX a
 # clang++ (default `clang++`; the generated header needs clang's
 # ext_vector_type); RTQ_CPUS as above; RTQ_PAGES=4k maps the tree's storage
-# on plain pages instead of Embree's 2 MB ones (see rtq_hook.cpp, OsMemory).
+# on plain pages instead of Embree's 2 MB ones (see rtq_hook.cpp, OsMemory);
+# RTQ_SKIP_CMAKE=1 runs the compiler as built, without rebuilding it first;
+# RTQ_METRICS=<file> compiles the program over that metrics file.
 if [[ "$(pwd)" == */apps/rtq ]]; then
   cd ../..
 fi
@@ -85,6 +87,29 @@ set -- ${ARGS[@]+"${ARGS[@]}"}
 reference_of() {
   if [[ "$1" == fcpw* ]]; then echo fcpw; else echo embree; fi
 }
+# The arithmetic a schedule's program is compiled with (metrics/<name>.bonsai):
+# the reference's, and FCPW has two -- metrics/fcpw.bonsai, its vectorized
+# build's (enoki's reciprocal estimate, one root per packet), for the
+# fcpw<branching>w<width> schedules over its Mbvh; metrics/fcpw_scalar.bonsai,
+# its scalar build's (true divisions, Eigen's two sums), for fcpwb, the
+# schedule over its binary BVH.
+metric_of() {
+  if [[ "$1" == fcpwb* || "$1" == fcpws* ]]; then echo fcpw_scalar; else reference_of "$1"; fi
+}
+# The program: rtq.bonsai, the three queries over a tree of triangles; for
+# fcpws, FCPW's normal cone hierarchy, snch.bonsai, which adds the
+# silhouette query over the tree's edges.
+program_of() {
+  if [[ "$1" == fcpws* ]]; then echo "$PREFIX/snch.bonsai"; else echo "$PREFIX/rtq.bonsai"; fi
+}
+# Which FCPW checkout: deps/fcpw for the vectorized Mbvh, the one the
+# fcpw4w16 table has always been measured against; for the binary tree the
+# FCPW WoSX ships (deps/wosx/deps/fcpw, a later checkout whose bvh.inl
+# differs), since that schedule isolates the queries apps/wosx's walks make,
+# against the build they make them against.
+fcpw_dir_of() {
+  if [[ "$1" == fcpwb* || "$1" == fcpws* ]]; then echo deps/wosx/deps/fcpw; else echo deps/fcpw; fi
+}
 # The packet width a schedule's name asks of Embree's side: `packet<K>` is
 # the program's rays in gangs of K against rtcIntersect<K>, and so is a
 # `packet<K>-<variant>` (packet16-anyhit: the any hit alone in gangs, the
@@ -95,16 +120,14 @@ packet_of() {
 }
 IFS=, read -r -a SCHEDULE_LIST <<< "$SCHEDULES"
 NEEDS_EMBREE=0
-NEEDS_FCPW=0
 for SCHEDULE in "${SCHEDULE_LIST[@]}"; do
   if [[ ! -f "$PREFIX/schedules/$SCHEDULE.bonsai" ]]; then
     echo "no schedule $PREFIX/schedules/$SCHEDULE.bonsai" >&2
     exit 1
   fi
-  case "$(reference_of "$SCHEDULE")" in
-    fcpw) NEEDS_FCPW=1 ;;
-    *) NEEDS_EMBREE=1 ;;
-  esac
+  if [[ "$(reference_of "$SCHEDULE")" != fcpw ]]; then
+    NEEDS_EMBREE=1
+  fi
   K="$(packet_of "$SCHEDULE")"
   if [[ -n "$K" && "$K" != 4 && "$K" != 8 && "$K" != 16 ]]; then
     echo "a packet schedule is named packet<K> for one of Embree's packet widths, 4, 8 or 16: $SCHEDULE" >&2
@@ -126,16 +149,19 @@ if [[ $NEEDS_EMBREE == 1 ]]; then
   fi
 fi
 # FCPW is header-only, with Eigen and enoki as submodules of its own; there
-# is nothing to build.
-FCPW="deps/fcpw"
-if [[ $NEEDS_FCPW == 1 ]]; then
+# is nothing to build. Each fcpw schedule's checkout (fcpw_dir_of) is
+# checked, its Eigen under deps/eigen-git-mirror or deps/eigen as the
+# checkout names it.
+for SCHEDULE in "${SCHEDULE_LIST[@]}"; do
+  if [[ "$(reference_of "$SCHEDULE")" != fcpw ]]; then continue; fi
+  FCPW="$(fcpw_dir_of "$SCHEDULE")"
   if [[ ! -f "$FCPW/include/fcpw/fcpw.h" || ! -f "$FCPW/deps/enoki/include/enoki/array.h" ||
-        ! -f "$FCPW/deps/eigen-git-mirror/Eigen/Core" ]]; then
-    echo "FCPW is not checked out with its own submodules: the fcpw* schedules compare against it." >&2
-    echo "    git submodule update --init --recursive deps/fcpw" >&2
+        -z "$(ls -d "$FCPW"/deps/eigen*/Eigen/Core 2>/dev/null)" ]]; then
+    echo "FCPW is not checked out with its own submodules at $FCPW: $SCHEDULE compares against it." >&2
+    echo "    git submodule update --init --recursive $FCPW" >&2
     exit 1
   fi
-fi
+done
 
 BONSAI_CXX="${BONSAI_CXX:-clang++}"
 if ! echo 'typedef float f3 __attribute__((ext_vector_type(3)));
@@ -168,7 +194,12 @@ if [[ -z "${BONSAI_BUILD_DIR:-}" ]]; then
   fi
   echo "compiler build directory: $BONSAI_BUILD_DIR (BONSAI_BUILD_DIR names another)"
 fi
-cmake --build "$BONSAI_BUILD_DIR" -j
+# RTQ_SKIP_CMAKE=1 leaves the compiler as built: for a working tree whose
+# build directory must not be touched while another measurement rebuilds
+# from it (the shared checkout's lock), or whose compiler is known current.
+if [[ -z "${RTQ_SKIP_CMAKE:-}" ]]; then
+  cmake --build "$BONSAI_BUILD_DIR" -j
+fi
 
 # The program with one schedule, as $PREFIX/rtq.out. `-p ssa` because sort
 # and loopify are SSA rewrites; `--no-heap` refuses any allocation in the
@@ -191,28 +222,42 @@ build_schedule() {
   # elements, the program's exports over the records). RTQ_METRICS names
   # another metrics file in place of the reference's, for measuring what an
   # arithmetic differs by against the same reference.
-  local metrics="${RTQ_METRICS:-$PREFIX/metrics/$(reference_of "$schedule").bonsai}"
-  local inputs=(-i $PREFIX/elements.bonsai -i "$metrics" -i $PREFIX/rtq.bonsai
+  local metrics="${RTQ_METRICS:-$PREFIX/metrics/$(metric_of "$schedule").bonsai}"
+  local inputs=(-i $PREFIX/elements.bonsai -i "$metrics" -i "$(program_of "$schedule")"
                 -i "$PREFIX/schedules/$schedule.bonsai")
   "./$BONSAI_BUILD_DIR/compiler" -p ssa "${inputs[@]}" -o $PREFIX/rtq.bir
   "./$BONSAI_BUILD_DIR/compiler" "${flags[@]}" "${inputs[@]}" -b llvm -o $PREFIX/rtq.ll
   "./$BONSAI_BUILD_DIR/compiler" "${flags[@]}" "${inputs[@]}" -b cpp -o $PREFIX/rtq
 
   if [[ "$(reference_of "$schedule")" == fcpw ]]; then
-    local branching width
+    local branching width defines fcpw eigen
+    fcpw="$(fcpw_dir_of "$schedule")"
+    eigen="$(ls -d "$fcpw"/deps/eigen* | head -n 1)"
     # `fcpw<branching>w<width>` is the schedule matching FCPW's over that
     # tree; a `t` after it (fcpw4w16t) is the tuned schedule over the same
-    # tree, as tuned.bonsai is to embree.bonsai.
+    # tree, as tuned.bonsai is to embree.bonsai; `fcpwb` is the schedule
+    # matching FCPW's scalar build over its binary BVH (the driver's
+    # RTQ_FCPW_BINARY; FCPW_USE_ENOKI off, as WoSX's CMake leaves it);
+    # `fcpws` the one matching it over its normal cone hierarchy, with the
+    # silhouette query (RTQ_FCPW_SNCH, snch.bonsai).
     if [[ "$schedule" =~ ^fcpw([48])w([0-9]+)t?$ ]]; then
       branching="${BASH_REMATCH[1]}"
       width="${BASH_REMATCH[2]}"
+      defines=(-DRTQ_FCPW -DNDEBUG -DFCPW_USE_ENOKI "-DFCPW_SIMD_WIDTH=$width")
+      if [[ "$branching" == 8 ]]; then
+        defines+=(-DFCPW_USE_EIGHT_WIDE_BRANCHING)
+      fi
+    elif [[ "$schedule" == fcpwb ]]; then
+      branching=2
+      width=1
+      defines=(-DRTQ_FCPW -DRTQ_FCPW_BINARY -DNDEBUG)
+    elif [[ "$schedule" == fcpws ]]; then
+      branching=2
+      width=1
+      defines=(-DRTQ_FCPW -DRTQ_FCPW_SNCH -DNDEBUG)
     else
-      echo "an fcpw schedule is named fcpw<branching>w<width>[t] (fcpw4w16, fcpw8w8, fcpw4w16t, ...): $schedule" >&2
+      echo "an fcpw schedule is named fcpw<branching>w<width>[t] (fcpw4w16, fcpw8w8, fcpw4w16t, ...), fcpwb or fcpws: $schedule" >&2
       exit 1
-    fi
-    local defines=(-DRTQ_FCPW -DNDEBUG -DFCPW_USE_ENOKI "-DFCPW_SIMD_WIDTH=$width")
-    if [[ "$branching" == 8 ]]; then
-      defines+=(-DFCPW_USE_EIGHT_WIDE_BRANCHING)
     fi
     # The driver compiled once per (header, defines) within a run and linked
     # per schedule: it includes the generated rtq.h, which two schedules over
@@ -225,8 +270,8 @@ build_schedule() {
     if [[ ! -f "$PREFIX/.rtq_hook-$key.o" ]]; then
       "$BONSAI_CXX" -std=c++20 -O3 -march=native -fno-math-errno -ffp-contract=fast \
           "${defines[@]}" -I. -I$PREFIX \
-          -isystem "$FCPW/include" -isystem "$FCPW/deps/enoki/include" \
-          -isystem "$FCPW/deps/eigen-git-mirror" \
+          -isystem "$fcpw/include" -isystem "$fcpw/deps/enoki/include" \
+          -isystem "$eigen" \
           -c $PREFIX/rtq_hook.cpp -o "$PREFIX/.rtq_hook-$key.o"
     fi
     "$BONSAI_CXX" "$PREFIX/.rtq_hook-$key.o" $PREFIX/rtq.o \

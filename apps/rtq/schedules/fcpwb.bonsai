@@ -1,0 +1,55 @@
+// The schedule matching FCPW's scalar build: apps/rtq/rtq.bonsai run the way
+// fcpw::Bvh<3, BvhNode<3>, Triangle> answers its three queries (fcpw/
+// aggregates/bvh.inl: processSubtreeForClosestPoint, processSubtreeFor
+// Intersection) over its binary tree in its bytes (layouts/fcpwb.bonsai) --
+// the build WoSX ships, FCPW_USE_ENOKI off, and the tree the walks of
+// apps/wosx traverse. compare.sh builds the driver scalar for it
+// (RTQ_FCPW_BINARY) and compiles the program over metrics/fcpw_scalar.bonsai,
+// the scalar build's arithmetic. Nothing is vectorized: FCPW's scalar
+// traversal tests one box and one triangle at a time, and so does this.
+//
+// FCPW's traversal: a stack of (node, distance) pairs FCPW_BVH_MAX_DEPTH
+// (64) deep; a popped node is dropped where its distance is beyond the
+// best (`currentDist > s.r2`, `> r.tMax`). At an interior node both
+// children's boxes are tested at the parent -- the layout reads them out
+// of the children's rows -- and the nearer is entered first, the farther
+// pushed. The two tests are written out (`unroll`), as FCPW writes them:
+// the left child's box read and tested, then the right's, then the one
+// comparison of the two keys and the swap (SSA/SortRecursion.cpp orders a
+// run of two as scalars); a tie keeps the left child first, as FCPW's
+// strict compares do.
+//
+// The closest point (processSubtreeForClosestPoint): the key is the
+// squared distance to the box, d2Min, and where both children contain the
+// point -- both d2Min zero -- the far corner's distance, d2Max, the nearer
+// far corner first; each child's test lowers the radius to its far corner
+// (`s.r2 = min(s.r2, d2Max)`), which the lowering's bound carry does. The
+// leaf's Voronoi regions return as FCPW's findClosestPointTriangle returns
+// (`skip`). The ray (processSubtreeForIntersection): the key is the slab
+// entry distance, infinite where the ray misses the box; the occlusion
+// query is the same traversal told to stop at the first hit
+// (checkForOcclusion), which the `any` is.
+import apps/rtq/schedules/layouts/fcpwb;
+
+schedule {
+    closest.sort(triangles.Interior,
+                 |i : u32, q : Point, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                 select(distmin(q, AABB{lo[0u], hi[0u]}) == 0.0 &&
+                        distmin(q, AABB{lo[1u], hi[1u]}) == 0.0,
+                        distmax(q, AABB{lo[i], hi[i]}),
+                        distmin(q, AABB{lo[i], hi[i]})))
+           .unroll(triangles.Interior.children)
+           .loopify(64);
+    closest.skip(closest_point_fcpw);
+
+    trace.sort(triangles.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+               distmin(r, AABB{lo[i], hi[i]}))
+         .unroll(triangles.Interior.children)
+         .loopify(64);
+    occluded.sort(triangles.Interior,
+                  |i : u32, r : Ray, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                  distmin(r, AABB{lo[i], hi[i]}))
+            .unroll(triangles.Interior.children)
+            .loopify(64);
+}

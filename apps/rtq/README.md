@@ -2,14 +2,18 @@
 
 A ray query -- the nearest triangle a ray hits, whether it hits any, and
 the triangle closest to a point -- written in bonsai and compared against
-Embree on Embree's own tree.
-`rtq.bonsai` is the program, `metrics/*.bonsai` the reference's arithmetic
-it runs over, `schedules/*.bonsai` the ways of running it,
-`schedules/trees/*.bonsai` the trees and `schedules/layouts/*.bonsai` their
-bytes, and `rtq_hook.cpp` the C++ driver that reads a mesh, has the
-reference build the tree into the layout, makes the rays and points, and
-runs and checks both sides. `PLAN.md` is the working record of what was
-built, measured and decided, and why.
+Embree on Embree's own tree, and against FCPW on each of FCPW's: its
+vectorized tree, its scalar binary tree, and its normal cone hierarchy,
+where a fourth query, the closest silhouette point, is compared too (the
+trees and the queries apps/wosx's walks make, isolated).
+`rtq.bonsai` is the program (`snch.bonsai` the one with the silhouette
+query), `metrics/*.bonsai` the reference's arithmetic it runs over,
+`schedules/*.bonsai` the ways of running it, `schedules/trees/*.bonsai` the
+trees and `schedules/layouts/*.bonsai` their bytes, and `rtq_hook.cpp` the
+C++ driver that reads a mesh, has the reference build the tree into the
+layout, makes the rays and points, and runs and checks both sides.
+`PLAN.md` is the working record of what was built, measured and decided,
+and why.
 
 The reference is Embree 4 as shipped: on a machine with AVX it builds a
 BVH8 over Triangle4 leaves (eight children per node, the children's boxes
@@ -50,8 +54,13 @@ own, so there is nothing to build:
 git submodule update --init --recursive deps/fcpw
 ```
 
-The `fcpw*` schedules compare against it (`compare.sh --schedule fcpw4w16`);
-`compare.sh` stops with a message if it is not checked out.
+The `fcpw<branching>w<width>` schedules compare against it (`compare.sh
+--schedule fcpw4w16`); `compare.sh` stops with a message if it is not
+checked out. The `fcpwb` and `fcpws` schedules, over FCPW's scalar trees,
+compare against the FCPW that WoSX ships (`deps/wosx/deps/fcpw`, a later
+checkout whose `bvh.inl` differs; `git submodule update --init --recursive
+deps/wosx`), since they isolate the queries apps/wosx's walks make against
+the build they make them against.
 
 ## Running
 
@@ -78,6 +87,29 @@ each mesh, resumes a stopped run (a cell's log exists only when complete;
 `--fresh` measures every cell again), and holds at a mesh boundary while
 `apps/rtq/results/logs/PAUSE` exists. `--meshes`, `--schedules`,
 `--repeats` and the sides narrow or widen it; `--help` lists them.
+
+Two more FCPW schedules run through `compare.sh` alone for now, over the
+scalar trees FCPW builds with enoki off, the build WoSX ships: `fcpwb`,
+the three queries over FCPW's binary BVH (`schedules/fcpwb.bonsai` over
+`schedules/layouts/fcpwb.bonsai`, the driver built with `RTQ_FCPW_BINARY`),
+and `fcpws`, the same three over its normal cone hierarchy plus the closest
+silhouette point over the tree's silhouette edges (`schedules/fcpws.bonsai`
+over `schedules/layouts/fcpws.bonsai`, the program `snch.bonsai`, the
+driver built with `RTQ_FCPW_SNCH`: FCPW's silhouettes computed first, with
+the convex edges left out as WoSX's reflecting boundary handler leaves
+them out, then the build). The silhouette rows (`near silhouette`, `volume
+silhouette`) ask, about each point of the two point sets, for the closest
+silhouette edge within a tenth of the diagonal, with no minimum radius so
+that both sides search to the exact closest, WoSX's precision and its
+normal flip (`findClosestSilhouettePoint`); the agreement counts the same
+edge or none on both sides, a tie where two edges are equally far, and the
+records' distance and point. Both are compiled over
+`metrics/fcpw_scalar.bonsai`, the scalar build's arithmetic
+(`RTQ_SKIP_CMAKE=1` runs the compiler as built, without rebuilding it):
+
+```bash
+RTQ_SKIP_CMAKE=1 apps/rtq/compare.sh --schedule fcpwb,fcpws ~/projects/pbrt-v4-scenes/head/geometry/head.ply
+```
 
 One mesh, one run, with the compiler built (`BONSAI_BUILD_DIR` names its
 build directory; unset, the script takes the first of `build`, `build-*`
@@ -182,17 +214,31 @@ driver, the two sides' kernels told apart by symbol).
 
 - `elements.bonsai`: the elements -- Embree's ray; the triangle as a vertex
   and two edges with its ids, as `TriangleM` stores a slot; the box; the
-  point -- and `extern triangles : set[Triangle]`. Compiled first, so that
-  the metric file's answer records are declared over them and the
-  program's exports over the records.
+  point; FCPW's sphere; and, for FCPW's normal cone hierarchy, the
+  silhouette edge (`Edge`: two ends, the two adjacent faces' unit normals,
+  the index, whether it has one face), the node's box with its cone
+  (`ConeBox`) and the silhouette query (`SilhouetteQuery`: the sphere, the
+  squared minimum radius, the precision, FCPW's normal flip) -- and
+  `extern triangles : set[Triangle]`. Compiled first, so that the metric
+  file's answer records are declared over them and the program's exports
+  over the records.
 - `rtq.bonsai`: the three queries over the set, plus the exported batches,
   each answered with the reference's record. Which stored slots are
   triangles is the layout's to say, not the queries'.
-- `metrics/embree.bonsai`, `metrics/fcpw.bonsai`: the reference's
-  arithmetic, transcribed, one file compiled beside the program per
-  comparison -- `intersects`, `distmin`, `distmax` and `contains` for a
-  ray and a box, a ray and a triangle, a point and a box, a point and a
-  triangle. Embree's: its slab test on the floats' bits
+- `silhouette.bonsai`: the fourth query, FCPW's closest silhouette point
+  (`closest_silhouette`) over `extern silhouettes : set[Edge]`, an argmin
+  over a filter -- the edge within the sphere and a silhouette from its
+  center, which the tree bounds with FCPW's cone test over the cone box --
+  answering none where no edge passes; `snch.bonsai`: rtq.bonsai's
+  batches plus the silhouette batch, the program for the `fcpws` schedule.
+  A file of its own so that apps/wosx's walk on stars imports the query
+  and the programs over a plain tree of triangles need no layout for the
+  set.
+- `metrics/embree.bonsai`, `metrics/fcpw.bonsai`, `metrics/fcpw_scalar.bonsai`:
+  the reference's arithmetic, transcribed, one file compiled beside the
+  program per comparison -- `intersects`, `distmin`, `distmax` and
+  `contains` for a ray and a box, a ray and a triangle, a point and a box,
+  a point and a triangle. Embree's: its slab test on the floats' bits
   (`node_intersector1.h`), its Moeller-Trumbore test
   (`triangle_intersector_moeller.h`), its point-to-box distance
   (`pointQuerySphereDistAndMask`) and its tutorial's closest point on a
@@ -208,7 +254,20 @@ driver, the two sides' kernels told apart by symbol).
   - a r)` as two fused multiply-adds, and enoki's `rcp_fcpw`, `2r - (r m) r`
   in one fused step, which round differently in a third of all inputs. The
   same computation on both sides is what makes a table measure the
-  traversal and not the algorithm.
+  traversal and not the algorithm. `metrics/fcpw_scalar.bonsai` is FCPW's
+  scalar build's (enoki off, the build WoSX ships, and its GPU kernels'):
+  true divisions, one root per triangle, and Eigen's two reduction orders
+  written as `fma` chains -- `dot` summing `(p0 + p1) + p2` with the newer
+  product fused, `squaredNorm` and the box distances `p0 + (p1 + p2)` with
+  the left one fused, measured rather than read (apps/wosx/PLAN.md, "The
+  silhouette query read against FCPW's") -- so that every key and every
+  test against a radius is FCPW's to the bit; and the silhouette section:
+  FCPW's cone-overlap test as the silhouette query's `intersects` over the
+  cone box and the box's distance as its `distmin` with no far-corner
+  bound, the silhouette test on an edge (`isSilhouetteEdge`) within the
+  sphere as `intersects` over the edge and its squared distance as
+  `distmin`, the record of the closest point on the edge, and the ray's
+  and the point's metrics over a cone box, which are the box's.
 - `schedules/trees/bvh8.bonsai`, `schedules/trees/bvh4.bonsai`: the
   trees, declared once each -- a node holding its eight (or four)
   children as an array with one box annotation over them, a leaf holding
@@ -307,13 +366,36 @@ driver, the two sides' kernels told apart by symbol).
   width and branching the schedule's name says), builds FCPW's scene,
   copies its two arrays into the layout, and queries it through its own
   calls: `findClosestPoint`, and `intersect` for the rays.
+- `schedules/layouts/fcpwb.bonsai`, `schedules/fcpwb.bonsai`: FCPW's
+  scalar binary BVH -- WoSX's default tree, FCPW_USE_ENOKI off, the one
+  tree FCPW puts on a GPU -- in FCPW's bytes (32-byte node rows, each its
+  own box; the triangles as FCPW's GPU rows, GPUTriangle, a tile of one
+  with the program's edges derived), the node declared bounding its
+  children with the layout reading the children's boxes out of the
+  children's own rows, so that a visit reads what FCPW's visit reads; and
+  the three queries run as FCPW's scalar traversals run them: both
+  children tested at the parent and written out (`unroll`), the nearer
+  entered first by the box distance (the closest point's far-corner rule
+  where both children hold the point), a stack of sixty-four, the leaf's
+  Voronoi exits. Imported by apps/wosx's `fcpwb*` schedules too.
+- `schedules/layouts/fcpws.bonsai`, `schedules/fcpws.bonsai`: FCPW's
+  normal cone hierarchy in FCPW's bytes (GPUSnchNode rows of sixty bytes:
+  the box, the cone, the leaf's triangle and silhouette ranges; GPUEdge
+  rows of fifty-six), as two trees over the one node array -- the
+  triangles the rays and points query, the silhouette edges the
+  silhouette query searches, the driver handing the same node rows to
+  both -- with ConeBox the bounding element; and the four queries run as
+  FCPW's traversals run them, the silhouette query's children tested by
+  cone and box at the parent and ordered by the box distance alone.
 - `queries.bonsai`: the three queries themselves (`trace`, `occluded`,
   `closest`), which rtq.bonsai imports and exports batches of; a file of
   their own so that apps/wosx can ask `closest` without the batches.
 - `rtq_hook.cpp`: the driver; `compare.sh`, `build_embree.sh`: the scripts.
-  `mesh.h` (the PLY reader) and `fcpw_tree.h` (the copy of FCPW's Mbvh
-  into the layout, with the struct checks) are the driver's parts
-  apps/wosx's driver shares.
+  `mesh.h` (the PLY reader), `fcpw_tree.h` (the copy of FCPW's Mbvh into
+  the layout, with the struct checks), `fcpw_bvh.h` (the same for FCPW's
+  binary BVH) and `fcpw_snch.h` (the normal cone hierarchy's rows, written
+  as FCPW's GPU transfer writes them) are the driver's parts apps/wosx's
+  driver shares.
 - `plot.py`: the comparison as three figures (first hit, any hit, closest
   point; meshes by triangle count, the ray or point sets by hatching, the
   reference by colour; the y axis Speedup, the legend saying over which

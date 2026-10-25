@@ -1,0 +1,59 @@
+// The schedule matching FCPW's scalar build over its normal cone hierarchy:
+// snch.bonsai -- rtq.bonsai's three queries over the triangles and the
+// silhouette query over the edges -- run the way fcpw::Bvh<3, SnchNode<3>,
+// Triangle, SilhouetteEdge> answers them (fcpw/aggregates/bvh.inl:
+// processSubtreeForClosestPoint, processSubtreeForIntersection,
+// processSubtreeForClosestSilhouettePoint) over its tree in its bytes
+// (layouts/fcpws.bonsai) -- the trees the walk on stars of apps/wosx casts
+// its rays against and finds its star radius in. compare.sh builds the
+// driver scalar for it with silhouettes computed (RTQ_FCPW_SNCH) and
+// compiles the program over metrics/fcpw_scalar.bonsai. Nothing is
+// vectorized: FCPW's scalar traversals test one box and one element at a
+// time.
+//
+// The three queries over the triangles are fcpwb.bonsai's, which says what
+// FCPW's traversals do (the stack of sixty-four, both children tested at
+// the parent and written out, the nearer entered first, a tie keeping the
+// left; the closest point's far-corner rule and leaf exits; the ray's slab
+// entry), over a node that carries a cone the rays and the points read past.
+// The silhouette query (processSubtreeForClosestSilhouettePoint; bvh.slang
+// orders the same way): the children's cones and boxes tested at the
+// parent -- the filter's `intersects` over the cone box is that test:
+// cone valid, box within the radius, cone overlapping the view cone -- and
+// ordered by the box's squared distance alone, the nearer first; no
+// far-corner bound, since a box may hold no silhouette.
+import apps/rtq/schedules/layouts/fcpws;
+
+schedule {
+    closest.sort(triangles.Interior,
+                 |i : u32, q : Point, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                  axis : vector[vec3f, 2], half_angle : vector[f32, 2], radius : vector[f32, 2]|
+                 select(distmin(q, AABB{lo[0u], hi[0u]}) == 0.0 &&
+                        distmin(q, AABB{lo[1u], hi[1u]}) == 0.0,
+                        distmax(q, AABB{lo[i], hi[i]}),
+                        distmin(q, AABB{lo[i], hi[i]})))
+           .unroll(triangles.Interior.children)
+           .loopify(64);
+    closest.skip(closest_point_fcpw);
+
+    trace.sort(triangles.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                axis : vector[vec3f, 2], half_angle : vector[f32, 2], radius : vector[f32, 2]|
+               distmin(r, AABB{lo[i], hi[i]}))
+         .unroll(triangles.Interior.children)
+         .loopify(64);
+    occluded.sort(triangles.Interior,
+                  |i : u32, r : Ray, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                   axis : vector[vec3f, 2], half_angle : vector[f32, 2], radius : vector[f32, 2]|
+                  distmin(r, AABB{lo[i], hi[i]}))
+            .unroll(triangles.Interior.children)
+            .loopify(64);
+
+    closest_silhouette.sort(silhouettes.Interior,
+                            |i : u32, q : SilhouetteQuery, lo : vector[vec3f, 2],
+                             hi : vector[vec3f, 2], axis : vector[vec3f, 2],
+                             half_angle : vector[f32, 2], radius : vector[f32, 2]|
+                            distmin(q, ConeBox{lo[i], hi[i], axis[i], half_angle[i], radius[i]}))
+                      .unroll(silhouettes.Interior.children)
+                      .loopify(64);
+}
