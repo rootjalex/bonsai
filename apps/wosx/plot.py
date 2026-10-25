@@ -202,12 +202,13 @@ def figure(rows, meshes, bars, ylabel, height):
         ax.spines[spine].set_visible(False)
     ax.yaxis.grid(True, linewidth=0.4, alpha=0.5, zorder=0)
     ax.set_axisbelow(True)
-    handles = [Patch(facecolor=colour, edgecolor=EDGE, linewidth=0.4, label=label)
-               for _, label, colour in drawn]
-    handles.append(Line2D([], [], color=line.get_color(), linestyle=line.get_linestyle(),
-                          linewidth=line.get_linewidth(), label=REFERENCE))
-    # One row for the CPU's four entries; three rows of three for the GPU's eight.
-    ncol = 3 if len(handles) > 4 else len(handles)
+    # The reference line leads the legend, then a patch per schedule, as
+    # apps/pbrt's figures have it: one row up to five entries, else two rows.
+    handles = [Line2D([], [], color=line.get_color(), linestyle=line.get_linestyle(),
+                      linewidth=line.get_linewidth(), label=REFERENCE)]
+    handles += [Patch(facecolor=colour, edgecolor=EDGE, linewidth=0.4, label=label)
+                for _, label, colour in drawn]
+    ncol = len(handles) if len(handles) <= 5 else (len(handles) + 1) // 2
     ax.legend(handles=handles, ncol=ncol, frameon=False, loc="lower center",
               bbox_to_anchor=(0.5, 1.02), borderaxespad=0.0, columnspacing=1.2)
     return fig, [s for s, _, _ in drawn]
@@ -334,8 +335,8 @@ def draw_gpu(rows, schedules, out_dir, formats, exclude):
     meshes, tris = meshes_by_triangles(rows, exclude)
     known = {s: (label, colour) for s, label, colour in GPU_BARS}
     bars = [(s, *known.get(s, (s, YLGNBU[8]))) for s in schedules]
-    # Taller: seven bars a mesh and a legend of three rows above them.
-    fig, drawn = figure(rows, meshes, bars, "Speedup", height=2.2)
+    # A little taller: seven bars a mesh and a legend of two rows above them.
+    fig, drawn = figure(rows, meshes, bars, "Speedup", height=2.0)
     if fig is None:
         print(f"no rows for {schedules}; nothing drawn", file=sys.stderr)
         return
