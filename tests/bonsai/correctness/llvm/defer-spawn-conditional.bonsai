@@ -1,0 +1,55 @@
+//! flags: -p ssa -b llvm -e
+
+// A spawned call under a test, deferred, run. `spawn work(x, acc)` is made
+// only `if x > 4.0`; the statement after it, `marks[i] = w`, is the spawn's
+// continuation and runs in the producer's iteration whether or not the
+// spawn was made -- a spawned call's producer goes on by the program's
+// word, so nothing after the spawn goes onto the queue, and an iteration
+// that skipped it simply has no entry there. The reducer is the owner's
+// iteration's, handed down, and is read by the owner after the call: the
+// iteration's end joins, and the deferral moves that join after the drain,
+// so `out[i] = acc` runs in the pass over the record (the user, 10-25:
+// "film_add should execute regardless of the deferral outcome, and the
+// continuation of the queue should not include film_add").
+//
+// marks: w = v + 1 for every i: 2..9. out: v/2 for v > 4, else 0.
+import stdlib/numerics;
+
+func work(x : Float, acc : reduce(+) Float) -> void {
+    acc += x * 0.5;
+    return;
+}
+
+func step(x : Float, acc : reduce(+) Float, w : Float,
+          marks : mut array[Float, 8], i : i32) -> void {
+    if x > 4.0 {
+        spawn work(x, acc);
+    }
+    marks[i] = w;
+    return;
+}
+
+func run(values : array[Float, 8], marks : mut array[Float, 8],
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        acc : reduce(+) Float = 0.0;
+        step(values[i], acc, values[i] + 1.0, marks, i);
+        out[i] = acc;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+    marks : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    out : mut array[Float, 8] = {-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0};
+    run(values, marks, out);
+    print(marks);
+    print(out);
+    return 0;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(work, q);
+}

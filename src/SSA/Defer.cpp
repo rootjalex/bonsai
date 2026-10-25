@@ -1706,6 +1706,37 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             << " arguments but its call passes " << pcall.cont.args.size();
         k0 = region_from(*O, k0_entry->name);
     }
+    // Whether the continuation rejoins a path of the iteration that did not
+    // make the call: a block of `k0` past its entry with a predecessor
+    // outside `k0`, the merge after `if c { f(..); } K`. pbrt's camera
+    // kernel is this shape -- a ray is pushed only when the lens gives one,
+    // and the film is written for every sample (wavefront/camera.cpp,
+    // film.cpp) -- and the rule it gets (the user, 10-25) is that the
+    // deferral ends the iteration only when the call is made: the path
+    // that skipped it runs `K` where it stands, at once, with its values
+    // in scope, and only the iterations that pushed run `K` in the pass
+    // over the record. So `K` is cloned into the pass rather than moved
+    // (below, k0_rejoins), and the original stays for the other path; the
+    // blocks between the call and the merge, reachable from the call
+    // alone, go dead in the producer and are removed at the end.
+    bool k0_rejoins = false;
+    if (k0_entry) {
+        set<string> in_k0;
+        for (const auto &block : k0) {
+            in_k0.insert(block->name);
+        }
+        for (const auto &block : k0) {
+            if (block == k0_entry) {
+                continue;
+            }
+            for (const auto &weak : block->preds) {
+                const shared_ptr<Block> pred = weak.lock();
+                if (pred && !in_k0.contains(pred->name)) {
+                    k0_rejoins = true;
+                }
+            }
+        }
+    }
     // Whether the pass over the record has anything to run per slot, and
     // whether every iteration of the producer's loop reaches the call. When
     // one does not -- the call sits under a test, a split's tail guard --
@@ -5448,6 +5479,53 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
              (std::holds_alternative<Terminator::Return>(k0_entry->terminator.data) &&
               std::get<Terminator::Return>(k0_entry->terminator.data).value == nullptr));
         if (!trivial) {
+            // The blocks the pass runs: `k0` itself, moved here from the
+            // producer, whose iteration now ends at the call -- or, when
+            // the continuation rejoins a path that skipped the call
+            // (k0_rejoins), a copy of it, the original staying in the
+            // producer for that path. The copy lives beside the original
+            // in the owner, so its instructions take fresh names.
+            shared_ptr<Block> rest_entry = k0_entry;
+            vector<shared_ptr<Block>> rest_blocks = k0;
+            if (k0_rejoins) {
+                const auto copies = clone_region(*O, k0, "!rest");
+                rest_blocks.clear();
+                for (const auto &block : k0) {
+                    rest_blocks.push_back(copies.at(block->name));
+                    O->blocks.push_back(copies.at(block->name));
+                }
+                rest_entry = copies.at(k0_entry->name);
+                // The copy's block arguments take fresh names too. A block's
+                // argument is named after the value it carries in, and
+                // clone_region keeps such names (the value is defined
+                // outside the region); but with the original alive beside
+                // the copy, two blocks of one function would define an
+                // argument of one name, and a pass that follows a value by
+                // its name within the function -- the record's SoA split
+                // (SSA/InducedStorage.cpp), which rewrites the uses of a
+                // slot's handle by the name the jumps pass it under --
+                // would take the copy's for the original's and thread the
+                // pass's handles into the producer. Every use inside a block
+                // is of the block's own argument, so renaming block by block
+                // is complete; the jumps into the copy pass positionally.
+                for (const auto &block : rest_blocks) {
+                    vector<string> names;
+                    for (const Argument &arg : block->args) {
+                        names.push_back(arg.name);
+                    }
+                    for (const string &old : names) {
+                        const string fresh = O->get_unique_name();
+                        edit_argument(*block, old,
+                                      [&](Argument &a) { a.name = fresh; });
+                        if (const auto it = block->lookups.find(old);
+                            it != block->lookups.end()) {
+                            auto v = it->second;
+                            block->lookups.erase(it);
+                            block->lookups[fresh] = v;
+                        }
+                    }
+                }
+            }
             // Named with an underscore: a name with `!` reads as a variant
             // of the drain loop, and a later directive on the drain would
             // find this loop too. The arm's variant comes last, so that
@@ -5606,16 +5684,16 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 run->terminator.data = Terminator::Dispatch{
                     std::move(ran),
                     {Terminator::Jump{skip->name},
-                     Terminator::Jump{k0_entry->name, std::move(onwards)}}};
+                     Terminator::Jump{rest_entry->name, std::move(onwards)}}};
             } else {
                 run->terminator.data =
-                    Terminator::Jump{k0_entry->name, std::move(onwards)};
+                    Terminator::Jump{rest_entry->name, std::move(onwards)};
             }
-            k0_entry->preds = {run};
+            rest_entry->preds = {run};
             // The rest ends the pass's iteration where it ended the
             // producer's; a return of the function's becomes a yield of the
             // loop's.
-            for (const auto &block : k0) {
+            for (const auto &block : rest_blocks) {
                 if (std::holds_alternative<Terminator::Return>(block->terminator.data)) {
                     block->terminator.data = Terminator::Yield{};
                 }

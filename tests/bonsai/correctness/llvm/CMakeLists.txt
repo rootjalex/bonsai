@@ -90,7 +90,10 @@ add_bonsai_tests(
     vectorize-skip-address.bonsai
     vectorize-split-local.bonsai
     defer-spawn-two-producers.bonsai
+    defer-spawn-conditional.bonsai
     defer-continuation.bonsai
+    defer-conditional-rejoin.bonsai
+    defer-conditional-in-chain.bonsai
     defer-drain-order.bonsai
     defer-mutual-producers.bonsai
     defer-nested-producer.bonsai

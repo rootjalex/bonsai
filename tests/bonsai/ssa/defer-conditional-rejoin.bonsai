@@ -1,0 +1,43 @@
+//! flags: -p ssa --dump-ssa-postschedule
+
+// The shape a deferred call under a test leaves in the owner (SSA/Defer.cpp,
+// k0_rejoins), the program of correctness/llvm/defer-conditional-rejoin:
+// the iteration's body dispatches on the test to `!merge_3` -- the
+// continuation as written, run at once by an iteration that skips the
+// call -- or to `!then_2`, which writes the record (`q_rest_w`, `q_ran`),
+// calls into the chain and ends the iteration at `q!end`; and the pass over
+// the record, `q_rest!run`, dispatches on the `q_ran` byte to `q_rest!skip`
+// or to a copy of the continuation, `!step_call_cont_4!rest` then
+// `!merge_3!rest`, whose block arguments carry fresh names so that the two
+// copies of `!merge_3` in one function share none. The deferral ends the
+// iteration only when the call is made (the user, 10-25).
+import stdlib/numerics;
+
+func work(x : Float, acc : reduce(+) Float) -> void {
+    acc += x * 0.5;
+    return;
+}
+
+func step(x : Float, acc : reduce(+) Float) -> void {
+    work(x, acc);
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        acc : reduce(+) Float = 0.0;
+        w = values[i] + 1.0;
+        bonus : mut Float = 0.0;
+        if values[i] > 4.0 {
+            step(values[i], acc);
+            bonus = 100.0;
+        }
+        out[i] = acc + w + bonus;
+    }
+    return;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(work, q);
+}

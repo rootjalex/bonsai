@@ -1,0 +1,55 @@
+//! flags: -p ssa -b llvm -e
+
+// A deferred call under a test inside the chain, run: the owner calls
+// `step` on every iteration, and `step` makes the deferred call only
+// `if x > 4.0`, returning without it otherwise. The owner's continuation,
+// `out[i] = acc + w`, is right either way: an iteration whose step pushed
+// reads `acc` whole in the pass over the record after the drain; one whose
+// step returned without pushing has nothing outstanding.
+//
+// What this test pins is the result. The shape it should also have, not
+// built yet (apps/pbrt/PLAN.md, 10-25, "a conditional deferred call"): the
+// chain reports whether it deferred -- `step` returns a bool, or an
+// optional of its value -- and the owner runs the continuation at once when
+// it did not, yielding only when it did. Today the owner yields after every
+// call and the pass runs every slot, which is the same result at the cost
+// of a record visit for the iterations that pushed nothing.
+//
+// values 1..4: out = 0 + (v + 1) = 2, 3, 4, 5. values 5..8: v/2 + v + 1 =
+// 8.5, 10, 11.5, 13.
+import stdlib/numerics;
+
+func work(x : Float, acc : reduce(+) Float) -> void {
+    acc += x * 0.5;
+    return;
+}
+
+func step(x : Float, acc : reduce(+) Float) -> void {
+    if x > 4.0 {
+        work(x, acc);
+    }
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        acc : reduce(+) Float = 0.0;
+        w = values[i] + 1.0;
+        step(values[i], acc);
+        out[i] = acc + w;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(work, q);
+}

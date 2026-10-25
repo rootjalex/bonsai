@@ -2,6 +2,7 @@ add_bonsai_tests(
     LABELS ssa
     FILES
     accumulate-affine.bonsai
+    defer-conditional-rejoin.bonsai
     demote-atomics-callee.bonsai
     demote-atomics-spawn-inline.bonsai
     demote-atomics-spawn-drain.bonsai

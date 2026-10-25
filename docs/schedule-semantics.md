@@ -608,6 +608,19 @@ makes at most one deferred call (a branching recursion is not bounded by
 the producer's count); the chain is not recursive apart from the deferred
 call and its functions are not called from outside it.
 
+The owner's call into the chain may sit under a test, `if c { f(a); } K`:
+the deferral ends the iteration only when the call is made. An iteration
+whose test fails runs `K` where it stands, at once, with its values in
+scope; an iteration that called runs `K` in the pass over the record after
+the drain, from what the record kept. `K` is therefore in the program
+twice, once as written and once copied into the pass, and the record's
+byte per slot (`<q>_ran`, set at the call) tells the pass which iterations
+pushed (pbrt's camera kernel: a ray is pushed only when the lens gives one,
+and the film is written for every sample). A deferred call under a test
+*inside* the chain -- `f` returning without having called `g` -- runs `K`
+in the pass either way today; the chain reporting whether it deferred, so
+that the owner runs `K` at once when it did not, is not built yet.
+
 *The rewrite* (SSA/Defer.cpp). Let `n` be the producer's trip count and
 `A` the stored part of the call's arguments, by the rules above.
 

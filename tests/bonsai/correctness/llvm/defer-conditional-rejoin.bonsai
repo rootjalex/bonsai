@@ -1,0 +1,56 @@
+//! flags: -p ssa -b llvm -e
+
+// A deferred call under a test whose paths rejoin, run. The owner's call
+// into the chain is made only `if values[i] > 4.0`, and what follows it --
+// `out[i] = acc + w + bonus` -- is the rest of the iteration either way.
+// The rule (the user, 10-25): the deferral ends the iteration only when
+// the call is made. An iteration that skips it runs the rest where it
+// stands, at once, with `w` and `bonus` in scope; an iteration that
+// pushed runs a copy of the rest in the pass over the record after the
+// drain, with `w` from the record, `acc` whole, and `bonus` as the then
+// branch left it (SSA/Defer.cpp, k0_rejoins). pbrt's camera kernel is this
+// shape: a ray is pushed only when the lens gives one, the film is written
+// for every sample. Before this the merge after the `if` was moved into
+// the pass with the skipping path still jumping into it, and the SSA
+// conversion failed ("not in current block, and current block is entry").
+//
+// values 1..4 skip: out = 0 + (v + 1) + 0 = 2, 3, 4, 5.
+// values 5..8 push: out = v/2 + (v + 1) + 100 = 108.5, 110, 111.5, 113.
+import stdlib/numerics;
+
+func work(x : Float, acc : reduce(+) Float) -> void {
+    acc += x * 0.5;
+    return;
+}
+
+func step(x : Float, acc : reduce(+) Float) -> void {
+    work(x, acc);
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        acc : reduce(+) Float = 0.0;
+        w = values[i] + 1.0;
+        bonus : mut Float = 0.0;
+        if values[i] > 4.0 {
+            step(values[i], acc);
+            bonus = 100.0;
+        }
+        out[i] = acc + w + bonus;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(work, q);
+}
