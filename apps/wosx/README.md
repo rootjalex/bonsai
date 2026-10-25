@@ -59,9 +59,10 @@ the rest waiting: `schedules/fcpwb-gpu-defer.bonsai`, one queue across
 the card, its rounds launches; and `schedules/fcpwb-gpu-defer-block.bonsai`,
 a queue per point in the block's shared memory (`queue(i, DeviceShared)`,
 the word a queue that lives there has to carry), its rounds a loop of the
-kernel's. On the head neither beats the matching schedule (PLAN.md, "Both
-deferrals built, both measured on the head"); both compute the same
-estimate.
+kernel's. Over the table the card-wide one is at 0.48x of WoSX by geomean
+and the per-block one at 1.03x, the matching schedule's equal on the
+largest meshes and behind it on the rest (PLAN.md, "Both deferrals built,
+both measured on the head"); both compute the same estimate.
 
 Only the plain walk is here: no source term (the Laplace problem), no
 gradient estimate, no Russian roulette or splitting, no reflecting boundary

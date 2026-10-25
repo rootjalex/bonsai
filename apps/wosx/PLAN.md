@@ -1395,10 +1395,28 @@ one keeps the entries on the SM and its rounds inside the kernel, but a
 block is one point's 64 walks -- two warps -- and once a point's walks
 thin out the block idles on its barriers while the card's other resident
 blocks fill in; it comes within 14% of the matching schedule. What to try
-before the table: the per-block form with 1024 walks a point (a block of
-1024, more live work per barrier), the card-wide form with a `sort` of
-the queue by position each round, and a profile of each (nsys: rounds,
-time a round, the guard's share) on the head and the dragon.
+next: the per-block form with 1024 walks a point (a block of 1024, more
+live work per barrier), the card-wide form with a `sort` of the queue by
+position each round, and a profile of each (nsys: rounds, time a round,
+the guard's share) on the head and the dragon.
+
+**The table** (the same night; `benchmark.sh --gpu --schedules
+fcpwb-gpu-defer,fcpwb-gpu-defer-block`, now a log per (mesh, schedule)
+cell so that a schedule is added to a table without the rest being run
+again): the card-wide deferral 0.48x of WoSX by geomean over the 19
+meshes (0.19 on the octopus to 0.75 on the ivy), the per-block one 1.03x
+(0.72 on the crown and the beast to 1.76 on the landscape), against the
+matching schedule's 1.17x and the best variant's (persistent-reorder-256k)
+1.36x. The per-block deferral is the matching schedule's equal on the
+largest meshes -- ganesha 1.24x against 1.23x, dragon 1.24x against 1.28x
+-- and ahead on the landscape, where nearly every walk escapes on its
+first step (1.76x against 1.27x: a round there is one step for all, and
+the block's rounds end at once), and behind on the small and medium
+meshes, where the round structure costs more than the lanes it keeps
+full are worth; the card-wide one is behind everywhere, the entry traffic
+and the launch per round never paid for. Both compute the same estimate
+on every mesh (the same walks end, the same mean length, `z` within
+noise). The two are in the GPU figure as `defer` and `defer-block`.
 
 ### Next
 

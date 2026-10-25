@@ -114,6 +114,12 @@ GPU_BARS = [
     ("fcpwb-gpu-256k", "persistent-256k", YLGNBU[5]),
     ("fcpwb-gpu-reorder-256k", "persistent-reorder-256k", YLGNBU[6]),
     ("fcpwb-gpu-parallel-reorder-blk64", "parallel-reorder-blk64", YLGNBU[7]),
+    # The two deferrals: the walks' steps on a queue, a round of the drain
+    # running the next step of every walk still going -- one queue across
+    # the card, or one per point in the block's shared memory. The ramp's
+    # ends, the light one with the bars' edge to show it.
+    ("fcpwb-gpu-defer", "defer", YLGNBU[0]),
+    ("fcpwb-gpu-defer-block", "defer-block", YLGNBU[8]),
 ]
 # What each GPU schedule changed against another, for the summary: (label
 # of the schedule, label of the one it differs from in one thing, the thing).
@@ -124,6 +130,8 @@ GPU_STEPS = [
     ("persistent-reorder-256k", "persistent-reorder", "twice the threads with the walk-fastest claims"),
     ("parallel-reorder-blk64", "parallel", "the walk fastest and blocks of 64 in the one launch"),
     ("persistent-point", "persistent", "a point a claim, its walks in sequence"),
+    ("defer", "parallel", "the walk's steps deferred onto one card-wide queue, a launch per round"),
+    ("defer-block", "defer", "a queue per point in the block's shared memory, the rounds inside the kernel"),
 ]
 REFERENCE = "WoSX"
 

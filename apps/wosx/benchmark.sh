@@ -57,10 +57,13 @@
 # writes its own while it measures and removes it when done) -- and a busy
 # machine is waited for, up to ten minutes, then the run stops and says so:
 # it never measures beside another load. `touch <out>/PAUSE` holds it at
-# the next mesh boundary until the file goes. Each mesh's log is written as
-# `<log>.partial` and renamed
-# when complete, so a log that exists is a complete run and a stopped sweep
-# resumes with the same command (--fresh clears them first). The logs are
+# the next mesh boundary until the file goes. Each (mesh, schedule) cell's
+# log is written as `<log>.partial` and renamed when complete, so a log
+# that exists is a complete run and a stopped sweep resumes with the same
+# command (--fresh clears the meshes' logs first), and a schedule added
+# later is measured on its own without the others being run again (the
+# logs of the first runs, one per mesh with every schedule of the run in
+# it, fold the same). The logs are
 # folded into the CSV, one row per (mesh, schedule), each stamped with the
 # date and the commit the compiler was built from (`<hash>+` when the tree
 # has uncommitted compiler changes); then the table is printed -- per
@@ -197,17 +200,30 @@ run() {  # run <log> <compare.sh args...>
 if (( ! TABLE_ONLY )); then
   for mesh in $MESHES; do
     mesh_path "$mesh" > /dev/null
-    if (( FRESH )); then rm -f "$OUT/$mesh".s*.log; fi
+    if (( FRESH )); then rm -f "$OUT/$mesh".s*.log "$OUT/$mesh"__*.log; fi
   done
+  # A cell is one (mesh, schedule): its log `<mesh>__<schedule>.s<side>.w<walks>.log`.
+  # A mesh whose log of an earlier run (`<mesh>.s<side>.w<walks>.log`, every
+  # schedule of that run in it) already holds the schedule is not run again
+  # for it.
   for mesh in $MESHES; do
     if [[ -e "$OUT/PAUSE" ]]; then
       echo "[$(date +%T)] paused before $mesh ($OUT/PAUSE exists)"
       while [[ -e "$OUT/PAUSE" ]]; do sleep 10; done
       echo "[$(date +%T)] resumed"
     fi
-    wait_idle "$mesh"
     path="$(mesh_path "$mesh")"
-    run "$OUT/$mesh.s$SIDE.w$WALKS.log" --schedule "$SCHEDULES" --side "$SIDE" --walks "$WALKS" --repeats "$REPEATS" "$path"
+    for schedule in $(tr , ' ' <<< "$SCHEDULES"); do
+      old="$OUT/$mesh.s$SIDE.w$WALKS.log"
+      if [[ -s "$old" ]] && grep -q "^=== schedule $schedule " "$old"; then
+        echo "  have $old ($schedule)"
+        continue
+      fi
+      log="$OUT/${mesh}__$schedule.s$SIDE.w$WALKS.log"
+      if [[ -s "$log" ]]; then echo "  have $log"; continue; fi
+      wait_idle "$mesh ($schedule)"
+      run "$log" --schedule "$schedule" --side "$SIDE" --walks "$WALKS" --repeats "$REPEATS" "$path"
+    done
   done
   echo "[$(date +%T)] measured: $OUT"
   if [[ "$OWN_LOCK" -eq 1 ]]; then rm -f "$LOCK"; OWN_LOCK=0; fi
@@ -229,7 +245,9 @@ shopt -u nullglob
 # points: N of ...`, `pinned to cpu(s) ...`, and the table's one row).
 echo "date,commit,machine,cpus,schedule,mesh,triangles,closed,points,walks,wosx_rate,bonsai_rate,speedup,wosx_ended,bonsai_ended,wosx_walk_length,bonsai_walk_length,wosx_rms_error,bonsai_rms_error,z,units" > "$CSV"
 for log in "${LOGS[@]}"; do
-  mesh="$(basename "$log")"; mesh="${mesh%%.s*}"
+  # `<mesh>.s..` for a run's log of every schedule, `<mesh>__<schedule>.s..`
+  # for one cell's.
+  mesh="$(basename "$log")"; mesh="${mesh%%.s*}"; mesh="${mesh%%__*}"
   awk -v date="$(date -r "$log" +%F)" -v commit="$COMMIT" -v machine="$(hostname -s)" -v mesh="$mesh" '
     /^=== schedule / { schedule = $3 }
     /^pinned to cpus? / { cpus = $4; sub(/,$/, "", cpus) }
