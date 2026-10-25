@@ -148,17 +148,31 @@ cmake --build "$BONSAI_BUILD_DIR" -j
 build_schedule() {
   local schedule="$1"
   local flags=(-p ssa --no-heap --ffp-contract)
+  # The program: the walk on spheres (wosx.bonsai) unless the schedule is
+  # named wost-*, which is the walk on stars (stars.bonsai with its queries
+  # and elements, then wost.bonsai), compared against WoSX's WalkOnStars by
+  # a driver built with WOSX_STARS; the rest of the name says the tree and
+  # how it is run, as below.
+  local program="wosx" tree_name="$schedule"
+  local program_inputs=(-i $PREFIX/wosx.bonsai)
+  local program_defines=()
+  if [[ "$schedule" == wost-* ]]; then
+    program="wost"
+    tree_name="${schedule#wost-}"
+    program_inputs=(-i $PREFIX/stars.bonsai -i $PREFIX/wost.bonsai)
+    program_defines=(-DWOSX_STARS)
+  fi
   # The arithmetic of the FCPW build the schedule's tree is compared
   # against, compiled before the program as apps/rtq compiles it before
   # rtq.bonsai: metrics/fcpw.bonsai, the vectorized build's (enoki's
   # reciprocal estimate), for the four-wide tree; metrics/fcpw_scalar.bonsai,
   # the scalar build's and the GPU's (true divisions), for the binary tree.
   local metric="fcpw"
-  if [[ "$schedule" == fcpwb* ]]; then
+  if [[ "$tree_name" == fcpwb* ]]; then
     metric="fcpw_scalar"
   fi
   local inputs=(-i apps/rtq/elements.bonsai -i "apps/rtq/metrics/$metric.bonsai"
-                -i $PREFIX/wosx.bonsai -i "$PREFIX/schedules/$schedule.bonsai")
+                "${program_inputs[@]}" -i "$PREFIX/schedules/$schedule.bonsai")
   "./$BONSAI_BUILD_DIR/compiler" -p ssa "${inputs[@]}" -o $PREFIX/wosx.bir
   "./$BONSAI_BUILD_DIR/compiler" "${flags[@]}" "${inputs[@]}" -b llvm -o $PREFIX/wosx.ll
   "./$BONSAI_BUILD_DIR/compiler" "${flags[@]}" "${inputs[@]}" -b cpp -o $PREFIX/wosx
@@ -169,28 +183,35 @@ build_schedule() {
   # (apps/wosx/schedules/layouts/fcpwb.bonsai, the driver's WOSX_BINARY_BVH),
   # fcpwb2 the same binary tree with each node holding its children's boxes
   # (layouts/fcpwb2.bonsai, WOSX_BINARY_BVH2). The suffixes say how it is
-  # run: -threads, -persistent and -packet* as above, -gpu* on the GPU.
+  # run: -threads, -persistent and -packet* as above, -gpu* on the GPU. The
+  # walk on stars runs on the binary trees alone (layouts/fcpw_stars.bonsai;
+  # its own header copies them, so WOSX_BINARY_BVH is not set beside
+  # WOSX_STARS).
   local branching width defines
   local tail='(-threads|-persistent|-packet(-[a-z0-9]+)*|-gpu(-[a-z0-9]+)*)?'
-  if [[ "$schedule" =~ ^fcpw([48])w([0-9]+)t?$tail$ ]]; then
+  if [[ "$tree_name" =~ ^fcpw([48])w([0-9]+)t?$tail$ && "$program" == wosx ]]; then
     branching="${BASH_REMATCH[1]}"
     width="${BASH_REMATCH[2]}"
     defines=(-DNDEBUG -DFCPW_USE_ENOKI "-DFCPW_SIMD_WIDTH=$width")
     if [[ "$branching" == 8 ]]; then
       defines+=(-DFCPW_USE_EIGHT_WIDE_BRANCHING)
     fi
-  elif [[ "$schedule" =~ ^fcpwb2$tail$ ]]; then
+  elif [[ "$tree_name" =~ ^fcpwb2$tail$ && "$program" == wosx ]]; then
     branching=2
     width=1
     defines=(-DNDEBUG -DWOSX_BINARY_BVH2)
-  elif [[ "$schedule" =~ ^fcpwb$tail$ ]]; then
+  elif [[ "$tree_name" =~ ^fcpwb$tail$ ]]; then
     branching=2
     width=1
-    defines=(-DNDEBUG -DWOSX_BINARY_BVH)
+    defines=(-DNDEBUG)
+    if [[ "$program" == wosx ]]; then
+      defines+=(-DWOSX_BINARY_BVH)
+    fi
   else
-    echo "a schedule is named fcpw<branching>w<width>[t], fcpwb or fcpwb2, then [-threads|-persistent|-packet[-variant...]|-gpu[-variant...]], after FCPW's tree (fcpw4w16, fcpw4w16-threads, fcpw4w16-packet, fcpwb, fcpwb-packet, fcpwb2-gpu, ...): $schedule" >&2
+    echo "a schedule is named fcpw<branching>w<width>[t], fcpwb or fcpwb2, then [-threads|-persistent|-packet[-variant...]|-gpu[-variant...]], after FCPW's tree (fcpw4w16, fcpw4w16-threads, fcpw4w16-packet, fcpwb, fcpwb-packet, fcpwb2-gpu, ...), or wost-fcpwb[-...] for the walk on stars: $schedule" >&2
     exit 1
   fi
+  defines+=(${program_defines[@]+"${program_defines[@]}"})
   # A schedule on the GPU: the driver runs WoSX's GPU solver as the
   # reference, which is compiled against slang-rhi's headers and the Slang
   # release slang-rhi fetched, and linked with both (the Slang library is
@@ -237,7 +258,7 @@ build_schedule() {
   # per schedule, keyed by the generated header's checksum: compiling it
   # against WoSX's and FCPW's headers takes longer than a measurement.
   local key
-  key="$(cat $PREFIX/wosx.h | md5sum | cut -c1-16)-$branching-$width-$gpu"
+  key="$(cat $PREFIX/wosx.h | md5sum | cut -c1-16)-$program-$branching-$width-$gpu"
   if [[ ! -f "$PREFIX/.wosx_hook-$key.o" ]]; then
     "$BONSAI_CXX" -std=c++20 -O3 -march=native -fno-math-errno -ffp-contract=fast \
         "${defines[@]}" ${gpu_defines[@]+"${gpu_defines[@]}"} -I. -I$PREFIX \

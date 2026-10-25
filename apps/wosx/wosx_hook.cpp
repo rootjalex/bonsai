@@ -61,7 +61,26 @@
 // timed call. Built with WOSX_GPU, which compare.sh does for a schedule
 // named *-gpu*, against deps/slang-rhi-build (build_slang_rhi.sh); without
 // it --gpu stops with a sentence.
+//
+// The same driver, built with WOSX_STARS (compare.sh, for a schedule named
+// wost-*), compares the walk on stars (wost.bonsai) against WoSX's
+// WalkOnStars. The mesh is split by the slice the sample points lie on:
+// the triangles whose centroid is above it are the reflecting (Neumann)
+// boundary, the rest the absorbing (Dirichlet) one, with the Dirichlet data
+// above and zero flux on the reflecting part, no source. WoSX's two
+// handlers build FCPW's two trees -- the scalar BVH over the absorbing
+// triangles and the normal cone hierarchy over the reflecting ones, their
+// silhouette edges computed as WoSX's demos compute them -- and
+// apps/wosx/fcpw_stars_trees.h copies both into the program's layouts. The
+// solution is not known in closed form with a reflecting boundary, so the
+// table's error column is the difference between the two sides instead;
+// the walk settings are WoSX's defaults for a walk on stars (the
+// reflecting shell and the silhouette precision at 1e-3, every step a
+// star), the same on both sides.
 #include <wosx/point_estimation/walk_on_spheres.h>
+#if defined(WOSX_STARS)
+#include <wosx/point_estimation/walk_on_stars.h>
+#endif
 #include <wosx/utils/fcpw_geometric_queries.h>
 #if defined(WOSX_GPU)
 #include <wosx/wosx_gpu.h>
@@ -75,8 +94,12 @@
 // built with WOSX_BINARY_BVH (compare.sh, for the schedules named fcpwb*);
 // or the same binary tree with each node holding its children's boxes, as
 // FCPW's traversal reads it, in layouts/fcpwb2.bonsai when built with
-// WOSX_BINARY_BVH2 (the schedules named fcpwb2*, the GPU comparison's).
-#if defined(WOSX_BINARY_BVH)
+// WOSX_BINARY_BVH2 (the schedules named fcpwb2*, the GPU comparison's). The
+// walk on stars' three trees (layouts/fcpw_stars.bonsai) when built with
+// WOSX_STARS.
+#if defined(WOSX_STARS)
+#include "apps/wosx/fcpw_stars_trees.h"
+#elif defined(WOSX_BINARY_BVH)
 #include "apps/wosx/fcpw_bvh.h"
 #elif defined(WOSX_BINARY_BVH2)
 #include "apps/wosx/fcpw_bvh2.h"
@@ -247,6 +270,33 @@ Boundary load_boundary(const std::string &path) {
     return b;
 }
 
+// The walk on stars' two boundaries: the mesh split by the plane of the
+// slice the sample points lie on, a triangle going to the reflecting
+// (Neumann) part when its centroid is above the plane and to the absorbing
+// (Dirichlet) part otherwise. The same positions serve both, so the two
+// trees are built over the one vertex set; the reflecting part's rim along
+// the cut is edges of one triangle, which FCPW counts as silhouettes from
+// everywhere, as it does for any open surface.
+struct Split {
+    std::vector<wosx::Vector3i> absorbing, reflecting;
+};
+
+Split split_boundary(const Boundary &b, float z) {
+    Split s;
+    for (const wosx::Vector3i &t : b.indices) {
+        const float centroid_z =
+            (b.positions[t[0]].z() + b.positions[t[1]].z() + b.positions[t[2]].z()) / 3.0f;
+        (centroid_z > z ? s.reflecting : s.absorbing).push_back(t);
+    }
+    if (s.absorbing.empty() || s.reflecting.empty()) {
+        std::cerr << "the slice's plane leaves one of the two boundaries empty: "
+                  << s.absorbing.size() << " absorbing and " << s.reflecting.size()
+                  << " reflecting triangles\n";
+        std::exit(1);
+    }
+    return s;
+}
+
 // The sample points: the centers of a side-by-side grid over the box's x
 // and y, on the plane through the middle of its z, the ones inside the
 // boundary and outside the epsilon shell (a point in the shell gets one
@@ -351,7 +401,12 @@ void usage() {
                  "the program's next distance query (the sphere FCPW searches "
                  "within); default what the reference does: 2.002 under --gpu, "
                  "WoSX's GPU walk's RADIUS_EXPAND_PERCENTAGE * 2, and infinite "
-                 "otherwise, its CPU walk's unbounded query\n"
+                 "otherwise, its CPU walk's unbounded query (the walk on stars: "
+                 "1.001 of the old distance plus the step, and infinite)\n"
+                 "  --eps-reflecting E  the walk on stars' reflecting shell, the "
+                 "least star radius (default 1e-3, WoSX's)\n"
+                 "  --precision P  the walk on stars' silhouette precision (default "
+                 "1e-3, WoSX's)\n"
                  "The mesh is a PLY (plain or gzipped) or an OBJ. Without --threads "
                  "both sides solve on the calling thread; compare.sh pins the run "
                  "either way.\n";
@@ -372,6 +427,7 @@ int main(int argc, char **argv) {
     uint32_t gpu_threads = 131072;
     std::string wosx_dir = "deps/wosx", pde_dir = "apps/wosx/gpu";
     float query_bound = -1.0f; // < 0: the reference's
+    float eps_reflecting = 1e-3f, precision = 1e-3f; // the walk on stars'
     int closed = -1; // -1: as the mesh says; 0: --open; 1: --closed
     std::string image, path;
     for (int i = 1; i < argc; i++) {
@@ -382,6 +438,10 @@ int main(int argc, char **argv) {
             walks = uint32_t(std::atoi(argv[++i]));
         } else if (arg == "--epsilon" && i + 1 < argc) {
             epsilon = float(std::atof(argv[++i]));
+        } else if (arg == "--eps-reflecting" && i + 1 < argc) {
+            eps_reflecting = float(std::atof(argv[++i]));
+        } else if (arg == "--precision" && i + 1 < argc) {
+            precision = float(std::atof(argv[++i]));
         } else if (arg == "--max-steps" && i + 1 < argc) {
             max_steps = uint32_t(std::atoi(argv[++i]));
         } else if (arg == "--repeats" && i + 1 < argc) {
@@ -453,14 +513,22 @@ int main(int argc, char **argv) {
     // the GPU walk bounds each step's distance query by 1.001 * 2 times the
     // step just taken (walk-on-spheres.slang, RADIUS_EXPAND_PERCENTAGE), the
     // CPU walk by nothing. The program does what the reference it runs
-    // against does, unless told otherwise.
+    // against does, unless told otherwise. The walk on stars' GPU walk
+    // bounds its query by 1.001 times the old distance plus the step
+    // (walk-on-stars.slang), the factor applied to that sum (wost.bonsai).
+#if defined(WOSX_STARS)
+    constexpr float kGpuQueryBound = 1.001f;
+    const char *const kBoundOf = " times the old distance plus the step (WoSX's GPU walk's)";
+#else
+    constexpr float kGpuQueryBound = 1.001f * 2.0f;
+    const char *const kBoundOf = " times the step (WoSX's GPU walk's)";
+#endif
     if (query_bound < 0.0f) {
-        query_bound = gpu ? 1.001f * 2.0f : std::numeric_limits<float>::infinity();
+        query_bound = gpu ? kGpuQueryBound : std::numeric_limits<float>::infinity();
     }
     std::cout << "the program's query radius bound: "
               << (std::isinf(query_bound) ? std::string("none (WoSX's CPU walk's)")
-                                          : std::to_string(query_bound) +
-                                                " times the step (WoSX's GPU walk's)")
+                                          : std::to_string(query_bound) + kBoundOf)
               << "\n";
 
     const Boundary boundary = load_boundary(path);
@@ -472,6 +540,13 @@ int main(int argc, char **argv) {
               << (boundary.open_edges == 0 ? std::string("closed")
                                            : std::to_string(boundary.open_edges) + " rim edges")
               << (closed < 0 ? "" : open ? ", taken as open" : ", taken as closed") << "\n";
+    const float slice_z = 0.5f * (boundary.lo.z() + boundary.hi.z());
+#if defined(WOSX_STARS)
+    const Split split = split_boundary(boundary, slice_z);
+    std::cout << "  split at the slice z = " << slice_z << ": " << split.absorbing.size()
+              << " absorbing (Dirichlet) triangles below, " << split.reflecting.size()
+              << " reflecting (Neumann) triangles above\n";
+#endif
 
     // WoSX's side: the boundary handler builds FCPW's tree (vectorized: the
     // Mbvh the layout is the bytes of), and the queries are populated from
@@ -480,24 +555,54 @@ int main(int argc, char **argv) {
     // Vectorized for apps/rtq's four-wide layouts; scalar -- WoSX's default,
     // FCPW's CMake leaving FCPW_USE_ENOKI off, and the one tree FCPW puts on
     // a GPU -- for the two binary layouts.
-#if defined(WOSX_BINARY_BVH) || defined(WOSX_BINARY_BVH2)
+#if defined(WOSX_BINARY_BVH) || defined(WOSX_BINARY_BVH2) || defined(WOSX_STARS)
     constexpr bool kVectorized = false;
 #else
     constexpr bool kVectorized = true;
 #endif
-    wosx::FcpwDirichletBoundaryHandler<3> handler;
-    handler.buildAccelerationStructure(boundary.positions, boundary.indices, /*buildBvh=*/true,
-                                       /*enableBvhVectorization=*/kVectorized,
-                                       /*printStats=*/fcpw_stats);
     // Not closed (--open): WoSX's insideDomain says yes to every point, as
     // it does for its non-watertight demos, and the walks from the whole
     // slice end on whichever side of the boundary they reach.
     wosx::GeometricQueries<3> queries(/*domainIsWatertight=*/!open, boundary.lo, boundary.hi);
+#if defined(WOSX_STARS)
+    // The two handlers: the Dirichlet one over the absorbing part, and the
+    // Neumann one over the reflecting part with its silhouette edges
+    // computed, convex edges left out of the silhouette tests as WoSX's
+    // demos leave them for an interior single-sided problem
+    // (getIgnoreCandidateSilhouetteCallback). The inside test the sample
+    // points go through counts the ray hits on both parts.
+    wosx::FcpwDirichletBoundaryHandler<3> handler;
+    handler.buildAccelerationStructure(boundary.positions, split.absorbing, /*buildBvh=*/true,
+                                       /*enableBvhVectorization=*/false,
+                                       /*printStats=*/fcpw_stats);
+    wosx::FcpwNeumannBoundaryHandler<3> reflecting_handler;
+    reflecting_handler.buildAccelerationStructure(
+        boundary.positions, split.reflecting,
+        wosx::getIgnoreCandidateSilhouetteCallback(/*solveDoubleSided=*/false, precision),
+        /*buildBvh=*/true, /*enableBvhVectorization=*/false, /*printStats=*/fcpw_stats);
     wosx::populateGeometricQueriesForDirichletBoundary<3>(handler, queries);
+    wosx::populateGeometricQueriesForNeumannBoundary<3>(
+        reflecting_handler, wosx::getBranchTraversalWeightCallback(), queries);
+#else
+    wosx::FcpwDirichletBoundaryHandler<3> handler;
+    handler.buildAccelerationStructure(boundary.positions, boundary.indices, /*buildBvh=*/true,
+                                       /*enableBvhVectorization=*/kVectorized,
+                                       /*printStats=*/fcpw_stats);
+    wosx::populateGeometricQueriesForDirichletBoundary<3>(handler, queries);
+#endif
 
     // Our side: the same tree in the layout. (Not const: a schedule on the
     // GPU stages the tree's buffers to the device, which marks them.)
-#if defined(WOSX_BINARY_BVH)
+#if defined(WOSX_STARS)
+    wosx_stars::Trees trees;
+    wosx_stars::copy_absorbing(handler.scene, trees);
+    wosx_stars::copy_reflecting(reflecting_handler.scene, trees);
+    trees.point();
+    wosx_stars::describe(trees);
+    bonsai_buffer *tree_buffers[6] = {&trees.absorbing_triangles.buffer, &trees.absorbing_nodes.buffer,
+                                      &trees.reflecting_triangles.buffer, &trees.reflecting_nodes.buffer,
+                                      &trees.edges.buffer, &trees.reflecting_nodes.buffer};
+#elif defined(WOSX_BINARY_BVH)
     wosx_bvh::Tree tree = wosx_bvh::copy_fcpw_bvh(handler.scene);
     wosx_bvh::describe(tree);
     bonsai_buffer *tree_buffers[2] = {&tree.prims_buffer, &tree.nodes_buffer};
@@ -534,19 +639,34 @@ int main(int argc, char **argv) {
     // WoSX: the Laplace problem with the Dirichlet data, and the walk's
     // settings as its basic demo makes them (demo_apps/basic_2d/demo.cpp,
     // runWalkOnSpheres, at the config's defaults) with the source term
-    // ignored, since there is none.
+    // ignored, since there is none. The walk on stars adds the reflecting
+    // part with zero flux (robin and robinCoeff zero: pure Neumann, nothing
+    // to add from the reflecting boundary), its shell and the silhouette
+    // precision, and every step a star (stepsBeforeUsingMaximalSpheres the
+    // walk length, WoSX's own default).
     wosx::PDE<float, 3> pde;
     pde.dirichlet = [](const Vector3 &x, bool) { return dirichlet(x); };
     pde.source = [](const Vector3 &) { return 0.0f; };
+#if defined(WOSX_STARS)
+    pde.robin = [](const Vector3 &, const Vector3 &, bool) { return 0.0f; };
+    pde.robinCoeff = [](const Vector3 &, const Vector3 &, bool) { return 0.0f; };
+    pde.areRobinConditionsPureNeumann = true;
+    pde.areRobinCoeffsNonnegative = true;
+    const float eps_reflecting_used = eps_reflecting, precision_used = precision;
+    const int steps_before_maximal = int(max_steps);
+#else
+    const float eps_reflecting_used = 0.0f, precision_used = 0.0f;
+    const int steps_before_maximal = 0;
+#endif
     const wosx::WalkSettings settings(
         /*epsilonShellForAbsorbingBoundary=*/epsilon,
-        /*epsilonShellForReflectingBoundary=*/0.0f,
-        /*silhouettePrecision=*/0.0f,
+        /*epsilonShellForReflectingBoundary=*/eps_reflecting_used,
+        /*silhouettePrecision=*/precision_used,
         /*russianRouletteThreshold=*/0.0f,
         /*splittingThreshold=*/std::numeric_limits<float>::max(),
         /*maxWalkLength=*/int(max_steps),
         /*stepsBeforeApplyingTikhonov=*/0,
-        /*stepsBeforeUsingMaximalSpheres=*/0,
+        /*stepsBeforeUsingMaximalSpheres=*/steps_before_maximal,
         /*solveDoubleSided=*/false,
         /*useGradientControlVariates=*/true,
         /*useGradientAntitheticVariates=*/true,
@@ -573,7 +693,11 @@ int main(int argc, char **argv) {
         }
         std::vector<wosx::SampleStatistics<float, 3>> stats(n);
         const std::vector<int> walks_per_point(n, int(walks));
+#if defined(WOSX_STARS)
+        const wosx::WalkOnStars<float, 3> wos(queries);
+#else
         const wosx::WalkOnSpheres<float, 3> wos(queries);
+#endif
         // A solve adds to a point's running estimate, so each timed run
         // starts the statistics and the generators afresh (SamplePoint::reset
         // reseeds from the clock, as WoSX made them).
@@ -611,11 +735,22 @@ int main(int argc, char **argv) {
             std::make_shared<wosx::GPUTaskHandle<float, 3>>(
                 std::filesystem::absolute(wosx_dir).string(),
                 std::filesystem::absolute(pde_dir).string(), "cuda");
+#if defined(WOSX_STARS)
+        std::shared_ptr<wosx::GPUAbsorbingBoundaryHandler> absorbing =
+            std::make_shared<wosx::GPUFcpwDirichletBoundaryHandler<3>>(
+                boundary.positions, split.absorbing, fcpw_stats);
+        std::shared_ptr<wosx::GPUReflectingBoundaryHandler> reflecting =
+            std::make_shared<wosx::GPUFcpwNeumannBoundaryHandler<3>>(
+                boundary.positions, split.reflecting,
+                wosx::getIgnoreCandidateSilhouetteCallback(/*solveDoubleSided=*/false, precision),
+                fcpw_stats);
+#else
         std::shared_ptr<wosx::GPUAbsorbingBoundaryHandler> absorbing =
             std::make_shared<wosx::GPUFcpwDirichletBoundaryHandler<3>>(
                 boundary.positions, boundary.indices, fcpw_stats);
         std::shared_ptr<wosx::GPUReflectingBoundaryHandler> reflecting =
             std::make_shared<wosx::GPUEmptyReflectingBoundaryHandler>();
+#endif
         std::shared_ptr<wosx::GPUGeometricQueries<3>> gpu_queries =
             std::make_shared<wosx::GPUGeometricQueries<3>>(absorbing, reflecting, boundary.lo,
                                                            boundary.hi,
@@ -627,11 +762,11 @@ int main(int argc, char **argv) {
         std::shared_ptr<wosx::GPUWalkSettings> gpu_settings =
             std::make_shared<wosx::GPUWalkSettings>();
         gpu_settings->epsilonShellForAbsorbingBoundary = epsilon;
-        gpu_settings->epsilonShellForReflectingBoundary = 0.0f;
-        gpu_settings->silhouettePrecision = 0.0f;
+        gpu_settings->epsilonShellForReflectingBoundary = eps_reflecting_used;
+        gpu_settings->silhouettePrecision = precision_used;
         gpu_settings->russianRouletteThreshold = 0.0f;
         gpu_settings->maxWalkLength = max_steps;
-        gpu_settings->stepsBeforeUsingMaximalSpheres = 0;
+        gpu_settings->stepsBeforeUsingMaximalSpheres = uint32_t(steps_before_maximal);
         gpu_settings->solveDoubleSided = 0;
         gpu_settings->useGradientControlVariates = 1;
         gpu_settings->useGradientAntitheticVariates = 1;
@@ -639,8 +774,13 @@ int main(int argc, char **argv) {
         gpu_settings->ignoreReflectingBoundaryContribution = 1;
         gpu_settings->ignoreSourceContribution = 1;
         const bool persistent = gpu_reference == "persistent";
+#if defined(WOSX_STARS)
+        wosx::GPUWalkOnStarsSolver<float, 3> solver(handle, gpu_settings, gpu_threads,
+                                                    persistent, gpu_logs);
+#else
         wosx::GPUWalkOnSpheresSolver<float, 3> solver(handle, gpu_settings, gpu_threads,
                                                       persistent, gpu_logs);
+#endif
         std::vector<wosx::GPUSamplePoint<3>> gpu_pts(n);
         for (uint32_t i = 0; i < n; i++) {
             gpu_pts[i].pt = wosx::float3{samples[i].p.x(), samples[i].p.y(), samples[i].p.z()};
@@ -649,7 +789,12 @@ int main(int argc, char **argv) {
             gpu_pts[i].estimationQuantity = wosx::EstimationQuantity::Solution;
             gpu_pts[i].pdf = 1.0f;
             gpu_pts[i].distToAbsorbingBoundary = samples[i].dist;
+#if defined(WOSX_STARS)
+            gpu_pts[i].distToReflectingBoundary =
+                queries.computeDistToReflectingBoundary(samples[i].p, false);
+#else
             gpu_pts[i].distToReflectingBoundary = 0.0f;
+#endif
             gpu_pts[i].estimateBoundaryNormalAligned = 0;
         }
         // The threads kernel copies every point enough times to give the
@@ -712,12 +857,6 @@ int main(int argc, char **argv) {
         points[i].p = float3{samples[i].p.x(), samples[i].p.y(), samples[i].p.z()};
         dists[i] = samples[i].dist;
     }
-    Problem problem;
-    problem.epsilon = epsilon;
-    problem.max_steps = max_steps;
-    problem.lo = float3{boundary.lo.x(), boundary.lo.y(), boundary.lo.z()};
-    problem.hi = float3{boundary.hi.x(), boundary.hi.y(), boundary.hi.z()};
-    problem.query_bound = query_bound;
     std::vector<float> solution(n), mean_steps(n);
     std::vector<uint32_t> walks_ended(n);
     bonsai_buffer b_points = bonsai_buffer_wrap(points.data(), uint64_t(n) * sizeof(Point));
@@ -726,10 +865,42 @@ int main(int argc, char **argv) {
     bonsai_buffer b_mean_steps = bonsai_buffer_wrap(mean_steps.data(), uint64_t(n) * sizeof(float));
     bonsai_buffer b_walks_ended =
         bonsai_buffer_wrap(walks_ended.data(), uint64_t(n) * sizeof(uint32_t));
+#if defined(WOSX_STARS)
+    StarProblem problem;
+    problem.epsilon = epsilon;
+    problem.eps_reflecting = eps_reflecting;
+    problem.precision = precision;
+    problem.max_steps = max_steps;
+    problem.lo = float3{boundary.lo.x(), boundary.lo.y(), boundary.lo.z()};
+    problem.hi = float3{boundary.hi.x(), boundary.hi.y(), boundary.hi.z()};
+    problem.query_bound = query_bound;
+    bonsai_buffer *buffers[] = {&b_points,       &b_dists,         &b_solution,     &b_mean_steps,
+                                &b_walks_ended,  tree_buffers[0],  tree_buffers[1], tree_buffers[2],
+                                tree_buffers[3], tree_buffers[4],  tree_buffers[5]};
+    const uint8_t *sides = solve_stars_sides;
+    static_assert(sizeof(solve_stars_sides) == sizeof(buffers) / sizeof(buffers[0]),
+                  "solve_stars takes these eleven buffers, in this order");
+    const auto solve = [&] {
+        solve_stars(n, &b_points, &b_dists, problem, walks, seed, &b_solution, &b_mean_steps,
+                    &b_walks_ended, trees.absorbing, trees.reflecting, trees.silhouettes);
+    };
+#else
+    Problem problem;
+    problem.epsilon = epsilon;
+    problem.max_steps = max_steps;
+    problem.lo = float3{boundary.lo.x(), boundary.lo.y(), boundary.lo.z()};
+    problem.hi = float3{boundary.hi.x(), boundary.hi.y(), boundary.hi.z()};
+    problem.query_bound = query_bound;
     bonsai_buffer *buffers[] = {&b_points,     &b_dists,         &b_solution,     &b_mean_steps,
                                 &b_walks_ended, tree_buffers[0], tree_buffers[1]};
+    const uint8_t *sides = solve_all_sides;
     static_assert(sizeof(solve_all_sides) == sizeof(buffers) / sizeof(buffers[0]),
                   "solve_all takes these seven buffers, in this order");
+    const auto solve = [&] {
+        solve_all(n, &b_points, &b_dists, problem, walks, seed, &b_solution, &b_mean_steps,
+                  &b_walks_ended, tree.layout);
+    };
+#endif
 #if defined(BONSAI_HAS_GPU)
     // The program's kernels loaded ahead of the clock, as WoSX's shaders are.
     bonsai_gpu_prepare();
@@ -737,14 +908,10 @@ int main(int argc, char **argv) {
     const double t_bonsai = timed(
         repeats,
         [&] {
-            bonsai_buffer_stage_all(buffers, solve_all_sides,
-                                    sizeof(buffers) / sizeof(buffers[0]));
+            bonsai_buffer_stage_all(buffers, sides, sizeof(buffers) / sizeof(buffers[0]));
             bonsai_buffer_implicit_copies(0);
         },
-        [&] {
-            solve_all(n, &b_points, &b_dists, problem, walks, seed, &b_solution, &b_mean_steps,
-                      &b_walks_ended, tree.layout);
-        });
+        solve);
     bonsai_buffer_implicit_copies(1);
     for (bonsai_buffer *out : {&b_solution, &b_mean_steps, &b_walks_ended}) {
         bonsai_buffer_stage(out, BONSAI_HOST);
@@ -766,12 +933,20 @@ int main(int argc, char **argv) {
     // the per-point differences over the standard error estimated from the
     // differences themselves, which under no bias have mean zero at every
     // point. The table's heading says which.
+    // With a reflecting boundary (the walk on stars) the solution is not
+    // known in closed form, so WoSX's estimate stands in for it: the error
+    // column is then the root-mean-square difference between the two sides,
+    // zero for WoSX by construction.
     double steps_wosx = 0, steps_bonsai = 0, err_wosx = 0, err_bonsai = 0;
     double difference = 0, difference_variance = 0, difference_squares = 0;
     size_t ended_wosx = 0, ended_bonsai = 0, paired = 0;
     std::vector<float> exact(n);
     for (uint32_t i = 0; i < n; i++) {
+#if defined(WOSX_STARS)
+        exact[i] = reference[i];
+#else
         exact[i] = dirichlet(samples[i].p);
+#endif
         ended_wosx += size_t(ref_count[i]);
         ended_bonsai += walks_ended[i];
         steps_wosx += double(ref_length[i]) * ref_count[i];
@@ -795,12 +970,15 @@ int main(int argc, char **argv) {
         z = variance > 0 ? mean / std::sqrt(variance / double(paired)) : 0.0;
     }
     const double total_walks = double(n) * walks;
-    std::printf("\n%8s %10s %12s %12s %10s  %s\n", "points", "walks", "WoSX Msteps/s",
-                "bonsai Msteps/s", "speedup",
-                gpu ? "walks ended (WoSX, bonsai); their mean length (WoSX, bonsai); rms error "
-                      "against the solution (WoSX, bonsai); z (paired)"
-                    : "walks ended (WoSX, bonsai); their mean length (WoSX, bonsai); rms error "
-                      "against the solution (WoSX, bonsai); z");
+#if defined(WOSX_STARS)
+    const char *const error_column = "rms difference from WoSX's estimate (WoSX 0, bonsai)";
+#else
+    const char *const error_column = "rms error against the solution (WoSX, bonsai)";
+#endif
+    std::printf("\n%8s %10s %12s %12s %10s  walks ended (WoSX, bonsai); their mean length "
+                "(WoSX, bonsai); %s; %s\n",
+                "points", "walks", "WoSX Msteps/s", "bonsai Msteps/s", "speedup", error_column,
+                gpu ? "z (paired)" : "z");
     std::printf("%8u %10.0f %12.2f %12.2f %9.2fx  %zu, %zu; %.2f, %.2f; %.2e, %.2e; %.2f\n", n,
                 total_walks, steps_wosx / t_wosx * 1e-6, steps_bonsai / t_bonsai * 1e-6,
                 t_wosx / t_bonsai, ended_wosx, ended_bonsai,
