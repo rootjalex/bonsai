@@ -5,6 +5,8 @@ steps per second, the speedup).
 
     python apps/wosx/plot.py apps/wosx/results/wosx-results.csv -o apps/wosx/plots/
     python apps/wosx/plot.py apps/wosx/results/wosx-gpu-results.csv -o apps/wosx/plots/ --gpu
+    python apps/wosx/plot.py apps/wosx/results/wosx-stars-results.csv -o apps/wosx/plots/ --stars
+    python apps/wosx/plot.py apps/wosx/results/wosx-stars-gpu-results.csv -o apps/wosx/plots/ --stars --gpu
 
 Two CPU figures, one per tree, the meshes along the x axis in order of
 triangle count and three bars a mesh; a bar is bonsai's rate over WoSX's
@@ -42,6 +44,18 @@ claims one point's walks ("persistent-reorder"), a point a claim with its
 walks in sequence ("persistent-point"), twice the threads so the card is
 full ("persistent-256k", "persistent-reorder-256k"), and one launch with
 the walk fastest in blocks of 64 ("parallel-reorder-blk64").
+
+--stars draws the walk on stars' figures (benchmark.sh --stars): the same
+comparison for wost.bonsai against WoSX's WalkOnStars, each mesh split at
+the slice into an absorbing lower half and a reflecting upper half. On the
+CPU, wosx-stars-cpu-fcpwb-speedup: WoSX's default trees -- FCPW's scalar
+BVH of the absorbing boundary and its normal cone hierarchy of the
+reflecting one -- and the same three bars (`wost-fcpwb*`); with --gpu,
+wosx-stars-gpu-speedup: the matching schedule over WoSX's GPU walk on
+stars (`wost-fcpwb-gpu`, the schedule of `fcpwb-gpu` on the other program).
+The mesh table is wosx-stars-meshes.*: the walk lengths differ from the
+walk on spheres', since a star is bounded by the reflecting boundary's
+silhouettes as well as by the absorbing boundary.
 
 Beside each figure (the user's rule, 10-24) go the statistics the paper
 quotes, `<figure>.txt`: per schedule the geomean over the plotted meshes,
@@ -101,6 +115,13 @@ CPU_TREES = [
     ("fcpwb", "wosx-cpu-fcpwb-speedup",
      "WoSX's default tree, FCPW's scalar binary BVH, both sides as WoSX ships"),
 ]
+# The walk on stars' CPU figure (--stars): WoSX's default trees alone, the
+# same three bars on the `wost-fcpwb*` schedules.
+STARS_CPU_TREES = [
+    ("wost-fcpwb", "wosx-stars-cpu-fcpwb-speedup",
+     "the walk on stars on WoSX's default trees (FCPW's scalar BVH of the absorbing boundary, "
+     "its normal cone hierarchy of the reflecting one), both sides as WoSX ships"),
+]
 # The GPU figure's bars, every one over WoSX's persistent-thread kernel:
 # (schedule, legend label, colour), the labels apps/pbrt's figures' kind --
 # the schedule's shape in a word or two; README.md's schedule list says
@@ -120,6 +141,11 @@ GPU_BARS = [
     # ends, the light one with the bars' edge to show it.
     ("fcpwb-gpu-defer", "defer", YLGNBU[0]),
     ("fcpwb-gpu-defer-block", "defer-block", YLGNBU[8]),
+]
+# The walk on stars' GPU figure (--stars --gpu): the matching schedule over
+# WoSX's GPU walk on stars, the same persistent claim of a walk at a time.
+STARS_GPU_BARS = [
+    ("wost-fcpwb-gpu", "persistent", YLGNBU[1]),
 ]
 # What each GPU schedule changed against another, for the summary: (label
 # of the schedule, label of the one it differs from in one thing, the thing).
@@ -241,12 +267,13 @@ def tex_number(n):
     return f"{n:,}".replace(",", "\\,")
 
 
-def mesh_table(rows, meshes, out_dir, exclude):
+def mesh_table(rows, meshes, out_dir, exclude, name="wosx-meshes"):
     """The mesh facts in one table rather than on every plot (the user,
     10-24): wosx-meshes.txt to read and wosx-meshes.tex to \\input, a
-    booktabs tabular. Triangles, whether the surface is closed, the sample
-    points on the slice and their walks, and WoSX's mean walk length, read
-    off the first row of each mesh (the same on every schedule)."""
+    booktabs tabular (wosx-stars-meshes.* for the walk on stars, whose walk
+    lengths are its own). Triangles, whether the surface is closed, the
+    sample points on the slice and their walks, and WoSX's mean walk length,
+    read off the first row of each mesh (the same on every schedule)."""
     first = {}
     for r in rows:
         first.setdefault(r["mesh"], r)
@@ -259,7 +286,7 @@ def mesh_table(rows, meshes, out_dir, exclude):
     def text(v):
         return f"{v:,}" if isinstance(v, int) else str(v)
 
-    txt = os.path.join(out_dir, "wosx-meshes.txt")
+    txt = os.path.join(out_dir, f"{name}.txt")
     with open(txt, "w") as f:
         widths = [max(len(h), *(len(text(row[i])) for row in table))
                   for i, (h, _) in enumerate(columns)]
@@ -273,9 +300,10 @@ def mesh_table(rows, meshes, out_dir, exclude):
         if exclude:
             f.write(f"left out of the figures: {', '.join(sorted(exclude))}\n")
     print(txt)
-    tex = os.path.join(out_dir, "wosx-meshes.tex")
+    tex = os.path.join(out_dir, f"{name}.tex")
     with open(tex, "w") as f:
-        f.write("% apps/wosx/plot.py: the meshes of the wosx figures, in order of triangle\n"
+        f.write(f"% apps/wosx/plot.py: the meshes of the {name.replace('-meshes', '')} figures, in "
+                "order of triangle\n"
                 "% count; walk length is WoSX's mean number of steps of a walk that ended.\n"
                 "% \\usepackage{booktabs}.\n")
         f.write("\\begin{tabular}{l" + "r" * (len(columns) - 1) + "}\n\\toprule\n")
@@ -294,7 +322,19 @@ def cpu_notes(base, exclude):
         "the same pinned threads; persistent: sixteen workers claiming points from a counter, "
         "against WoSX's threaded solve (it has no persistent CPU solver)",
     ]
-    if base == "fcpwb":
+    if base.startswith("wost-"):
+        notes += [
+            "the walk on stars: a step asks three queries where the walk on spheres asks one "
+            "-- the closest silhouette edge of the reflecting boundary on FCPW's normal cone "
+            "hierarchy, which bounds the star, the ray cast against the reflecting boundary on "
+            "the same tree, and the distance to the absorbing boundary on its BVH; the mesh is "
+            "split at the slice, the lower half absorbing with the Dirichlet data, the upper "
+            "half reflecting with zero flux, WoSX's defaults for the reflecting shell and the "
+            "silhouette precision (1e-3) on both sides",
+            "no closed-form solution with a reflecting boundary: the table's error column is "
+            "the rms difference between the two sides' estimates",
+        ]
+    elif base == "fcpwb":
         notes += [
             "single-threaded under WoSX on the small trees (comb, pavilion, head, crown) and "
             "level or ahead from a million triangles up: the generated two-child visit executes "
@@ -317,9 +357,9 @@ def cpu_notes(base, exclude):
     return notes
 
 
-def draw_cpu(rows, out_dir, formats, exclude):
+def draw_cpu(rows, out_dir, formats, exclude, trees):
     meshes, tris = meshes_by_triangles(rows, exclude)
-    for base, name, what in CPU_TREES:
+    for base, name, what in trees:
         bars = [(base + suffix, label, colour) for suffix, label, colour in CPU_BARS]
         fig, drawn = figure(rows, meshes, bars, "Speedup", height=1.7)
         if fig is None:
@@ -339,20 +379,35 @@ def draw_cpu(rows, out_dir, formats, exclude):
                             sections, notes))
 
 
-def draw_gpu(rows, schedules, out_dir, formats, exclude):
+def draw_gpu(rows, schedules, out_dir, formats, exclude, stars):
     meshes, tris = meshes_by_triangles(rows, exclude)
-    known = {s: (label, colour) for s, label, colour in GPU_BARS}
+    known = {s: (label, colour) for s, label, colour in (STARS_GPU_BARS if stars else GPU_BARS)}
     bars = [(s, *known.get(s, (s, YLGNBU[8]))) for s in schedules]
     # A little taller: seven bars a mesh and a legend of two rows above them.
-    fig, drawn = figure(rows, meshes, bars, "Speedup", height=2.0)
+    fig, drawn = figure(rows, meshes, bars, "Speedup", height=2.0 if len(bars) > 5 else 1.7)
     if fig is None:
         print(f"no rows for {schedules}; nothing drawn", file=sys.stderr)
         return
-    path = save(fig, out_dir, "wosx-gpu-speedup", formats)
+    path = save(fig, out_dir, "wosx-stars-gpu-speedup" if stars else "wosx-gpu-speedup", formats)
     data = {s: cells(rows, s) for s in drawn}
     label = {s: known.get(s, (s, None))[0] for s in drawn}
     by_label = {label[s]: points(data[s], meshes) for s in drawn}
     sections = [("every mesh, over WoSX's persistent kernel", [(label[s], by_label[label[s]]) for s in drawn])]
+    if stars:
+        notes = [
+            "persistent is the matching schedule of the walk on stars (131072 threads claiming "
+            "a walk at a time from a counter, a warp's claims neighbouring points), over WoSX's "
+            "GPU walk on stars run the same way; a step is the three queries of the CPU figure, "
+            "the distance bounded on both sides by 1.001 times the old distance plus the step",
+            "no closed-form solution with a reflecting boundary: the error column is the rms "
+            "difference between the two sides' estimates",
+        ]
+        if exclude:
+            notes.append(f"left out: {', '.join(sorted(exclude))} (nearly every walk escapes on "
+                         "its first step)")
+        print(write_summary(path, f"Speedup over WoSX's GPU walk on stars, {len(meshes)} meshes",
+                            sections, notes))
+        return
     notes = [
         "persistent is the matching schedule (131072 threads claiming a walk at a time from a "
         "counter, a warp's claims neighbouring points); the others change one thing of it each",
@@ -399,9 +454,12 @@ def main():
     p.add_argument("-o", "--out", default=".", help="directory for the figures")
     p.add_argument("--gpu", action="store_true",
                    help="draw the GPU figure: the GPU schedules over WoSX's GPU solver")
-    p.add_argument("--gpu-schedules", default=",".join(s for s, _, _ in GPU_BARS),
+    p.add_argument("--gpu-schedules", default=None,
                    help="the GPU schedules, in the order of their bars (default: the matching "
-                        "schedule and its variants, as benchmark.sh --gpu measures them)")
+                        "schedule and its variants, as benchmark.sh --gpu measures them; with "
+                        "--stars the walk on stars' matching schedule)")
+    p.add_argument("--stars", action="store_true",
+                   help="draw the walk on stars' figures (the wost-* schedules) instead")
     p.add_argument("--format", default="pdf,png", help="comma-separated formats (default pdf,png)")
     p.add_argument("--exclude", default="landscape",
                    help="comma-separated meshes left out (default landscape, whose walks escape "
@@ -410,14 +468,17 @@ def main():
     exclude = {m for m in a.exclude.split(",") if m}
     os.makedirs(a.out, exist_ok=True)
     rows = load(a.csv)
+    trees = STARS_CPU_TREES if a.stars else CPU_TREES
     if a.gpu:
-        schedules = [s for s in a.gpu_schedules.split(",") if s]
-        draw_gpu(rows, schedules, a.out, a.format.split(","), exclude)
+        gpu_bars = STARS_GPU_BARS if a.stars else GPU_BARS
+        named = a.gpu_schedules if a.gpu_schedules is not None else ",".join(s for s, _, _ in gpu_bars)
+        schedules = [s for s in named.split(",") if s]
+        draw_gpu(rows, schedules, a.out, a.format.split(","), exclude, a.stars)
     else:
-        schedules = [base + suffix for base, _, _ in CPU_TREES for suffix, _, _ in CPU_BARS]
-        draw_cpu(rows, a.out, a.format.split(","), exclude)
+        schedules = [base + suffix for base, _, _ in trees for suffix, _, _ in CPU_BARS]
+        draw_cpu(rows, a.out, a.format.split(","), exclude, trees)
     meshes, _ = meshes_by_triangles(rows, exclude)
-    mesh_table(rows, meshes, a.out, exclude)
+    mesh_table(rows, meshes, a.out, exclude, "wosx-stars-meshes" if a.stars else "wosx-meshes")
     geomeans(rows, schedules, exclude)
 
 

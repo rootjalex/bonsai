@@ -10,6 +10,8 @@
 #     apps/wosx/benchmark.sh --meshes "whale dragon" --schedules fcpw4w16
 #     apps/wosx/benchmark.sh --table-only        # fold, print and plot what is logged
 #     apps/wosx/benchmark.sh --gpu               # the GPU table: WoSX's GPU solver against the GPU schedules
+#     apps/wosx/benchmark.sh --stars             # the walk on stars' table (wost.bonsai against WoSX's WalkOnStars)
+#     apps/wosx/benchmark.sh --stars --gpu       # the walk on stars on the GPU
 #
 # The figures (plot.py) go into apps/wosx/plots, one per tree
 # (wosx-cpu-fcpw4w16-speedup.*, wosx-cpu-fcpwb-speedup.*): the meshes along
@@ -24,6 +26,21 @@
 # apps/wosx/results/gpu-logs, the CSV to apps/wosx/results/wosx-gpu-results.csv
 # and the plot to apps/wosx/plots/wosx-gpu-speedup.*; the idle check also
 # waits for the GPU to be empty of every other process.
+#
+# --stars runs the walk on stars' table instead: wost.bonsai against WoSX's
+# WalkOnStars on the same meshes, each split at the slice the sample points
+# lie on into an absorbing lower half carrying the Dirichlet data and a
+# reflecting upper half with zero flux (compare.sh's wost-* rule builds
+# the driver for it). The schedules default to the walk on stars' matching
+# ones, wost-fcpwb, wost-fcpwb-threads and wost-fcpwb-persistent -- WoSX's
+# default trees, one thread, the threads, the persistent workers -- or
+# with --gpu to wost-fcpwb-gpu, the schedule matching WoSX's GPU walk on
+# stars; the logs go to apps/wosx/results/stars-logs (stars-gpu-logs), the
+# CSV to apps/wosx/results/wosx-stars-results.csv (wosx-stars-gpu-
+# results.csv) and the figures to wosx-stars-cpu-fcpwb-speedup.* and
+# wosx-stars-gpu-speedup.*. The error column is the root-mean-square
+# difference between the two sides' estimates, since a problem with a
+# reflecting boundary has no closed-form solution to measure against.
 #
 # The meshes: WoSX's own demo meshes (deps/wosx/demo_apps/*/data -- the comb
 # electrodes, the whale, the car, the octopus, the beast, the rover, which
@@ -88,6 +105,7 @@ REPEATS=3
 FRESH=0
 TABLE_ONLY=0
 GPU=0
+STARS=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --schedules) SCHEDULES="$2"; shift 2 ;;
@@ -100,14 +118,24 @@ while [[ $# -gt 0 ]]; do
     --fresh) FRESH=1; shift ;;
     --table-only) TABLE_ONLY=1; shift ;;
     --gpu) GPU=1; shift ;;
-    -h|--help) sed -n '2,56p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --stars) STARS=1; shift ;;
+    -h|--help) sed -n '2,88p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option $1" >&2; exit 1 ;;
   esac
 done
 # The CPU table's defaults -- the three schedules on each of the two trees,
 # FCPW's four-wide Mbvh (both sides vectorized) and WoSX's default, FCPW's
-# scalar binary BVH (both sides as WoSX ships) -- or the GPU table's.
-if (( GPU )); then
+# scalar binary BVH (both sides as WoSX ships) -- or the GPU table's; or
+# the walk on stars' tables, on WoSX's default trees alone.
+if (( STARS && GPU )); then
+  SCHEDULES="${SCHEDULES:-wost-fcpwb-gpu}"
+  OUT="${OUT:-apps/wosx/results/stars-gpu-logs}"
+  CSV="${CSV:-apps/wosx/results/wosx-stars-gpu-results.csv}"
+elif (( STARS )); then
+  SCHEDULES="${SCHEDULES:-wost-fcpwb,wost-fcpwb-threads,wost-fcpwb-persistent}"
+  OUT="${OUT:-apps/wosx/results/stars-logs}"
+  CSV="${CSV:-apps/wosx/results/wosx-stars-results.csv}"
+elif (( GPU )); then
   SCHEDULES="${SCHEDULES:-fcpwb-gpu,fcpwb-gpu-parallel,fcpwb-gpu-reorder,fcpwb-gpu-point,fcpwb-gpu-256k,fcpwb-gpu-reorder-256k,fcpwb-gpu-parallel-reorder-blk64}"
   OUT="${OUT:-apps/wosx/results/gpu-logs}"
   CSV="${CSV:-apps/wosx/results/wosx-gpu-results.csv}"
@@ -266,17 +294,20 @@ for log in "${LOGS[@]}"; do
     }' "$log" >> "$CSV"
 done
 
-# The table and the geomeans, in order of triangle count.
-python3 - "$CSV" <<'EOF'
+# The table and the geomeans, in order of triangle count. The error column
+# is the rms error against the solution, or for the walk on stars the rms
+# difference from WoSX's estimate.
+python3 - "$CSV" "$STARS" <<'EOF'
 import csv, math, sys
 rows = list(csv.DictReader(open(sys.argv[1])))
+error = "rms difference" if sys.argv[2] == "1" else "rms error"
 # The schedules in the order they were run (one thread, the threads, the
 # persistent workers), not alphabetical.
 for schedule in dict.fromkeys(r["schedule"] for r in rows):
     sel = sorted((r for r in rows if r["schedule"] == schedule), key=lambda r: int(r["triangles"]))
     print(f"\n=== {schedule} ({sel[0]['cpus'] if sel else ''}; rates in million steps per second)")
     print(f"{'mesh':<10} {'triangles':>9} {'closed':>6} {'points':>7} {'WoSX':>7} {'bonsai':>7} {'speedup':>8}  "
-          f"{'walk length':>15}  {'rms error':>19}  {'z':>5}")
+          f"{'walk length':>15}  {error:>19}  {'z':>5}")
     logs = []
     for r in sel:
         s = float(r["speedup"]); logs.append(math.log(s))
@@ -294,9 +325,9 @@ echo "rows: $CSV"
 # The plot: one bar per (mesh, schedule), bonsai's rate over WoSX's, into
 # apps/wosx/plots (plot.py prints its own geomeans over the plotted meshes;
 # the landscape is left out of the plot, since nearly every walk on it
-# escapes on its first step). The GPU table draws its own figure.
-if (( GPU )); then
-  python3 apps/wosx/plot.py "$CSV" -o "$PLOTS" --gpu
-else
-  python3 apps/wosx/plot.py "$CSV" -o "$PLOTS"
-fi
+# escapes on its first step). The GPU table draws its own figure, and the
+# walk on stars' tables theirs.
+PLOT_FLAGS=()
+if (( GPU )); then PLOT_FLAGS+=(--gpu); fi
+if (( STARS )); then PLOT_FLAGS+=(--stars); fi
+python3 apps/wosx/plot.py "$CSV" -o "$PLOTS" ${PLOT_FLAGS[@]+"${PLOT_FLAGS[@]}"}
