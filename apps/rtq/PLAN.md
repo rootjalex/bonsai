@@ -6906,3 +6906,185 @@ hole. The serialize directive, the hybrid schedule
 count stays, with its tests (ssa/specialize-count, error/specialize-count-
 no-gang), as a schedule point over a gang's occupancy with both arms gangs.
 The any-hit packet cell of the morning (1.03) stands as the result.
+
+## The queries the walks make, isolated: FCPW's scalar trees and its GPU (2026-10-25)
+
+apps/wosx's walks run over FCPW's scalar build (enoki off, the build WoSX
+ships): the walk on spheres over its binary BVH, the walk on stars over
+that and the normal cone hierarchy, where it casts its rays and finds its
+star radius by the closest silhouette point. This table had measured FCPW
+only as its vectorized Mbvh (fcpw4w16), on deps/fcpw, an older checkout
+than the one under deps/wosx; and the walk on stars' profile had our
+silhouette query cheaper than WoSX's and our closest point and ray cast
+dearer, from perf samples with libm split by guess. The user's ruling: no
+change to the traversals until isolated benchmarks say better or worse,
+on the CPU and on the GPU, the silhouette query included.
+
+### What was built
+
+- `schedules/layouts/fcpwb.bonsai` and `fcpw_bvh.h` moved here from
+  apps/wosx (the binary tree in FCPW's bytes, the copy of FCPW's tree into
+  it), and the silhouette query with them: its elements (`Edge`,
+  `ConeBox`, `SilhouetteQuery`, once the walk's `StarQuery`) into
+  elements.bonsai, FCPW's cone and edge arithmetic into
+  metrics/fcpw_scalar.bonsai's silhouette section with FCPW's record of the
+  closest point on the edge (`SilhouetteHit`, which the leaf computes once
+  for the test, the key and the record), the query into silhouette.bonsai
+  with its extern set, which wost.bonsai imports; the normal cone
+  hierarchy's rows written by `fcpw_snch.h` (templates over the generated
+  row structs, since each program spells them differently), which
+  apps/wosx's fcpw_stars_trees.h calls for its reflecting pair.
+- `schedules/fcpwb.bonsai`: the three queries over the binary tree as
+  bvh.inl's traversals run them (both children tested at the parent and
+  written out with `unroll`, the nearer first, the far-corner rule for the
+  closest point, a stack of sixty-four, the leaf's Voronoi exits); the
+  driver's RTQ_FCPW_BINARY builds FCPW scalar. `schedules/layouts/
+  fcpws.bonsai` and `schedules/fcpws.bonsai`: the SNCH as two trees over
+  one node array of GPUSnchNode rows (the triangles the rays and points
+  query, the edges the silhouette query searches, the driver handing the
+  same node rows to both), `ConeBox` the bounding element whose metrics are
+  the cone test for the silhouette query and the box alone for the rest;
+  the fourth query's traversal ordered by the box distance alone with the
+  cones tested at the parent; snch.bonsai the program with the silhouette
+  batch; the driver's RTQ_FCPW_SNCH computes FCPW's silhouettes first,
+  leaving out the convex edges WoSX's reflecting handler leaves out
+  (getIgnoreCandidateSilhouetteCallback for a single-sided problem), and
+  asks `findClosestSilhouettePoint` about each point of the two point sets
+  within a tenth of the diagonal, no minimum radius so that both sides
+  search to the exact closest (the walk hands FCPW its reflecting shell
+  and FCPW stops at the first silhouette within it; apps/wosx/PLAN.md,
+  "The silhouette query read against FCPW's"), WoSX's precision and normal
+  flip; the agreement the same edge or none on both sides, a tie where two
+  edges are equally far, the records' distance and point.
+- `schedules/fcpwb-gpu.bonsai`, `schedules/fcpws-gpu.bonsai`: each batch's
+  loop split by 256 and bound to the GPU's blocks and threads (one launch,
+  one query a thread, FCPW's group size), the traversals bvh.slang's (the
+  closest point by d2Min alone, as the kernel orders it); the reference
+  FCPW's GPUScene, run by the driver under RTQ_GPU (`fcpw_gpu_reference.h`:
+  transferToGPU's setup step for step on the CUDA backend; FCPW's batch
+  calls taken apart so that the upload of the queries and the read of the
+  answers are off the clock and the dispatch and the wait are what is
+  timed, FCPW's own runShader), and on the program's side the buffers
+  staged on the device before the clock with a copy inside it forbidden
+  (runtime/bonsai_buffer.h), the clock around the launch and the wait.
+- compare.sh: `metric_of` (fcpw_scalar for the scalar trees), `program_of`
+  (snch.bonsai for fcpws), `fcpw_dir_of` (WoSX's FCPW for the scalar
+  trees: a later checkout whose bvh.inl differs from deps/fcpw's), the
+  -gpu rule with slang-rhi's headers and libraries as apps/wosx's, and
+  RTQ_SKIP_CMAKE=1 to run the compiler as built while a peer's measurement
+  owned build/. benchmark.sh runs the scalar pair and the GPU pair as
+  sections of their own per mesh under the sessions' lock; tocsv.sh reads
+  the new names and the silhouette rows (reference `fcpw-gpu` for the GPU
+  cells).
+
+### The arithmetic, to the bit
+
+metrics/fcpw_scalar.bonsai's dot products and norms are Eigen's as the
+build FCPW ships compiles them, measured rather than read
+(apps/wosx/PLAN.md has the measurement): `dot` sums `(p0 + p1) + p2` with
+the newer product fused, `squaredNorm` and the box distances `p0 + (p1 +
+p2)` with the left one fused, both written as `fma` chains. On the head
+every ray, point and silhouette answer agrees with FCPW's scalar build up
+to ties, the hit's t, uv and point and the silhouette's distance and point
+to the bit (0.0e+00 in the records columns); the one field off is the hit
+record's unit normal (1.7e-07), Eigen's `normalized()` under clang's SLP
+pass, a record field and never a key. Against FCPW's GPU the records are
+within 4e-6 (the GPU compiler's own fusing) and the answers agree up to
+ties.
+
+### The miss record, and what the first GPU sweep taught
+
+The first GPU sweep had pavilion's million primary rays at 0.62x while
+every other row read 1.03x to 1.37x. The batches wrote a record for every
+query -- `hits[i] = no_hit()` on a miss, forty bytes with the invalid id
+and an infinite distance -- so that the driver could compare answers
+without initializing anything. Neither reference does that inside its
+call: rtcIntersect1 leaves a missed ray's RTCRayHit as the caller set it
+(geomID invalid beforehand), FCPW's intersect returns false and leaves its
+Interaction as constructed, and FCPW's GPUScene uploads the interactions
+pre-filled and its kernel writes only hits. On the CPU the extra stores
+cost nothing visible; on the GPU, pavilion's primary rays hit 16% of the
+time, so our kernel stored some 35 MB that FCPW's never touched, inside
+our clock and outside theirs. The batches now write only hits and the
+driver fills the records with the miss record off the clock -- before each
+run on the CPU, as it resets the references' structs; once before the
+first run on the GPU, as FCPW's buffer is uploaded once, since a run
+writes only hits and every run leaves the same records. Pavilion's primary
+row went to 1.36x, the other rows unchanged within noise. (Copying the
+records back and up again before each run, tried first, read every row
+10-30% slower: tens of megabytes through the card between runs, where
+FCPW's side runs with whatever the last run left in the card's caches.)
+The user's rule, restated: no more work than the reference, and the same
+stores on both sides. The Embree and fcpw4w16 rows of the table were
+measured with the miss stores in the program; on the CPU they are a
+fraction of a percent at most, but the rows are to be measured again
+under the new batches before the figures are redrawn, so that every row
+is the same program.
+
+The same sweep showed two kinds of GPU disagreement to be read against the
+CPU rows: on ivy, FCPW's GPU closest point answers with a triangle whose
+distance the driver computes as NaN -- a degenerate triangle, where ours
+answers the finite neighbour (23 and 27 of 26110 points; the CPU rows
+agree to the bit) -- and on sportscar two of 146599 silhouette queries
+classify an edge differently (FCPW's edge at 0.10 against ours at 0.20 of
+a radius of 0.52; the cone and edge tests go through `acos`, `asin` and
+`atan2`, whose GPU implementations differ between Slang's and ours).
+
+### Measured (2026-10-25, 16:04-16:26, the lock held)
+
+The thirteen meshes at side 1024, least of five after a warm-up, pinned to
+cpu 11 (the host thread for the GPU cells); lte-orb left out of the
+geomeans as the other figures leave it out (FCPW finds no hit on it).
+Geomeans of bonsai over the reference, with the least and greatest cell
+(apps/rtq/plots/rtq-fcpw-scalar-cpu.txt and -gpu.txt have every cell):
+
+    over FCPW's scalar build (CPU)         geomean   min            max
+      first hit, primary rays   (fcpwb)      0.81    0.59 pavilion  0.98 zero-day
+      first hit, diffuse rays   (fcpwb)      0.88    0.58 pavilion  1.08 ivy
+      any hit, ambient occlusion (fcpwb)     0.86    0.56 pavilion  1.08 ivy
+      closest point, near       (fcpwb)      1.10    0.82 pavilion  1.21 ivy
+      closest point, volume     (fcpwb)      1.21    1.11 landscape 1.37 dambreak
+      silhouette, near          (fcpws)      1.14    1.00 pavilion  1.47 ivy
+      silhouette, volume        (fcpws)      1.24    1.02 crown     1.60 landscape
+
+    over FCPW's GPUScene (GPU)
+      first hit, primary rays   (fcpwb-gpu)  1.19    0.97 landscape 1.39 head
+      first hit, diffuse rays   (fcpwb-gpu)  1.33    1.19 dragon    1.48 head
+      any hit, ambient occlusion (fcpwb-gpu) 1.35    1.19 dragon    1.56 landscape
+      closest point, near       (fcpwb-gpu)  1.16    1.09 villa     1.31 pavilion
+      closest point, volume     (fcpwb-gpu)  1.08    1.01 landscape 1.18 ivy
+      silhouette, near          (fcpws-gpu)  1.22    1.06 crown     1.83 ivy
+      silhouette, volume        (fcpws-gpu)  1.25    1.03 pavilion  1.92 ivy
+
+What it says. On the CPU, against FCPW's scalar binary tree -- the tree
+the walks traverse -- the ray queries are behind (0.81-0.88 by geomean,
+pavilion and landscape at 0.56-0.59, the large meshes at 0.86-0.99), and
+the closest point and the silhouette query are ahead (1.10-1.24). That
+inverts the fcpw4w16 table, where the rays over FCPW's vectorized tree
+were ahead: FCPW's scalar ray traversal, Eigen scalars and fused
+multiply-adds over a 32-byte node, is the one our two-child visit does
+not yet beat, and pavilion -- 11366 triangles, a tree that fits the
+caches -- is where the visit's instruction count shows undiluted by
+memory (apps/wosx/PLAN.md, "The binary CPU walk's gap", has the machine
+code side by side: the `vec3f` loads and horizontal sums). It also reads
+the walk on stars' profile right: the silhouette query was the cheaper
+side there and the ray cast the dearer, as here; the closest point, 1.10-
+1.21 here on points, was dearer in the walk, whose query is a bounded
+sphere with WoSX's radius rule rather than an unbounded point. On the GPU
+every query is ahead of FCPW's shaders on every mesh but landscape's
+primary rays at 0.97, the silhouette query by 1.22-1.25 and up to 1.9 on
+ivy.
+
+Agreement. On the CPU every ray answer and every silhouette answer agrees
+with FCPW's up to ties, the records to the bit; the closest point too,
+once the driver's tie test took a degenerate triangle as the segment it is
+(the first fold had 21-130 "differ" on ivy and dambreak, every one a
+triangle with two corners coincident, whose distance Ericson's regions in
+double divided by zero on). On the GPU the arithmetic is the GPU
+compiler's on each side, so the records agree to 1e-5 rather than to the
+bit, and a few rays in a million (bmw 6, villa 7, dragon 11, ganesha 11,
+landscape 15, sportscar 3, crown 1, ivy 2) are grazing hits -- a
+barycentric within 1e-5 of an edge, one side hitting and the other
+missing, both ways -- and on sportscar two silhouette edges of 146599, on
+crown and landscape one, classify differently through the GPU's `acos`,
+`asin` and `atan2`.

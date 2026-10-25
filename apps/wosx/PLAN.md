@@ -1704,6 +1704,20 @@ test: `if c && cond` with `c` an option fails in `try_match_types`
 (src/IR/Expr.cpp:317, "bool versus bool"): the option's truth cast and a
 comparison carry bool types that do not compare equal.
 
+The isolated benchmarks the user asked for are apps/rtq's now (its
+PLAN.md, "The queries the walks make, isolated"; schedules fcpwb, fcpws
+and their -gpu forms; the silhouette query and its arithmetic moved there
+from this app, which imports them). Measured 2026-10-25 over the thirteen
+meshes against the FCPW WoSX ships: on the CPU the ray queries over FCPW's
+binary tree are behind its scalar traversal (0.81-0.88 by geomean, 0.56-
+0.59 on pavilion and landscape), the closest point ahead (1.10-1.21) and
+the silhouette query ahead (1.14-1.24); on the GPU every query is ahead
+of FCPW's shaders (1.08-1.35, the silhouette 1.22-1.25). That is the walk
+on stars' profile read right -- the ray cast was the dear query, the
+silhouette the cheap one -- and it names the next piece of codegen: the
+two-child ray visit on the CPU, whose machine code "The binary CPU walk's
+gap" above compared with FCPW's (the `vec3f` loads and horizontal sums).
+
 ### Next
 
 - The other binary-tree schedules measured again with the unrolled visit
