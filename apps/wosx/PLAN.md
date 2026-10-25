@@ -1418,28 +1418,220 @@ and the launch per round never paid for. Both compute the same estimate
 on every mesh (the same walks end, the same mean length, `z` within
 noise). The two are in the GPU figure as `defer` and `defer-block`.
 
+### The walk on stars (2026-10-25)
+
+The second solver, as the user asked ("add a WoSt benchmark and do the
+same as we've done here for WoS"). README.md says what it is and where
+each piece lives; this is what was built, what went wrong on the way,
+and what the comb measured.
+
+**The program.** `wost.bonsai` is WoSX's `WalkOnStars::walk` as a tail
+recursion over the position, the normal where the walk stands on the
+reflecting boundary, the distance to the absorbing boundary and the last
+step, in WoSX's order, for the homogeneous Neumann problem -- zero flux,
+no source, no absorption -- which is the walk's geometry with none of its
+integrands (the throughput stays one; the reflecting boundary adds
+nothing; no roulette or splitting at the defaults). WoSX's CPU and GPU
+walks are the same walk here but for the distance bound, which the driver
+sets after the reference (1.001 times the old distance plus the step on
+the GPU, none on the CPU); WoSX's CPU solve precomputes the first star
+radius per point and reuses it for every walk, which is the same radius
+every walk would compute. `stars.bonsai` holds the three sets (the
+absorbing triangles, the reflecting triangles, the reflecting boundary's
+silhouette edges), FCPW's cone-overlap test and silhouette test
+transcribed, and the query's metrics; `walk_common.bonsai` what the two
+walks share, and wosx.bonsai imports it (no change to the walk on
+spheres' code; its schedules compile as before).
+
+**The trees.** FCPW keeps the reflecting boundary's triangles and its
+silhouette edges in one normal cone hierarchy, each leaf referencing its
+range of both. The layout (`schedules/layouts/fcpw_stars.bonsai`) reads
+that one node array as two trees over two sets, each leaf reading the
+range that is its own; the rows are FCPW's GPU rows (GPUSnchNode, 60
+bytes; GPUEdge, 56), and the absorbing tree is fcpwb's. Group names are
+program-wide in the layout language, so the three layouts' groups carry
+distinct names (aprims/anode, rprims/rnode, edges/snode). The driver's
+`fcpw_stars_trees.h` copies FCPW's trees by peeking at the Bvh's node
+vector and its silhouette references, as fcpw_bvh.h peeks for the walk on
+spheres, and writes the rows field by field as FCPW's extractSnchNodes,
+extractTriangles and extractSilhouetteEdges write them: FCPW's own
+interop header (bvh_interop_structures.h) reaches for slang-rhi, which
+only a GPU build has, so the CPU comparison cannot include it.
+
+**What went wrong, and the language question it raised.** The first
+build ran, and WoSX ended every walk where ours ended 41% of them, ours
+twice as long. Three experiments localized it: with one step a walk the
+sides agreed to six walks in nine thousand; with the reflecting shell
+wider than the plate (the star the distance to the absorbing boundary,
+the silhouette query skipped) they agreed; so the star radius was wrong.
+A probe (`scratch/wost/probe.bonsai`, `probe.cpp`, `probe.sh`: exported
+wrappers of the three queries called from a C++ harness that asks FCPW
+the same questions at the driver's sample points and at the points one,
+two and three steps on, on and off the boundary) showed the ray cast
+exact at every point and the silhouette query answering a fixed edge at
+distance zero nearly everywhere. The SSA said why: `closest_silhouette`
+was `argmin(key, map(record, silhouettes))` with the key `inf` for an
+edge that is no silhouette or beyond the sphere, and the lowering types
+an argmin over an unfiltered set as total -- an element of a non-empty set
+-- and builds its option as `(best, true)`, while the accumulator's
+running best starts at the identity `inf` and an element whose key is
+`inf` never improves on it (`<`), so when every edge's key was `inf`,
+which is most stars, the result was the identity's reference to nowhere,
+read as a row. The walk on spheres' `closest_within` has the same shape
+and the same dead `if !c` after it, which never bit because its sphere
+always holds a triangle (the triangle inequality on the bound). The fix
+in the program is the language's own idiom for candidacy, apps/rtq's
+`trace`: the test an edge has to pass is the filter's `intersects(q,
+e)` (within the sphere and a silhouette from its center), which the tree
+bounds with `intersects(q, ConeBox)` (the cone valid, the box within the
+radius, the cones overlapping -- FCPW's child test), and the key
+`distmin(q, e)` is the squared distance, finite; the argmin is then over
+a filter and answers none where no edge passes. After it the probe shows
+the star radius equal to FCPW's at every point of every step, and the
+silhouette query differing only on exact ties at the sphere's radius
+(an edge at distance equal to the bound, the last bit of the two
+implementations' arithmetic deciding), which the radius does not see.
+
+Raised to the user, not changed: the language types `argmin(f, S)` as
+total (an element) when no filter stands between, and `inf` keys as
+"not a candidate" in the lowering's pruning; the two together make a
+total argmin whose keys are all `inf` return an invalid reference rather
+than one of the tied elements or none. The honest fix is in the
+compiler: either every argmin over a set is optional (any key may be
+`inf`; existing programs that unwrap the plain form would change --
+apps/rtq's `closest`, wosx.bonsai's `closest_within`, apps/pbrt's
+intersection) or a total argmin seeds its best from the first element it
+visits (which the pruned traversal cannot do cheaply) or asserts that one
+improved. A compiler test for the case (an argmin over an unfiltered map
+whose keys are all `inf`) should exist and fail today. The program-side
+form above is right under either reading and is what FCPW's own code
+does (the silhouette check is a filter), so the benchmark does not wait
+on the decision.
+
+**The comb (side 128, 64 walks, least of 3).** Both sides end every walk
+(152064), mean lengths 9.78 and 9.79, rms difference 3e-3, z within 2 on
+every run. One thread 0.67-0.72x of WoSX, the threads 0.87-0.88x, the
+persistent workers 0.87x, the GPU's matching schedule 1.07x (3 ms a side,
+too short to read). The gap on the CPU is the binary tree's visit, the
+same as the walk on spheres' on the comb (above, "The binary CPU walk's
+gap"), now paid on three traversals a step; the whale onward will say
+whether it closes on the big meshes as the walk on spheres' does.
+
+### The binary node's visit made FCPW's (2026-10-25)
+
+The user, reading the CPU figure's note: the baseline must match FCPW's
+scalar child visit exactly, and the binary case is the simple base case.
+What the two-lane visit was, from the SSA and the machine code: no
+directive vectorized it, but two things made it a different program from
+FCPW's. The children's boxes are a two-lane pair in the layout
+(`lo = vector[vec3f, 2]{ {left.low.x, right.low.x}, ... }`), and the
+children's loop read both rows and picked its lane every iteration; and
+the sort's lowering took any run whose children are the lanes of a vector
+through Embree's peel chain -- the hits as a mask word, a tzcnt per peel,
+the keys through a memory cell as integers with the sign flipped -- a
+shape for four and eight lanes, applied to two, where FCPW tests the two
+boxes, compares once and swaps.
+
+Three changes, in the compiler, each with tests at the three levels:
+
+- **A run of two lanes is sorted as scalars** (src/SSA/SortRecursion.cpp,
+  sort_recursion): the compare-and-swap network the pass already had for
+  runs that are not lanes -- one float comparison of the two keys and a
+  select each for the keys, the children, the carried bounds and the
+  conditions; then loopify pushes the far child under its condition and
+  enters the near one under its, FCPW's `processSubtreeForClosestPoint`
+  and bvh.slang's visit to the branch. The peel stays for four lanes and
+  up. Goldens child-volumes-sorted-two and tiled-elements-one re-blessed
+  after reading them.
+- **`unroll(l)`, a scheduling directive** (the user's proposal; Halide's):
+  a parfor of constant extent replaced by its body once per iteration, the
+  index that iteration's constant throughout the copy and dropped from
+  every block that took it (SSA/Unroll.cpp; substitute_argument in
+  SSA/InsertPreheader.cpp does the replacing and the dropping), the copies
+  chained at the body's one yield (unify_yields). A first version kept the
+  index as the copy's entry argument fed by the constant, and the two
+  copies' arguments shared a name, which this SSA reads as one value: the
+  second copy's tests were the first child's again, and the comb ended 1623
+  walks of 143360 where WoSX ended all; the execution test did not catch
+  it, since its copies happened to stay apart. The user's reading -- the
+  index should not exist in a copy -- is the fix. Refused on a loop whose
+  extent a run decides and on a bound loop (error test unroll-nonconstant).
+- **The simplifier reads a built vector's lanes back once the directives
+  have run** (SSA/Simplify.cpp, `fold_built_lanes`): `extract_idx(
+  make_struct<f32x2>(a, b), 1)` is `b` -- a rule the simplifier had refused
+  deliberately, since the lane sort recognizes a node's children by that
+  shape (the four-wide FCPW layouts build their children vectors by
+  component); after the directives nothing needs the shape, so the fold is
+  on from "simplify after the directives". For a vector of scalars only: a
+  vector of vectors is built from its components, not its lanes. Nineteen
+  goldens moved, every one a `build<f32x3>(a, b, c)[k]` or a splat of a
+  built constant folding to its operand; read before blessing.
+- Found on the way and fixed at its cause: loopify's lane path for an `any`
+  over a two-child node dispatched on a count with one arm (`!hits2up`),
+  which the relooper refuses as a switch of one; now a jump
+  (QueueRecursion.cpp). No program had an occlusion query over a binary
+  tree before the execution test bvh2_unrolled.
+
+**The schedules**: `fcpwb`, `kernel/fcpwb`, `fcpwb2`, `kernel/fcpwb2`,
+`cpu/wost_fcpwb` and `kernel/wost_fcpwb` gain `.unroll(<set>.Interior.
+children)` after their sort. The sort comes first on a function (Lower/
+Sorts.cpp insists), then the unroll, then the stack.
+
+**Measured, fcpwb one thread against one thread, least of 3** (side 128,
+64 walks; the two steps apart so that each is seen):
+
+| mesh | before | two-lane sort | + unroll |
+|---|---|---|---|
+| comb | 0.73x | 0.78x | 0.82x |
+| pavilion | 0.84x | 0.86x | 0.90x |
+| head | 0.94x | 0.98x | 0.99x |
+
+Every walk ends on both sides, the lengths match, z within one. A strict
+gain at each step on each mesh; not level on the comb (a second run of
+the final compiler gave 0.84x and 0.99x on the comb and the head). The
+same visit on the other binary-tree schedules, one cell each, before and
+after: the GPU matching schedule `fcpwb-gpu` on the head 1.19x to 1.32x
+(bvh.slang's two tests, now ours too); the walk on stars `wost-fcpwb` on
+the comb, one thread, 0.67x to 0.84x -- three traversals a step, each
+paying the loop's visit before -- and `wost-fcpwb-gpu` 1.07x to 1.30x.
+The tables are to be measured again under it. What the machine
+code of the visit still has that FCPW's does not (apps/wosx/scratch/
+sort2/wosu2.asm against the FCPW traversal disassembled from the same
+driver build): the `vec3f` fields loaded as 8 + 4 bytes and permuted into
+a three-lane register (`vpermt2ps`, four a visit) where Eigen loads
+scalars; the horizontal sums of the three-lane squared distances through
+shuffles (`vmovshdup`, `vshufpd`) where Eigen's are scalar fused
+multiply-adds; the key's both-contain select and the metric's "infinite
+beyond the radius" select as mask compares and blends. Those are codegen
+of `vec3f` arithmetic and the program's own tests, no longer the sort's
+or the loop's.
+
 ### Next
 
-- The two deferral schedules over the GPU table
-  (`benchmark.sh --gpu --schedules fcpwb-gpu-defer,fcpwb-gpu-defer-block`),
-  their bars added to the GPU figure; the variations above.
-- Walk on stars as the second solver (the user's ask, 2026-10-25): the
-  program (`wost.bonsai`: the star radius by a closest-silhouette query
-  over the reflecting boundary's tree, the step a ray cast against it, the
-  Dirichlet distance the query we have; homogeneous Neumann, no source),
-  the SNCH layout (FCPW's GPUSnchNode rows, 60 bytes: box, normal cone,
-  the leaf's primitives and silhouette edges; GPUEdge rows, 56 bytes, the
-  two corners and the two adjacent normals) and the silhouette query in
-  the tree language (the cone test at the node, the silhouette test at
-  the edge), the driver splitting each mesh into an absorbing and a
-  reflecting part and building both of WoSX's handlers, the schedules
-  (CPU and GPU) and the table against WoSX's WalkOnStars on both.
+- The other binary-tree schedules measured again with the unrolled visit
+  (`fcpwb-threads`, `fcpwb-persistent`, `fcpwb2`, the GPU kernels, whose
+  bvh.slang orders the two children the same way), and the walk on stars'
+  tables under it; the user's question of whether the rest of the comb's
+  gap -- the `vec3f` loads and reductions -- is worth a codegen change.
+- The walk on stars' tables (`benchmark.sh --stars`, then `--stars
+  --gpu`), their figures and summaries; then its GPU variants beside the
+  matching schedule (the walk on spheres' best, reorder-256k, and the
+  per-block deferral, which a step of three queries should reward more
+  than the one-query walk did), and the CPU gap read from the machine as
+  for the walk on spheres.
+- The argmin typing question above, for the user; `closest_within`'s and
+  `closest_absorbing`'s dead `if !c`, to be rewritten as the filter form
+  or dropped once it is decided.
+- The two deferral schedules' variations above (1024 walks, a per-round
+  sort on the card-wide queue).
 - The layout-language extension above, if the user wants WoSX's default
   tree matched; the hybrid switch as a schedule point (the packet section).
 - The scalar-BVH layout and FCPW's scalar arithmetic, for WoSX's default
   configuration (issue 1).
 - The extensions, one at a time against WoSX: a source term (Poisson),
-  the gradient estimate, walk on stars for Neumann boundaries.
+  the gradient estimate, a non-zero flux or Robin coefficient on the
+  reflecting boundary (the Neumann contribution's boundary sampling
+  through the tree).
 - Why the two largest meshes scale worse across the threads on both sides
   (the table's note): a profile of the threaded dragon solve, cache misses
   against the single-threaded one.

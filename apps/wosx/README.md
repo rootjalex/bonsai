@@ -64,10 +64,40 @@ and the per-block one at 1.03x, the matching schedule's equal on the
 largest meshes and behind it on the rest (PLAN.md, "Both deferrals built,
 both measured on the head"); both compute the same estimate.
 
-Only the plain walk is here: no source term (the Laplace problem), no
-gradient estimate, no Russian roulette or splitting, no reflecting boundary
-(walk on stars), no caching. Each is an extension to add once the basic
-walk measures right.
+The walk on stars is the second solver here (`wost.bonsai`, with its
+queries and elements in `stars.bonsai` and what the two walks share in
+`walk_common.bonsai`), compared against WoSX's `WalkOnStars` the same way
+(Sawhney, Miller, Gkioulekas and Crane, "Walk on Stars", 2023; WoSX's
+`include/wosx/point_estimation/walk_on_stars.h` on the CPU and
+`gpu/point-estimation/walk-on-stars.slang` on the GPU, the same walk). A
+problem with a reflecting (Neumann) part of the boundary beside the
+absorbing (Dirichlet) one: a step is not a sphere to the nearest boundary
+but a star, the largest ball around the position inside which the
+reflecting boundary is seen as one star-shaped sheet, found by the
+closest silhouette point of the reflecting boundary on FCPW's normal cone
+hierarchy (its tree whose nodes carry a cone of normals beside the box)
+and bounded by the distance to the absorbing boundary; and the step is a
+ray cast from the position in a uniform direction, which where it hits
+the reflecting boundary leaves the walk on the surface, to continue into
+the domain's hemisphere, and where it does not goes to the star's surface
+as the walk on spheres would. Three queries a step, over three sets --
+the absorbing triangles on FCPW's scalar BVH, the reflecting triangles
+and their silhouette edges on the one normal cone hierarchy, read as two
+trees (`schedules/layouts/fcpw_stars.bonsai`) -- where the walk on spheres
+has one query over one set. The driver splits each mesh at the slice the
+sample points lie on, the lower half absorbing with the Dirichlet data,
+the upper half reflecting with zero flux, has WoSX's two boundary
+handlers build FCPW's two trees and copies them into the layouts
+(`fcpw_stars_trees.h`); with a reflecting boundary the solution has no
+closed form, so the table's error column is the difference between the
+two sides. The schedules are the walk on spheres' with the three
+traversals in FCPW's order (`wost-fcpwb`, `-threads`, `-persistent`,
+`wost-fcpwb-gpu`), and `benchmark.sh --stars` runs its tables.
+
+Not here, on either walk: no source term (the Laplace problem), no
+gradient estimate, no Russian roulette or splitting, no non-zero flux or
+Robin coefficient on the reflecting boundary, no caching. Each is an
+extension to add once the basic walks measure right.
 
 ## WoSX, an optional dependency
 
@@ -112,7 +142,18 @@ apps/wosx/benchmark.sh                 # every mesh, both schedules, CSV, table,
 apps/wosx/benchmark.sh --table-only    # fold, print and plot the logs already there
 python3 apps/wosx/plot.py apps/wosx/results/wosx-results.csv -o apps/wosx/plots   # the two CPU figures alone
 apps/wosx/benchmark.sh --gpu           # the GPU table: WoSX's GPU solver against the GPU schedules
+apps/wosx/benchmark.sh --stars         # the walk on stars' table, wost.bonsai against WoSX's WalkOnStars
+apps/wosx/benchmark.sh --stars --gpu   # the walk on stars on the GPU
 ```
+
+`--stars` runs the walk on stars' comparison over the same meshes: the
+schedules default to `wost-fcpwb`, `wost-fcpwb-threads` and
+`wost-fcpwb-persistent` (with `--gpu`, to `wost-fcpwb-gpu`), the logs go
+to `apps/wosx/results/stars-logs` (`stars-gpu-logs`), the CSV to
+`apps/wosx/results/wosx-stars-results.csv` (`wosx-stars-gpu-results.csv`),
+the figures to `apps/wosx/plots/wosx-stars-cpu-fcpwb-speedup.*` and
+`wosx-stars-gpu-speedup.*` (`plot.py --stars`) and the mesh table to
+`wosx-stars-meshes.*`, whose walk lengths are the walk on stars' own.
 
 `--gpu` runs the GPU comparison over the same meshes: the schedules
 default to `fcpwb-gpu` (the matching schedule) and the six variants
@@ -165,7 +206,17 @@ CMake cache found an LLVM, and says which):
 apps/wosx/compare.sh [--schedule fcpw4w16,fcpw4w16-threads] [--side 128] [--walks 64] [--repeats 3] <mesh>
 apps/wosx/compare.sh --image apps/wosx/dragon ~/projects/pbrt-v4-scenes/sssdragon/geometry/dragon.ply.gz
 apps/wosx/compare.sh deps/wosx/demo_apps/potential_flow/data/whale.obj
+apps/wosx/compare.sh --schedule wost-fcpwb,wost-fcpwb-gpu deps/wosx/demo_apps/electrostatics/data/mems-comb-electrodes.obj
 ```
+
+A schedule named `wost-*` runs the walk on stars (`wost.bonsai` compiled
+over `stars.bonsai`, the driver built with `WOSX_STARS`); the rest of its
+name says the tree and how it is run as for the walk on spheres, on the
+binary trees alone. Its driver options: `--eps-reflecting` (the
+reflecting shell, the least star radius; 1e-3, WoSX's default) and
+`--precision` (the silhouette precision; 1e-3, WoSX's). Its `--query-bound`
+default follows WoSX's GPU walk on stars, 1.001 times the old distance
+plus the step.
 
 Three schedules on each of two trees are the table's defaults
 (benchmark.sh), each its own table under a `=== schedule` line; compare.sh
@@ -236,6 +287,24 @@ inside a closed surface is the same function and both estimates are
 checked against it, not only against each other: the error is the walk's
 own (the shell's bias, the Monte Carlo variance) and nothing else.
 
+For the walk on stars (a `wost-*` schedule) the driver splits the mesh
+at the slice's plane -- a triangle whose centroid is above it goes to
+the reflecting (Neumann) part, the rest to the absorbing (Dirichlet)
+part -- and has WoSX's `FcpwDirichletBoundaryHandler` build FCPW's scalar
+BVH over the absorbing part and its `FcpwNeumannBoundaryHandler` the
+normal cone hierarchy over the reflecting part with its silhouette edges
+(convex edges left out of the silhouette tests for an interior
+single-sided problem, as WoSX's demos leave them), copies both into the
+program's three layouts (`fcpw_stars_trees.h`, which writes the rows as
+FCPW's own GPU transfer writes them), and solves the mixed problem with
+the Dirichlet data below, zero flux above and no source on both sides,
+WoSX's walk settings for a walk on stars (every step a star, the
+reflecting shell and the silhouette precision at 1e-3). The sample points
+are the slice's interior by the parity count over both parts. With a
+reflecting boundary the solution is not the Dirichlet data, so the error
+column is the root-mean-square difference between the two sides'
+estimates (zero for WoSX by construction) and `z` is read as before.
+
 The table it prints: the number of points and walks, million steps per
 second on each side (a step is one distance query, the one thing a walk
 costs; each side's rate from its own count of steps over the walks that
@@ -275,6 +344,38 @@ in question (PLAN.md, the persistent schedule).
   `solve_all` over a batch of points with their first distances. Compiled
   over apps/rtq's elements and one of its FCPW metrics, which compare.sh
   passes before it, as apps/rtq's compare.sh does for rtq.bonsai.
+- `walk_common.bonsai`: what the two walks share -- the Dirichlet data,
+  the uniform direction on the sphere, the box test a walk escapes by,
+  and the walk's outcome record.
+- `stars.bonsai`: the walk on stars' queries and elements over the
+  reflecting boundary, in FCPW's arithmetic: the silhouette edge
+  (`Edge`: two corners, the two adjacent faces' normals, the index,
+  whether it has one face), the node's box with its cone (`ConeBox`) and
+  the silhouette query (`StarQuery`: the sphere, the least radius, the
+  precision, FCPW's normal flip); FCPW's cone-overlap test
+  (BoundingCone::overlap) as the query's `intersects` over the cone box,
+  the box's distance as its `distmin`, no far-corner bound (a box may
+  hold no silhouette); the silhouette test on an edge (isSilhouetteEdge)
+  within the sphere as `intersects` over the edge and the edge's squared
+  distance as `distmin` -- a filter and a key, apps/rtq's `trace` shape,
+  so that the argmin answers none where no edge within the sphere is a
+  silhouette, the common case; and the ray's metrics over a cone box,
+  which are the box's.
+- `wost.bonsai`: the walk on stars (`walk_stars`, WoSX's
+  `WalkOnStars::walk` as a tail recursion over the position, the normal
+  where the walk stands on the reflecting boundary, the distance and the
+  last step, in WoSX's order: the star's radius, a uniform direction
+  turned into the domain's hemisphere on the boundary, the ray cast
+  against the reflecting boundary from the position offset off the
+  boundary (WoSX's offsetPointAlongDirection, Ray Tracing Gems ch. 6), a
+  hit or the star's surface, the escape test, the length limit, the
+  distance query bounded by 1.001 times the old distance plus the step
+  as WoSX's GPU walk bounds it; `star_radius`, WoSX's
+  computeStarRadiusForReflectingBoundary and its shrink by a hundredth),
+  its three queries (`closest_silhouette`, `hit_reflecting`,
+  `closest_absorbing`), the problem's record (`StarProblem`) and the
+  exported `solve_stars`. Compiled over apps/rtq's elements, the scalar
+  FCPW metric and `stars.bonsai`.
 - `rng.bonsai`: WoSX's pcg32 -- the generator apps/pbrt/rng.bonsai already
   transcribed, since pbrt's RNG is the same header, with pcg32's seeding
   order and its float.
@@ -306,9 +407,14 @@ in question (PLAN.md, the persistent schedule).
   bytes stay FCPW's -- the device the PLDI 2026 paper's closest-point
   benchmark used for this tree. `schedules/fcpwb.bonsai`: the matching
   schedule on it, nothing vectorized, the two children tested at their
-  parent and the nearer entered first in FCPW's CPU order (by the
-  distance to the box; where both children contain the point, by the far
-  corner's; the left child on a tie); `fcpwb-threads` and
+  parent one after the other (`unroll(triangles.Interior.children)`: the
+  children's tests written out, each child's box read off its own row, as
+  FCPW writes them) and the nearer entered first in FCPW's CPU order (by
+  the distance to the box; where both children contain the point, by the
+  far corner's; the left child on a tie), the two ordered by one float
+  compare and a swap (a run of two children is sorted as scalars,
+  SSA/SortRecursion.cpp; before 2026-10-25 it went through Embree's lane
+  peel, sixty instructions over FCPW's visit); `fcpwb-threads` and
   `fcpwb-persistent`: the threads and the persistent workers on it;
   `schedules/fcpwb-packet.bonsai` and `schedules/fcpwb-packet-points.bonsai`:
   the two packets over it. The comparison builds FCPW scalar for these
@@ -353,12 +459,35 @@ in question (PLAN.md, the persistent schedule).
   optimized schedule.
   `schedules/fcpw4w16-gpu.bonsai`: the same kernel over FCPW's four-wide
   tree, which FCPW cannot put on a GPU.
+- `schedules/layouts/fcpw_stars.bonsai`: the walk on stars' three sets in
+  FCPW's bytes -- the absorbing triangles on FCPW's scalar BVH (fcpwb's
+  rows), the reflecting triangles and the silhouette edges on FCPW's one
+  normal cone hierarchy, its 60-byte GPUSnchNode rows (the box, the cone's
+  axis, half angle and radius, the leaf's triangle range and its edge
+  range) handed to two layouts that each read the leaf's range that is
+  theirs, the edges as FCPW's 56-byte GPUEdge rows; the parent holds its
+  children's boxes and cones logically, read from the children's rows, as
+  for fcpwb. `fcpw_stars_trees.h` copies FCPW's trees into them, the rows
+  as FCPW's own GPU transfer writes them (extractSnchNodes,
+  extractTriangles, extractSilhouetteEdges), without its GPU header.
+  `schedules/cpu/wost_fcpwb.bonsai`: the three traversals in FCPW's CPU
+  order (the closest point by the box's distance and, for two children
+  holding the point, the far corner's; the silhouette query by the box's
+  distance with the cone and box tests at the parent; the ray by the slab
+  entry), under a name an import can say (a schedule's name carries
+  dashes, which an import path cannot); `schedules/wost-fcpwb.bonsai`
+  imports it and nothing more, the matching schedule one thread against
+  one thread; `wost-fcpwb-threads` and `wost-fcpwb-persistent` add the
+  threads and the persistent workers. `schedules/kernel/wost_fcpwb.bonsai`:
+  the same traversals in WoSX's GPU kernel's order (the closest point by
+  the box's distance alone); `schedules/wost-fcpwb-gpu.bonsai`: fcpwb-gpu's
+  four directives over it, the schedule matching WoSX's GPU walk on stars.
 - `gpu/wosx-pde-definition.slang`: the PDE WoSX's GPU solver is given,
   the Laplace problem with the program's Dirichlet data, in the shape
   WoSX asks for (a module named `wosx_pde_definition` with a `PDEType`).
   `build_slang_rhi.sh`: builds slang-rhi once, into deps/slang-rhi-build.
-- `wosx_hook.cpp`: the driver; `compare.sh`, `benchmark.sh`, `plot.py`:
-  the scripts.
+- `wosx_hook.cpp`: the driver, for both walks (built with `WOSX_STARS` for
+  the walk on stars); `compare.sh`, `benchmark.sh`, `plot.py`: the scripts.
   The mesh reader and the copy of FCPW's tree into the layout are
   apps/rtq's (`apps/rtq/mesh.h`, `apps/rtq/fcpw_tree.h`), shared.
 - `results/`: the measured data, generated and gitignored -- the logs, one
