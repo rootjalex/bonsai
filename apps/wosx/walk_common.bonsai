@@ -1,0 +1,44 @@
+// What apps/wosx's two walks share: the Dirichlet data of the problem both
+// solve, the uniform direction both draw, the domain's box both escape
+// from, and what a walk comes back with. The walk on spheres (wosx.bonsai)
+// and the walk on stars (wost.bonsai) each import this file; the driver's
+// PDE is the same lambda, and the two must agree.
+import stdlib/numerics;
+import apps/wosx/rng;
+
+// WoSX: PDE::dirichlet, the boundary data. A harmonic function of the
+// position, so that the Laplace problem with it alone (the walk on
+// spheres') has this function for its solution inside the domain and every
+// estimate on either side can be checked against it, not only against the
+// other side: the error is the walk's (the epsilon shell's bias, the Monte
+// Carlo variance) and nothing else. With a reflecting boundary (the walk on
+// stars') the solution is another function, and the two sides are checked
+// against each other.
+func dirichlet(p : vec3f) -> Float = p.x * p.x - p.y * p.y;
+
+// WoSX: SphereSampler<3>::sampleUnitSphereUniform over two draws -- the
+// height uniform in [-1, 1], the azimuth uniform in [0, 2 pi).
+func pi() -> Float = 3.14159265358979323846;
+
+func uniform_sphere(rng : mut RNG) -> vec3f {
+    u0 = next_float_pcg32(rng);
+    u1 = next_float_pcg32(rng);
+    z = 1.0 - 2.0 * u0;
+    r = sqrt(max(0.0, 1.0 - z * z));
+    phi = 2.0 * pi() * u1;
+    return vec3f{r * cos(phi), r * sin(phi), z};
+}
+
+// WoSX: GeometricQueries::outsideBoundingDomain -- any coordinate past the
+// box, the test for a walk that escaped by numerical error.
+func outside_box(p : vec3f, lo : vec3f, hi : vec3f) -> bool =
+    p.x < lo.x || p.y < lo.y || p.z < lo.z || p.x > hi.x || p.y > hi.y || p.z > hi.z;
+
+// What a walk comes back with: the value it adds to its point's estimate,
+// and how many steps it took (WoSX's SampleStatistics counts them, and the
+// mean walk length is the one number that says both sides did the same
+// work).
+element Outcome {
+    value : Float;
+    steps : u32;
+}

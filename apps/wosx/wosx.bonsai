@@ -42,6 +42,7 @@
 import stdlib/numerics;
 import apps/rtq/queries;
 import apps/wosx/rng;
+import apps/wosx/walk_common;
 
 // WoSX: the part of WalkSettings and GeometricQueries the walk reads --
 // epsilonShellForAbsorbingBoundary, maxWalkLength, the domain's box
@@ -64,40 +65,9 @@ element Problem {
     query_bound : Float;
 }
 
-// WoSX: PDE::dirichlet, the boundary data. A harmonic function of the
-// position, so that the solution is known -- it is this function inside
-// the domain as well -- and every estimate on either side can be checked
-// against it, not only against the other side: the error is the walk's
-// (the epsilon shell's bias, the Monte Carlo variance) and nothing else.
-// The driver's PDE is the same lambda; the two must agree.
-func dirichlet(p : vec3f) -> Float = p.x * p.x - p.y * p.y;
-
-// WoSX: SphereSampler<3>::sampleUnitSphereUniform over two draws -- the
-// height uniform in [-1, 1], the azimuth uniform in [0, 2 pi).
-func pi() -> Float = 3.14159265358979323846;
-
-func uniform_sphere(rng : mut RNG) -> vec3f {
-    u0 = next_float_pcg32(rng);
-    u1 = next_float_pcg32(rng);
-    z = 1.0 - 2.0 * u0;
-    r = sqrt(max(0.0, 1.0 - z * z));
-    phi = 2.0 * pi() * u1;
-    return vec3f{r * cos(phi), r * sin(phi), z};
-}
-
-// WoSX: GeometricQueries::outsideBoundingDomain -- any coordinate past the
-// box, the test for a walk that escaped by numerical error.
-func outside(p : vec3f, problem : Problem) -> bool =
-    p.x < problem.lo.x || p.y < problem.lo.y || p.z < problem.lo.z ||
-    p.x > problem.hi.x || p.y > problem.hi.y || p.z > problem.hi.z;
-
-// What a walk comes back with: the Dirichlet value where it ended, and how
-// many steps it took (WoSX's SampleStatistics counts them, and the mean walk
-// length is the one number that says both sides did the same work).
-element Outcome {
-    value : Float;
-    steps : u32;
-}
+// The Dirichlet data, the uniform direction, the box test and the walk's
+// outcome are walk_common.bonsai's, shared with the walk on stars
+// (wost.bonsai).
 
 // WoSX: getTerminalContribution for a walk that reached the shell or the
 // length limit -- projectToAbsorbingBoundary asks FCPW for the closest
@@ -155,7 +125,7 @@ func walk(x : vec3f, dist : Float, steps : u32, problem : Problem,
         return terminal(x, steps);
     }
     y = x + uniform_sphere(rng) * dist;
-    if outside(y, problem) {
+    if outside_box(y, problem.lo, problem.hi) {
         return {};
     }
     taken = steps + 1u;

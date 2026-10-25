@@ -1,0 +1,240 @@
+// apps/wosx: the walk on stars, as WoSX runs it, compared against WoSX.
+//
+// WoSX's WalkOnStars<T, DIM>::walk (include/wosx/point_estimation/
+// walk_on_stars.h; the GPU's include/wosx/gpu/point-estimation/
+// walk-on-stars.slang is the same walk) solves a problem with a Dirichlet
+// (absorbing) part of the boundary and a Neumann (reflecting) part: a step
+// is not a sphere to the nearest boundary but a star -- the largest ball
+// around the position inside which the reflecting boundary is seen as one
+// star-shaped sheet, found by the closest silhouette point of the
+// reflecting boundary (stars.bonsai), bounded by the distance to the
+// absorbing boundary -- and the step is a ray cast from the position in a
+// uniform direction: where it hits the reflecting boundary the walk goes
+// on from the hit, on the boundary, and its next direction is drawn from
+// the hemisphere into the domain; where it does not, the walk goes to the
+// star's surface as the walk on spheres would. The walk ends in the
+// absorbing boundary's epsilon shell, where the Dirichlet value is read,
+// or when it escapes the box, or at the length limit.
+//
+// This file is that walk for the homogeneous Neumann problem -- zero flux
+// on the reflecting part, no source, no absorption -- which is the walk's
+// geometry with none of its integrands: the throughput stays one (WoSX's
+// computeWalkStepThroughput is the Poisson kernel's one for a direction
+// drawn uniformly, and the pure-Neumann reflectance), the reflecting
+// boundary adds nothing (ignoreReflectingBoundaryContribution), there is
+// no Russian roulette or splitting at the defaults. What the table then
+// measures is the three queries a step makes against WoSX's three over the
+// same trees: the silhouette query and the ray cast on the reflecting
+// boundary's normal cone hierarchy, the distance on the absorbing
+// boundary's tree. Compiled from the repository root over apps/rtq's
+// elements, the FCPW scalar metric and stars.bonsai:
+//
+//     ./build/compiler -p ssa --no-heap --ffp-contract \
+//         -i apps/rtq/elements.bonsai -i apps/rtq/metrics/fcpw_scalar.bonsai \
+//         -i apps/wosx/stars.bonsai -i apps/wosx/wost.bonsai \
+//         -i apps/wosx/schedules/wost-fcpwb.bonsai ...
+import stdlib/numerics;
+import apps/wosx/rng;
+import apps/wosx/walk_common;
+
+// WoSX: the part of WalkSettings and GeometricQueries the walk reads --
+// epsilonShellForAbsorbingBoundary, epsilonShellForReflectingBoundary,
+// silhouettePrecision, maxWalkLength, the domain's box -- and the factor
+// of the bound each step's distance query is given: WoSX's GPU walk asks
+// `computeDistToAbsorbingBoundary(x, false, RADIUS_EXPAND_PERCENTAGE *
+// (distToAbsorbingBoundary + prevDistance))`, the triangle inequality's
+// bound widened a thousandth; its CPU walk asks with no bound. 1.001 or
+// infinity, set by the driver after the reference it runs against.
+// stepsBeforeUsingMaximalSpheres is WoSX's default, the walk length, so
+// every step is a star; the Robin coefficient is zero everywhere.
+element StarProblem {
+    epsilon : Float;
+    eps_reflecting : Float;
+    precision : Float;
+    max_steps : u32;
+    lo, hi : vec3f;
+    query_bound : Float;
+}
+
+// WoSX: projectToAbsorbingBoundary at the walk's end -- FCPW's
+// findClosestPoint with an infinite radius -- and the Dirichlet value at
+// the point found.
+func closest_absorbing(s : Sphere) -> option[(Triangle, ClosestHit)] {
+    return argmin(|t : Triangle, c : ClosestHit| distmin(s, t),
+                  map(|t : Triangle| (t, closest_record(Point{s.c}, t)), absorbing));
+}
+
+func terminal_stars(x : vec3f, steps : u32) -> option[Outcome] {
+    c = closest_absorbing(Sphere{x, inf});
+    if !c {
+        return {};
+    }
+    found = *c;
+    boundary = found[1];
+    done : Outcome = {dirichlet(boundary.p), steps};
+    return done;
+}
+
+// FCPW: Scene::intersect (bvh.slang intersect, the CPU's intersectFromNode)
+// -- the nearest triangle of the reflecting boundary the ray hits within
+// its length, with FCPW's record of the hit; apps/rtq's `trace` over the
+// reflecting set. The ray's segment clamped to [0, inf) as apps/rtq's is
+// (queries.bonsai, `clamped`), so that the compiler knows the entry
+// distances non-negative.
+func clamped_ray(r : Ray) -> Ray = Ray{r.o, select(r.tnear > 0.0, r.tnear, 0.0), r.d,
+                                      select(r.tfar > 0.0, r.tfar, 0.0)};
+
+func hit_reflecting(r0 : Ray) -> option[(Triangle, Hit)] {
+    r = clamped_ray(r0);
+    return argmin(|t : Triangle, h : Hit| distmin(r, t),
+                  filter(|t : Triangle, h : Hit| intersects(r, t),
+                         map(|t : Triangle| (t, hit_record(r, t)), reflecting)));
+}
+
+// FCPW: Scene::findClosestSilhouettePoint -- the nearest silhouette edge of
+// the reflecting boundary within the sphere, and its distance; none where
+// no edge within the sphere is a silhouette, which most stars find
+// (stars.bonsai says why the test is the filter's `intersects`).
+func closest_silhouette(q : StarQuery) -> option[(Edge, Float)] {
+    return argmin(|e : Edge, d : Float| distmin(q, e),
+                  filter(|e : Edge, d : Float| intersects(q, e),
+                         map(|e : Edge| (e, silhouette_distance(q, e)), silhouettes)));
+}
+
+// WoSX: GeometricQueries::offsetPointAlongDirection -- a ray from a point
+// on the reflecting boundary begins a few ulps off it along the direction
+// (Waechter and Binder, "A Fast and Robust Method for Avoiding Self-
+// Intersection", Ray Tracing Gems ch. 6): the position's bits moved by
+// 256 times the direction's component, or a fixed sixty-fifth of a
+// thousandth of it near the origin.
+func offset_component(p : Float, n : Float) -> Float {
+    n_offset = cast[[i32]](n * 256.0);
+    bits = reinterpret[[i32]](p) + select(p < 0.0, -n_offset, n_offset);
+    return select(abs(p) < 1.0 / 32.0, p + n * (1.0 / 65536.0), reinterpret[[Float]](bits));
+}
+
+func offset_along(p : vec3f, n : vec3f) -> vec3f =
+    vec3f{offset_component(p.x, n.x), offset_component(p.y, n.y), offset_component(p.z, n.z)};
+
+// WoSX: computeStarRadiusForReflectingBoundary (fcpw_geometric_queries.h;
+// fcpw-geometric-queries.slang) and the shrink around it in walk(): the
+// star is bounded by the distance to the absorbing boundary and the
+// reflecting shell; the silhouette query within that radius, FCPW's
+// normals flipped (its convention), is skipped where the shell already
+// reaches the bound; the answer the distance found or the bound, never
+// under the shell; then a hundredth shrunk for robustness
+// (RADIUS_SHRINK_PERCENTAGE), never under the shell.
+func star_radius(x : vec3f, dist : Float, problem : StarProblem) -> Float {
+    min_r = problem.eps_reflecting;
+    if min_r > dist {
+        return dist;
+    }
+    r2 = select(dist < inf, dist * dist, inf);
+    if min_r * min_r < r2 {
+        c = closest_silhouette(StarQuery{x, r2, min_r * min_r, problem.precision, 1u});
+        if c {
+            found = *c;
+            return max(0.99 * max(found[1], min_r), min_r);
+        }
+    }
+    return max(0.99 * max(dist, min_r), min_r);
+}
+
+// WoSX: WalkOnStars::walk, one iteration of its loop per call, in its
+// order. The walk arrives at `x` with its distance to the absorbing
+// boundary (`dist`; the first the sample point's, computed once by the
+// driver, the rest the previous call's query), whether it stands on the
+// reflecting boundary and the normal there (`on_boundary`, `n`), and how
+// far the last step moved (`moved`, infinite before the first: the GPU
+// walk's prevDistance, FLT_MAX at the start). In the absorbing shell it
+// ends at the boundary. Otherwise: the star's radius; a uniform direction,
+// turned into the domain's hemisphere when on the boundary; the ray cast
+// from the position, offset off the boundary when on it, against the
+// reflecting boundary within the radius -- a hit puts the walk on the
+// boundary at the hit with its normal, a miss at the star's surface; a
+// walk off the boundary that left the box has escaped; the step counted,
+// the limit reached ends the walk with no value (WoSX's
+// ExceededMaxWalkLength contributes zero and counts); and the distance to
+// the absorbing boundary at the new position, bounded on the GPU by
+// 1.001 times the old distance plus the step (the triangle inequality).
+func walk_stars(x : vec3f, n : vec3f, on_boundary : bool, dist : Float, moved : Float,
+                steps : u32, problem : StarProblem, rng : mut RNG) -> option[Outcome] {
+    if dist <= problem.epsilon {
+        return terminal_stars(x, steps);
+    }
+    radius = star_radius(x, dist, problem);
+    drawn = uniform_sphere(rng);
+    dir : mut vec3f = drawn;
+    if on_boundary && dot(n, drawn) > 0.0 {
+        dir = -drawn;
+    }
+    origin : mut vec3f = x;
+    if on_boundary {
+        origin = offset_along(x, -n);
+    }
+    hit = hit_reflecting(Ray{origin, 0.0, dir, radius});
+    y : mut vec3f = origin + dir * radius;
+    ny : mut vec3f = n;
+    on_y : mut bool = false;
+    moved_y : mut Float = radius;
+    if hit {
+        found = *hit;
+        h = found[1];
+        y = h.p;
+        ny = h.n;
+        on_y = true;
+        moved_y = h.d;
+    }
+    if !on_y && outside_box(y, problem.lo, problem.hi) {
+        return {};
+    }
+    taken = steps + 1u;
+    if taken >= problem.max_steps {
+        exceeded : Outcome = {0.0, taken};
+        return exceeded;
+    }
+    bound = problem.query_bound * (dist + moved_y);
+    r2 = select(bound < inf, bound * bound, inf);
+    c = closest_absorbing(Sphere{y, r2});
+    if !c {
+        return {};
+    }
+    nearest = *c;
+    boundary = nearest[1];
+    return walk_stars(y, ny, on_y, boundary.d, moved_y, taken, problem, rng);
+}
+
+// WoSX: WalkOnStars::solve over a batch of points, each with its distance
+// to the absorbing boundary already known (SamplePoint::
+// distToAbsorbingBoundary, the driver's precomputation, which it hands to
+// both sides), estimated by `walks` walks from a generator seeded for the
+// point and the walk, the estimate the mean of the walks that ended and
+// beside it the mean number of steps of those walks; as wosx.bonsai's
+// solve_all, which says why the loops are parfors and the sums atomic.
+func [[export]] solve_stars(n : u32, points : array[Point, n], dists : array[Float, n],
+                            problem : StarProblem, walks : u32, seed_state : u64,
+                            solution : mut array[Float, n], mean_steps : mut array[Float, n],
+                            walks_ended : mut array[u32, n]) {
+    parfor i in 0u:n {
+        total : mut Float = 0.0;
+        steps : mut u32 = 0u;
+        ended : mut u32 = 0u;
+        parfor w in 0u:walks {
+            rng : mut RNG = seed(seed_state,
+                                 cast[[u64]](i) * cast[[u64]](walks) + cast[[u64]](w));
+            o = walk_stars(points[i].p, vec3f{0.0, 0.0, 0.0}, false, dists[i], inf, 0u,
+                           problem, rng);
+            if o {
+                done = *o;
+                atomic total += done.value;
+                atomic steps += done.steps;
+                atomic ended += 1u;
+            }
+        }
+        over = cast[[Float]](max(ended, 1u));
+        solution[i] = total / over;
+        mean_steps[i] = cast[[Float]](steps) / over;
+        walks_ended[i] = ended;
+    }
+    return;
+}
