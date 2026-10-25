@@ -1,0 +1,22 @@
+// The schedule matching WoSX's GPU walk on stars: kernel/wost_fcpwb.bonsai's
+// three traversals of FCPW's trees in FCPW's bytes, in the kernel's order,
+// run as WoSX's `runPersistentPointEstimator` runs its walks
+// (include/wosx/gpu/entrypoints/common-shaders/point-estimation.cs.slang,
+// its default when the backend is CUDA; the walk itself gpu/point-
+// estimation/walk-on-stars.slang) -- 131072 resident threads in groups of
+// 256, each claiming one walk at a time from a global counter until the
+// walks are gone, the work item `k` naming the point as `k % points` and
+// the walk as `k / points` so that consecutive claims are consecutive
+// points, each thread's walk adding to its point's statistics. The four
+// directives are fcpwb-gpu.bonsai's, which says what each does; the only
+// difference from the walk on spheres' kernel is the program they run.
+import apps/wosx/schedules/kernel/wost_fcpwb;
+
+schedule {
+    solve_stars.reorder(i, w);
+    solve_stars.collapse(w, i, k);
+    solve_stars.persistent(k, t, 131072);
+    solve_stars.split(t, t_blk, t_thr, 256, true);
+    solve_stars.bind(t_blk, GPUBlock);
+    solve_stars.bind(t_thr, GPUThread);
+}

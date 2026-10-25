@@ -1,0 +1,10 @@
+// The walk on stars on WoSX's default trees, one thread, as WoSX's
+// WalkOnStars runs it over FCPW's scalar BVH of the absorbing boundary and
+// its normal cone hierarchy of the reflecting one: cpu/wost_fcpwb.bonsai's
+// traversals, in FCPW's CPU order, and nothing more -- the matching
+// schedule against WoSX built as it ships (FCPW_USE_ENOKI off), one thread
+// against one thread. The threads and the persistent workers
+// (wost-fcpwb-threads, wost-fcpwb-persistent) import the same traversals
+// and add how the points are run; the GPU schedules (wost-fcpwb-gpu*) take
+// theirs from kernel/wost_fcpwb.bonsai, WoSX's kernel's order.
+import apps/wosx/schedules/cpu/wost_fcpwb;

@@ -1,0 +1,50 @@
+// The traversals of WoSX's CPU walk on stars on its default trees: FCPW's
+// scalar BVH over the absorbing boundary and its normal cone hierarchy over
+// the reflecting one, in FCPW's bytes (layouts/fcpw_stars.bonsai), the walk
+// a loop, each of the three queries a traversal on a stack of FCPW's depth
+// with the two children tested at their parent and the nearer entered
+// first, a tie keeping the left child first, as FCPW's strict compares do.
+// The order of each is FCPW's CPU traversal's: the distance to the
+// absorbing boundary by the child's squared distance to its box, d2Min, and
+// where both children contain the point by the far corner's distance,
+// d2Max, the nearer far corner first (processSubtreeForClosestPoint;
+// fcpwb.bonsai's key, which says more); the silhouette query by d2Min
+// alone, the children's cones and boxes tested at the parent
+// (processSubtreeForClosestSilhouettePoint; the filter's `intersects` over
+// the cone box is that test); the ray cast by the slab entry, the nearer
+// hit first (intersectFromNode). The leaf's Voronoi arms of the
+// closest-point test are skipped where the point is not in them.
+//
+// The CPU schedules import this file -- wost-fcpwb.bonsai, which is these
+// traversals and nothing more, one thread against one thread; the threads
+// and the persistent workers (wost-fcpwb-threads, wost-fcpwb-persistent),
+// which add how the points are run -- as the GPU schedules take theirs
+// from kernel/wost_fcpwb.bonsai, whose closest-point key is d2Min alone,
+// as WoSX's kernel orders. (A schedule's name carries dashes, which an
+// import path cannot, so the shared traversals live here under a name an
+// import can say.)
+import apps/wosx/schedules/layouts/fcpw_stars;
+
+schedule {
+    walk_stars.loopify();
+    closest_absorbing.sort(absorbing.Interior,
+                           |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                           select(distmin(s, AABB{lo[0u], hi[0u]}) == 0.0 &&
+                                  distmin(s, AABB{lo[1u], hi[1u]}) == 0.0,
+                                  distmax(s, AABB{lo[i], hi[i]}),
+                                  distmin(s, AABB{lo[i], hi[i]})))
+                     .loopify(64);
+    closest_absorbing.skip(closest_point_fcpw);
+    hit_reflecting.sort(reflecting.Interior,
+                        |i : u32, r : Ray, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                         axis : vector[vec3f, 2], half_angle : vector[f32, 2],
+                         radius : vector[f32, 2]|
+                        distmin(r, AABB{lo[i], hi[i]}))
+                  .loopify(64);
+    closest_silhouette.sort(silhouettes.Interior,
+                            |i : u32, q : StarQuery, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                             axis : vector[vec3f, 2], half_angle : vector[f32, 2],
+                             radius : vector[f32, 2]|
+                            distmin(q, ConeBox{lo[i], hi[i], axis[i], half_angle[i], radius[i]}))
+                      .loopify(64);
+}

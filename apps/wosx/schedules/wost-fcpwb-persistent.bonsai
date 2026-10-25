@@ -1,0 +1,12 @@
+// The walk on stars' matching schedule with the points claimed by sixteen
+// persistent workers from a counter instead of TBB's partition, the workers
+// on the threads; WoSX has no persistent CPU solver, so the reference is its
+// threaded solve again, as fcpwb-persistent.bonsai is for the walk on
+// spheres. The traversals are cpu/wost_fcpwb.bonsai's, FCPW's CPU order,
+// the one-thread schedule's.
+import apps/wosx/schedules/cpu/wost_fcpwb;
+
+schedule {
+    solve_stars.persistent(i, t, 16);
+    solve_stars.bind(t, CPUThread);
+}

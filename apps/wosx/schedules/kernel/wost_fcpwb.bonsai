@@ -1,0 +1,38 @@
+// The traversals of WoSX's GPU walk on stars on its default trees: FCPW's
+// scalar BVH over the absorbing boundary and its normal cone hierarchy over
+// the reflecting one, in FCPW's bytes (layouts/fcpw_stars.bonsai), the walk
+// a loop, each of the three queries a traversal on a stack of FCPW's depth
+// with the two children tested at their parent and the nearer entered
+// first, a tie keeping the left child first (bvh.slang: `if
+// (distToChildNodes[2] < distToChildNodes[0]) swap`). The keys are the
+// kernel's: the child's squared distance to its box for the distance to
+// the absorbing boundary (FCPW's d2Min, as kernel/fcpwb.bonsai has it for
+// the walk on spheres; the CPU traversal's far-corner rule for two children
+// holding the point is wost-fcpwb.bonsai's) and for the silhouette query
+// (findClosestSilhouettePoint orders by d2Min on both of FCPW's sides),
+// the ray's slab entry for the ray cast (intersect: the nearer hit first).
+// The leaf's Voronoi arms of the closest-point test are skipped where the
+// point is not in them. The GPU schedules (wost-fcpwb-gpu*.bonsai) import
+// this file for the traversals and add how the walks are run.
+import apps/wosx/schedules/layouts/fcpw_stars;
+
+schedule {
+    walk_stars.loopify();
+    closest_absorbing.sort(absorbing.Interior,
+                           |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                           distmin(s, AABB{lo[i], hi[i]}))
+                     .loopify(64);
+    closest_absorbing.skip(closest_point_fcpw);
+    hit_reflecting.sort(reflecting.Interior,
+                        |i : u32, r : Ray, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                         axis : vector[vec3f, 2], half_angle : vector[f32, 2],
+                         radius : vector[f32, 2]|
+                        distmin(r, AABB{lo[i], hi[i]}))
+                  .loopify(64);
+    closest_silhouette.sort(silhouettes.Interior,
+                            |i : u32, q : StarQuery, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                             axis : vector[vec3f, 2], half_angle : vector[f32, 2],
+                             radius : vector[f32, 2]|
+                            distmin(q, ConeBox{lo[i], hi[i], axis[i], half_angle[i], radius[i]}))
+                      .loopify(64);
+}

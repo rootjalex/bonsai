@@ -1,0 +1,10 @@
+// The walk on stars' matching schedule, the points over the threads: WoSX's
+// WalkOnStars under its tbb::parallel_for over the sample points against
+// the program's parfor over the points bound to the same pinned threads,
+// as fcpwb-threads.bonsai is for the walk on spheres. The traversals are
+// cpu/wost_fcpwb.bonsai's, FCPW's CPU order, the one-thread schedule's.
+import apps/wosx/schedules/cpu/wost_fcpwb;
+
+schedule {
+    solve_stars.bind(i, CPUThread);
+}
