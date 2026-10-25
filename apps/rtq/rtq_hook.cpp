@@ -2044,6 +2044,28 @@ double distance_to(const Mesh &mesh, const Point &pt, uint32_t prim) {
         const double d[3] = {p[0] - q[0], p[1] - q[1], p[2] - q[2]};
         return std::sqrt(dot3(d, d));
     };
+    // A degenerate triangle -- two corners coincident, or three in a line
+    // (dambreak and ivy have thousands) -- has no face: it is the segment
+    // or point its corners span, and its distance is the least distance to
+    // its three edges. Ericson's regions below would divide by zero on it;
+    // both references and the program answer such a triangle as its edge
+    // regions give it, which is the same segment.
+    const double n[3] = {ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2],
+                         ab[0] * ac[1] - ab[1] * ac[0]};
+    if (dot3(n, n) == 0.0) {
+        const auto segment = [&](const double *s, const double *t) {
+            double st[3], sp[3];
+            for (int k = 0; k < 3; k++) {
+                st[k] = t[k] - s[k];
+                sp[k] = p[k] - s[k];
+            }
+            const double len2 = dot3(st, st);
+            const double u = len2 > 0 ? std::min(1.0, std::max(0.0, dot3(st, sp) / len2)) : 0.0;
+            const double q[3] = {s[0] + u * st[0], s[1] + u * st[1], s[2] + u * st[2]};
+            return dist_to(q);
+        };
+        return std::min({segment(a, b), segment(b, c), segment(c, a)});
+    }
     const double d1 = dot3(ab, ap), d2 = dot3(ac, ap);
     if (d1 <= 0 && d2 <= 0) {
         return dist_to(a);
@@ -2107,6 +2129,8 @@ Agreement compare_closest(const Mesh &mesh, const std::vector<Point> &points,
             }
             continue;
         }
+        // The distance to each side's triangle in double, from the mesh
+        // (a degenerate triangle as the segment it is: distance_to).
         const double de = distance_to(mesh, points[i], e);
         const double db = distance_to(mesh, points[i], b);
         if (std::isfinite(de) && std::isfinite(db) &&
@@ -2116,10 +2140,10 @@ Agreement compare_closest(const Mesh &mesh, const std::vector<Point> &points,
         } else {
             if (int(a.differ) < explain_limit) {
                 std::fprintf(stderr,
-                             "  point %zu (%g %g %g): %s triangle %d at %g, bonsai "
-                             "triangle %d at %g\n",
+                             "  point %zu (%g %g %g): %s triangle %d at %g (its record %g), "
+                             "bonsai triangle %d at %g (its record %g)\n",
                              i, points[i].p.x, points[i].p.y, points[i].p.z, kReference,
-                             int(e), de, int(b), db);
+                             int(e), de, er.d, int(b), db, br.d);
             }
             a.differ++;
         }

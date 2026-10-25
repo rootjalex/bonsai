@@ -228,11 +228,12 @@ def mesh_ticks(ax, meshes):
     ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
 
 
-def legend_above(ax, handles):
+def legend_above(ax, handles, ncol=None):
     """The legend in one row above the axes, clear of the tallest bar; no
     title (the figure's caption says which query it is, and which
-    schedules)."""
-    ax.legend(handles=handles, ncol=len(handles), loc="lower left", frameon=False,
+    schedules). `ncol` makes it rows of that many, where one row of all
+    the handles would be wider than the figure."""
+    ax.legend(handles=handles, ncol=ncol or len(handles), loc="lower left", frameon=False,
               bbox_to_anchor=(0, 1.0), borderaxespad=0, columnspacing=1.0)
 
 
@@ -422,7 +423,10 @@ def draw_scalar(rows, out_dir, formats, exclude):
                   if any(k[0] == m for k in data)]
         n = len(SCALAR_SETS)
         width = 0.8 / n
-        fig, ax = new_figure()
+        # Taller than the three by the legend's second row: seven handles in
+        # one row are wider than the text block.
+        paper_style()
+        fig, ax = plt.subplots(figsize=(TEXT_WIDTH, HEIGHT + 0.25))
         top = 1.0
         for i, mesh in enumerate(meshes):
             for j, (query, rays, _, kind) in enumerate(SCALAR_SETS):
@@ -453,7 +457,7 @@ def draw_scalar(rows, out_dir, formats, exclude):
                 sets.append(rays)
         handles += [Patch(facecolor="white", edgecolor=EDGE, linewidth=0.4, hatch=HATCH[s],
                           label=LABEL[s]) for s in sets]
-        legend_above(ax, handles)
+        legend_above(ax, handles, ncol=4)
         path = save(fig, out_dir, f"rtq-{name}", formats)
         sections = []
         for kind in kinds:
