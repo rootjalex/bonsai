@@ -21,7 +21,13 @@ schedule (`packet16`; --packet names another): three bars a mesh, the
 program's rays in gangs of sixteen over Embree's rtcIntersect16 (primary
 and diffuse rays) and rtcOccluded16 (ambient-occlusion rays), the ray sets
 by hatching, both sides over the same BVH8 and the same sixteen consecutive
-rays a packet.
+rays a packet. Two more, the queries apps/wosx's walks make over FCPW's
+scalar trees, are drawn when the CSV has their rows: `rtq-fcpw-scalar-cpu`,
+bonsai over FCPW's scalar build, and `rtq-fcpw-scalar-gpu`, bonsai over
+FCPW's GPUScene, seven bars a mesh -- the first hit, the any hit and the
+closest point over FCPW's binary BVH (`fcpwb`, `fcpwb-gpu`) and the closest
+silhouette point over its normal cone hierarchy (`fcpws`, `fcpws-gpu`), the
+query by colour and the set by hatching.
 
 Each reference on its own default tree: Embree's BVH8 (`embree`) and FCPW's
 four-wide Mbvh with sixteen-lane leaves (`fcpw4w16`, FCPW's default branching
@@ -89,6 +95,29 @@ FIGURES = [
 # figure, since the packet comparison is one comparison (Embree's
 # rtcIntersect<K> and rtcOccluded<K> against the rays in gangs of K).
 PACKET_SETS = [("nearest", "primary"), ("nearest", "diffuse"), ("any", "ao")]
+# The two figures of the queries apps/wosx's walks make, over FCPW's scalar
+# trees (the build WoSX ships): one for the CPU, bonsai over FCPW's scalar
+# build, one for the GPU, bonsai over FCPW's GPUScene. Seven bars a mesh,
+# the query by colour -- four classes of the same ramp, far enough apart
+# with the hatches -- and the set by hatching: the first hit of primary and
+# diffuse rays and the any hit of ambient-occlusion rays over the binary
+# BVH (fcpwb), the closest point of the near and volume points over it, and
+# the closest silhouette point about the same points over the normal cone
+# hierarchy (fcpws). Each platform's pair of schedules, and its reference's
+# name in the CSV.
+SCALAR_FIGURES = [
+    ("fcpw-scalar-cpu", "fcpw", "fcpwb", "fcpws", "FCPW's scalar build"),
+    ("fcpw-scalar-gpu", "fcpw-gpu", "fcpwb-gpu", "fcpws-gpu", "FCPW's GPUScene"),
+]
+# (query, set, which of the two schedules, the legend's name of the query)
+SCALAR_SETS = [
+    ("nearest", "primary", 0, "First hit"), ("nearest", "diffuse", 0, "First hit"),
+    ("any", "ao", 0, "Any hit"),
+    ("closest", "near", 0, "Closest point"), ("closest", "volume", 0, "Closest point"),
+    ("silhouette", "near", 1, "Silhouette"), ("silhouette", "volume", 1, "Silhouette"),
+]
+QUERY_COLOUR = {"First hit": YLGNBU[1], "Any hit": YLGNBU[3], "Closest point": YLGNBU[5],
+                "Silhouette": YLGNBU[7]}
 # A height three of these stack in on half a page with their captions.
 HEIGHT = 1.5
 
@@ -235,9 +264,16 @@ def mesh_table(rows, meshes, tris, schedules, out_dir, exclude):
     for r in rows:
         if r["schedule"] in schedules.values() and r.get("nodes"):
             nodes[(r["reference"], r["mesh"])] = int(r["nodes"])
+        # FCPW's binary trees (the scalar figures'): the BVH's node count, and
+        # the normal cone hierarchy's, which has as many nodes over the same
+        # triangles.
+        if r["schedule"] == "fcpwb" and r.get("nodes"):
+            nodes[("fcpwb", r["mesh"])] = int(r["nodes"])
     columns = [("mesh", lambda m: m), ("triangles", lambda m: tris[m]),
                ("Embree BVH8 nodes", lambda m: nodes.get(("embree", m), "")),
                ("FCPW Mbvh nodes", lambda m: nodes.get(("fcpw", m), ""))]
+    if any(k[0] == "fcpwb" for k in nodes):
+        columns.append(("FCPW binary BVH nodes", lambda m: nodes.get(("fcpwb", m), "")))
     table = [[f(m) for _, f in columns] for m in meshes]
     txt = os.path.join(out_dir, "rtq-meshes.txt")
     with open(txt, "w") as f:
@@ -361,6 +397,108 @@ def draw_packet(rows, schedule, out_dir, formats, exclude):
          "over the same BVH8 and the same sixteen consecutive rays a packet"]))
 
 
+def scalar_cells(rows, reference, schedules):
+    """The cells of one platform's figure, keyed by (mesh, query, rays): each
+    set's speedup under the schedule it is measured with."""
+    out = {}
+    for query, rays, which, _ in SCALAR_SETS:
+        for (mesh, r), v in cells(rows, reference, schedules[which], query).items():
+            if r == rays:
+                out[(mesh, query, rays)] = v
+    return out
+
+
+def draw_scalar(rows, out_dir, formats, exclude):
+    """The two figures over FCPW's scalar trees, the CPU's and the GPU's
+    (SCALAR_FIGURES): drawn only where the CSV has the rows, each with its
+    summary beside it."""
+    for name, reference, binary, snch, over in SCALAR_FIGURES:
+        data = scalar_cells(rows, reference, (binary, snch))
+        if not data:
+            print(f"{name}: no rows for {binary}, {snch} over {reference}; skipped",
+                  file=sys.stderr)
+            continue
+        meshes = [m for m in meshes_by_triangles(rows, exclude)[0]
+                  if any(k[0] == m for k in data)]
+        n = len(SCALAR_SETS)
+        width = 0.8 / n
+        fig, ax = new_figure()
+        top = 1.0
+        for i, mesh in enumerate(meshes):
+            for j, (query, rays, _, kind) in enumerate(SCALAR_SETS):
+                v = data.get((mesh, query, rays))
+                if v is None:
+                    continue
+                x = i - 0.4 + width * (j + 0.5)
+                ax.bar(x, v, width, color=QUERY_COLOUR[kind], hatch=HATCH[rays],
+                       edgecolor=EDGE, linewidth=0.4)
+                top = max(top, v)
+        ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=0.8, zorder=3)
+        mesh_ticks(ax, meshes)
+        ax.set_ylim(0, top * 1.08)
+        ax.set_ylabel("Speedup")
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.yaxis.grid(True, linewidth=0.4, alpha=0.5)
+        ax.set_axisbelow(True)
+        kinds = []
+        for _, _, _, kind in SCALAR_SETS:
+            if kind not in kinds:
+                kinds.append(kind)
+        handles = [Patch(facecolor=QUERY_COLOUR[k], edgecolor=EDGE, linewidth=0.4, label=k)
+                   for k in kinds]
+        sets = []
+        for _, rays, _, _ in SCALAR_SETS:
+            if rays not in sets:
+                sets.append(rays)
+        handles += [Patch(facecolor="white", edgecolor=EDGE, linewidth=0.4, hatch=HATCH[s],
+                          label=LABEL[s]) for s in sets]
+        legend_above(ax, handles)
+        path = save(fig, out_dir, f"rtq-{name}", formats)
+        sections = []
+        for kind in kinds:
+            sections.append((kind, [(f"{LABEL[rays]} ({query})",
+                                     [(m, data[(m, query, rays)]) for m in meshes
+                                      if (m, query, rays) in data])
+                                    for query, rays, _, k in SCALAR_SETS if k == kind]))
+        notes = [
+            f"every bar is bonsai over {over} on the same tree: the first hit, the any hit "
+            f"and the closest point over FCPW's binary BVH ({binary}), the closest silhouette "
+            f"point over its normal cone hierarchy ({snch}), the queries apps/wosx's walks make",
+            "the silhouette query asks, about each point of the two point sets, for the "
+            "closest silhouette edge within a tenth of the diagonal, no minimum radius, so "
+            "that both sides search to the exact closest",
+        ]
+        if reference == "fcpw-gpu":
+            notes.append("both sides timed around the dispatch and the wait alone, the "
+                         "queries uploaded and the answers read back off the clock; one "
+                         "query a thread in groups of 256 on both sides")
+        if exclude:
+            notes.append(f"left out: {', '.join(sorted(exclude))} (FCPW finds no hit on lte-orb)")
+        print(write_summary(path, f"Speedup over {over}, the walks' queries, {len(meshes)} meshes",
+                            sections, notes))
+
+
+def scalar_geomeans(rows, exclude):
+    """The geomeans of the two scalar figures' bars, printed as geomeans()
+    prints the others, where the CSV has their rows."""
+    for name, reference, binary, snch, over in SCALAR_FIGURES:
+        data = scalar_cells(rows, reference, (binary, snch))
+        if not data:
+            continue
+        meshes = [m for m in meshes_by_triangles(rows, exclude)[0]
+                  if any(k[0] == m for k in data)]
+        print(f"geomeans, bonsai over {over}, {len(meshes)} meshes:")
+        for query, rays, which, _ in SCALAR_SETS:
+            values = {m: data[(m, query, rays)] for m in meshes if (m, query, rays) in data}
+            if not values:
+                continue
+            g = math.exp(sum(math.log(v) for v in values.values()) / len(values))
+            low = " ".join(f"{m} {v:.2f}" for m, v in values.items() if v < 0.97)
+            print(f"  {reference:<10} {(binary, snch)[which]:<10} {query:<10} {rays:<8} "
+                  f"{g:8.3f} {min(values.values()):6.2f} {max(values.values()):6.2f}  {low}")
+
+
 def draw(rows, schedules, out_dir, suffix, formats, exclude, tuned):
     meshes, tris = meshes_by_triangles(rows, exclude)
     refs = [("embree", schedules["embree"]), ("fcpw", schedules["fcpw"])]
@@ -442,9 +580,12 @@ def main():
          exclude, tuned)
     if not a.tuned:
         draw_packet(rows, a.packet, a.out, a.format.split(","), exclude)
+        draw_scalar(rows, a.out, a.format.split(","), exclude)
         meshes, tris = meshes_by_triangles(rows, exclude)
         mesh_table(rows, meshes, tris, schedules, a.out, exclude)
     geomeans(rows, schedules, exclude, tuned, None if a.tuned else a.packet)
+    if not a.tuned:
+        scalar_geomeans(rows, exclude)
 
 
 if __name__ == "__main__":
