@@ -415,7 +415,11 @@ driver, the two sides' kernels told apart by symbol).
   reference by colour; the y axis Speedup, the legend saying over which
   reference) from the results CSV, `python apps/rtq/plot.py
   apps/rtq/results/rtq-results.csv -o apps/rtq/plots`, drawn at the
-  paper's page width in apps/pbrt/figure_style.py's style. Beside each
+  paper's page width in apps/pbrt/figure_style.py's style; and, where the
+  CSV has the rows, the two figures of the walks' queries over FCPW's
+  scalar trees, `rtq-fcpw-scalar-cpu` (over FCPW's scalar build) and
+  `rtq-fcpw-scalar-gpu` (over its GPUScene), seven bars a mesh, the query
+  by colour and the set by hatching. Beside each
   figure a `.txt` of the statistics the paper quotes (per reference and
   set the geomean, the least and greatest cell and its mesh, notes reading
   the figure), and the mesh facts in one table rather than on every plot,
