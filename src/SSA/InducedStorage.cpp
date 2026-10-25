@@ -161,6 +161,9 @@ struct Tracking {
     vector<bool> read;
     vector<vector<shared_ptr<Instruction>>> emitted;
     vector<vector<std::pair<string, string>>> params; // (function, parameter)
+    // The block arguments the threading made per leaf (thread_into):
+    // (function, argument), erased with the leaf when nothing reads it.
+    vector<vector<std::pair<string, string>>> block_args;
     vector<shared_ptr<Value>> arrays;                 // the leaf arrays, in the owner
 };
 
@@ -225,6 +228,17 @@ class Splitter {
     map<string, vector<Site>> callers;
     map<string, FunctionState> states;
     map<string, map<string, Split>> param_splits; // by function, by parameter
+    // A block argument a split value is handed to, split in its turn: the
+    // target block's argument renamed to a name no other block has and
+    // given one new argument per leaf, which every jump into the block
+    // appends its parts for (thread_into). By function, by the target
+    // block's name and the argument's index.
+    struct ArgSplit {
+        string name; // the renamed argument, whose uses the split rewrites
+        Split split; // its parts: the new arguments
+    };
+    map<string, map<string, ArgSplit>> arg_splits;
+    map<string, set<string>> threaded; // by function: the jumps whose parts are appended
     vector<shared_ptr<Tracking>> tracks;
     vector<string> work; // functions with pending names
     // Two storages whose leaves [first, last) flow into one parameter: a read
@@ -400,6 +414,7 @@ class Splitter {
         track->read.assign(n, false);
         track->emitted.resize(n);
         track->params.resize(n);
+        track->block_args.resize(n);
         track->arrays.assign(n, nullptr);
         Split split;
         split.track = track;
@@ -907,8 +922,8 @@ class Splitter {
                 }
             }
         }
-        // Threaded to another block under another name: that name stands
-        // for the same parts.
+        // Threaded to another block as one of its arguments: that argument
+        // is split in its turn (thread_into).
         for (auto &[jump, first_arg] : jumps(*block)) {
             if (jump == t.callee()) {
                 continue;
@@ -922,12 +937,154 @@ class Splitter {
                 internal_assert(index < target->args.size())
                     << split.track->handle << ": " << fname << ", " << block->name
                     << " hands " << target->name << " more arguments than it takes";
-                const string &tname = target->args[index].name;
-                FunctionState &st = states[fname];
-                if (tname != vname && !st.splits.contains(tname)) {
-                    enqueue(fname, tname, split);
+                // Under its own name the target's uses are this rewrite's
+                // (the rewrite of `vname` runs over every block), and its
+                // parts reach the target from where they are. Under another
+                // name the argument is split in its turn.
+                if (target->args[index].name != vname) {
+                    thread_into(f, fname, block, *jump, target, index, split);
                 }
             }
+        }
+    }
+
+    // `jump`, from `block`, hands the split value as argument `index` of
+    // `target`. The argument is split as a callee's parameter is: the first
+    // time a jump arrives, the target's argument is renamed to a name no
+    // other value of the function has and the target gains one argument per
+    // leaf, whose rewrite then turns the target's uses to them; and every
+    // jump into the target -- this one now, the others as the values they
+    // hand are followed -- appends its own parts, in leaf order, so the
+    // positions agree.
+    //
+    // This used to say "that name stands for the same parts" -- the one
+    // Split recorded under the target argument's name, and the rewrite of
+    // that name's uses run over every block of the function. A function has
+    // one value of a name, but not one block argument: a specialized loop's
+    // variants (SSA/Specialize.cpp) each carry the values of the enclosing
+    // scope under the names they had, so two blocks define an argument of
+    // one name, and the second variant's uses were rewritten to the parts
+    // materialized in the first's block -- addresses off its own loop index,
+    // which no path of the second reaches (SSA.cpp:699, "not in current
+    // block, and current block is entry"). Seen with pbrt's camera kernel
+    // once its film write stayed inline beside the deferred path, which put
+    // the record's handles across the merge after `if (cameraRay)` in every
+    // sampler variant.
+    void thread_into(Function &f, const string &fname, const shared_ptr<Block> &block,
+                     Terminator::Jump &jump, const shared_ptr<Block> &target, size_t index,
+                     const Split &split) {
+        Tracking &track = *split.track;
+        const string key = target->name + "#" + std::to_string(index);
+        // Once per jump: a value's uses may be rewritten more than once (its
+        // name is queued again when a storage it is part of is split
+        // later), and the jump still names the value, so the parts would be
+        // appended again.
+        const string jump_key = block->name + ">" + key;
+        if (!threaded[fname].insert(jump_key).second) {
+            return;
+        }
+        auto &splits_of = arg_splits[fname];
+        auto found = splits_of.find(key);
+        if (found == splits_of.end()) {
+            const string was = target->args[index].name;
+            const string renamed = fresh(f, was + "!arg");
+            rename_argument(*target, was, renamed);
+            Split tsplit = split;
+            tsplit.parts.assign(track.leaves.size(), nullptr);
+            for (size_t k = split.first; k < split.last; k++) {
+                if (!split.parts[k]) {
+                    continue;
+                }
+                Argument a{split.parts[k]->get_type(),
+                           fresh(f, renamed + tail_of(track, was, k))};
+                target->args.push_back(a);
+                auto v = std::make_shared<Value>(a);
+                target->lookups[a.name] = v;
+                tsplit.parts[k] = v;
+                track.block_args[k].push_back({fname, a.name});
+            }
+            found = splits_of.emplace(key, ArgSplit{renamed, std::move(tsplit)}).first;
+            enqueue(fname, renamed, found->second.split);
+        } else {
+            internal_assert(found->second.split.first == split.first &&
+                            found->second.split.last == split.last &&
+                            found->second.split.array == split.array)
+                << track.handle << ": " << fname << ", " << block->name << " hands "
+                << target->name << " a differently shaped part of the storage than "
+                << "another of its predecessors does";
+        }
+        for (size_t k = split.first; k < split.last; k++) {
+            if (!split.parts[k]) {
+                continue;
+            }
+            // A part the source block cannot reach -- materialized on a path
+            // that does not come through here, for a leaf this path never
+            // read, since a read here would have reached it -- goes as
+            // undefined rather than as a reach that climbs to the entry.
+            if (available(f, block, split.parts[k])) {
+                jump.args.push_back(reach(block, split.parts[k]));
+            } else {
+                jump.args.push_back(std::make_shared<Value>(
+                    Constant{split.parts[k]->get_type(), Undefined{}}));
+            }
+        }
+    }
+
+    // Whether `reach(block, v)` would find `v`: it is defined or threaded
+    // into `block`, or into every predecessor, back to the entry. Optimistic
+    // round a loop, as the SSA construction is: a header asked again while
+    // its own question is open counts as having it.
+    bool available(Function &f, const shared_ptr<Block> &block, const shared_ptr<Value> &v) {
+        const string *name = name_of(v);
+        if (name == nullptr) {
+            return true; // a constant
+        }
+        refresh_preds(f);
+        map<string, bool> memo;
+        const std::function<bool(const shared_ptr<Block> &)> at =
+            [&](const shared_ptr<Block> &b) -> bool {
+            if (b->lookups.contains(*name)) {
+                return true;
+            }
+            if (b == f.blocks.front()) {
+                return false;
+            }
+            if (const auto it = memo.find(b->name); it != memo.end()) {
+                return it->second;
+            }
+            memo[b->name] = true;
+            bool ok = !b->preds.empty();
+            for (const auto &weak : b->preds) {
+                const shared_ptr<Block> pred = weak.lock();
+                if (!pred || !at(pred)) {
+                    ok = false;
+                    break;
+                }
+            }
+            memo[b->name] = ok;
+            return ok;
+        };
+        return at(block);
+    }
+
+    // Renames the argument `from` of `block` to `to`: its entry in the
+    // parameter list, its lookup, and every value of the block that names
+    // it (every use inside a block is of the block's own argument).
+    static void rename_argument(Block &block, const string &from, const string &to) {
+        for (Argument &a : block.args) {
+            if (a.name == from) {
+                a.name = to;
+            }
+        }
+        for_each_value(block, [&](shared_ptr<Value> &v) {
+            if (auto *a = std::get_if<Argument>(&v->data); a != nullptr && a->name == from) {
+                a->name = to;
+            }
+        });
+        if (const auto it = block.lookups.find(from); it != block.lookups.end()) {
+            auto v = it->second;
+            block.lookups.erase(it);
+            block.lookups[to] = v;
         }
     }
 
@@ -1276,6 +1433,9 @@ class Splitter {
                 }
                 for (const auto &[g, pname] : track->params[k]) {
                     drop_parameter(g, pname);
+                }
+                for (const auto &[g, bname] : track->block_args[k]) {
+                    erase_threading(function(g), bname);
                 }
                 const string &aname = *name_of(track->arrays[k]);
                 erase_instruction(std::get<shared_ptr<Instruction>>(track->arrays[k]->data));

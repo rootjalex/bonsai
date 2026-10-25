@@ -59,13 +59,13 @@ func run(values : f32[8], out : mut f32[8]) -> void {
   }
   parfor q_rest in [0:8:1] {
     let i = q_rest in
-    let @54 = (&q_rec_seen_slots[q_rest]) in
-    let @53 = (&q_rec_hits_slots[q_rest]) in
-    let @51 = (&q_rec_p_slots[q_rest]) in
-    let @55 = (*@54) in
-    let @56 = (*@53) in
+    let rec!arg_p = (&q_rec_p_slots[q_rest]) in
+    let rec!arg_hits = (&q_rec_hits_slots[q_rest]) in
+    let rec!arg_seen = (&q_rec_seen_slots[q_rest]) in
+    let @55 = (*rec!arg_seen) in
+    let @56 = (*rec!arg_hits) in
     let @8 = cast<f32>(@56) in
-    let @57 = (*@51) in
+    let @57 = (*rec!arg_p) in
     let @58 = cast<f32x3>(@57) in
     let @11 = @58[0u] in
     let @12 = @8 + @11 in

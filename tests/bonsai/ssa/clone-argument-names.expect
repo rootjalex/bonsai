@@ -114,14 +114,14 @@ func [[export]] run(values : f32[40], out : mut f32x4[40]) -> void {
   }
   parfor rays_rest in [0:40:1] {
     let i = rays_rest in
-    let @59 = (&rays_total_x_slots[rays_rest]) in
-    let @60 = (&rays_total_y_slots[rays_rest]) in
-    let @61 = (&rays_total_z_slots[rays_rest]) in
-    let @62 = (&rays_total_w_slots[rays_rest]) in
-    let @63 = (*@59) in
-    let @64 = (*@60) in
-    let @65 = (*@61) in
-    let @66 = (*@62) in
+    let total!arg_x = (&rays_total_x_slots[rays_rest]) in
+    let total!arg_y = (&rays_total_y_slots[rays_rest]) in
+    let total!arg_z = (&rays_total_z_slots[rays_rest]) in
+    let total!arg_w = (&rays_total_w_slots[rays_rest]) in
+    let @63 = (*total!arg_x) in
+    let @64 = (*total!arg_y) in
+    let @65 = (*total!arg_z) in
+    let @66 = (*total!arg_w) in
     let @67 = build<f32x4>(@63, @64, @65, @66) in
     out[i] = @67
     continue

@@ -7,61 +7,61 @@ source_filename = "bonsai_module"
 ; Function Attrs: mustprogress
 define void @run(ptr noundef %values_buffer, ptr noundef %out_buffer, i1 noundef %gbuffer) local_unnamed_addr #0 {
 run:
-  %"q!True_queue106176" = alloca [2 x %"struct.Queue_q!True"], align 16
-  %"q!True__slot_1177" = alloca [8 x i32], align 4
-  %"q!True_n_1178" = alloca [8 x i32], align 4
-  %"q!True_x_1179" = alloca [8 x float], align 4
-  %"q!True__slot_0180" = alloca [8 x i32], align 4
-  %"q!True_n_0181" = alloca [8 x i32], align 4
-  %"q!True_x_0182" = alloca [8 x float], align 4
-  %"q!True_rec_hits_slots104184" = alloca [8 x i32], align 16
-  %"q!True_rec_seen_slots103185" = alloca [8 x i1], align 1
-  %"q!False_queue65186" = alloca [2 x %"struct.Queue_q!False"], align 16
-  %"q!False__slot_1187" = alloca [8 x i32], align 4
-  %"q!False_n_1188" = alloca [8 x i32], align 4
-  %"q!False_x_1189" = alloca [8 x float], align 4
-  %"q!False__slot_0190" = alloca [8 x i32], align 4
-  %"q!False_n_0191" = alloca [8 x i32], align 4
-  %"q!False_x_0192" = alloca [8 x float], align 4
-  %"q!False_rec_hits_slots64193" = alloca [8 x i32], align 16
+  %"q!True_queue105172" = alloca [2 x %"struct.Queue_q!True"], align 16
+  %"q!True__slot_1173" = alloca [8 x i32], align 4
+  %"q!True_n_1174" = alloca [8 x i32], align 4
+  %"q!True_x_1175" = alloca [8 x float], align 4
+  %"q!True__slot_0176" = alloca [8 x i32], align 4
+  %"q!True_n_0177" = alloca [8 x i32], align 4
+  %"q!True_x_0178" = alloca [8 x float], align 4
+  %"q!True_rec_hits_slots103180" = alloca [8 x i32], align 16
+  %"q!True_rec_seen_slots102181" = alloca [8 x i1], align 1
+  %"q!False_queue65182" = alloca [2 x %"struct.Queue_q!False"], align 16
+  %"q!False__slot_1183" = alloca [8 x i32], align 4
+  %"q!False_n_1184" = alloca [8 x i32], align 4
+  %"q!False_x_1185" = alloca [8 x float], align 4
+  %"q!False__slot_0186" = alloca [8 x i32], align 4
+  %"q!False_n_0187" = alloca [8 x i32], align 4
+  %"q!False_x_0188" = alloca [8 x float], align 4
+  %"q!False_rec_hits_slots64189" = alloca [8 x i32], align 16
   %values = tail call ptr @bonsai_buffer_require(ptr %values_buffer, i32 1)
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
-  br i1 %gbuffer, label %"step!True.exit230.7", label %"step!False.exit212.7"
+  br i1 %gbuffer, label %"step!True.exit226.7", label %"step!False.exit208.7"
 
 "q_rest!True":                                    ; preds = %"q!True!next"
-  %deref_temp170.pre = load i1, ptr %"q!True_rec_seen_slots103185", align 1, !tbaa !0
+  %deref_temp166.pre = load i1, ptr %"q!True_rec_seen_slots102181", align 1, !tbaa !0
   call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
-  br i1 %deref_temp170.pre, label %"!then_3!True", label %"!else_4!True"
+  br i1 %deref_temp166.pre, label %"!then_3!True", label %"!else_4!True"
 
-"q!True!batch":                                   ; preds = %"step!True.exit230.7", %"q!True!next"
-  %"@91.count268" = phi i32 [ %"@91.count", %"q!True!next" ], [ %"@91.count265", %"step!True.exit230.7" ]
-  %extract_ptr125267 = phi ptr [ %extract_ptr125, %"q!True!next" ], [ %"q!True_queue106176", %"step!True.exit230.7" ]
-  %0 = phi i32 [ %6, %"q!True!next" ], [ 0, %"step!True.exit230.7" ]
-  %"q!True!round6266" = phi i32 [ %5, %"q!True!next" ], [ 0, %"step!True.exit230.7" ]
+"q!True!batch":                                   ; preds = %"step!True.exit226.7", %"q!True!next"
+  %"@91.count264" = phi i32 [ %"@91.count", %"q!True!next" ], [ %"@91.count261", %"step!True.exit226.7" ]
+  %extract_ptr124263 = phi ptr [ %extract_ptr124, %"q!True!next" ], [ %"q!True_queue105172", %"step!True.exit226.7" ]
+  %0 = phi i32 [ %6, %"q!True!next" ], [ 0, %"step!True.exit226.7" ]
+  %"q!True!round6262" = phi i32 [ %5, %"q!True!next" ], [ 0, %"step!True.exit226.7" ]
   %1 = xor i32 %0, 1
-  %_wide127 = zext nneg i32 %1 to i64
-  %"q!True_queue128" = getelementptr inbounds nuw [32 x i8], ptr %"q!True_queue106176", i64 %_wide127
-  store i32 0, ptr %"q!True_queue128", align 16, !tbaa !3
-  %extract132.fca.1.gep = getelementptr inbounds nuw i8, ptr %extract_ptr125267, i64 8
-  %extract132.fca.2.gep = getelementptr inbounds nuw i8, ptr %extract_ptr125267, i64 16
-  %extract132.fca.3.gep = getelementptr inbounds nuw i8, ptr %extract_ptr125267, i64 24
-  %2 = getelementptr inbounds nuw i8, ptr %"q!True_queue128", i64 8
-  %3 = getelementptr inbounds nuw i8, ptr %"q!True_queue128", i64 16
-  %4 = getelementptr inbounds nuw i8, ptr %"q!True_queue128", i64 24
-  %wide.trip.count285 = zext i32 %"@91.count268" to i64
+  %_wide126 = zext nneg i32 %1 to i64
+  %"q!True_queue127" = getelementptr inbounds nuw [32 x i8], ptr %"q!True_queue105172", i64 %_wide126
+  store i32 0, ptr %"q!True_queue127", align 16, !tbaa !3
+  %extract131.fca.1.gep = getelementptr inbounds nuw i8, ptr %extract_ptr124263, i64 8
+  %extract131.fca.2.gep = getelementptr inbounds nuw i8, ptr %extract_ptr124263, i64 16
+  %extract131.fca.3.gep = getelementptr inbounds nuw i8, ptr %extract_ptr124263, i64 24
+  %2 = getelementptr inbounds nuw i8, ptr %"q!True_queue127", i64 8
+  %3 = getelementptr inbounds nuw i8, ptr %"q!True_queue127", i64 16
+  %4 = getelementptr inbounds nuw i8, ptr %"q!True_queue127", i64 24
+  %wide.trip.count281 = zext i32 %"@91.count264" to i64
   br label %"q!True!run"
 
 "q!True!next":                                    ; preds = %"step!True.exit"
-  %5 = add i32 %"q!True!round6266", 1
+  %5 = add i32 %"q!True!round6262", 1
   %6 = and i32 %5, 1
-  %_wide124 = zext nneg i32 %6 to i64
-  %extract_ptr125 = getelementptr inbounds nuw [32 x i8], ptr %"q!True_queue106176", i64 %_wide124
-  %"@91.count" = load i32, ptr %extract_ptr125, align 16
+  %_wide123 = zext nneg i32 %6 to i64
+  %extract_ptr124 = getelementptr inbounds nuw [32 x i8], ptr %"q!True_queue105172", i64 %_wide123
+  %"@91.count" = load i32, ptr %extract_ptr124, align 16
   %7 = icmp eq i32 %"@91.count", 0
   br i1 %7, label %"q_rest!True", label %"q!True!batch"
 
 "q_rest!False.loopexit":                          ; preds = %"q!False1_pf_exit"
-  %8 = load <4 x i32>, ptr %"q!False_rec_hits_slots64193", align 16, !tbaa !5
+  %8 = load <4 x i32>, ptr %"q!False_rec_hits_slots64189", align 16, !tbaa !5
   %9 = load <2 x i32>, ptr %"q!False_rec_hits_slots69.4", align 16, !tbaa !5
   %10 = load <2 x i32>, ptr %"q!False_rec_hits_slots69.6", align 8, !tbaa !5
   %11 = sitofp <4 x i32> %8 to <4 x float>
@@ -69,132 +69,132 @@ run:
   %13 = sitofp <2 x i32> %10 to <2 x float>
   br label %"q_rest!False"
 
-"q_rest!False":                                   ; preds = %"q_rest!False.loopexit", %"step!False.exit212.7"
-  %14 = phi <4 x float> [ %11, %"q_rest!False.loopexit" ], [ splat (float 1.000000e+00), %"step!False.exit212.7" ]
-  %15 = phi <2 x float> [ %12, %"q_rest!False.loopexit" ], [ splat (float 1.000000e+00), %"step!False.exit212.7" ]
-  %16 = phi <2 x float> [ %13, %"q_rest!False.loopexit" ], [ splat (float 1.000000e+00), %"step!False.exit212.7" ]
+"q_rest!False":                                   ; preds = %"q_rest!False.loopexit", %"step!False.exit208.7"
+  %14 = phi <4 x float> [ %11, %"q_rest!False.loopexit" ], [ splat (float 1.000000e+00), %"step!False.exit208.7" ]
+  %15 = phi <2 x float> [ %12, %"q_rest!False.loopexit" ], [ splat (float 1.000000e+00), %"step!False.exit208.7" ]
+  %16 = phi <2 x float> [ %13, %"q_rest!False.loopexit" ], [ splat (float 1.000000e+00), %"step!False.exit208.7" ]
   call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   store <4 x float> %14, ptr %out, align 4, !tbaa !7
-  %out102.4 = getelementptr inbounds nuw i8, ptr %out, i64 16
-  store <2 x float> %15, ptr %out102.4, align 4, !tbaa !7
-  %out102.6 = getelementptr inbounds nuw i8, ptr %out, i64 24
+  %out101.4 = getelementptr inbounds nuw i8, ptr %out, i64 16
+  store <2 x float> %15, ptr %out101.4, align 4, !tbaa !7
+  %out101.6 = getelementptr inbounds nuw i8, ptr %out, i64 24
   %17 = extractelement <2 x float> %16, i64 0
-  store float %17, ptr %out102.6, align 4, !tbaa !7
+  store float %17, ptr %out101.6, align 4, !tbaa !7
   %18 = extractelement <2 x float> %16, i64 1
   br label %"!par_cont_1"
 
 "!par_cont_1":                                    ; preds = %"q_rest!False", %"!merge_5!True"
-  %deref_temp.7.sink = phi float [ %18, %"q_rest!False" ], [ %.sink297, %"!merge_5!True" ]
-  %out102.7 = getelementptr inbounds nuw i8, ptr %out, i64 28
-  store float %deref_temp.7.sink, ptr %out102.7, align 4, !tbaa !7
+  %deref_temp.7.sink = phi float [ %18, %"q_rest!False" ], [ %.sink293, %"!merge_5!True" ]
+  %out101.7 = getelementptr inbounds nuw i8, ptr %out, i64 28
+  store float %deref_temp.7.sink, ptr %out101.7, align 4, !tbaa !7
   ret void
 
-"q!False!batch":                                  ; preds = %"step!False.exit212.7", %"q!False1_pf_exit"
-  %"@65.count261" = phi i32 [ %"@65.count", %"q!False1_pf_exit" ], [ %"@65.count258", %"step!False.exit212.7" ]
-  %extract_ptr72260 = phi ptr [ %extract_ptr72, %"q!False1_pf_exit" ], [ %"q!False_queue65186", %"step!False.exit212.7" ]
-  %19 = phi i32 [ %43, %"q!False1_pf_exit" ], [ 0, %"step!False.exit212.7" ]
-  %"q!False!round48259" = phi i32 [ %42, %"q!False1_pf_exit" ], [ 0, %"step!False.exit212.7" ]
+"q!False!batch":                                  ; preds = %"step!False.exit208.7", %"q!False1_pf_exit"
+  %"@65.count257" = phi i32 [ %"@65.count", %"q!False1_pf_exit" ], [ %"@65.count254", %"step!False.exit208.7" ]
+  %extract_ptr72256 = phi ptr [ %extract_ptr72, %"q!False1_pf_exit" ], [ %"q!False_queue65182", %"step!False.exit208.7" ]
+  %19 = phi i32 [ %43, %"q!False1_pf_exit" ], [ 0, %"step!False.exit208.7" ]
+  %"q!False!round48255" = phi i32 [ %42, %"q!False1_pf_exit" ], [ 0, %"step!False.exit208.7" ]
   %20 = xor i32 %19, 1
   %_wide74 = zext nneg i32 %20 to i64
-  %"q!False_queue75" = getelementptr inbounds nuw [32 x i8], ptr %"q!False_queue65186", i64 %_wide74
+  %"q!False_queue75" = getelementptr inbounds nuw [32 x i8], ptr %"q!False_queue65182", i64 %_wide74
   store i32 0, ptr %"q!False_queue75", align 16, !tbaa !3
-  %extract79.fca.1.gep = getelementptr inbounds nuw i8, ptr %extract_ptr72260, i64 8
-  %extract79.fca.2.gep = getelementptr inbounds nuw i8, ptr %extract_ptr72260, i64 16
-  %extract79.fca.3.gep = getelementptr inbounds nuw i8, ptr %extract_ptr72260, i64 24
+  %extract79.fca.1.gep = getelementptr inbounds nuw i8, ptr %extract_ptr72256, i64 8
+  %extract79.fca.2.gep = getelementptr inbounds nuw i8, ptr %extract_ptr72256, i64 16
+  %extract79.fca.3.gep = getelementptr inbounds nuw i8, ptr %extract_ptr72256, i64 24
   %21 = getelementptr inbounds nuw i8, ptr %"q!False_queue75", i64 8
   %22 = getelementptr inbounds nuw i8, ptr %"q!False_queue75", i64 16
   %23 = getelementptr inbounds nuw i8, ptr %"q!False_queue75", i64 24
-  %wide.trip.count = zext i32 %"@65.count261" to i64
+  %wide.trip.count = zext i32 %"@65.count257" to i64
   br label %"q!False!run"
 
-"step!False.exit212.7":                           ; preds = %run
-  store i32 0, ptr %"q!False_queue65186", align 16
-  %.fca.1.gep = getelementptr inbounds nuw i8, ptr %"q!False_queue65186", i64 8
-  store ptr %"q!False_x_0192", ptr %.fca.1.gep, align 8
-  %.fca.2.gep = getelementptr inbounds nuw i8, ptr %"q!False_queue65186", i64 16
-  store ptr %"q!False_n_0191", ptr %.fca.2.gep, align 16
-  %.fca.3.gep = getelementptr inbounds nuw i8, ptr %"q!False_queue65186", i64 24
-  store ptr %"q!False__slot_0190", ptr %.fca.3.gep, align 8
-  %"q!False_queue67" = getelementptr inbounds nuw i8, ptr %"q!False_queue65186", i64 32
+"step!False.exit208.7":                           ; preds = %run
+  store i32 0, ptr %"q!False_queue65182", align 16
+  %.fca.1.gep = getelementptr inbounds nuw i8, ptr %"q!False_queue65182", i64 8
+  store ptr %"q!False_x_0188", ptr %.fca.1.gep, align 8
+  %.fca.2.gep = getelementptr inbounds nuw i8, ptr %"q!False_queue65182", i64 16
+  store ptr %"q!False_n_0187", ptr %.fca.2.gep, align 16
+  %.fca.3.gep = getelementptr inbounds nuw i8, ptr %"q!False_queue65182", i64 24
+  store ptr %"q!False__slot_0186", ptr %.fca.3.gep, align 8
+  %"q!False_queue67" = getelementptr inbounds nuw i8, ptr %"q!False_queue65182", i64 32
   store i32 0, ptr %"q!False_queue67", align 16
-  %.fca.1.gep234 = getelementptr inbounds nuw i8, ptr %"q!False_queue65186", i64 40
-  store ptr %"q!False_x_1189", ptr %.fca.1.gep234, align 8
-  %.fca.2.gep236 = getelementptr inbounds nuw i8, ptr %"q!False_queue65186", i64 48
-  store ptr %"q!False_n_1188", ptr %.fca.2.gep236, align 16
-  %.fca.3.gep238 = getelementptr inbounds nuw i8, ptr %"q!False_queue65186", i64 56
-  store ptr %"q!False__slot_1187", ptr %.fca.3.gep238, align 8
+  %.fca.1.gep230 = getelementptr inbounds nuw i8, ptr %"q!False_queue65182", i64 40
+  store ptr %"q!False_x_1185", ptr %.fca.1.gep230, align 8
+  %.fca.2.gep232 = getelementptr inbounds nuw i8, ptr %"q!False_queue65182", i64 48
+  store ptr %"q!False_n_1184", ptr %.fca.2.gep232, align 16
+  %.fca.3.gep234 = getelementptr inbounds nuw i8, ptr %"q!False_queue65182", i64 56
+  store ptr %"q!False__slot_1183", ptr %.fca.3.gep234, align 8
   %extract_ptr.1 = getelementptr inbounds nuw i8, ptr %values, i64 4
   %extract.1 = load float, ptr %extract_ptr.1, align 4
   %24 = fmul float %extract.1, 5.000000e-01
-  %25 = atomicrmw add ptr %"q!False_queue65186", i32 1 monotonic, align 4
-  %_wide.i206.1 = zext i32 %25 to i64
-  %"@14.i207.1" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_x_0192", i64 %_wide.i206.1
-  store float %24, ptr %"@14.i207.1", align 4, !tbaa !7
-  %"@17.i209.1" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_n_0191", i64 %_wide.i206.1
-  store i32 0, ptr %"@17.i209.1", align 4, !tbaa !5
-  %"@20.i211.1" = getelementptr inbounds nuw [4 x i8], ptr %"q!False__slot_0190", i64 %_wide.i206.1
-  store i32 1, ptr %"@20.i211.1", align 4, !tbaa !5
+  %25 = atomicrmw add ptr %"q!False_queue65182", i32 1 monotonic, align 4
+  %_wide.i202.1 = zext i32 %25 to i64
+  %"@14.i203.1" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_x_0188", i64 %_wide.i202.1
+  store float %24, ptr %"@14.i203.1", align 4, !tbaa !7
+  %"@17.i205.1" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_n_0187", i64 %_wide.i202.1
+  store i32 0, ptr %"@17.i205.1", align 4, !tbaa !5
+  %"@20.i207.1" = getelementptr inbounds nuw [4 x i8], ptr %"q!False__slot_0186", i64 %_wide.i202.1
+  store i32 1, ptr %"@20.i207.1", align 4, !tbaa !5
   %extract_ptr.2 = getelementptr inbounds nuw i8, ptr %values, i64 8
   %extract.2 = load float, ptr %extract_ptr.2, align 4
   %26 = fmul float %extract.2, 5.000000e-01
-  %27 = atomicrmw add ptr %"q!False_queue65186", i32 1 monotonic, align 4
-  %_wide.i206.2 = zext i32 %27 to i64
-  %"@14.i207.2" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_x_0192", i64 %_wide.i206.2
-  store float %26, ptr %"@14.i207.2", align 4, !tbaa !7
-  %"@17.i209.2" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_n_0191", i64 %_wide.i206.2
-  store i32 1, ptr %"@17.i209.2", align 4, !tbaa !5
-  %"@20.i211.2" = getelementptr inbounds nuw [4 x i8], ptr %"q!False__slot_0190", i64 %_wide.i206.2
-  store i32 2, ptr %"@20.i211.2", align 4, !tbaa !5
+  %27 = atomicrmw add ptr %"q!False_queue65182", i32 1 monotonic, align 4
+  %_wide.i202.2 = zext i32 %27 to i64
+  %"@14.i203.2" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_x_0188", i64 %_wide.i202.2
+  store float %26, ptr %"@14.i203.2", align 4, !tbaa !7
+  %"@17.i205.2" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_n_0187", i64 %_wide.i202.2
+  store i32 1, ptr %"@17.i205.2", align 4, !tbaa !5
+  %"@20.i207.2" = getelementptr inbounds nuw [4 x i8], ptr %"q!False__slot_0186", i64 %_wide.i202.2
+  store i32 2, ptr %"@20.i207.2", align 4, !tbaa !5
   %extract_ptr.3 = getelementptr inbounds nuw i8, ptr %values, i64 12
   %extract.3 = load float, ptr %extract_ptr.3, align 4
-  store <4 x i32> splat (i32 1), ptr %"q!False_rec_hits_slots64193", align 16, !tbaa !5
+  store <4 x i32> splat (i32 1), ptr %"q!False_rec_hits_slots64189", align 16, !tbaa !5
   %28 = fmul float %extract.3, 5.000000e-01
-  %29 = atomicrmw add ptr %"q!False_queue65186", i32 1 monotonic, align 4
-  %_wide.i206.3 = zext i32 %29 to i64
-  %"@14.i207.3" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_x_0192", i64 %_wide.i206.3
-  store float %28, ptr %"@14.i207.3", align 4, !tbaa !7
-  %"@17.i209.3" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_n_0191", i64 %_wide.i206.3
-  store i32 2, ptr %"@17.i209.3", align 4, !tbaa !5
-  %"@20.i211.3" = getelementptr inbounds nuw [4 x i8], ptr %"q!False__slot_0190", i64 %_wide.i206.3
-  store i32 3, ptr %"@20.i211.3", align 4, !tbaa !5
-  %"q!False_rec_hits_slots69.4" = getelementptr inbounds nuw i8, ptr %"q!False_rec_hits_slots64193", i64 16
+  %29 = atomicrmw add ptr %"q!False_queue65182", i32 1 monotonic, align 4
+  %_wide.i202.3 = zext i32 %29 to i64
+  %"@14.i203.3" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_x_0188", i64 %_wide.i202.3
+  store float %28, ptr %"@14.i203.3", align 4, !tbaa !7
+  %"@17.i205.3" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_n_0187", i64 %_wide.i202.3
+  store i32 2, ptr %"@17.i205.3", align 4, !tbaa !5
+  %"@20.i207.3" = getelementptr inbounds nuw [4 x i8], ptr %"q!False__slot_0186", i64 %_wide.i202.3
+  store i32 3, ptr %"@20.i207.3", align 4, !tbaa !5
+  %"q!False_rec_hits_slots69.4" = getelementptr inbounds nuw i8, ptr %"q!False_rec_hits_slots64189", i64 16
   %extract_ptr.5 = getelementptr inbounds nuw i8, ptr %values, i64 20
   %extract.5 = load float, ptr %extract_ptr.5, align 4
   %30 = fmul float %extract.5, 5.000000e-01
-  %31 = atomicrmw add ptr %"q!False_queue65186", i32 1 monotonic, align 4
-  %_wide.i206.5 = zext i32 %31 to i64
-  %"@14.i207.5" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_x_0192", i64 %_wide.i206.5
-  store float %30, ptr %"@14.i207.5", align 4, !tbaa !7
-  %"@17.i209.5" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_n_0191", i64 %_wide.i206.5
-  store i32 0, ptr %"@17.i209.5", align 4, !tbaa !5
-  %"@20.i211.5" = getelementptr inbounds nuw [4 x i8], ptr %"q!False__slot_0190", i64 %_wide.i206.5
-  store i32 5, ptr %"@20.i211.5", align 4, !tbaa !5
+  %31 = atomicrmw add ptr %"q!False_queue65182", i32 1 monotonic, align 4
+  %_wide.i202.5 = zext i32 %31 to i64
+  %"@14.i203.5" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_x_0188", i64 %_wide.i202.5
+  store float %30, ptr %"@14.i203.5", align 4, !tbaa !7
+  %"@17.i205.5" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_n_0187", i64 %_wide.i202.5
+  store i32 0, ptr %"@17.i205.5", align 4, !tbaa !5
+  %"@20.i207.5" = getelementptr inbounds nuw [4 x i8], ptr %"q!False__slot_0186", i64 %_wide.i202.5
+  store i32 5, ptr %"@20.i207.5", align 4, !tbaa !5
   %extract_ptr.6 = getelementptr inbounds nuw i8, ptr %values, i64 24
   %extract.6 = load float, ptr %extract_ptr.6, align 4
-  %"q!False_rec_hits_slots69.6" = getelementptr inbounds nuw i8, ptr %"q!False_rec_hits_slots64193", i64 24
+  %"q!False_rec_hits_slots69.6" = getelementptr inbounds nuw i8, ptr %"q!False_rec_hits_slots64189", i64 24
   %32 = fmul float %extract.6, 5.000000e-01
-  %33 = atomicrmw add ptr %"q!False_queue65186", i32 1 monotonic, align 4
-  %_wide.i206.6 = zext i32 %33 to i64
-  %"@14.i207.6" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_x_0192", i64 %_wide.i206.6
-  store float %32, ptr %"@14.i207.6", align 4, !tbaa !7
-  %"@17.i209.6" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_n_0191", i64 %_wide.i206.6
-  store i32 1, ptr %"@17.i209.6", align 4, !tbaa !5
-  %"@20.i211.6" = getelementptr inbounds nuw [4 x i8], ptr %"q!False__slot_0190", i64 %_wide.i206.6
-  store i32 6, ptr %"@20.i211.6", align 4, !tbaa !5
+  %33 = atomicrmw add ptr %"q!False_queue65182", i32 1 monotonic, align 4
+  %_wide.i202.6 = zext i32 %33 to i64
+  %"@14.i203.6" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_x_0188", i64 %_wide.i202.6
+  store float %32, ptr %"@14.i203.6", align 4, !tbaa !7
+  %"@17.i205.6" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_n_0187", i64 %_wide.i202.6
+  store i32 1, ptr %"@17.i205.6", align 4, !tbaa !5
+  %"@20.i207.6" = getelementptr inbounds nuw [4 x i8], ptr %"q!False__slot_0186", i64 %_wide.i202.6
+  store i32 6, ptr %"@20.i207.6", align 4, !tbaa !5
   %extract_ptr.7 = getelementptr inbounds nuw i8, ptr %values, i64 28
   %extract.7 = load float, ptr %extract_ptr.7, align 4
   store <4 x i32> splat (i32 1), ptr %"q!False_rec_hits_slots69.4", align 16, !tbaa !5
   %34 = fmul float %extract.7, 5.000000e-01
-  %35 = atomicrmw add ptr %"q!False_queue65186", i32 1 monotonic, align 4
-  %_wide.i206.7 = zext i32 %35 to i64
-  %"@14.i207.7" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_x_0192", i64 %_wide.i206.7
-  store float %34, ptr %"@14.i207.7", align 4, !tbaa !7
-  %"@17.i209.7" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_n_0191", i64 %_wide.i206.7
-  store i32 2, ptr %"@17.i209.7", align 4, !tbaa !5
-  %"@20.i211.7" = getelementptr inbounds nuw [4 x i8], ptr %"q!False__slot_0190", i64 %_wide.i206.7
-  store i32 7, ptr %"@20.i211.7", align 4, !tbaa !5
-  %"@65.count258" = load i32, ptr %"q!False_queue65186", align 16
-  %36 = icmp eq i32 %"@65.count258", 0
+  %35 = atomicrmw add ptr %"q!False_queue65182", i32 1 monotonic, align 4
+  %_wide.i202.7 = zext i32 %35 to i64
+  %"@14.i203.7" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_x_0188", i64 %_wide.i202.7
+  store float %34, ptr %"@14.i203.7", align 4, !tbaa !7
+  %"@17.i205.7" = getelementptr inbounds nuw [4 x i8], ptr %"q!False_n_0187", i64 %_wide.i202.7
+  store i32 2, ptr %"@17.i205.7", align 4, !tbaa !5
+  %"@20.i207.7" = getelementptr inbounds nuw [4 x i8], ptr %"q!False__slot_0186", i64 %_wide.i202.7
+  store i32 7, ptr %"@20.i207.7", align 4, !tbaa !5
+  %"@65.count254" = load i32, ptr %"q!False_queue65182", align 16
+  %36 = icmp eq i32 %"@65.count254", 0
   br i1 %36, label %"q_rest!False", label %"q!False!batch"
 
 "q!False!run":                                    ; preds = %"q!False!batch", %"step!False.exit"
@@ -209,7 +209,7 @@ run:
   %extract_ptr92 = getelementptr inbounds nuw [4 x i8], ptr %extract79.fca.3.load, i64 %indvars.iv
   %extract93 = load i32, ptr %extract_ptr92, align 4
   %extract93_wide = sext i32 %extract93 to i64
-  %ptr_array_deref94 = getelementptr inbounds [4 x i8], ptr %"q!False_rec_hits_slots64193", i64 %extract93_wide
+  %ptr_array_deref94 = getelementptr inbounds [4 x i8], ptr %"q!False_rec_hits_slots64189", i64 %extract93_wide
   %deref_temp.i = load i32, ptr %ptr_array_deref94, align 4, !tbaa !5
   %37 = add i32 %deref_temp.i, 1
   store i32 %37, ptr %ptr_array_deref94, align 4, !tbaa !5
@@ -238,220 +238,220 @@ run:
   br i1 %exitcond.not, label %"q!False1_pf_exit", label %"q!False!run", !prof !9
 
 "q!False1_pf_exit":                               ; preds = %"step!False.exit"
-  %42 = add i32 %"q!False!round48259", 1
+  %42 = add i32 %"q!False!round48255", 1
   %43 = and i32 %42, 1
   %_wide = zext nneg i32 %43 to i64
-  %extract_ptr72 = getelementptr inbounds nuw [32 x i8], ptr %"q!False_queue65186", i64 %_wide
+  %extract_ptr72 = getelementptr inbounds nuw [32 x i8], ptr %"q!False_queue65182", i64 %_wide
   %"@65.count" = load i32, ptr %extract_ptr72, align 16
   %44 = icmp eq i32 %"@65.count", 0
   br i1 %44, label %"q_rest!False.loopexit", label %"q!False!batch"
 
-"step!True.exit230.7":                            ; preds = %run
-  store i32 0, ptr %"q!True_queue106176", align 16
-  %.fca.1.gep242 = getelementptr inbounds nuw i8, ptr %"q!True_queue106176", i64 8
-  store ptr %"q!True_x_0182", ptr %.fca.1.gep242, align 8
-  %.fca.2.gep244 = getelementptr inbounds nuw i8, ptr %"q!True_queue106176", i64 16
-  store ptr %"q!True_n_0181", ptr %.fca.2.gep244, align 16
-  %.fca.3.gep246 = getelementptr inbounds nuw i8, ptr %"q!True_queue106176", i64 24
-  store ptr %"q!True__slot_0180", ptr %.fca.3.gep246, align 8
-  %"q!True_queue108" = getelementptr inbounds nuw i8, ptr %"q!True_queue106176", i64 32
-  store i32 0, ptr %"q!True_queue108", align 16
-  %.fca.1.gep250 = getelementptr inbounds nuw i8, ptr %"q!True_queue106176", i64 40
-  store ptr %"q!True_x_1179", ptr %.fca.1.gep250, align 8
-  %.fca.2.gep252 = getelementptr inbounds nuw i8, ptr %"q!True_queue106176", i64 48
-  store ptr %"q!True_n_1178", ptr %.fca.2.gep252, align 16
-  %.fca.3.gep254 = getelementptr inbounds nuw i8, ptr %"q!True_queue106176", i64 56
-  store ptr %"q!True__slot_1177", ptr %.fca.3.gep254, align 8
-  %extract110 = load float, ptr %values, align 4
-  store i1 true, ptr %"q!True_rec_seen_slots103185", align 1, !tbaa !0
-  %extract_ptr109.1 = getelementptr inbounds nuw i8, ptr %values, i64 4
-  %"q!True_rec_hits_slots114.1" = getelementptr inbounds nuw i8, ptr %"q!True_rec_hits_slots104184", i64 4
-  %"q!True_rec_seen_slots116.1" = getelementptr inbounds nuw i8, ptr %"q!True_rec_seen_slots103185", i64 1
-  store i1 false, ptr %"q!True_rec_seen_slots116.1", align 1, !tbaa !0
-  %45 = atomicrmw add ptr %"q!True_queue106176", i32 1 monotonic, align 4
-  %_wide.i223.1 = zext i32 %45 to i64
-  %"@14.i224.1" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_x_0182", i64 %_wide.i223.1
-  %"@17.i226.1" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_n_0181", i64 %_wide.i223.1
-  %"@20.i228.1" = getelementptr inbounds nuw [4 x i8], ptr %"q!True__slot_0180", i64 %_wide.i223.1
-  %extract_ptr109.2 = getelementptr inbounds nuw i8, ptr %values, i64 8
-  %"q!True_rec_seen_slots116.2" = getelementptr inbounds nuw i8, ptr %"q!True_rec_seen_slots103185", i64 2
-  store i1 false, ptr %"q!True_rec_seen_slots116.2", align 1, !tbaa !0
-  %46 = atomicrmw add ptr %"q!True_queue106176", i32 1 monotonic, align 4
-  %_wide.i223.2 = zext i32 %46 to i64
-  %"@14.i224.2" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_x_0182", i64 %_wide.i223.2
-  %"@17.i226.2" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_n_0181", i64 %_wide.i223.2
-  %"@20.i228.2" = getelementptr inbounds nuw [4 x i8], ptr %"q!True__slot_0180", i64 %_wide.i223.2
-  %extract_ptr109.3 = getelementptr inbounds nuw i8, ptr %values, i64 12
-  %"q!True_rec_seen_slots116.3" = getelementptr inbounds nuw i8, ptr %"q!True_rec_seen_slots103185", i64 3
-  store i1 false, ptr %"q!True_rec_seen_slots116.3", align 1, !tbaa !0
-  store <4 x i32> splat (i32 1), ptr %"q!True_rec_hits_slots104184", align 16, !tbaa !5
-  %47 = atomicrmw add ptr %"q!True_queue106176", i32 1 monotonic, align 4
-  %_wide.i223.3 = zext i32 %47 to i64
-  %"@14.i224.3" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_x_0182", i64 %_wide.i223.3
-  %"@17.i226.3" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_n_0181", i64 %_wide.i223.3
-  %"@20.i228.3" = getelementptr inbounds nuw [4 x i8], ptr %"q!True__slot_0180", i64 %_wide.i223.3
-  %extract_ptr109.4 = getelementptr inbounds nuw i8, ptr %values, i64 16
-  %extract110.1 = load float, ptr %extract_ptr109.1, align 4
-  %48 = fmul float %extract110.1, 5.000000e-01
-  store float %48, ptr %"@14.i224.1", align 4, !tbaa !7
-  store i32 0, ptr %"@17.i226.1", align 4, !tbaa !5
-  store i32 1, ptr %"@20.i228.1", align 4, !tbaa !5
-  %extract110.2 = load float, ptr %extract_ptr109.2, align 4
-  %49 = fmul float %extract110.2, 5.000000e-01
-  store float %49, ptr %"@14.i224.2", align 4, !tbaa !7
-  store i32 1, ptr %"@17.i226.2", align 4, !tbaa !5
-  store i32 2, ptr %"@20.i228.2", align 4, !tbaa !5
-  %extract110.3 = load float, ptr %extract_ptr109.3, align 4
-  %50 = fmul float %extract110.3, 5.000000e-01
-  store float %50, ptr %"@14.i224.3", align 4, !tbaa !7
-  store i32 2, ptr %"@17.i226.3", align 4, !tbaa !5
-  store i32 3, ptr %"@20.i228.3", align 4, !tbaa !5
-  %extract110.4 = load float, ptr %extract_ptr109.4, align 4
-  %"q!True_rec_hits_slots114.4" = getelementptr inbounds nuw i8, ptr %"q!True_rec_hits_slots104184", i64 16
-  %"q!True_rec_seen_slots116.4" = getelementptr inbounds nuw i8, ptr %"q!True_rec_seen_slots103185", i64 4
-  store i1 true, ptr %"q!True_rec_seen_slots116.4", align 1, !tbaa !0
-  %extract_ptr109.5 = getelementptr inbounds nuw i8, ptr %values, i64 20
-  %"q!True_rec_hits_slots114.5" = getelementptr inbounds nuw i8, ptr %"q!True_rec_hits_slots104184", i64 20
-  %"q!True_rec_seen_slots116.5" = getelementptr inbounds nuw i8, ptr %"q!True_rec_seen_slots103185", i64 5
-  store i1 false, ptr %"q!True_rec_seen_slots116.5", align 1, !tbaa !0
-  %51 = atomicrmw add ptr %"q!True_queue106176", i32 1 monotonic, align 4
-  %_wide.i223.5 = zext i32 %51 to i64
-  %"@14.i224.5" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_x_0182", i64 %_wide.i223.5
-  %"@17.i226.5" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_n_0181", i64 %_wide.i223.5
-  %"@20.i228.5" = getelementptr inbounds nuw [4 x i8], ptr %"q!True__slot_0180", i64 %_wide.i223.5
-  %extract_ptr109.6 = getelementptr inbounds nuw i8, ptr %values, i64 24
-  %extract110.5 = load float, ptr %extract_ptr109.5, align 4
-  %52 = fmul float %extract110.5, 5.000000e-01
-  store float %52, ptr %"@14.i224.5", align 4, !tbaa !7
-  store i32 0, ptr %"@17.i226.5", align 4, !tbaa !5
-  store i32 5, ptr %"@20.i228.5", align 4, !tbaa !5
-  %extract110.6 = load float, ptr %extract_ptr109.6, align 4
-  %"q!True_rec_seen_slots116.6" = getelementptr inbounds nuw i8, ptr %"q!True_rec_seen_slots103185", i64 6
-  store i1 false, ptr %"q!True_rec_seen_slots116.6", align 1, !tbaa !0
-  %53 = fmul float %extract110.6, 5.000000e-01
-  %54 = atomicrmw add ptr %"q!True_queue106176", i32 1 monotonic, align 4
-  %_wide.i223.6 = zext i32 %54 to i64
-  %"@14.i224.6" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_x_0182", i64 %_wide.i223.6
-  store float %53, ptr %"@14.i224.6", align 4, !tbaa !7
-  %"@17.i226.6" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_n_0181", i64 %_wide.i223.6
-  store i32 1, ptr %"@17.i226.6", align 4, !tbaa !5
-  %"@20.i228.6" = getelementptr inbounds nuw [4 x i8], ptr %"q!True__slot_0180", i64 %_wide.i223.6
-  store i32 6, ptr %"@20.i228.6", align 4, !tbaa !5
-  %extract_ptr109.7 = getelementptr inbounds nuw i8, ptr %values, i64 28
-  %extract110.7 = load float, ptr %extract_ptr109.7, align 4
-  %"q!True_rec_hits_slots114.7" = getelementptr inbounds nuw i8, ptr %"q!True_rec_hits_slots104184", i64 28
-  %"q!True_rec_seen_slots116.7" = getelementptr inbounds nuw i8, ptr %"q!True_rec_seen_slots103185", i64 7
-  store i1 false, ptr %"q!True_rec_seen_slots116.7", align 1, !tbaa !0
-  store <4 x i32> splat (i32 1), ptr %"q!True_rec_hits_slots114.4", align 16, !tbaa !5
-  %55 = fmul float %extract110.7, 5.000000e-01
-  %56 = atomicrmw add ptr %"q!True_queue106176", i32 1 monotonic, align 4
-  %_wide.i223.7 = zext i32 %56 to i64
-  %"@14.i224.7" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_x_0182", i64 %_wide.i223.7
-  store float %55, ptr %"@14.i224.7", align 4, !tbaa !7
-  %"@17.i226.7" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_n_0181", i64 %_wide.i223.7
-  store i32 2, ptr %"@17.i226.7", align 4, !tbaa !5
-  %"@20.i228.7" = getelementptr inbounds nuw [4 x i8], ptr %"q!True__slot_0180", i64 %_wide.i223.7
-  store i32 7, ptr %"@20.i228.7", align 4, !tbaa !5
-  %"@91.count265" = load i32, ptr %"q!True_queue106176", align 16
-  %57 = icmp eq i32 %"@91.count265", 0
+"step!True.exit226.7":                            ; preds = %run
+  store i32 0, ptr %"q!True_queue105172", align 16
+  %.fca.1.gep238 = getelementptr inbounds nuw i8, ptr %"q!True_queue105172", i64 8
+  store ptr %"q!True_x_0178", ptr %.fca.1.gep238, align 8
+  %.fca.2.gep240 = getelementptr inbounds nuw i8, ptr %"q!True_queue105172", i64 16
+  store ptr %"q!True_n_0177", ptr %.fca.2.gep240, align 16
+  %.fca.3.gep242 = getelementptr inbounds nuw i8, ptr %"q!True_queue105172", i64 24
+  store ptr %"q!True__slot_0176", ptr %.fca.3.gep242, align 8
+  %"q!True_queue107" = getelementptr inbounds nuw i8, ptr %"q!True_queue105172", i64 32
+  store i32 0, ptr %"q!True_queue107", align 16
+  %.fca.1.gep246 = getelementptr inbounds nuw i8, ptr %"q!True_queue105172", i64 40
+  store ptr %"q!True_x_1175", ptr %.fca.1.gep246, align 8
+  %.fca.2.gep248 = getelementptr inbounds nuw i8, ptr %"q!True_queue105172", i64 48
+  store ptr %"q!True_n_1174", ptr %.fca.2.gep248, align 16
+  %.fca.3.gep250 = getelementptr inbounds nuw i8, ptr %"q!True_queue105172", i64 56
+  store ptr %"q!True__slot_1173", ptr %.fca.3.gep250, align 8
+  %extract109 = load float, ptr %values, align 4
+  store i1 true, ptr %"q!True_rec_seen_slots102181", align 1, !tbaa !0
+  %extract_ptr108.1 = getelementptr inbounds nuw i8, ptr %values, i64 4
+  %"q!True_rec_hits_slots113.1" = getelementptr inbounds nuw i8, ptr %"q!True_rec_hits_slots103180", i64 4
+  %"q!True_rec_seen_slots115.1" = getelementptr inbounds nuw i8, ptr %"q!True_rec_seen_slots102181", i64 1
+  store i1 false, ptr %"q!True_rec_seen_slots115.1", align 1, !tbaa !0
+  %45 = atomicrmw add ptr %"q!True_queue105172", i32 1 monotonic, align 4
+  %_wide.i219.1 = zext i32 %45 to i64
+  %"@14.i220.1" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_x_0178", i64 %_wide.i219.1
+  %"@17.i222.1" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_n_0177", i64 %_wide.i219.1
+  %"@20.i224.1" = getelementptr inbounds nuw [4 x i8], ptr %"q!True__slot_0176", i64 %_wide.i219.1
+  %extract_ptr108.2 = getelementptr inbounds nuw i8, ptr %values, i64 8
+  %"q!True_rec_seen_slots115.2" = getelementptr inbounds nuw i8, ptr %"q!True_rec_seen_slots102181", i64 2
+  store i1 false, ptr %"q!True_rec_seen_slots115.2", align 1, !tbaa !0
+  %46 = atomicrmw add ptr %"q!True_queue105172", i32 1 monotonic, align 4
+  %_wide.i219.2 = zext i32 %46 to i64
+  %"@14.i220.2" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_x_0178", i64 %_wide.i219.2
+  %"@17.i222.2" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_n_0177", i64 %_wide.i219.2
+  %"@20.i224.2" = getelementptr inbounds nuw [4 x i8], ptr %"q!True__slot_0176", i64 %_wide.i219.2
+  %extract_ptr108.3 = getelementptr inbounds nuw i8, ptr %values, i64 12
+  %"q!True_rec_seen_slots115.3" = getelementptr inbounds nuw i8, ptr %"q!True_rec_seen_slots102181", i64 3
+  store i1 false, ptr %"q!True_rec_seen_slots115.3", align 1, !tbaa !0
+  store <4 x i32> splat (i32 1), ptr %"q!True_rec_hits_slots103180", align 16, !tbaa !5
+  %47 = atomicrmw add ptr %"q!True_queue105172", i32 1 monotonic, align 4
+  %_wide.i219.3 = zext i32 %47 to i64
+  %"@14.i220.3" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_x_0178", i64 %_wide.i219.3
+  %"@17.i222.3" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_n_0177", i64 %_wide.i219.3
+  %"@20.i224.3" = getelementptr inbounds nuw [4 x i8], ptr %"q!True__slot_0176", i64 %_wide.i219.3
+  %extract_ptr108.4 = getelementptr inbounds nuw i8, ptr %values, i64 16
+  %extract109.1 = load float, ptr %extract_ptr108.1, align 4
+  %48 = fmul float %extract109.1, 5.000000e-01
+  store float %48, ptr %"@14.i220.1", align 4, !tbaa !7
+  store i32 0, ptr %"@17.i222.1", align 4, !tbaa !5
+  store i32 1, ptr %"@20.i224.1", align 4, !tbaa !5
+  %extract109.2 = load float, ptr %extract_ptr108.2, align 4
+  %49 = fmul float %extract109.2, 5.000000e-01
+  store float %49, ptr %"@14.i220.2", align 4, !tbaa !7
+  store i32 1, ptr %"@17.i222.2", align 4, !tbaa !5
+  store i32 2, ptr %"@20.i224.2", align 4, !tbaa !5
+  %extract109.3 = load float, ptr %extract_ptr108.3, align 4
+  %50 = fmul float %extract109.3, 5.000000e-01
+  store float %50, ptr %"@14.i220.3", align 4, !tbaa !7
+  store i32 2, ptr %"@17.i222.3", align 4, !tbaa !5
+  store i32 3, ptr %"@20.i224.3", align 4, !tbaa !5
+  %extract109.4 = load float, ptr %extract_ptr108.4, align 4
+  %"q!True_rec_hits_slots113.4" = getelementptr inbounds nuw i8, ptr %"q!True_rec_hits_slots103180", i64 16
+  %"q!True_rec_seen_slots115.4" = getelementptr inbounds nuw i8, ptr %"q!True_rec_seen_slots102181", i64 4
+  store i1 true, ptr %"q!True_rec_seen_slots115.4", align 1, !tbaa !0
+  %extract_ptr108.5 = getelementptr inbounds nuw i8, ptr %values, i64 20
+  %"q!True_rec_hits_slots113.5" = getelementptr inbounds nuw i8, ptr %"q!True_rec_hits_slots103180", i64 20
+  %"q!True_rec_seen_slots115.5" = getelementptr inbounds nuw i8, ptr %"q!True_rec_seen_slots102181", i64 5
+  store i1 false, ptr %"q!True_rec_seen_slots115.5", align 1, !tbaa !0
+  %51 = atomicrmw add ptr %"q!True_queue105172", i32 1 monotonic, align 4
+  %_wide.i219.5 = zext i32 %51 to i64
+  %"@14.i220.5" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_x_0178", i64 %_wide.i219.5
+  %"@17.i222.5" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_n_0177", i64 %_wide.i219.5
+  %"@20.i224.5" = getelementptr inbounds nuw [4 x i8], ptr %"q!True__slot_0176", i64 %_wide.i219.5
+  %extract_ptr108.6 = getelementptr inbounds nuw i8, ptr %values, i64 24
+  %extract109.5 = load float, ptr %extract_ptr108.5, align 4
+  %52 = fmul float %extract109.5, 5.000000e-01
+  store float %52, ptr %"@14.i220.5", align 4, !tbaa !7
+  store i32 0, ptr %"@17.i222.5", align 4, !tbaa !5
+  store i32 5, ptr %"@20.i224.5", align 4, !tbaa !5
+  %extract109.6 = load float, ptr %extract_ptr108.6, align 4
+  %"q!True_rec_seen_slots115.6" = getelementptr inbounds nuw i8, ptr %"q!True_rec_seen_slots102181", i64 6
+  store i1 false, ptr %"q!True_rec_seen_slots115.6", align 1, !tbaa !0
+  %53 = fmul float %extract109.6, 5.000000e-01
+  %54 = atomicrmw add ptr %"q!True_queue105172", i32 1 monotonic, align 4
+  %_wide.i219.6 = zext i32 %54 to i64
+  %"@14.i220.6" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_x_0178", i64 %_wide.i219.6
+  store float %53, ptr %"@14.i220.6", align 4, !tbaa !7
+  %"@17.i222.6" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_n_0177", i64 %_wide.i219.6
+  store i32 1, ptr %"@17.i222.6", align 4, !tbaa !5
+  %"@20.i224.6" = getelementptr inbounds nuw [4 x i8], ptr %"q!True__slot_0176", i64 %_wide.i219.6
+  store i32 6, ptr %"@20.i224.6", align 4, !tbaa !5
+  %extract_ptr108.7 = getelementptr inbounds nuw i8, ptr %values, i64 28
+  %extract109.7 = load float, ptr %extract_ptr108.7, align 4
+  %"q!True_rec_hits_slots113.7" = getelementptr inbounds nuw i8, ptr %"q!True_rec_hits_slots103180", i64 28
+  %"q!True_rec_seen_slots115.7" = getelementptr inbounds nuw i8, ptr %"q!True_rec_seen_slots102181", i64 7
+  store i1 false, ptr %"q!True_rec_seen_slots115.7", align 1, !tbaa !0
+  store <4 x i32> splat (i32 1), ptr %"q!True_rec_hits_slots113.4", align 16, !tbaa !5
+  %55 = fmul float %extract109.7, 5.000000e-01
+  %56 = atomicrmw add ptr %"q!True_queue105172", i32 1 monotonic, align 4
+  %_wide.i219.7 = zext i32 %56 to i64
+  %"@14.i220.7" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_x_0178", i64 %_wide.i219.7
+  store float %55, ptr %"@14.i220.7", align 4, !tbaa !7
+  %"@17.i222.7" = getelementptr inbounds nuw [4 x i8], ptr %"q!True_n_0177", i64 %_wide.i219.7
+  store i32 2, ptr %"@17.i222.7", align 4, !tbaa !5
+  %"@20.i224.7" = getelementptr inbounds nuw [4 x i8], ptr %"q!True__slot_0176", i64 %_wide.i219.7
+  store i32 7, ptr %"@20.i224.7", align 4, !tbaa !5
+  %"@91.count261" = load i32, ptr %"q!True_queue105172", align 16
+  %57 = icmp eq i32 %"@91.count261", 0
   br i1 %57, label %"q_rest!True.thread", label %"q!True!batch"
 
-"q_rest!True.thread":                             ; preds = %"step!True.exit230.7"
+"q_rest!True.thread":                             ; preds = %"step!True.exit226.7"
   call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   br label %"!then_3!True"
 
 "q!True!run":                                     ; preds = %"q!True!batch", %"step!True.exit"
-  %indvars.iv281 = phi i64 [ 0, %"q!True!batch" ], [ %indvars.iv.next282, %"step!True.exit" ]
-  %extract132.fca.1.load = load ptr, ptr %extract132.fca.1.gep, align 8
-  %extract132.fca.2.load = load ptr, ptr %extract132.fca.2.gep, align 8
-  %extract132.fca.3.load = load ptr, ptr %extract132.fca.3.gep, align 8
-  %extract_ptr134 = getelementptr inbounds nuw [4 x i8], ptr %extract132.fca.1.load, i64 %indvars.iv281
-  %extract135 = load float, ptr %extract_ptr134, align 4
-  %extract_ptr141 = getelementptr inbounds nuw [4 x i8], ptr %extract132.fca.2.load, i64 %indvars.iv281
-  %extract142 = load i32, ptr %extract_ptr141, align 4
-  %extract_ptr148 = getelementptr inbounds nuw [4 x i8], ptr %extract132.fca.3.load, i64 %indvars.iv281
-  %extract149 = load i32, ptr %extract_ptr148, align 4
-  %extract149_wide = sext i32 %extract149 to i64
-  %ptr_array_deref152 = getelementptr inbounds [4 x i8], ptr %"q!True_rec_hits_slots104184", i64 %extract149_wide
-  %deref_temp.i213 = load i32, ptr %ptr_array_deref152, align 4, !tbaa !5
-  %58 = add i32 %deref_temp.i213, 1
-  store i32 %58, ptr %ptr_array_deref152, align 4, !tbaa !5
-  %59 = icmp eq i32 %extract142, 0
-  br i1 %59, label %"!then_0.i", label %"!merge_1.i214"
+  %indvars.iv277 = phi i64 [ 0, %"q!True!batch" ], [ %indvars.iv.next278, %"step!True.exit" ]
+  %extract131.fca.1.load = load ptr, ptr %extract131.fca.1.gep, align 8
+  %extract131.fca.2.load = load ptr, ptr %extract131.fca.2.gep, align 8
+  %extract131.fca.3.load = load ptr, ptr %extract131.fca.3.gep, align 8
+  %extract_ptr133 = getelementptr inbounds nuw [4 x i8], ptr %extract131.fca.1.load, i64 %indvars.iv277
+  %extract134 = load float, ptr %extract_ptr133, align 4
+  %extract_ptr140 = getelementptr inbounds nuw [4 x i8], ptr %extract131.fca.2.load, i64 %indvars.iv277
+  %extract141 = load i32, ptr %extract_ptr140, align 4
+  %extract_ptr147 = getelementptr inbounds nuw [4 x i8], ptr %extract131.fca.3.load, i64 %indvars.iv277
+  %extract148 = load i32, ptr %extract_ptr147, align 4
+  %extract148_wide = sext i32 %extract148 to i64
+  %ptr_array_deref151 = getelementptr inbounds [4 x i8], ptr %"q!True_rec_hits_slots103180", i64 %extract148_wide
+  %deref_temp.i209 = load i32, ptr %ptr_array_deref151, align 4, !tbaa !5
+  %58 = add i32 %deref_temp.i209, 1
+  store i32 %58, ptr %ptr_array_deref151, align 4, !tbaa !5
+  %59 = icmp eq i32 %extract141, 0
+  br i1 %59, label %"!then_0.i", label %"!merge_1.i210"
 
 "!then_0.i":                                      ; preds = %"q!True!run"
-  %ptr_array_deref154 = getelementptr inbounds i8, ptr %"q!True_rec_seen_slots103185", i64 %extract149_wide
-  store i1 true, ptr %ptr_array_deref154, align 1, !tbaa !0
+  %ptr_array_deref153 = getelementptr inbounds i8, ptr %"q!True_rec_seen_slots102181", i64 %extract148_wide
+  store i1 true, ptr %ptr_array_deref153, align 1, !tbaa !0
   br label %"step!True.exit"
 
-"!merge_1.i214":                                  ; preds = %"q!True!run"
-  %60 = fmul float %extract135, 5.000000e-01
-  %61 = add i32 %extract142, -1
-  %62 = atomicrmw add ptr %"q!True_queue128", i32 1 monotonic, align 4
+"!merge_1.i210":                                  ; preds = %"q!True!run"
+  %60 = fmul float %extract134, 5.000000e-01
+  %61 = add i32 %extract141, -1
+  %62 = atomicrmw add ptr %"q!True_queue127", i32 1 monotonic, align 4
   %x7.i = load ptr, ptr %2, align 8
-  %_wide.i215 = zext i32 %62 to i64
-  %"@14.i216" = getelementptr inbounds nuw [4 x i8], ptr %x7.i, i64 %_wide.i215
-  store float %60, ptr %"@14.i216", align 4, !tbaa !7
+  %_wide.i211 = zext i32 %62 to i64
+  %"@14.i212" = getelementptr inbounds nuw [4 x i8], ptr %x7.i, i64 %_wide.i211
+  store float %60, ptr %"@14.i212", align 4, !tbaa !7
   %n9.i = load ptr, ptr %3, align 16
-  %"@17.i217" = getelementptr inbounds nuw [4 x i8], ptr %n9.i, i64 %_wide.i215
-  store i32 %61, ptr %"@17.i217", align 4, !tbaa !5
-  %_slot.i218 = load ptr, ptr %4, align 8
-  %"@20.i219" = getelementptr inbounds nuw [4 x i8], ptr %_slot.i218, i64 %_wide.i215
-  store i32 %extract149, ptr %"@20.i219", align 4, !tbaa !5
+  %"@17.i213" = getelementptr inbounds nuw [4 x i8], ptr %n9.i, i64 %_wide.i211
+  store i32 %61, ptr %"@17.i213", align 4, !tbaa !5
+  %_slot.i214 = load ptr, ptr %4, align 8
+  %"@20.i215" = getelementptr inbounds nuw [4 x i8], ptr %_slot.i214, i64 %_wide.i211
+  store i32 %extract148, ptr %"@20.i215", align 4, !tbaa !5
   br label %"step!True.exit"
 
-"step!True.exit":                                 ; preds = %"!then_0.i", %"!merge_1.i214"
-  %indvars.iv.next282 = add nuw nsw i64 %indvars.iv281, 1
-  %exitcond286.not = icmp eq i64 %indvars.iv.next282, %wide.trip.count285
-  br i1 %exitcond286.not, label %"q!True!next", label %"q!True!run", !prof !9
+"step!True.exit":                                 ; preds = %"!then_0.i", %"!merge_1.i210"
+  %indvars.iv.next278 = add nuw nsw i64 %indvars.iv277, 1
+  %exitcond282.not = icmp eq i64 %indvars.iv.next278, %wide.trip.count281
+  br i1 %exitcond282.not, label %"q!True!next", label %"q!True!run", !prof !9
 
 "!then_3!True":                                   ; preds = %"q_rest!True.thread", %"q_rest!True"
-  %deref_temp173 = load i32, ptr %"q!True_rec_hits_slots104184", align 16, !tbaa !5
-  %63 = sitofp i32 %deref_temp173 to float
-  %64 = fadd float %extract110, %63
+  %deref_temp169 = load i32, ptr %"q!True_rec_hits_slots103180", align 16, !tbaa !5
+  %63 = sitofp i32 %deref_temp169 to float
+  %64 = fadd float %extract109, %63
   br label %"!merge_5!True"
 
 "!else_4!True":                                   ; preds = %"q_rest!True"
-  %deref_temp171 = load i32, ptr %"q!True_rec_hits_slots104184", align 16, !tbaa !5
-  %65 = sitofp i32 %deref_temp171 to float
+  %deref_temp167 = load i32, ptr %"q!True_rec_hits_slots103180", align 16, !tbaa !5
+  %65 = sitofp i32 %deref_temp167 to float
   br label %"!merge_5!True"
 
 "!merge_5!True":                                  ; preds = %"!then_3!True", %"!else_4!True"
   %.sink = phi float [ %64, %"!then_3!True" ], [ %65, %"!else_4!True" ]
   store float %.sink, ptr %out, align 4, !tbaa !7
-  %deref_temp170.1 = load i1, ptr %"q!True_rec_seen_slots116.1", align 1, !tbaa !0
+  %deref_temp166.1 = load i1, ptr %"q!True_rec_seen_slots115.1", align 1, !tbaa !0
   %66 = getelementptr inbounds nuw i8, ptr %out, i64 4
-  %deref_temp170.2 = load i1, ptr %"q!True_rec_seen_slots116.2", align 1, !tbaa !0
-  %deref_temp170.3 = load i1, ptr %"q!True_rec_seen_slots116.3", align 1, !tbaa !0
-  %deref_temp170.4 = load i1, ptr %"q!True_rec_seen_slots116.4", align 1, !tbaa !0
-  %67 = load <4 x i32>, ptr %"q!True_rec_hits_slots114.1", align 4, !tbaa !5
+  %deref_temp166.2 = load i1, ptr %"q!True_rec_seen_slots115.2", align 1, !tbaa !0
+  %deref_temp166.3 = load i1, ptr %"q!True_rec_seen_slots115.3", align 1, !tbaa !0
+  %deref_temp166.4 = load i1, ptr %"q!True_rec_seen_slots115.4", align 1, !tbaa !0
+  %67 = load <4 x i32>, ptr %"q!True_rec_hits_slots113.1", align 4, !tbaa !5
   %68 = sitofp <4 x i32> %67 to <4 x float>
-  %69 = select i1 %deref_temp170.4, float %extract110.4, float -0.000000e+00
-  %70 = select i1 %deref_temp170.3, float %extract110.3, float -0.000000e+00
-  %71 = select i1 %deref_temp170.2, float %extract110.2, float -0.000000e+00
-  %72 = select i1 %deref_temp170.1, float %extract110.1, float -0.000000e+00
+  %69 = select i1 %deref_temp166.4, float %extract109.4, float -0.000000e+00
+  %70 = select i1 %deref_temp166.3, float %extract109.3, float -0.000000e+00
+  %71 = select i1 %deref_temp166.2, float %extract109.2, float -0.000000e+00
+  %72 = select i1 %deref_temp166.1, float %extract109.1, float -0.000000e+00
   %73 = insertelement <4 x float> poison, float %72, i64 0
   %74 = insertelement <4 x float> %73, float %71, i64 1
   %75 = insertelement <4 x float> %74, float %70, i64 2
   %76 = insertelement <4 x float> %75, float %69, i64 3
   %77 = fadd <4 x float> %76, %68
   store <4 x float> %77, ptr %66, align 4, !tbaa !7
-  %deref_temp170.5 = load i1, ptr %"q!True_rec_seen_slots116.5", align 1, !tbaa !0
+  %deref_temp166.5 = load i1, ptr %"q!True_rec_seen_slots115.5", align 1, !tbaa !0
   %78 = getelementptr inbounds nuw i8, ptr %out, i64 20
-  %deref_temp170.6 = load i1, ptr %"q!True_rec_seen_slots116.6", align 1, !tbaa !0
-  %79 = load <2 x i32>, ptr %"q!True_rec_hits_slots114.5", align 4, !tbaa !5
+  %deref_temp166.6 = load i1, ptr %"q!True_rec_seen_slots115.6", align 1, !tbaa !0
+  %79 = load <2 x i32>, ptr %"q!True_rec_hits_slots113.5", align 4, !tbaa !5
   %80 = sitofp <2 x i32> %79 to <2 x float>
-  %81 = select i1 %deref_temp170.6, float %extract110.6, float -0.000000e+00
-  %82 = select i1 %deref_temp170.5, float %extract110.5, float -0.000000e+00
+  %81 = select i1 %deref_temp166.6, float %extract109.6, float -0.000000e+00
+  %82 = select i1 %deref_temp166.5, float %extract109.5, float -0.000000e+00
   %83 = insertelement <2 x float> poison, float %82, i64 0
   %84 = insertelement <2 x float> %83, float %81, i64 1
   %85 = fadd <2 x float> %84, %80
   store <2 x float> %85, ptr %78, align 4, !tbaa !7
-  %deref_temp170.7 = load i1, ptr %"q!True_rec_seen_slots116.7", align 1, !tbaa !0
-  %deref_temp173.7 = load i32, ptr %"q!True_rec_hits_slots114.7", align 4, !tbaa !5
-  %86 = sitofp i32 %deref_temp173.7 to float
-  %87 = select i1 %deref_temp170.7, float %extract110.7, float -0.000000e+00
-  %.sink297 = fadd float %87, %86
+  %deref_temp166.7 = load i1, ptr %"q!True_rec_seen_slots115.7", align 1, !tbaa !0
+  %deref_temp169.7 = load i32, ptr %"q!True_rec_hits_slots113.7", align 4, !tbaa !5
+  %86 = sitofp i32 %deref_temp169.7 to float
+  %87 = select i1 %deref_temp166.7, float %extract109.7, float -0.000000e+00
+  %.sink293 = fadd float %87, %86
   br label %"!par_cont_1"
 }
 

@@ -66,21 +66,27 @@ func run(values : f32[8], out : mut f32[8], gbuffer : bool) -> void {
     parfor q_rest!True in [0:8:1] {
       let gbuffer!True = true in
       let i!True = q_rest!True in
-      let @120 = (&q!True_rec_hits_slots[q_rest!True]) in
-      let @121 = (&q!True_rec_seen_slots[q_rest!True]) in
-      let @119 = (&q!True_rec_p_slots[q_rest!True]) in
-      let @123 = (*@121) in
-      if (@123) {
-        let @124 = (*@120) in
-        let @52 = cast<f32>(@124) in
-        let @125 = (*@119) in
-        let @126 = cast<f32x3>(@125) in
-        let @54 = @126[0u] in
+      let @43!arg_rec_p = (&q!True_rec_p_slots[q_rest!True]) in
+      let @43!arg_rec_hits = (&q!True_rec_hits_slots[q_rest!True]) in
+      let @43!arg_rec_seen = (&q!True_rec_seen_slots[q_rest!True]) in
+      let @122 = (*@43!arg_rec_seen) in
+      if (@122) {
+        let @43!arg!3_rec_p = (&q!True_rec_p_slots[q_rest!True]) in
+        let @43!arg!3_rec_hits = (&q!True_rec_hits_slots[q_rest!True]) in
+        let @43!arg!3_rec_seen = (&q!True_rec_seen_slots[q_rest!True]) in
+        let @123 = (*@43!arg!3_rec_hits) in
+        let @52 = cast<f32>(@123) in
+        let @124 = (*@43!arg!3_rec_p) in
+        let @125 = cast<f32x3>(@124) in
+        let @54 = @125[0u] in
         let @55 = @52 + @54 in
         out[i!True] = @55
       } else {
-        let @122 = (*@120) in
-        let @40 = cast<f32>(@122) in
+        let @43!arg!2_rec_p = (&q!True_rec_p_slots[q_rest!True]) in
+        let @43!arg!2_rec_hits = (&q!True_rec_hits_slots[q_rest!True]) in
+        let @43!arg!2_rec_seen = (&q!True_rec_seen_slots[q_rest!True]) in
+        let @126 = (*@43!arg!2_rec_hits) in
+        let @40 = cast<f32>(@126) in
         out[i!True] = @40
       }
       continue
@@ -130,8 +136,9 @@ func run(values : f32[8], out : mut f32[8], gbuffer : bool) -> void {
     parfor q_rest!False in [0:8:1] {
       let gbuffer!False = false in
       let i!False = q_rest!False in
-      let @135 = (&q!False_rec_hits_slots[q_rest!False]) in
-      let @137 = (*@135) in
+      let @24!arg_rec_hits = (&q!False_rec_hits_slots[q_rest!False]) in
+      let @24!arg!2_rec_hits = (&q!False_rec_hits_slots[q_rest!False]) in
+      let @137 = (*@24!arg!2_rec_hits) in
       let @21 = cast<f32>(@137) in
       out[i!False] = @21
       continue
