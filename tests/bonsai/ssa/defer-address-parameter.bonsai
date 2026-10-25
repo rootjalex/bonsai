@@ -1,0 +1,43 @@
+//! flags: -p ssa
+
+// An address handed down a deferred chain that is neither a mutable local
+// of the producer's iteration nor a slot of the record: the point's sum
+// `total`, which the reorder privatized into `(&total!expanded[y])` -- an
+// element of an array allocated before the nest -- and the collapse made
+// an address computed inside the producer's iteration. The walk is handed
+// it as `dst` and adds into it where it ends. One value down the chain,
+// and an address into storage that is alive through the drain, so the
+// entry keeps it as the address it is (SSA/Defer.cpp, outlives_pass: an
+// address is admitted by where its storage lives, not refused by its
+// type; Tofte and Talpin 1997). What to read for: `Entry_q` with a `dst`
+// field, the pusher's `(&total!expanded[y])` stored into `q_dst_0` beside
+// `k` and `acc`, and `fill`'s accumulate through the pointer it reads back.
+
+func fill(k : i32, acc : i32, dst : mut i32) -> void {
+    if (k <= 0) {
+        atomic dst += acc;
+        return;
+    }
+    fill(k - 1, acc + k, dst);
+    return;
+}
+
+func grid(sums : mut array[i32, 3]) -> void {
+    parfor y in 0:3 {
+        total : mut i32 = 0;
+        parfor x in 0:4 {
+            fill(y + x, 0, total);
+        }
+        sums[y] = total;
+    }
+    return;
+}
+
+schedule {
+    grid.reorder(y, x);
+    grid.reorder(x, y);
+    grid.collapse(y, x, k);
+    q = grid.queue(root);
+    grid.defer(fill, q);
+    fill.defer(fill, q);
+}

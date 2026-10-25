@@ -1,0 +1,47 @@
+//! flags: -p ssa -b llvm -e
+
+// tests/bonsai/ssa/defer-remat-address, run: the walks of a point deferred
+// onto one queue after the nest is interchanged and collapsed, the point's
+// privatized sum reached from the pass over the record through an address
+// recomputed from the pass's index. walk(n) = n(n+1)/2, so out[4y + x] =
+// T(y + x) and sums[y] = T(y) + T(y+1) + T(y+2) + T(y+3).
+
+func walk(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return walk(k - 1, acc + k);
+}
+
+func grid(out : mut array[i32, 12], sums : mut array[i32, 3]) -> void {
+    parfor y in 0:3 {
+        total : mut i32 = 0;
+        parfor x in 0:4 {
+            v = walk(y + x, 0);
+            out[y * 4 + x] = v;
+            atomic total += v;
+        }
+        sums[y] = total;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    sums : mut array[i32, 3] = {-1, -1, -1};
+    grid(out, sums);
+    // {0, 1, 3, 6, 1, 3, 6, 10, 3, 6, 10, 15}
+    print(out);
+    // {10, 20, 34}
+    print(sums);
+    return 0;
+}
+
+schedule {
+    grid.reorder(y, x);
+    grid.reorder(x, y);
+    grid.collapse(y, x, k);
+    q = grid.queue(root);
+    grid.defer(walk, q);
+    walk.defer(walk, q);
+}

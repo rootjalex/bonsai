@@ -8,6 +8,7 @@ add_bonsai_tests(
     atomic-accumulate.bonsai
     bitwise.bonsai
     bool-array-word.bonsai
+    bool-neq.bonsai
     bounded-multiplier.bonsai
     bsdf-f.bonsai
     cast-bool.bonsai
@@ -74,6 +75,8 @@ add_bonsai_tests(
     defer-remat-readonly.bonsai
     defer-remat-slot.bonsai
     defer-remat-through-queues.bonsai
+    defer-remat-address.bonsai
+    defer-address-parameter.bonsai
     merge-variant-fold.bonsai
     defer-spawn.bonsai
     defer-spawn-join.bonsai

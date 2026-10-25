@@ -1,0 +1,104 @@
+type Entry_q = struct Entry_q{ k : i32; acc : i32; dst : (i32*) }
+type Queue_q = struct Queue_q{ count : u32; k : i32[]; acc : i32[]; dst : (i32*)[] }
+
+func fill(k : i32, acc : i32, dst : mut (i32*), _queue_q : mut (Queue_q*)) -> void {
+  let @0 = k <= 0 in
+  if (@0) {
+    dst += acc
+    return
+  } else {
+    let @1 = k - 1 in
+    let @2 = acc + k in
+    let @3 = build<Entry_q>(@1, @2, dst) in
+    let @6 = atomic_add((&(*_queue_q).count), 1u) in
+    let @8 = (*_queue_q).k in
+    @8[@6] = @1
+    let @11 = (*_queue_q).acc in
+    @11[@6] = @2
+    let @14 = (*_queue_q).dst in
+    @14[@6] = dst
+    return
+  }
+}
+
+func grid(sums : mut i32[3]) -> void {
+  q!round : mut u32
+  total!expanded : mut i32[3]
+  parfor y!prologue in [0:3:1] {
+    total!expanded[y] = 0
+    continue
+  }
+  q_k_0 : mut i32[12]
+  q_acc_0 : mut i32[12]
+  q_dst_0 : mut (i32*)[12]
+  q_k_1 : mut i32[12]
+  q_acc_1 : mut i32[12]
+  q_dst_1 : mut (i32*)[12]
+  q_queue : mut Queue_q[2]
+  let @8 = build<Queue_q>(0u, q_k_0, q_acc_0, q_dst_0) in
+  q_queue[0u] = @8
+  let @10 = build<Queue_q>(0u, q_k_1, q_acc_1, q_dst_1) in
+  q_queue[1u] = @10
+  parfor k in [0:12:1] {
+    let @34 = k >> 31 in
+    let @35 = reinterpret_cast<u32>(@34) in
+    let @36 = @35 >> 30u in
+    let @37 = reinterpret_cast<i32>(@36) in
+    let @38 = k + @37 in
+    let @6 = @38 >> 2 in
+    let @45 = @6 * 4 in
+    let @7 = k - @45 in
+    let y = @6 in
+    let x = @7 in
+    let total = (&total!expanded[y]) in
+    let @0 = y + x in
+    let @13 = build<Entry_q>(@0, 0, total) in
+    let @47 = atomic_add((&q_queue[0u].count), 1u) in
+    let @49 = q_queue[0u].k in
+    @49[@47] = @0
+    let @52 = q_queue[0u].acc in
+    @52[@47] = 0
+    let @55 = q_queue[0u].dst in
+    @55[@47] = total
+    continue
+  }
+  q!round = 0u
+  while (!(q_queue[(*q!round) & 1u].count == 0u)) {
+    let @17 = (*q!round) & 1u in
+    let @19 = q_queue[(*q!round) & 1u].count in
+    let @21 = @17 ^ 1u in
+    q_queue[@21].count = 0u
+    parfor q in [0u:@19:1u] {
+      let @22 = (&q_queue[@21]) in
+      let @26 = q_queue[@17].k in
+      let @27 = @26[q] in
+      let @29 = q_queue[@17].acc in
+      let @30 = @29[q] in
+      let @32 = q_queue[@17].dst in
+      let @33 = @32[q] in
+      fill(@27, @30, @33, @22)
+      continue
+    }
+    let @16 = (*q!round) + 1u in
+    q!round = @16
+  }
+  parfor y!epilogue in [0:3:1] {
+    let total = (&total!expanded[y]) in
+    let y = y in
+    let @1 = (*total) in
+    sums[y] = @1
+    continue
+  }
+  return
+}
+
+
+schedule {
+    q = grid.queue(root);
+    fill.defer(fill, q)
+    grid.reorder(y, x)
+        .reorder(x, y)
+        .collapse(y, x, k)
+        .defer(fill, q)
+
+}

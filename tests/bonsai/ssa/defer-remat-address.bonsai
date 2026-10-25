@@ -1,0 +1,54 @@
+//! flags: -p ssa
+
+// An address in a deferred call's continuation, recomputed at the pass over
+// the record rather than refused. `grid` is apps/wosx's shape: a point's
+// sum `total` around a loop of walks, interchanged and collapsed before the
+// walks are deferred. The reorder privatizes the sum into a slot per point
+// (`total!expanded`, allocated before the nest), the collapse makes the
+// point's index arithmetic on the collapsed loop's (`y = k >> 2`), and what
+// the continuation adds into is then `(&total!expanded[k >> 2])`: an
+// address, computed inside the producer's iteration, into storage that is
+// made before the drain and alive through it. The deferral classifies a
+// continuation's free variable by where its storage lives and how it is
+// computed, not by its type (SSA/Defer.cpp, `carried`): a pure instruction
+// over the loops' indices and values in scope is recomputed at the pass
+// (From::Remat, Briggs, Cooper and Torczon 1992), a division and an element
+// address as much as a sum, and an address is admitted when its root
+// allocation outlives the pass (Tofte and Talpin 1997: the region the
+// pointer is into encloses the capture). The refusal that remains is for an
+// address rooted in storage that dies with the producer's frame.
+//
+// What to read for: the pass `q_rest` recomputing `y` from its own index
+// and `(&total!expanded[y])` from it, with the accumulate into it kept
+// atomic -- four entries of one point add into one slot -- and no
+// `q_rest_total` array in the record. `out[y * 4 + x] = v` reads the two
+// indices back the same way.
+
+func walk(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return walk(k - 1, acc + k);
+}
+
+func grid(out : mut array[i32, 12], sums : mut array[i32, 3]) -> void {
+    parfor y in 0:3 {
+        total : mut i32 = 0;
+        parfor x in 0:4 {
+            v = walk(y + x, 0);
+            out[y * 4 + x] = v;
+            atomic total += v;
+        }
+        sums[y] = total;
+    }
+    return;
+}
+
+schedule {
+    grid.reorder(y, x);
+    grid.reorder(x, y);
+    grid.collapse(y, x, k);
+    q = grid.queue(root);
+    grid.defer(walk, q);
+    walk.defer(walk, q);
+}

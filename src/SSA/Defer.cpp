@@ -2218,10 +2218,93 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
         return found;
     };
+    // Two questions the classification below asks of a value the entry
+    // would carry -- an address handed down the chain, a free variable of
+    // the producer's continuation -- and neither is answered by the value's
+    // type. Where does its storage live: an address is safe to keep across
+    // the drain exactly when the storage it points into is alive when the
+    // entry runs (Tofte and Talpin, "Region-Based Memory Management",
+    // Information and Computation 1997: a pointer may be captured only
+    // where its region encloses the capture). And how is it computed: a
+    // value is cheaper recomputed than kept when it is a pure function of
+    // what the drain has (Briggs, Cooper and Torczon, "Rematerialization",
+    // PLDI 1992, with the record for the register file).
+    //
+    // The storage an address is into, through the instructions that derive
+    // one address from another, and whether it outlives the pass: a
+    // parameter of the owner does, a slot of the record does
+    // (Function::record_slots), a constant does, and so does an allocation
+    // made on every path before the pass and in a region around it -- one
+    // whose block dominates the pass point, the array a reorder expands a
+    // point's sum into before the nest. An allocation inside the producer's
+    // iteration dies with it; an address read out of memory, or taken of a
+    // value (AddressOf, a temporary's), is one nothing here can place.
+    const std::function<bool(const Definition &)> outlives_pass =
+        [&](const Definition &d) -> bool {
+        if (!d.value) {
+            return false;
+        }
+        if (d.block.empty()) {
+            return true; // a constant
+        }
+        if (std::get_if<Argument>(&d.value->data) != nullptr) {
+            return d.block == oentry; // the owner's own parameter
+        }
+        const auto *di = std::get_if<shared_ptr<Instruction>>(&d.value->data);
+        if (di == nullptr) {
+            return false;
+        }
+        const Instruction &in = **di;
+        if (O->record_slots.contains(&in)) {
+            return true;
+        }
+        switch (in.op) {
+        case Instruction::Op::Alloca:
+        case Instruction::Op::Alloc:
+            return available(d);
+        case Instruction::Op::GEP:
+        case Instruction::Op::FieldPtr:
+        case Instruction::Op::Cast:
+            return !in.operands.empty() &&
+                   outlives_pass(settle(odefs.of(d.block, in.operands[0])));
+        case Instruction::Op::MakeStruct:
+        case Instruction::Op::Select:
+            // An aggregate, or a choice: every address in it.
+            for (const auto &operand : in.operands) {
+                if (holds_address(operand->get_type()) &&
+                    !outlives_pass(settle(odefs.of(d.block, operand)))) {
+                    return false;
+                }
+            }
+            return true;
+        default:
+            return false;
+        }
+    };
+    // Whether an instruction computes its value from its operands alone --
+    // no read of memory, no effect -- so that it may be done again at the
+    // pass given its operands again: recomputable() with the reads of memory
+    // left out (a load, a field read, an element of an array; an element of
+    // a vector value is a register operation) and the address arithmetic
+    // put in, a GEP or a FieldPtr being a function of its base and index.
+    const auto pure_instruction = [](const Instruction &in) {
+        switch (in.op) {
+        case Instruction::Op::Load:
+        case Instruction::Op::LoadField:
+            return false;
+        case Instruction::Op::ExtractIdx:
+            return !in.operands.empty() &&
+                   in.operands[0]->get_type().is<Vector_t>();
+        case Instruction::Op::GEP:
+        case Instruction::Op::FieldPtr:
+            return true;
+        default:
+            return recomputable(in);
+        }
+    };
     // Whether every route from the owner hands parameter `j` of `g` an
-    // address that outlives the frames: a slot of the record
-    // (Function::record_slots) or a parameter of the owner's own. `why`
-    // names the route that fails, when one does.
+    // address that outlives the frames (outlives_pass). `why` names the
+    // route that fails, when one does.
     const auto handed_slots = [&](const string &g0, size_t j0, string &why) {
         const optional<OwnerArgs> routes = routes_to(g0, j0, odefs, why);
         if (!routes.has_value()) {
@@ -2229,14 +2312,12 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
         for (const auto &[site, ds] : *routes) {
             for (const Definition &d : ds) {
-                const auto *di = d.value ? std::get_if<shared_ptr<Instruction>>(&d.value->data) : nullptr;
-                const auto *da = d.value ? std::get_if<Argument>(&d.value->data) : nullptr;
-                const bool slot = di != nullptr && O->record_slots.contains(di->get());
-                const bool handed = da != nullptr && d.block == oentry;
-                if (!slot && !handed) {
+                if (!outlives_pass(d)) {
                     why = "the call in " + site + " of " + queue.owner +
-                          " hands the chain storage that is not a record "
-                          "slot's or the owner's own parameter";
+                          " hands the chain storage that does not outlive "
+                          "the frames: not a record slot's, not the owner's "
+                          "own parameter, not an allocation made before the "
+                          "drain";
                     return false;
                 }
             }
@@ -2249,7 +2330,8 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // drain has the value in scope; the address of a slot of the record,
     // when a pointer argument points at a mutable local of the producer's
     // iteration (the local is given the slot below) or is a slot's address
-    // on every route from the owner; the value itself otherwise.
+    // on every route from the owner; an address into storage that outlives
+    // the pass, kept as the address it is; the value itself otherwise.
     vector<Field> fields;
     const auto field_named = [&](string name) {
         for (bool clash = true; clash;) {
@@ -2308,6 +2390,12 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             if (inv) {
                 f.origin = org;
                 f.slot_local = as_local(org);
+                internal_assert(f.slot_local != nullptr || outlives_pass(org))
+                    << what << ": the reducer " << param.name << " of "
+                    << callee_name << " is an address into storage that dies "
+                    << "with the producer's iteration, or that nothing here "
+                    << "can place; a reducer is one place for the whole "
+                    << "iteration, which outlives the frames";
             }
             f.slot_address = true;
             params[j] = {Where::Stored, fields.size()};
@@ -2335,9 +2423,17 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             oi != nullptr && O->record_slots.contains(oi->get())) {
             slot_address = true;
         }
+        // Or an address, one value down the chain, into storage that
+        // outlives the pass -- the point's sum `(&total!expanded[y])` a
+        // reorder privatized, handed to the walk that adds into it: kept
+        // as the address it is (outlives_pass).
+        if (!slot_address && inv && holds_address(param.type) &&
+            outlives_pass(org)) {
+            slot_address = true;
+        }
         // An address the calls disagree about -- the callee reached from two
         // drains, each handing on the slot its entry held -- is one kind of
-        // value when every route hands a slot.
+        // value when every route hands storage that outlives the frames.
         string route;
         if (!slot_address && !inv && holds_address(param.type) &&
             handed_slots(callee_name, j, route)) {
@@ -2357,15 +2453,15 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
         internal_assert(!holds_address(param.type))
             << what << ": the argument " << param.name << " of " << callee_name
-            << " is an address (" << param.type << ") that is neither the same "
-            << "at every call nor a mutable local of the producer's iteration, "
-            << "so it would be stored in the queue -- and might point into a "
-            << "frame that has returned by the time the entry runs. Not "
-            << "supported."
+            << " is an address (" << param.type << ") into storage that dies "
+            << "with the producer's iteration, or that nothing here can place "
+            << "(an address read out of memory, or of a temporary), so it "
+            << "cannot be stored in the queue: it might point into a frame "
+            << "that has returned by the time the entry runs. Not supported."
             << (disagreement[callee_name].contains(j)
                     ? " It is " + disagreement[callee_name][j] + "."
                     : invariant.at(callee_name)[j]
-                          ? " It is one value down the chain, but computed inside "
+                          ? " It is one value down the chain, computed inside "
                             "the producer's iteration."
                           : "");
         Field f;
@@ -2385,12 +2481,18 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // iteration: each value the continuation takes from before the call is
     // in scope where the pass runs; or a mutable local of the iteration,
     // given a slot of the record whose address the pass hands it; or a
-    // value of the iteration, which the producer writes into the record
-    // before the call and the pass reads back. (The user's rule, given for
-    // the frame the entry once carried: "if the return says we saved state,
-    // save this data in the queue location, otherwise act as normal." The
-    // record saves it for every iteration, once, before the call, so that
-    // nothing has to say anything.)
+    // pure function of those and the loops' indices, computed again in the
+    // pass; or a value of the iteration, which the producer writes into the
+    // record before the call and the pass reads back. (The user's rule,
+    // given for the frame the entry once carried: "if the return says we
+    // saved state, save this data in the queue location, otherwise act as
+    // normal." The record saves it for every iteration, once, before the
+    // call, so that nothing has to say anything.) The entry is the
+    // continuation's environment, its free variables (Reynolds,
+    // "Definitional Interpreters for Higher-Order Programming Languages",
+    // 1972: defunctionalization), and what each is classified by is where
+    // its storage lives and how it is computed (outlives_pass,
+    // pure_instruction above), never its type alone.
     enum class From { Available, Slot, Index, Remat, Record };
     struct CarriedPlan {
         From from = From::Available;
@@ -2415,44 +2517,50 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
         return std::nullopt;
     };
-    // Whether a definition is arithmetic over the loops' indices and values
-    // in scope at the pass, and so can be recomputed there (From::Remat):
-    // the index itself or such a value, or a sum, difference, product,
-    // shift or cast of ones that are. A few levels deep, which is what an
-    // index expression is; a load or a call is not arithmetic and stops it.
-    const std::function<bool(const Definition &, int)> rematerializable =
-        [&](const Definition &d, int depth) -> bool {
+    // Whether a definition is a pure function of what the pass has, and so
+    // can be recomputed there (From::Remat): the leaves are what the pass
+    // can name -- a value in scope at the pass, a producer loop's index, a
+    // mutable local of the producer's iteration (given a slot of the
+    // record, whose address the pass has) -- and everything above them is a
+    // pure instruction over such leaves (pure_instruction): index
+    // arithmetic, a division, an element's address, a struct put together.
+    // `cost` counts the instructions recomputing it takes, against which the
+    // store and the load per entry of keeping it are weighed below; `locals`
+    // collects the slot leaves, so that the record can give each its slot.
+    const std::function<bool(const Definition &, size_t &, set<const Instruction *> &)>
+        pure_over_pass = [&](const Definition &d, size_t &cost,
+                             set<const Instruction *> &locals) -> bool {
         if (!d.value) {
             return false;
         }
         if (available(d) || nest_index_of(d).has_value()) {
             return true;
         }
-        if (depth >= 4) {
-            return false;
+        if (const Instruction *local = as_local(d)) {
+            locals.insert(local);
+            return true;
         }
         const auto *di = std::get_if<shared_ptr<Instruction>>(&d.value->data);
-        if (di == nullptr) {
+        if (di == nullptr || !pure_instruction(**di)) {
             return false;
         }
-        const Instruction &in = **di;
-        switch (in.op) {
-        case Instruction::Op::Add:
-        case Instruction::Op::Sub:
-        case Instruction::Op::Mul:
-        case Instruction::Op::Shl:
-        case Instruction::Op::Cast:
-            break;
-        default:
-            return false;
-        }
-        for (const auto &operand : in.operands) {
-            if (!rematerializable(settle(odefs.of(d.block, operand)), depth + 1)) {
+        cost++;
+        for (const auto &operand : (*di)->operands) {
+            if (!pure_over_pass(settle(odefs.of(d.block, operand)), cost, locals)) {
                 return false;
             }
         }
         return true;
     };
+    // How many instructions a value may cost to recompute before it is kept
+    // in the record instead: the spill is a store at the push and a load at
+    // the pass, each a memory operation per entry, and an array of the
+    // record; a value recomputed costs its instructions per entry and no
+    // memory. An address is recomputed whatever it costs (below).
+    constexpr size_t remat_budget = 16;
+    // The mutable locals the recomputed values reach, each to be given a
+    // slot of the record (give_slot, below).
+    set<const Instruction *> remat_locals;
     // A value of the iteration the record keeps: an array of it, sized as
     // the queue is, written by the producer and read by the pass.
     struct RecordValue {
@@ -2485,29 +2593,42 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             carried.push_back({From::Index, nullptr, *k, d});
             continue;
         }
-        // So is a value computed from the loops' indices and what is in
-        // scope at the pass by arithmetic alone -- the pixel `p_band + p_in`
-        // of a band's continuation, an index widened or scaled: recomputed
-        // there rather than kept, for the same two reasons. (An index kept
-        // in the record and loaded back is a subscript the contention
-        // analysis cannot see through; recomputed, it is affine in the
-        // pass's index.)
-        if (rematerializable(d, 0)) {
-            carried.push_back({From::Remat, nullptr, 0, d});
-            continue;
+        // So is a pure function of the loops' indices, the values in scope
+        // at the pass and the iteration's locals -- the pixel `p_band + p_in`
+        // of a band's continuation, an index widened or scaled, the address
+        // `(&total!expanded[k >> 2])` of the point's sum that a reorder
+        // privatized and a collapse made index arithmetic -- recomputed
+        // there rather than kept, for the same two reasons, so long as the
+        // recomputation is a few instructions (Briggs, Cooper and Torczon
+        // 1992: rematerialize what is cheaper to compute again than to
+        // spill). An address is recomputed whatever it costs: kept in the
+        // record it is a subscript the contention analysis cannot see
+        // through, and recomputed it is affine in the pass's index wherever
+        // the index is.
+        {
+            size_t cost = 0;
+            set<const Instruction *> locals;
+            if (pure_over_pass(d, cost, locals) &&
+                (holds_address(arg.type) || cost <= remat_budget)) {
+                carried.push_back({From::Remat, nullptr, 0, d});
+                remat_locals.insert(locals.begin(), locals.end());
+                continue;
+            }
         }
-        // An address is kept only when it outlives the frame: a slot of the
-        // record, read out of an earlier deferral's entry.
-        const auto *di = std::get_if<shared_ptr<Instruction>>(&d.value->data);
-        const bool slot_address =
-            di != nullptr && O->record_slots.contains(di->get());
-        internal_assert(!holds_address(arg.type) || slot_address)
+        // Kept in the record, by value. An address is kept only when the
+        // storage it points into outlives the pass (outlives_pass): a
+        // parameter's, a record slot's, an allocation's made before the
+        // drain. One into the producer's iteration -- a temporary's, an
+        // element the pass cannot recompute of a local array's -- would
+        // point into a frame that is gone when the pass runs.
+        internal_assert(!holds_address(arg.type) || outlives_pass(d))
             << what << ": after the call to " << pcall.call.name << " in "
             << producer.block->name << ", " << queue.owner << " goes on to use "
-            << arg.name << ", an address (" << arg.type << ") computed inside "
-            << "the producer's iteration that is not one of its mutable "
-            << "locals. The pass runs that continuation later, when the "
-            << "iteration is gone. Not supported.";
+            << arg.name << ", an address (" << arg.type << ") into storage "
+            << "that dies with the producer's iteration, or that nothing here "
+            << "can place (an address read out of memory, or of a temporary). "
+            << "The pass runs that continuation later, when the iteration is "
+            << "gone. Not supported.";
         size_t r = record_values.size();
         for (size_t k = 0; k < record_values.size(); k++) {
             if (same_definition(record_values[k].def, d)) {
@@ -2906,6 +3027,11 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         if (carried[i].from == From::Slot) {
             give_slot(carried[i].local, k0_entry->args[i + result_args].name);
         }
+    }
+    // The locals a recomputed value reaches (pure_over_pass): the pass
+    // rebuilds the value over each one's slot.
+    for (const Instruction *local : remat_locals) {
+        give_slot(local, local->name);
     }
     for (RecordValue &rv : record_values) {
         rv.array = scratch(make_alloca(*O, alloc_point,
@@ -3810,7 +3936,8 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                              "the pass's index";
                 break;
             case From::Remat:
-                std::cerr << "arithmetic over the producer loops' indices, "
+                std::cerr << "a pure function of the producer loops' indices, "
+                             "the values in scope and the iteration's slots, "
                              "recomputed from the pass's index";
                 break;
             case From::Record:
@@ -5375,9 +5502,11 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 }
                 return own;
             };
-            // A value rematerializable (above) is rebuilt here from the
-            // pass's index: the same instructions over the producer loops'
-            // indices recomputed and the values in scope reached.
+            // A value pure over the pass (pure_over_pass, above) is rebuilt
+            // here from the pass's index: the same instructions over the
+            // producer loops' indices recomputed, the values in scope
+            // reached, and the iteration's locals as the slots of the record
+            // they were given.
             const std::function<shared_ptr<Value>(const Definition &)> rematerialize =
                 [&](const Definition &d) -> shared_ptr<Value> {
                 if (const optional<size_t> k = nest_index_of(d)) {
@@ -5385,6 +5514,14 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 }
                 if (available(d)) {
                     return reach(run, d.value);
+                }
+                if (const Instruction *local = as_local(d)) {
+                    auto slot = run->make_instruction(
+                        local->type, Instruction::Op::GEP,
+                        {reach(run, slot_arrays.at(local)), i});
+                    O->record_slots.insert(
+                        std::get<shared_ptr<Instruction>>(slot->data).get());
+                    return slot;
                 }
                 const Instruction &in =
                     *std::get<shared_ptr<Instruction>>(d.value->data);

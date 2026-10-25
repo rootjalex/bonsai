@@ -1,0 +1,43 @@
+//! flags: -p ssa -b llvm -e
+
+// tests/bonsai/ssa/defer-address-parameter, run: the walk handed the
+// point's privatized sum by address, the address kept in the entry and the
+// walk adding into it where it ends. sums[y] = T(y) + T(y+1) + T(y+2) +
+// T(y+3) with T(n) = n(n+1)/2.
+
+func fill(k : i32, acc : i32, dst : mut i32) -> void {
+    if (k <= 0) {
+        atomic dst += acc;
+        return;
+    }
+    fill(k - 1, acc + k, dst);
+    return;
+}
+
+func grid(sums : mut array[i32, 3]) -> void {
+    parfor y in 0:3 {
+        total : mut i32 = 0;
+        parfor x in 0:4 {
+            fill(y + x, 0, total);
+        }
+        sums[y] = total;
+    }
+    return;
+}
+
+func main() -> i32 {
+    sums : mut array[i32, 3] = {-1, -1, -1};
+    grid(sums);
+    // {10, 20, 34}
+    print(sums);
+    return 0;
+}
+
+schedule {
+    grid.reorder(y, x);
+    grid.reorder(x, y);
+    grid.collapse(y, x, k);
+    q = grid.queue(root);
+    grid.defer(fill, q);
+    fill.defer(fill, q);
+}

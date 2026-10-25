@@ -58,6 +58,7 @@ add_bonsai_tests(
     raygen.bonsai
     reorder.bonsai
     reorder-collapse-persistent.bonsai
+    defer-remat-address.bonsai
     round-reset.bonsai
     rtcore-alpha.bonsai
     rtcore-tlas.bonsai
