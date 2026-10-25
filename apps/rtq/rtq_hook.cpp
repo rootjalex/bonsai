@@ -76,6 +76,15 @@
 #else
 #include "apps/rtq/fcpw_tree.h"
 #endif
+// Under RTQ_GPU (compare.sh, for the schedules named *-gpu) the reference
+// is FCPW's GPU: its compute shaders over the tree it transfers to the
+// card, timed around the dispatch and the wait (fcpw_gpu_reference.h), as
+// the program's kernels are timed around their launch and wait with their
+// buffers staged on the device. RTQ_FCPW_DIR names FCPW's checkout, where
+// its Slang sources are.
+#ifdef RTQ_GPU
+#include "apps/rtq/fcpw_gpu_reference.h"
+#endif
 #else
 #include <embree4/rtcore.h>
 #include <embree4/rtcore_builder.h>
@@ -802,6 +811,13 @@ constexpr const char *kReferenceTitle = "FCPW";
 // answering the same calls through bvh.inl's scalar traversals.
 struct Reference {
     fcpw::Scene<3> scene;
+#ifdef RTQ_GPU
+    // FCPW's GPU over the same scene: the tree transferred, the shaders
+    // loaded (fcpw_gpu_reference.h). Mutable because FCPW's dispatch takes
+    // its context by non-const reference while the queries here take the
+    // reference as const.
+    mutable rtq_gpu::FcpwGpu gpu;
+#endif
 };
 
 #if defined(RTQ_FCPW_BINARY) || defined(RTQ_FCPW_SNCH)
@@ -844,6 +860,9 @@ void make_reference(Reference &ref, const Mesh &mesh, bool stats) {
 #endif
     ref.scene.build(fcpw::AggregateType::Bvh_SurfaceArea, kVectorized,
                     /*printStats=*/stats, /*reduceMemoryFootprint=*/false);
+#ifdef RTQ_GPU
+    ref.gpu.setup(ref.scene, RTQ_FCPW_DIR);
+#endif
 }
 
 void release_reference(Reference &) {}
@@ -1705,6 +1724,106 @@ double timed(int repeats, F &&f) {
     return timed(repeats, [] {}, std::forward<F>(f));
 }
 
+//===----------------------------------------------------------------------===//
+// The program's side, timed
+//===----------------------------------------------------------------------===//
+//
+// Each query over a batch, the least of `repeats` runs. On the CPU the
+// exported parfor is a plain loop over the arrays (bonsai_intersect and the
+// others above). Under a GPU schedule (RTQ_GPU) the batch's arrays and the
+// tree's rows are buffers staged on the device before the clock -- the
+// generated header's `<export>_sides` say where each is read -- with a copy
+// inside the timed call forbidden rather than timed
+// (runtime/bonsai_buffer.h), the call the kernel's launch and the wait for
+// it, and the answers staged back to the host after: the clock FCPW's side
+// gets around its dispatch and wait.
+
+#ifndef RTQ_GPU
+
+double time_bonsai_intersect(const Tree &tree, const std::vector<Ray> &rays, int repeats,
+                             std::vector<Hit> &hits) {
+    return timed(repeats, [&] { bonsai_intersect(tree, rays, hits); });
+}
+
+double time_bonsai_occluded(const Tree &tree, const std::vector<Ray> &rays, int repeats,
+                            std::vector<uint32_t> &blocked) {
+    return timed(repeats, [&] { bonsai_occluded(tree, rays, blocked); });
+}
+
+double time_bonsai_closest(const Tree &tree, const std::vector<Point> &points, int repeats,
+                           std::vector<ClosestHit> &hits) {
+    return timed(repeats, [&] { bonsai_closest(tree, points, hits); });
+}
+
+#ifdef RTQ_FCPW_SNCH
+double time_bonsai_silhouette(const Tree &tree, const std::vector<SilhouetteQuery> &queries,
+                              int repeats, std::vector<SilhouetteHit> &hits) {
+    return timed(repeats, [&] { bonsai_silhouette(tree, queries, hits); });
+}
+#endif
+
+#else // RTQ_GPU
+
+template <typename In, typename Out, typename Call>
+double time_staged(const std::vector<In> &in, std::vector<Out> &out, bonsai_buffer *group0,
+                   bonsai_buffer *group1, const uint8_t *sides, int repeats, Call &&call) {
+    bonsai_buffer in_buffer = bonsai_buffer_wrap(
+        const_cast<void *>(static_cast<const void *>(in.data())), uint64_t(in.size()) * sizeof(In));
+    bonsai_buffer out_buffer = bonsai_buffer_wrap(out.data(), uint64_t(out.size()) * sizeof(Out));
+    bonsai_buffer *buffers[4] = {&in_buffer, &out_buffer, group0, group1};
+    const double seconds = timed(
+        repeats,
+        [&] {
+            bonsai_buffer_stage_all(buffers, sides, 4);
+            bonsai_buffer_implicit_copies(0);
+        },
+        [&] { call(&in_buffer, &out_buffer); });
+    bonsai_buffer_implicit_copies(1);
+    bonsai_buffer_stage(&out_buffer, BONSAI_HOST);
+    return seconds;
+}
+
+double time_bonsai_intersect(const Tree &tree, const std::vector<Ray> &rays, int repeats,
+                             std::vector<Hit> &hits) {
+    hits.resize(rays.size());
+    return time_staged(rays, hits, tree.layout.group0_prims, tree.layout.group1_index,
+                       trace_all_sides, repeats, [&](bonsai_buffer *in, bonsai_buffer *out) {
+                           trace_all(uint32_t(rays.size()), in, out, tree.layout);
+                       });
+}
+
+double time_bonsai_occluded(const Tree &tree, const std::vector<Ray> &rays, int repeats,
+                            std::vector<uint32_t> &blocked) {
+    blocked.resize(rays.size());
+    return time_staged(rays, blocked, tree.layout.group0_prims, tree.layout.group1_index,
+                       occluded_all_sides, repeats, [&](bonsai_buffer *in, bonsai_buffer *out) {
+                           occluded_all(uint32_t(rays.size()), in, out, tree.layout);
+                       });
+}
+
+double time_bonsai_closest(const Tree &tree, const std::vector<Point> &points, int repeats,
+                           std::vector<ClosestHit> &hits) {
+    hits.resize(points.size());
+    return time_staged(points, hits, tree.layout.group0_prims, tree.layout.group1_index,
+                       closest_all_sides, repeats, [&](bonsai_buffer *in, bonsai_buffer *out) {
+                           closest_all(uint32_t(points.size()), in, out, tree.layout);
+                       });
+}
+
+#ifdef RTQ_FCPW_SNCH
+double time_bonsai_silhouette(const Tree &tree, const std::vector<SilhouetteQuery> &queries,
+                              int repeats, std::vector<SilhouetteHit> &hits) {
+    hits.resize(queries.size());
+    return time_staged(queries, hits, tree.silhouettes.group0_edges, tree.silhouettes.group1_snode,
+                       silhouette_all_sides, repeats,
+                       [&](bonsai_buffer *in, bonsai_buffer *out) {
+                           silhouette_all(uint32_t(queries.size()), in, out, tree.silhouettes);
+                       });
+}
+#endif
+
+#endif // RTQ_GPU
+
 // The distance along the ray to a triangle's plane, in double precision, for
 // telling a disagreement about which triangle is nearest from a tie: two
 // triangles at the same distance, the reference's and ours, both right.
@@ -2140,6 +2259,8 @@ std::vector<PrimaryHit> reference_primary_hits(const Reference &ref, const Mesh 
     return out;
 }
 
+#ifndef RTQ_GPU
+
 // FCPW: Scene::intersect -- the nearest hit along the ray, which shortens
 // the ray's tMax and fills the interaction (its primitiveIndex the
 // triangle's id); with `checkForOcclusion` it says only whether anything
@@ -2298,6 +2419,143 @@ double reference_silhouette(const Reference &ref, const std::vector<SilhouetteQu
 }
 #endif
 
+#else // RTQ_GPU
+
+// FCPW's GPU answers (fcpw_gpu_reference.h): each batch as FCPW's GPUScene
+// takes it -- GPURay (origin, direction, the reciprocal direction its
+// constructor takes, tMax), GPUBoundingSphere (center, squared radius) --
+// uploaded with the answers' buffer before the clock (GPURun*Query::
+// allocate, FCPW's own), the dispatch and the wait timed, the
+// GPUInteractions read back after: the index (FCPW_GPU_UINT_MAX for none,
+// the same word as kNoHit), the distance, the point, the normal, uv. A
+// miss leaves the interaction as allocated, so the buffer needs no reset
+// between runs. The thread count is FCPW's, groups of 256.
+fcpw::float3 to_gpu(float3 v) { return fcpw::float3{v.x, v.y, v.z}; }
+
+double reference_intersect_gpu(const Reference &ref, const std::vector<Ray> &rays, int repeats,
+                               bool occlusion, std::vector<fcpw::GPUInteraction> &its) {
+    std::vector<fcpw::GPURay> gpu_rays;
+    gpu_rays.reserve(rays.size());
+    for (const Ray &r : rays) {
+        gpu_rays.emplace_back(to_gpu(r.o), to_gpu(r.d), r.tfar);
+    }
+    fcpw::GPURunRayIntersectionQuery run;
+    run.allocate(ref.gpu.context, gpu_rays);
+    run.checkForOcclusion = occlusion ? 1u : 0u;
+    const double seconds = timed(repeats, [&] {
+        ref.gpu.dispatch(ref.gpu.ray_shader, run, uint32_t(rays.size()));
+    });
+    run.read(ref.gpu.context, its);
+    return seconds;
+}
+
+double reference_intersect(const Reference &ref, const std::vector<Ray> &rays, int repeats,
+                           std::vector<RefHit> &records) {
+    std::vector<fcpw::GPUInteraction> its;
+    const double seconds = reference_intersect_gpu(ref, rays, repeats, /*occlusion=*/false, its);
+    records.assign(rays.size(), RefHit{});
+    for (size_t i = 0; i < rays.size(); i++) {
+        const fcpw::GPUInteraction &it = its[i];
+        if (it.index == FCPW_GPU_UINT_MAX) {
+            continue;
+        }
+        records[i].prim = it.index;
+        records[i].t = it.d;
+        records[i].u = it.uv.x;
+        records[i].v = it.uv.y;
+        records[i].ng = Vec3{it.n.x, it.n.y, it.n.z};
+        records[i].p = Vec3{it.p.x, it.p.y, it.p.z};
+    }
+    return seconds;
+}
+
+// bvh.slang's intersect under checkForOcclusion writes the first hit's
+// index and stops; a miss leaves the index at FCPW_GPU_UINT_MAX.
+double reference_occluded(const Reference &ref, const std::vector<Ray> &rays, int repeats,
+                          std::vector<uint32_t> &blocked) {
+    std::vector<fcpw::GPUInteraction> its;
+    const double seconds = reference_intersect_gpu(ref, rays, repeats, /*occlusion=*/true, its);
+    blocked.assign(rays.size(), 0u);
+    for (size_t i = 0; i < rays.size(); i++) {
+        blocked[i] = its[i].index != FCPW_GPU_UINT_MAX ? 1u : 0u;
+    }
+    return seconds;
+}
+
+// FCPW: GPUScene::findClosestPoints over spheres of the largest float, the
+// unbounded query (bvh.cs.slang closestPoint; recordNormals off, as the
+// CPU query leaves the normal).
+double reference_closest(const Reference &ref, const Mesh &, const std::vector<Point> &points,
+                         int repeats, std::vector<RefClosest> &records,
+                         double &callbacks_per_query) {
+    std::vector<fcpw::GPUBoundingSphere> spheres;
+    spheres.reserve(points.size());
+    for (const Point &p : points) {
+        spheres.emplace_back(to_gpu(p.p), fcpw::maxFloat);
+    }
+    fcpw::GPURunClosestPointQuery run;
+    run.allocate(ref.gpu.context, spheres);
+    run.recordNormals = 0;
+    const double seconds = timed(repeats, [&] {
+        ref.gpu.dispatch(ref.gpu.closest_shader, run, uint32_t(points.size()));
+    });
+    std::vector<fcpw::GPUInteraction> its;
+    run.read(ref.gpu.context, its);
+    records.assign(points.size(), RefClosest{});
+    for (size_t i = 0; i < points.size(); i++) {
+        const fcpw::GPUInteraction &it = its[i];
+        if (it.index == FCPW_GPU_UINT_MAX) {
+            continue;
+        }
+        records[i].prim = it.index;
+        records[i].d = it.d;
+        records[i].p = Vec3{it.p.x, it.p.y, it.p.z};
+        records[i].u = it.uv.x;
+        records[i].v = it.uv.y;
+    }
+    callbacks_per_query = std::numeric_limits<double>::quiet_NaN();
+    return seconds;
+}
+
+#ifdef RTQ_FCPW_SNCH
+// FCPW: GPUScene::findClosestSilhouettePoints (bvh.cs.slang
+// closestSilhouettePoint): the spheres, each query's normal flip as a word,
+// the one minimum radius and precision of the batch.
+double reference_silhouette(const Reference &ref, const std::vector<SilhouetteQuery> &queries,
+                            int repeats, std::vector<RefSilhouette> &records) {
+    std::vector<fcpw::GPUBoundingSphere> spheres;
+    std::vector<uint32_t> flips;
+    spheres.reserve(queries.size());
+    flips.reserve(queries.size());
+    for (const SilhouetteQuery &q : queries) {
+        spheres.emplace_back(to_gpu(q.c), q.r2);
+        flips.push_back(q.flip);
+    }
+    fcpw::GPURunClosestSilhouettePointQuery run;
+    run.allocate(ref.gpu.context, spheres, flips);
+    run.squaredMinRadius = queries.empty() ? 0.0f : queries.front().min_r2;
+    run.precision = queries.empty() ? kSilhouettePrecision : queries.front().precision;
+    const double seconds = timed(repeats, [&] {
+        ref.gpu.dispatch(ref.gpu.silhouette_shader, run, uint32_t(queries.size()));
+    });
+    std::vector<fcpw::GPUInteraction> its;
+    run.read(ref.gpu.context, its);
+    records.assign(queries.size(), RefSilhouette{});
+    for (size_t i = 0; i < queries.size(); i++) {
+        const fcpw::GPUInteraction &it = its[i];
+        if (it.index == FCPW_GPU_UINT_MAX) {
+            continue;
+        }
+        records[i].edge = it.index;
+        records[i].d = it.d;
+        records[i].p = Vec3{it.p.x, it.p.y, it.p.z};
+    }
+    return seconds;
+}
+#endif
+
+#endif // RTQ_GPU
+
 #endif // RTQ_FCPW
 
 void usage() {
@@ -2409,6 +2667,10 @@ int main(int argc, char **argv) {
     make_reference(ref, mesh, embree_stats);
     const Tree tree = build_tree(ref, mesh);
     describe_tree(tree);
+#ifdef BONSAI_HAS_GPU
+    // The program's kernels loaded ahead of the clock, as FCPW's shaders are.
+    bonsai_gpu_prepare();
+#endif
 #ifndef RTQ_FCPW
     // The record of what Embree's side runs when it is packets: the calls,
     // the flag, and whether the device traverses a packet of this width on
@@ -2464,7 +2726,7 @@ int main(int argc, char **argv) {
 
         if (run_intersect) {
             const double te = reference_intersect(ref, rays, repeats, ref_hits);
-            const double tb = timed(repeats, [&] { bonsai_intersect(tree, rays, our_hits); });
+            const double tb = time_bonsai_intersect(tree, rays, repeats, our_hits);
             const Agreement hit = compare_hits(mesh, rays, ref_hits, our_hits);
             std::printf("%-10s %-10s %10zu %12.2f %12.2f %9.2fx  %zu same, %zu ties, %zu "
                         "differ (%s hits %zu, bonsai %zu; records within t %.1e, n %.1e, "
@@ -2478,8 +2740,7 @@ int main(int argc, char **argv) {
 
         if (run_occluded) {
             const double oe = reference_occluded(ref, rays, repeats, ref_blocked);
-            const double ob =
-                timed(repeats, [&] { bonsai_occluded(tree, rays, our_blocked); });
+            const double ob = time_bonsai_occluded(tree, rays, repeats, our_blocked);
             const Agreement occ = compare_occluded(ref_blocked, our_blocked);
             std::printf("%-10s %-10s %10zu %12.2f %12.2f %9.2fx  %zu same, %zu differ "
                         "(%s blocked %zu, bonsai %zu)\n",
@@ -2512,7 +2773,7 @@ int main(int argc, char **argv) {
             double callbacks_per_query = 0;
             const double te =
                 reference_closest(ref, mesh, points, repeats, ref_closest, callbacks_per_query);
-            const double tb = timed(repeats, [&] { bonsai_closest(tree, points, ours); });
+            const double tb = time_bonsai_closest(tree, points, repeats, ours);
             const Agreement c = compare_closest(mesh, points, ref_closest, ours);
             std::printf("%-10s %-10s %10zu %12.2f %12.2f %9.2fx  %zu same, %zu ties, %zu "
                         "differ (%s found %zu, bonsai %zu; ties agree to %.1e of the "
@@ -2539,7 +2800,7 @@ int main(int argc, char **argv) {
             std::vector<RefSilhouette> ref_sil;
             std::vector<SilhouetteHit> our_sil;
             const double te = reference_silhouette(ref, queries, repeats, ref_sil);
-            const double tb = timed(repeats, [&] { bonsai_silhouette(tree, queries, our_sil); });
+            const double tb = time_bonsai_silhouette(tree, queries, repeats, our_sil);
             const Agreement s = compare_silhouette(mesh, queries, ref_sil, our_sil);
             std::printf("%-10s %-10s %10zu %12.2f %12.2f %9.2fx  %zu same, %zu ties, %zu "
                         "differ (%s found %zu, bonsai %zu; ties agree to %.1e of the "

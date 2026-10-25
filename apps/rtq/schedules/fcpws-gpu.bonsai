@@ -1,0 +1,62 @@
+// The schedule matching FCPW's GPU over its normal cone hierarchy:
+// snch.bonsai's four batches as FCPW's compute shaders run them (fcpw/gpu/
+// bvh.cs.slang: rayIntersection, closestPoint, closestSilhouettePoint --
+// one thread a query, groups of 256), each thread's traversal bvh.slang's
+// over the same rows (layouts/fcpws.bonsai: GPUSnchNode, GPUTriangle and
+// GPUEdge rows, the tree FCPW puts on a GPU for a mesh with silhouettes).
+// The reference is FCPW's GPUScene, run by the driver built with RTQ_GPU
+// and RTQ_FCPW_SNCH (compare.sh, for the schedule's name), its shaders over
+// the same tree, the clock around the dispatch and the wait on both sides.
+//
+// The traversals are bvh.slang's, as fcpwb-gpu.bonsai has them for the
+// three queries over the triangles (the closest point ordered by d2Min
+// alone, the rays by the slab entry, both children written out, a stack of
+// sixty-four), over a node that carries a cone the rays and the points read
+// past; the silhouette query (findClosestSilhouettePoint) tests the
+// children's cones and boxes at the parent and orders them by the box
+// distance alone, as the CPU traversal does. Each batch's loop is split by
+// 256 and bound to the GPU's blocks and threads: one launch, one query a
+// thread, the tail block guarded.
+import apps/rtq/schedules/layouts/fcpws;
+
+schedule {
+    closest.sort(triangles.Interior,
+                 |i : u32, q : Point, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                  axis : vector[vec3f, 2], half_angle : vector[f32, 2], radius : vector[f32, 2]|
+                 distmin(q, AABB{lo[i], hi[i]}))
+           .unroll(triangles.Interior.children)
+           .loopify(64);
+    closest.skip(closest_point_fcpw);
+    trace.sort(triangles.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                axis : vector[vec3f, 2], half_angle : vector[f32, 2], radius : vector[f32, 2]|
+               distmin(r, AABB{lo[i], hi[i]}))
+         .unroll(triangles.Interior.children)
+         .loopify(64);
+    occluded.sort(triangles.Interior,
+                  |i : u32, r : Ray, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                   axis : vector[vec3f, 2], half_angle : vector[f32, 2], radius : vector[f32, 2]|
+                  distmin(r, AABB{lo[i], hi[i]}))
+            .unroll(triangles.Interior.children)
+            .loopify(64);
+    closest_silhouette.sort(silhouettes.Interior,
+                            |i : u32, q : SilhouetteQuery, lo : vector[vec3f, 2],
+                             hi : vector[vec3f, 2], axis : vector[vec3f, 2],
+                             half_angle : vector[f32, 2], radius : vector[f32, 2]|
+                            distmin(q, ConeBox{lo[i], hi[i], axis[i], half_angle[i], radius[i]}))
+                      .unroll(silhouettes.Interior.children)
+                      .loopify(64);
+
+    trace_all.split(i, i_blk, i_thr, 256, true);
+    trace_all.bind(i_blk, GPUBlock);
+    trace_all.bind(i_thr, GPUThread);
+    occluded_all.split(i, i_blk, i_thr, 256, true);
+    occluded_all.bind(i_blk, GPUBlock);
+    occluded_all.bind(i_thr, GPUThread);
+    closest_all.split(i, i_blk, i_thr, 256, true);
+    closest_all.bind(i_blk, GPUBlock);
+    closest_all.bind(i_thr, GPUThread);
+    silhouette_all.split(i, i_blk, i_thr, 256, true);
+    silhouette_all.bind(i_blk, GPUBlock);
+    silhouette_all.bind(i_thr, GPUThread);
+}

@@ -111,6 +111,20 @@ records' distance and point. Both are compiled over
 RTQ_SKIP_CMAKE=1 apps/rtq/compare.sh --schedule fcpwb,fcpws ~/projects/pbrt-v4-scenes/head/geometry/head.ply
 ```
 
+`fcpwb-gpu` and `fcpws-gpu` are the same two on the GPU: each batch's loop
+split by 256 and bound to the GPU's blocks and threads, one launch and one
+query a thread, the traversals bvh.slang's (the closest point ordered by
+the box distance alone, as the kernel orders it); the reference FCPW's
+GPUScene -- its compute shaders over the tree it transfers to the card,
+the very rows the layouts hold -- run by the driver built with `RTQ_GPU`
+against slang-rhi and the Slang release `apps/wosx/build_slang_rhi.sh`
+fetched. Both sides are timed around the dispatch and the wait alone: the
+queries are uploaded and the answers read back off the clock
+(`fcpw_gpu_reference.h`, FCPW's own `allocate`, `runShader` and `read`
+taken apart), and the program's buffers are staged on the device before
+the clock with a copy inside it forbidden (`runtime/bonsai_buffer.h`). The
+host thread is pinned as a single-thread run is; the GPU is the GPU.
+
 One mesh, one run, with the compiler built (`BONSAI_BUILD_DIR` names its
 build directory; unset, the script takes the first of `build`, `build-*`
 whose CMake cache found an LLVM, and says which):

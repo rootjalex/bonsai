@@ -239,25 +239,59 @@ build_schedule() {
     # matching FCPW's scalar build over its binary BVH (the driver's
     # RTQ_FCPW_BINARY; FCPW_USE_ENOKI off, as WoSX's CMake leaves it);
     # `fcpws` the one matching it over its normal cone hierarchy, with the
-    # silhouette query (RTQ_FCPW_SNCH, snch.bonsai).
-    if [[ "$schedule" =~ ^fcpw([48])w([0-9]+)t?$ ]]; then
+    # silhouette query (RTQ_FCPW_SNCH, snch.bonsai); `-gpu` after either of
+    # those is the GPU comparison, FCPW's compute shaders over the same
+    # tree as the reference (RTQ_GPU; the tree's rows are the ones FCPW
+    # itself puts on the card).
+    local base="$schedule" gpu=0
+    if [[ "$schedule" == *-gpu ]]; then
+      base="${schedule%-gpu}"
+      gpu=1
+    fi
+    if [[ "$base" =~ ^fcpw([48])w([0-9]+)t?$ && $gpu == 0 ]]; then
       branching="${BASH_REMATCH[1]}"
       width="${BASH_REMATCH[2]}"
       defines=(-DRTQ_FCPW -DNDEBUG -DFCPW_USE_ENOKI "-DFCPW_SIMD_WIDTH=$width")
       if [[ "$branching" == 8 ]]; then
         defines+=(-DFCPW_USE_EIGHT_WIDE_BRANCHING)
       fi
-    elif [[ "$schedule" == fcpwb ]]; then
+    elif [[ "$base" == fcpwb ]]; then
       branching=2
       width=1
       defines=(-DRTQ_FCPW -DRTQ_FCPW_BINARY -DNDEBUG)
-    elif [[ "$schedule" == fcpws ]]; then
+    elif [[ "$base" == fcpws ]]; then
       branching=2
       width=1
       defines=(-DRTQ_FCPW -DRTQ_FCPW_SNCH -DNDEBUG)
     else
-      echo "an fcpw schedule is named fcpw<branching>w<width>[t] (fcpw4w16, fcpw8w8, fcpw4w16t, ...), fcpwb or fcpws: $schedule" >&2
+      echo "an fcpw schedule is named fcpw<branching>w<width>[t] (fcpw4w16, fcpw8w8, fcpw4w16t, ...), fcpwb or fcpws, or fcpwb-gpu or fcpws-gpu: $schedule" >&2
       exit 1
+    fi
+    # The GPU comparison: FCPW's GPUScene runs on slang-rhi and the Slang
+    # release it fetched (deps/slang-rhi-build, built once by
+    # apps/wosx/build_slang_rhi.sh from the submodule under WoSX's FCPW),
+    # which the driver is compiled against and linked with (the Slang
+    # library found at run time through the rpath; Slang itself finds
+    # CUDA's NVRTC). The driver is told where FCPW's Slang sources are.
+    local gpu_includes=() gpu_libs=()
+    if [[ $gpu == 1 ]]; then
+      local rhi_src="$fcpw/deps/slang-rhi" rhi_build="deps/slang-rhi-build"
+      local slang_src="deps/slang-rhi-build/_deps/slang-src"
+      local rhi_lib slang_lib rhi_resources
+      rhi_lib="$(ls "$rhi_build"/libslang-rhi.a "$rhi_build"/libslang-rhi.so 2>/dev/null | head -n 1 || true)"
+      slang_lib="$(ls "$slang_src"/lib/libslang-compiler.so "$slang_src"/lib/libslang.so 2>/dev/null | head -n 1 || true)"
+      rhi_resources="$(ls "$rhi_build"/libslang-rhi-resources.a 2>/dev/null | head -n 1 || true)"
+      if [[ ! -f "$rhi_src/include/slang-rhi.h" || -z "$rhi_lib" || -z "$slang_lib" ||
+            ! -f "$slang_src/include/slang.h" ]]; then
+        echo "a GPU schedule compares against FCPW's GPUScene, which runs on slang-rhi:" >&2
+        echo "build it once with apps/wosx/build_slang_rhi.sh (into $rhi_build)" >&2
+        exit 1
+      fi
+      defines+=(-DRTQ_GPU -DFCPW_USE_GPU "-DRTQ_FCPW_DIR=\"$(cd "$fcpw" && pwd)\"")
+      gpu_includes=(-isystem "$rhi_src/include" -isystem "$rhi_build/include"
+                    -isystem "$slang_src/include")
+      gpu_libs=("$rhi_lib" ${rhi_resources:+"$rhi_resources"} "$slang_lib"
+                -Wl,-rpath,"$(cd "$slang_src/lib" && pwd)" -ldl -lpthread)
     fi
     # The driver compiled once per (header, defines) within a run and linked
     # per schedule: it includes the generated rtq.h, which two schedules over
@@ -266,16 +300,17 @@ build_schedule() {
     # measurement. Keyed by the header's checksum, so an unlike header
     # compiles afresh; the objects go at the end of the run.
     local key
-    key="fcpw-$(cat $PREFIX/rtq.h | md5sum | cut -c1-16)-$branching-$width"
+    key="fcpw-$(cat $PREFIX/rtq.h | md5sum | cut -c1-16)-$branching-$width-$gpu"
     if [[ ! -f "$PREFIX/.rtq_hook-$key.o" ]]; then
       "$BONSAI_CXX" -std=c++20 -O3 -march=native -fno-math-errno -ffp-contract=fast \
           "${defines[@]}" -I. -I$PREFIX \
           -isystem "$fcpw/include" -isystem "$fcpw/deps/enoki/include" \
-          -isystem "$eigen" \
+          -isystem "$eigen" ${gpu_includes[@]+"${gpu_includes[@]}"} \
           -c $PREFIX/rtq_hook.cpp -o "$PREFIX/.rtq_hook-$key.o"
     fi
     "$BONSAI_CXX" "$PREFIX/.rtq_hook-$key.o" $PREFIX/rtq.o \
         -L"$TOOLCHAIN_PREFIX/lib" -Wl,-rpath,"$TOOLCHAIN_PREFIX/lib" -lz \
+        ${gpu_libs[@]+"${gpu_libs[@]}"} \
         -o $PREFIX/rtq.out
   else
     local key
