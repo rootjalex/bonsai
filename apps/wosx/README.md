@@ -52,6 +52,17 @@ latency, the same on both, and their bars sit at 1 on every schedule
 (PLAN.md, "The crown and the beast"; with 1024 walks a point they gain
 like the others).
 
+Two more schedules defer the walk step by step onto a queue, so that a
+round of the drain runs the next step of every walk still going and a
+warp's lanes hold live steps rather than walks of which the longest keeps
+the rest waiting: `schedules/fcpwb-gpu-defer.bonsai`, one queue across
+the card, its rounds launches; and `schedules/fcpwb-gpu-defer-block.bonsai`,
+a queue per point in the block's shared memory (`queue(i, DeviceShared)`,
+the word a queue that lives there has to carry), its rounds a loop of the
+kernel's. On the head neither beats the matching schedule (PLAN.md, "Both
+deferrals built, both measured on the head"); both compute the same
+estimate.
+
 Only the plain walk is here: no source term (the Laplace problem), no
 gradient estimate, no Russian roulette or splitting, no reflecting boundary
 (walk on stars), no caching. Each is an extension to add once the basic
@@ -323,6 +334,13 @@ in question (PLAN.md, the persistent schedule).
   kernel does (bvh.slang: by the distance to the box alone, the left
   child on a tie) where the CPU schedules order as FCPW's CPU traversal
   does -- each platform's comparison against that platform's reference.
+  `schedules/fcpwb-gpu-defer.bonsai`: the walks deferred step by step
+  onto one card-wide queue (`queue(root)`, `defer`), the pushes, the
+  rounds' drains and the pass over the record each in blocks of 256 on
+  the device; `schedules/fcpwb-gpu-defer-block.bonsai`: a point per block,
+  its walks the threads, the steps deferred onto a queue per point in the
+  block's shared memory (`queue(i, DeviceShared)`), the drain's rounds a
+  loop inside the kernel with a thread phase per round.
 - `schedules/layouts/fcpwb2.bonsai`: the same binary tree in another
   layout, each interior node's row holding its two children's boxes and
   rows (56 bytes, built from FCPW's rows by the driver, `fcpw_bvh2.h`), so

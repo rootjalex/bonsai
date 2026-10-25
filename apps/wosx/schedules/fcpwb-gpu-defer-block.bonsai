@@ -1,0 +1,34 @@
+// The matching GPU schedule's traversal with the walks deferred step by
+// step onto a queue per point in the block's shared memory (apps/wosx/
+// PLAN.md, "The lanes of a warp, and two deferral trials"): a point per
+// block, its walks the block's threads. The first thread phase pushes
+// every walk's first step; the drain runs a phase per round over the
+// queue's capacity -- the walks' count, so each phase is the whole block
+// -- with the round loop, the buffer swap and the count's reset at the
+// block level; and the pass over the record is a third phase, adding each
+// walk's value into the point's sums, which stay the block's own locals in
+// shared memory. Each round keeps the lanes full while at least 32 of the
+// point's 64 walks live, and the tail of the longest walk runs with one
+// lane; across the card the resident blocks fill in for each other. The
+// queue's arrays and header are the block's shared memory
+// (`queue(i, DeviceShared)`, the word the schedule has to say for a queue
+// that lives there), sized by the capacity at the launch; against the
+// card-wide deferral (fcpwb-gpu-defer.bonsai) the entries never leave the
+// SM and the rounds are a loop of the kernel's, not launches.
+import apps/wosx/schedules/layouts/fcpwb;
+
+schedule {
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        distmin(s, AABB{lo[i], hi[i]}))
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
+
+    steps = solve_all.queue(i, DeviceShared);
+    solve_all.defer(walk, steps);
+    walk.defer(walk, steps);
+    solve_all.bind(i, GPUBlock);
+    solve_all.bind(w, GPUThread);
+    solve_all.bind(steps, GPUThread);
+    solve_all.bind(steps_rest, GPUThread);
+}

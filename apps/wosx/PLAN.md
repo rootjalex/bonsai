@@ -1317,15 +1317,105 @@ potential flow, geometric deformation) are WoS and WoSt.
   the evaluation points -- a dense kernel over two sets, a layout and
   tiling story more than a traversal one.
 
+### Both deferrals built, both measured on the head (2026-10-25, night)
+
+The user's ruling on the two refusals (2026-10-25, 00:3x): fix the root
+cause in the deferral, not a bandaid; fix codegen for adjacent thread
+loops, since the drain's loop is a masked loop of the pusher's size; a
+queue in shared memory must say so in the schedule (the queue
+constructor's storage word); tests first, clean implementations, then
+run; and a walk on stars benchmark beside this one. Both fixes are in.
+
+**The deferral (commit 55c7be9b).** The pass classified a continuation's
+free variable by what it is -- an address by its type, a recomputable
+value by a whitelist of five opcodes -- where the questions are where its
+storage lives and how it is computed. Now (src/SSA/Defer.cpp): an address
+is kept across the drain when the storage it points into outlives the
+pass -- a parameter's, a record slot's, an allocation's made before the
+drain, which is the reorder's `total!expanded` (Tofte and Talpin's rule
+that a pointer is captured only where its region encloses the capture);
+and any pure instruction over the loops' indices, the values in scope and
+the iteration's locals is recomputed at the pass (Briggs, Cooper and
+Torczon: rematerialize what is cheaper to compute again than to spill),
+an address whatever it costs -- kept, it would be a subscript the
+contention analysis cannot see through -- and a value up to a budget of
+sixteen instructions. The same rule for an address handed down the chain,
+so a walk handed the point's privatized sum keeps the address in its
+entry. Tests: ssa/defer-remat-address, ssa/defer-address-parameter, the
+same under correctness/llvm, and correctness/gpu/defer-remat-address.
+
+**The block body (this commit).** The PTX backend's model of a block loop's
+body gained the one concept it lacked, block-level storage, and with it
+the rest fell into place as Halide's FuseGPUThreadLoops has it: an
+allocation in the block body outside the thread loops is one per block,
+the block's shared memory (Allocate::Memory::Shared; a `.shared` global
+for a size the compiler knows, as the block reduction's slots already
+were, a run of the kernel's `extern .shared` array for a size the launch
+sets); the thread loops of a body are phases, the block the largest of
+their extents, each phase under `tid < extent` unless its extent is every
+sibling's by definition (SSA/ThreadPhases.h, which the block reduction
+pass reads too, so that a collective is made only in a phase that is the
+whole block); a barrier after every effect the leader makes, so that
+every thread reads what it wrote, and the barriers the non-aligned
+`barrier.sync`, since the threads reach them from divergent paths. A
+size or a bound the launch has to know is a launch value
+(SSA/LaunchValues.h): a pure function of what the body captures, computed
+again on the host -- the cast of a queue's capacity to the drain's index
+type, which the old host code refused as "computed inside the body". A
+queue placed at a GPUBlock loop has its arrays, header and record in the
+block's shared memory and must say `queue(i, DeviceShared)`
+(SSA/QueueStorage.h refuses one that does not, and one that says so
+anywhere but at a block loop); the round loop of such a drain runs inside
+the kernel, its count a plain load after the drain's barrier
+(SSA/RoundGuard.h leaves it alone). The runtime's launch takes the
+block's shared bytes and opts a kernel into more than 48 KB. Tests:
+correctness/gpu/{block-shared, block-phases, queue-shared},
+backends/ptx/{block-shared, queue-shared}, ssa/queue-shared, the two
+error tests queue-storage-shared-{untagged, not-per-block}; the two old
+refusals' error tests are gone with the refusals.
+
+**Measured on the head** (`scratch/defer/compare-defer.sh`, 16284 points,
+64 walks, least of 3; WoSX's persistent kernel 443-447 Msteps/s):
+
+| schedule | Msteps/s | over WoSX | walks ended, mean length |
+|---|---|---|---|
+| fcpwb-gpu (matching) | 527-530 | 1.19x | 740408, 13.70 |
+| fcpwb-gpu-defer (card-wide step queue) | 312 | 0.70x | 740408, 13.70 |
+| fcpwb-gpu-defer-block (a queue per point, shared memory) | 457 | 1.03x | 740408, 13.70 |
+
+Both deferrals compute the same estimate (the same walks end, the same
+mean length, the same error against the solution; `z` -0.46 and -0.03).
+Neither beats the matching schedule here. The card-wide one pays an
+entry of some forty bytes per step out through L2 and a launch plus a
+synchronous round guard per round, and the rounds run as long as the
+longest walk (up to 1024), thinning out as walks end; what it buys, the
+lanes a round keeps full, is worth less on the head than it costs, the
+head's walks being 13.7 steps on average with a long tail. The per-block
+one keeps the entries on the SM and its rounds inside the kernel, but a
+block is one point's 64 walks -- two warps -- and once a point's walks
+thin out the block idles on its barriers while the card's other resident
+blocks fill in; it comes within 14% of the matching schedule. What to try
+before the table: the per-block form with 1024 walks a point (a block of
+1024, more live work per barrier), the card-wide form with a `sort` of
+the queue by position each round, and a profile of each (nsys: rounds,
+time a round, the guard's share) on the head and the dragon.
+
 ### Next
 
-- The deferral forms above: the Defer.cpp extension (an element address
-  of hoisted storage recomputed at the pass) for the card-wide step
-  queue, or a per-lane claim in `persistent`, each only with the user's
-  say-so; then the step queue measured on the head, the ganesha and the
-  dragon, with and without a `sort` by position.
-- Walk on stars as the second solver, if the user wants a heterogeneous
-  step to schedule.
+- The two deferral schedules over the GPU table
+  (`benchmark.sh --gpu --schedules fcpwb-gpu-defer,fcpwb-gpu-defer-block`),
+  their bars added to the GPU figure; the variations above.
+- Walk on stars as the second solver (the user's ask, 2026-10-25): the
+  program (`wost.bonsai`: the star radius by a closest-silhouette query
+  over the reflecting boundary's tree, the step a ray cast against it, the
+  Dirichlet distance the query we have; homogeneous Neumann, no source),
+  the SNCH layout (FCPW's GPUSnchNode rows, 60 bytes: box, normal cone,
+  the leaf's primitives and silhouette edges; GPUEdge rows, 56 bytes, the
+  two corners and the two adjacent normals) and the silhouette query in
+  the tree language (the cone test at the node, the silhouette test at
+  the edge), the driver splitting each mesh into an absorbing and a
+  reflecting part and building both of WoSX's handlers, the schedules
+  (CPU and GPU) and the table against WoSX's WalkOnStars on both.
 - The layout-language extension above, if the user wants WoSX's default
   tree matched; the hybrid switch as a schedule point (the packet section).
 - The scalar-BVH layout and FCPW's scalar arithmetic, for WoSX's default

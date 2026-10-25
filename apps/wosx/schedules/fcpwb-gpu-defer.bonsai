@@ -1,0 +1,43 @@
+// The matching GPU schedule's traversal with the walks deferred step by
+// step onto one card-wide queue (apps/wosx/PLAN.md, "The lanes of a warp,
+// and two deferral trials"): the loop of (point, walk) pairs pushes the
+// first step of every walk, and the drain runs one step per thread in
+// rounds -- round r runs the r-th step of every walk still going, so a
+// warp's 32 lanes hold 32 live steps rather than 32 walks of which the
+// longest keeps the rest waiting (WoSX's persistent kernel and the
+// matching schedule both run a walk to its end on one lane). The pass over
+// the record after the rounds adds each walk's value into its point's
+// sums, which the reorder privatized into a slot per point and the
+// collapse made index arithmetic on the collapsed loop's index -- the
+// address recomputed from the pass's own index (SSA/Defer.cpp). Every loop
+// of it runs on the device in blocks of 256: the pushes, the rounds'
+// drains and the pass; the prologue and epilogue loops the reorder
+// distributed run on the host around them. The cost against the matching
+// schedule is a queue entry per step -- the walk's position, distance,
+// step count and generator, about forty bytes, written and read once per
+// step -- and a launch per round.
+import apps/wosx/schedules/layouts/fcpwb;
+
+schedule {
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        distmin(s, AABB{lo[i], hi[i]}))
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
+
+    solve_all.reorder(i, w);
+    solve_all.reorder(w, i);
+    solve_all.collapse(i, w, k);
+    steps = solve_all.queue(root);
+    solve_all.defer(walk, steps);
+    walk.defer(walk, steps);
+    solve_all.split(k, k_blk, k_thr, 256, true);
+    solve_all.bind(k_blk, GPUBlock);
+    solve_all.bind(k_thr, GPUThread);
+    solve_all.split(steps, steps_blk, steps_thr, 256, true);
+    solve_all.bind(steps_blk, GPUBlock);
+    solve_all.bind(steps_thr, GPUThread);
+    solve_all.split(steps_rest, rest_blk, rest_thr, 256, true);
+    solve_all.bind(rest_blk, GPUBlock);
+    solve_all.bind(rest_thr, GPUThread);
+}
