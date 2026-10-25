@@ -152,6 +152,12 @@ void bonsai_cuda_copy_to_device_async(void *device, const void *host,
 // becomes (CodeGen_LLVM::store_to_device) -- a queue's count zeroed before
 // the round that fills it.
 void bonsai_cuda_store_word_async(void *device, uint32_t value);
+// Sets `bytes` bytes of device memory to `value` on the stream, without the
+// host waiting: what a `fill_bytes` of a device-resident array becomes --
+// the record's byte per slot cleared as the owner's iteration starts
+// (SSA/Defer.cpp, `<q>_ran`), where a host memset would fault on the
+// device address.
+void bonsai_cuda_fill_bytes_async(void *device, uint8_t value, uint64_t bytes);
 // Writes `bytes` of `host` into device memory on the stream, without the
 // host waiting: what a host store of anything larger than a word into a
 // device-resident allocation becomes -- a queue's header, rewritten at the
@@ -333,6 +339,8 @@ struct Driver {
     // before its round -- as a memset on the stream, so that it neither
     // waits for the launches ahead of it nor holds up the one behind.
     CUresult (*cuMemsetD32Async)(CUdeviceptr, unsigned int, size_t, CUstream);
+    // A byte fill of a device-resident array (bonsai_cuda_fill_bytes_async).
+    CUresult (*cuMemsetD8Async)(CUdeviceptr, unsigned char, size_t, CUstream);
     // The kernel profile (KernelStats): an event either side of a launch.
     CUresult (*cuEventCreate)(CUevent *, unsigned int);
     CUresult (*cuEventRecord)(CUevent, CUstream);
@@ -413,6 +421,7 @@ inline Driver &driver() {
         load(d.cuMemcpyHtoDAsync, "cuMemcpyHtoDAsync_v2");
         load(d.cuEventSynchronize, "cuEventSynchronize");
         load(d.cuMemsetD32Async, "cuMemsetD32Async");
+        load(d.cuMemsetD8Async, "cuMemsetD8Async");
         load(d.cuEventCreate, "cuEventCreate");
         load(d.cuEventRecord, "cuEventRecord");
         load(d.cuEventElapsedTime, "cuEventElapsedTime");
@@ -861,6 +870,17 @@ __attribute__((used)) inline void bonsai_cuda_store_word_async(void *device,
           d.cuMemsetD32Async(reinterpret_cast<CUdeviceptr>(device), value, 1,
                              null_stream),
           "cuMemsetD32Async");
+}
+
+__attribute__((used)) inline void
+bonsai_cuda_fill_bytes_async(void *device, uint8_t value, uint64_t bytes) {
+    using namespace bonsai_cuda_detail;
+    Driver &d = ready("fill bytes on the device");
+    std::lock_guard<std::mutex> lock(d.mutex);
+    check(d,
+          d.cuMemsetD8Async(reinterpret_cast<CUdeviceptr>(device), value,
+                            size_t(bytes), null_stream),
+          "cuMemsetD8Async(" + std::to_string(bytes) + ")");
 }
 
 __attribute__((used)) inline void

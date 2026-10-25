@@ -47,6 +47,7 @@ add_bonsai_tests(
     sort-indices-cpp.bonsai
     defer-record-soa.bonsai
     defer-store-after-call.bonsai
+    defer-conditional-rejoin.bonsai
     defer-under-specialize.bonsai
     queue-managed.bonsai
     queue-extern-cpp.bonsai

@@ -4020,13 +4020,31 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         return;
     }
     case Intrinsic::fill_bytes: {
-        // A memset: LLVM's intrinsic, which every target lowers.
         internal_assert(node->args.size() == 3) << "fill_bytes takes three";
         llvm::Value *dst = codegen_expr(node->args[0]);
         llvm::Value *byte = codegen_expr(node->args[1]);
         llvm::Value *count = codegen_expr(node->args[2]);
         llvm::Type *i64_t = llvm::Type::getInt64Ty(*context);
         count = builder->CreateZExtOrTrunc(count, i64_t, "fill_count");
+        if (device_root_of(node->args[0]).has_value()) {
+            // A host fill of a device-resident array -- the record's byte
+            // per slot cleared as the owner's iteration starts (the
+            // deferral's `<q>_ran`, with the record in the queue's device
+            // memory) -- crosses as a memset on the stream, after the word
+            // stores held back before it, as a host store into device
+            // memory does (store_to_device). A memset here faulted on the
+            // device address (apps/pbrt's gpu-optix, 10-25).
+            flush_device_stores();
+            llvm::Type *ptr = llvm::PointerType::getUnqual(*context);
+            llvm::Type *i8 = llvm::Type::getInt8Ty(*context);
+            llvm::FunctionCallee fill = module->getOrInsertFunction(
+                "bonsai_cuda_fill_bytes_async",
+                llvm::FunctionType::get(void_t, {ptr, i8, i64_t}, /*isVarArg=*/false));
+            builder->CreateCall(fill, {dst, builder->CreateZExtOrTrunc(byte, i8), count});
+            value = llvm::ConstantInt::get(codegen_type(node->type), 0);
+            return;
+        }
+        // A memset: LLVM's intrinsic, which every target lowers.
         builder->CreateMemSet(dst, byte, count, llvm::MaybeAlign(1));
         value = llvm::ConstantInt::get(codegen_type(node->type), 0);
         return;

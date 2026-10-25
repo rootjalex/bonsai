@@ -1,0 +1,51 @@
+//! flags: -p ssa -b llvm -e
+
+// correctness/llvm/defer-conditional-rejoin on the GPU: a deferred call
+// under a test whose paths rejoin, the record in device memory. With the
+// call under a test the deferral keeps a byte per slot (`q_ran`) and
+// clears it as the owner's iteration starts; the clear is a `fill_bytes`
+// of a device-resident array, which the host lowers to a memset on the
+// stream (bonsai_cuda_fill_bytes_async) -- a plain memset of the device
+// address faulted (apps/pbrt's gpu-optix renderer, 10-25). Prints what the
+// llvm twin prints: 2, 3, 4, 5, 108.5, 110, 111.5, 113.
+import stdlib/numerics;
+
+func work(x : Float, acc : reduce(+) Float) -> void {
+    acc += x * 0.5;
+    return;
+}
+
+func step(x : Float, acc : reduce(+) Float) -> void {
+    work(x, acc);
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        acc : reduce(+) Float = 0.0;
+        w = values[i] + 1.0;
+        bonus : mut Float = 0.0;
+        if values[i] > 4.0 {
+            step(values[i], acc);
+            bonus = 100.0;
+        }
+        out[i] = acc + w + bonus;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(work, q);
+    run.bind(i, GPUThread);
+    run.bind(q, GPUThread);
+    run.bind(q_rest, GPUThread);
+}
