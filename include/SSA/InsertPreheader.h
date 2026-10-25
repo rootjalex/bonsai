@@ -38,6 +38,18 @@ std::string insert_preheader(Function &func, const std::string &header,
 void rename_argument(Function &func, const std::string &region,
                      const std::string &from, const std::string &to);
 
+// Replaces one argument by `value` throughout the region reachable from
+// `region`, and drops the argument from every block of the region that
+// declares it and the operand for it from every jump within the region that
+// passes it on. What unrolling a loop does with its index (SSA/Unroll.h):
+// each copy of the body reads the constant its iteration is, and no block
+// of the copy takes the index. The region's entry loses the argument too;
+// the jump into it from outside the region is the caller's to make without
+// one.
+void substitute_argument(Function &func, const std::string &region,
+                         const std::string &name,
+                         const std::shared_ptr<Value> &value);
+
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai

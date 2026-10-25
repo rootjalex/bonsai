@@ -203,17 +203,15 @@ func weigh(x : f32) -> f32 {
   }
   }
   let _t95 = (*classify$r6$tag0) in
-  let @34 = x * 0.5f in
-  let _t30$i7$sink14 = build<f32x3>(@34, 1f, 0f) in
+  let _t31$i7$sink12 = x * 0.5f in
+  let _t30$i7$sink14 = build<f32x3>(_t31$i7$sink12, 1f, 0f) in
   let @36 = build<f32x3>(0f, 0f, 1f) in
   let @37 = (f32)inf in
   let probe = build<Ray>(_t30$i7$sink14, @36, @37) in
   switch (_t95) {
   case 0: { // Shape.Disc of intersects_Ray_Shape
-    let _t31$i7$sink12 = _t30$i7$sink14[0] in
-    let _t36$i7$sink10 = _t30$i7$sink14[1] in
     let @42 = _t31$i7$sink12 * _t31$i7$sink12 in
-    let @43 = _t36$i7$sink10 * _t36$i7$sink10 in
+    let @43 = 1f * 1f in
     let d2$i7$sink8 = @42 + @43 in
     let @46 = (*classify$r6$payload1)[0u] in
     let rad$i7 = reinterpret_cast<f32>(@46) in
@@ -226,22 +224,18 @@ func weigh(x : f32) -> f32 {
     let wd$i7 = reinterpret_cast<f32>(@51) in
     let @53 = (*classify$r6$payload1)[1u] in
     let h$i7 = reinterpret_cast<f32>(@53) in
-    let @56 = _t30$i7$sink14[0] in
-    let @59 = @56 * @56 in
+    let @59 = _t31$i7$sink12 * _t31$i7$sink12 in
     let @60 = wd$i7 * wd$i7 in
     let @61 = @59 < @60 in
-    let @63 = _t30$i7$sink14[1] in
-    let @66 = @63 * @63 in
+    let @66 = 1f * 1f in
     let @67 = h$i7 * h$i7 in
     let @68 = @66 < @67 in
     let @69 = @61 && @68 in
     hit$i7 = @69
   } break;
   default: { // Shape.Ring of intersects_Ray_Shape
-    let _t31$i7$sink13 = _t30$i7$sink14[0] in
-    let _t36$i7$sink11 = _t30$i7$sink14[1] in
-    let @73 = _t31$i7$sink13 * _t31$i7$sink13 in
-    let @74 = _t36$i7$sink11 * _t36$i7$sink11 in
+    let @73 = _t31$i7$sink12 * _t31$i7$sink12 in
+    let @74 = 1f * 1f in
     let d2$i7$sink9 = @73 + @74 in
     let @77 = (*classify$r6$payload1)[0u] in
     let ro$i7 = reinterpret_cast<f32>(@77) in
@@ -490,17 +484,15 @@ func [[export]] weigh_one(x : f32) -> f32 {
   }
   }
   let _t180 = (*classify$r14$tag0) in
-  let @34 = x * 0.5f in
-  let _t30$i15$sink30 = build<f32x3>(@34, 1f, 0f) in
+  let _t31$i15$sink28 = x * 0.5f in
+  let _t30$i15$sink30 = build<f32x3>(_t31$i15$sink28, 1f, 0f) in
   let @36 = build<f32x3>(0f, 0f, 1f) in
   let @37 = (f32)inf in
   let probe$i10 = build<Ray>(_t30$i15$sink30, @36, @37) in
   switch (_t180) {
   case 0: { // Shape.Disc of intersects_Ray_Shape
-    let _t31$i15$sink28 = _t30$i15$sink30[0] in
-    let _t36$i15$sink26 = _t30$i15$sink30[1] in
     let @42 = _t31$i15$sink28 * _t31$i15$sink28 in
-    let @43 = _t36$i15$sink26 * _t36$i15$sink26 in
+    let @43 = 1f * 1f in
     let d2$i15$sink24 = @42 + @43 in
     let @46 = (*classify$r14$payload1)[0u] in
     let rad$i15 = reinterpret_cast<f32>(@46) in
@@ -513,22 +505,18 @@ func [[export]] weigh_one(x : f32) -> f32 {
     let wd$i15 = reinterpret_cast<f32>(@51) in
     let @53 = (*classify$r14$payload1)[1u] in
     let h$i15 = reinterpret_cast<f32>(@53) in
-    let @56 = _t30$i15$sink30[0] in
-    let @59 = @56 * @56 in
+    let @59 = _t31$i15$sink28 * _t31$i15$sink28 in
     let @60 = wd$i15 * wd$i15 in
     let @61 = @59 < @60 in
-    let @63 = _t30$i15$sink30[1] in
-    let @66 = @63 * @63 in
+    let @66 = 1f * 1f in
     let @67 = h$i15 * h$i15 in
     let @68 = @66 < @67 in
     let @69 = @61 && @68 in
     hit$i15 = @69
   } break;
   default: { // Shape.Ring of intersects_Ray_Shape
-    let _t31$i15$sink29 = _t30$i15$sink30[0] in
-    let _t36$i15$sink27 = _t30$i15$sink30[1] in
-    let @73 = _t31$i15$sink29 * _t31$i15$sink29 in
-    let @74 = _t36$i15$sink27 * _t36$i15$sink27 in
+    let @73 = _t31$i15$sink28 * _t31$i15$sink28 in
+    let @74 = 1f * 1f in
     let d2$i15$sink25 = @73 + @74 in
     let @77 = (*classify$r14$payload1)[0u] in
     let ro$i15 = reinterpret_cast<f32>(@77) in

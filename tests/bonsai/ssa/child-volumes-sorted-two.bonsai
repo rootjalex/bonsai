@@ -15,15 +15,20 @@
 //
 //     _mask0 = ((*_mask0) & ~(1u << children)) | (cast<u32>(test) << children)
 //
-// -- and the word read back for the sort as the two-lane mask,
-// `reinterpret_cast<boolx2>(cast<u2>(*_mask0))`, which the sort's peel
-// turns straight back into the word (`reinterpret_cast<u2>`, then widened
-// and `ctz`, SSA/MaskLanes.h) and the backend folds to nothing. Before
-// this the loop stored each test as a byte of a two-byte array and the
-// sort loaded both bytes as one word, which the store buffer cannot
-// forward -- a stall of ten cycles and more at every interior node -- and
-// a two-lane mask had no word: its lowest lane was the least index of a
-// select over the lane ramp.
+// -- and the two bits read back as the two children's conditions. The sort
+// orders the two as scalars (SSA/SortRecursion.cpp, sort_recursion: a run
+// of two lanes takes the compare-and-swap network, not the lane peel):
+// both children's keys read at their lanes and compared as floats, the
+// keys, the children, the carried bounds and the conditions swapped by one
+// select each, then the far child pushed under its condition and the near
+// one entered under its, else the pop -- FCPW's processSubtreeForClosest
+// Point to the branch. Before this the loop stored each test as a byte of
+// a two-byte array and the sort loaded both bytes as one word, which the
+// store buffer cannot forward -- a stall of ten cycles and more at every
+// interior node -- and a two-lane mask had no word: its lowest lane was
+// the least index of a select over the lane ramp; and before 2026-10-25
+// the two lanes went through Embree's peel chain (a tzcnt, a clear, the
+// keys through a cell as integers), sixty instructions over FCPW's visit.
 import stdlib/aabb;
 import stdlib/distance;
 import stdlib/intersects;

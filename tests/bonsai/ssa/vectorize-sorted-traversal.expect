@@ -1108,27 +1108,15 @@ func hit_z(r : Ray, shapes : _tree_layout0) -> f32 {
     switch (@20) {
     case 0: { // Shape.Sph of hit_z
       let _t211 = s.payload in
-      let @22 = _t211[0u] in
-      let @23 = reinterpret_cast<f32>(@22) in
-      let @24 = _t211[1u] in
-      let @25 = reinterpret_cast<f32>(@24) in
       let @26 = _t211[2u] in
       let @27 = reinterpret_cast<f32>(@26) in
-      let @28 = build<f32x3>(@23, @25, @27) in
-      let @33 = @28[2u] in
-      return @33
+      return @27
     } break;
     default: { // Shape.Tri of hit_z
       let _t224 = s.payload in
-      let @49 = _t224[8u] in
-      let @50 = reinterpret_cast<f32>(@49) in
-      let @51 = _t224[9u] in
-      let @52 = reinterpret_cast<f32>(@51) in
       let @53 = _t224[10u] in
       let @54 = reinterpret_cast<f32>(@53) in
-      let @55 = build<f32x3>(@50, @52, @54) in
-      let @58 = @55[2u] in
-      return @58
+      return @54
     }
     }
   }

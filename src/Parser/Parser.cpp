@@ -4350,6 +4350,9 @@ struct Parser {
                 ir::Location i = loop_cursor();
                 add(
                     ir::Vectorize{std::move(i)});
+            } else if (rewrite == "unroll") {
+                ir::Location i = loop_cursor();
+                add(ir::Unroll{std::move(i)});
             } else if (rewrite == "prefetch") {
                 // The field of an arm holding the tree's references -- the
                 // children a node tests -- whose storage each hit one has

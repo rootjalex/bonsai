@@ -86,17 +86,11 @@ func run(values : f32[40], wet : bool, out : mut f32[40], surface_arms : u64) ->
       let @64 = ramp(hits_gang!Matte, 1u, 16) < @85 in
       let @81 = reduce<any>(@64) in
       if (@81) {
-        let @12 = build<[[packed]] u8x3>(0u, 0u, 0u) in
         let @14 = hits_queue[0u].s_payload_x in
         let @15 = masked_extract(@14[ramp(hits_gang!Matte, 1u, 16)], @64) in
         let @83 = build<[[packed]] u32x1$v16>(@15) in
-        let @88 = @12[0u] in
-        let @89 = u8x16(@88) in
-        let @90 = @12[1u] in
-        let @91 = u8x16(@90) in
-        let @92 = @12[2u] in
-        let @93 = u8x16(@92) in
-        let @94 = build<[[packed]] u8x3$v16>(@89, @91, @93) in
+        let @89 = u8x16(0u) in
+        let @94 = build<[[packed]] u8x3$v16>(@89, @89, @89) in
         let @17 = build<Surface$v16>(undef, @94, @83) in
         let @19 = hits_queue[0u]._slot in
         let @20 = masked_extract(@19[ramp(hits_gang!Matte, 1u, 16)], @64) in
@@ -118,17 +112,11 @@ func run(values : f32[40], wet : bool, out : mut f32[40], surface_arms : u64) ->
       let @61 = ramp(hits_gang!Fuzz, 1u, 16) < @70 in
       let @66 = reduce<any>(@61) in
       if (@66) {
-        let @27 = build<[[packed]] u8x3>(0u, 0u, 0u) in
         let @29 = hits_queue[1u].s_payload_x in
         let @30 = masked_extract(@29[ramp(hits_gang!Fuzz, 1u, 16)], @61) in
         let @68 = build<[[packed]] u32x1$v16>(@30) in
-        let @73 = @27[0u] in
-        let @74 = u8x16(@73) in
-        let @75 = @27[1u] in
-        let @76 = u8x16(@75) in
-        let @77 = @27[2u] in
-        let @78 = u8x16(@77) in
-        let @79 = build<[[packed]] u8x3$v16>(@74, @76, @78) in
+        let @74 = u8x16(0u) in
+        let @79 = build<[[packed]] u8x3$v16>(@74, @74, @74) in
         let @32 = build<Surface$v16>(undef, @79, @68) in
         let @34 = hits_queue[1u]._slot in
         let @35 = masked_extract(@34[ramp(hits_gang!Fuzz, 1u, 16)], @61) in

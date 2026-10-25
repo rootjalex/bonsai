@@ -17,21 +17,11 @@ func [[noinline]] pick(u : f32) -> Thing {
 }
 
 func [[noinline]] pick$gang16_v0$masked(u : f32x16, !mask : boolx16) -> Thing$v16 {
-  let @0 = build<[[packed]] u8x3>(0u, 0u, 0u) in
   let @1 = reinterpret_cast<u32>(0.5f) in
-  let @2 = build<[[packed]] u32x2>(@1, 0u) in
   let @5 = u8x16(0u) in
-  let @7 = @0[0u] in
-  let @8 = u8x16(@7) in
-  let @9 = @0[1u] in
-  let @10 = u8x16(@9) in
-  let @11 = @0[2u] in
-  let @12 = u8x16(@11) in
-  let @13 = build<[[packed]] u8x3$v16>(@8, @10, @12) in
-  let @15 = @2[0u] in
-  let @16 = u32x16(@15) in
-  let @17 = @2[1u] in
-  let @18 = u32x16(@17) in
+  let @13 = build<[[packed]] u8x3$v16>(@5, @5, @5) in
+  let @16 = u32x16(@1) in
+  let @18 = u32x16(0u) in
   let @19 = build<[[packed]] u32x2$v16>(@16, @18) in
   let @20 = build<Thing$v16>(@5, @13, @19) in
   return @20

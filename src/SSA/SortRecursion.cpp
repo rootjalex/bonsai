@@ -217,9 +217,11 @@ void sort_network(Function &func, const shared_ptr<Block> &block,
 // registers) and what its eight-wide kernel holds broadcast in vector
 // registers, with a compress for the peel and a permute per child taken
 // out; the scalar items are the one representation here, for every lane
-// count -- the count decides the mask's word and how many peels come
-// before the general arm, and nothing else (the user's direction,
-// 2026-10-05: one parametric form, the item what the layout stores).
+// count from four -- the count decides the mask's word and how many peels
+// come before the general arm, and nothing else (the user's direction,
+// 2026-10-05: one parametric form, the item what the layout stores). A run
+// of two lanes does not come here: a binary node's two children are
+// ordered by the network above, FCPW's visit (see sort_recursion).
 
 // A value's identity: the instruction it is, or the parameter it names.
 bool same_source(const Value &a, const Value &b) {
@@ -1122,8 +1124,24 @@ size_t sort_recursion(Function &func, const FuncMap &funcs,
             << "The run in " << block->name << " has " << call->conds.size()
             << " conditions for " << call->varying.size() << " calls";
         if (call->varying.size() > 1) {
+            // A run of two lanes -- a binary node that holds its children's
+            // boxes -- is sorted by the network below, as scalars: the two
+            // children's keys read at their lanes, one comparison of them
+            // as the floats they are, and a swap of the keys, the children
+            // and what travels with them. That is FCPW's two-child visit
+            // (bvh.inl processSubtreeForClosestPoint, bvh.slang: both boxes
+            // tested, `if (boxHits[1] < boxHits[0]) swap`, the farther
+            // pushed and the nearer entered), and pbrt's (`if (dirIsNeg)
+            // swap`). The peel chain is Embree's shape for its four- and
+            // eight-wide nodes, and at two lanes it would spend the mask's
+            // word, a tzcnt and a clear, the keys through a cell as integers
+            // and an indexed load per item, to order two children (measured
+            // 2026-10-24 on apps/wosx's binary tree: about sixty
+            // instructions a visit over FCPW's seventy; the user's
+            // direction, 2026-10-25: the binary case is the simple base
+            // case and the matching schedule must be exactly FCPW's).
             if (const std::optional<Lanes> lanes = lanes_of(*call);
-                lanes.has_value() && lanes->keys) {
+                lanes.has_value() && lanes->keys && call->varying.size() > 2) {
                 // Clears the keys itself and moves the run out of `block`,
                 // which ends in a switch afterwards: `call` is spent.
                 sort_lanes(func, block, *call, *lanes, intervals);

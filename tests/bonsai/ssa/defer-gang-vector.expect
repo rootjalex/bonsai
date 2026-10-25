@@ -163,15 +163,11 @@ func walk$gang16_v0_v1_v2_v4$masked(n : i32x16, p!0 : f32x16, p!1 : f32x16, p!2 
   if (@26) {
     let @47 = i32x16(1) in
     let @16 = n - @47 in
-    let @17 = build<f32x3>(1f, 2f, 3f) in
-    let @28 = @17[0u] in
-    let @48 = f32x16(@28) in
+    let @48 = f32x16(1f) in
     let @29 = p!0 + @48 in
-    let @30 = @17[1u] in
-    let @49 = f32x16(@30) in
+    let @49 = f32x16(2f) in
     let @31 = p!1 + @49 in
-    let @32 = @17[2u] in
-    let @50 = f32x16(@32) in
+    let @50 = f32x16(3f) in
     let @33 = p!2 + @50 in
     let @19 = f32x4(2f) in
     let @34 = @19[0u] in

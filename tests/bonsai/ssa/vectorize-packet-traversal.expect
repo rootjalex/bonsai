@@ -578,16 +578,12 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
                 let @129 = reinterpret_cast<f32>(_t79$payload1$w02) in
                 let @130 = reinterpret_cast<f32>(_t79$payload1$w13) in
                 let @131 = reinterpret_cast<f32>(_t79$payload1$w24) in
-                let @132 = build<f32x3>(@129, @130, @131) in
                 let _t290$i21$i35 = reinterpret_cast<f32>(_t79$payload1$w45) in
-                let @370 = @132[0u] in
-                let @440 = f32x8(@370) in
+                let @440 = f32x8(@129) in
                 let @372 = @440 - @338 in
-                let @373 = @132[1u] in
-                let @441 = f32x8(@373) in
+                let @441 = f32x8(@130) in
                 let @375 = @441 - @341 in
-                let @376 = @132[2u] in
-                let @442 = f32x8(@376) in
+                let @442 = f32x8(@131) in
                 let @378 = @442 - @344 in
                 let @139 = @329 * @372 in
                 let @142 = @331 * @375 in
@@ -651,16 +647,12 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
                   let @194 = reinterpret_cast<f32>(_t79$payload1$w02) in
                   let @195 = reinterpret_cast<f32>(_t79$payload1$w13) in
                   let @196 = reinterpret_cast<f32>(_t79$payload1$w24) in
-                  let @197 = build<f32x3>(@194, @195, @196) in
                   let _t290$i17$i36 = reinterpret_cast<f32>(_t79$payload1$w45) in
-                  let @384 = @197[0u] in
-                  let @466 = f32x8(@384) in
+                  let @466 = f32x8(@194) in
                   let @386 = @466 - @338 in
-                  let @387 = @197[1u] in
-                  let @467 = f32x8(@387) in
+                  let @467 = f32x8(@195) in
                   let @389 = @467 - @341 in
-                  let @390 = @197[2u] in
-                  let @468 = f32x8(@390) in
+                  let @468 = f32x8(@196) in
                   let @392 = @468 - @344 in
                   let @204 = @329 * @386 in
                   let @207 = @331 * @389 in
@@ -1035,27 +1027,15 @@ func hit_z(r : Ray, shapes : _tree_layout0) -> f32 {
     switch (@20) {
     case 0: { // Shape.Sph of hit_z
       let _t211 = s.payload in
-      let @22 = _t211[0u] in
-      let @23 = reinterpret_cast<f32>(@22) in
-      let @24 = _t211[1u] in
-      let @25 = reinterpret_cast<f32>(@24) in
       let @26 = _t211[2u] in
       let @27 = reinterpret_cast<f32>(@26) in
-      let @28 = build<f32x3>(@23, @25, @27) in
-      let @33 = @28[2u] in
-      return @33
+      return @27
     } break;
     default: { // Shape.Tri of hit_z
       let _t224 = s.payload in
-      let @49 = _t224[8u] in
-      let @50 = reinterpret_cast<f32>(@49) in
-      let @51 = _t224[9u] in
-      let @52 = reinterpret_cast<f32>(@51) in
       let @53 = _t224[10u] in
       let @54 = reinterpret_cast<f32>(@53) in
-      let @55 = build<f32x3>(@50, @52, @54) in
-      let @58 = @55[2u] in
-      return @58
+      return @54
     }
     }
   }

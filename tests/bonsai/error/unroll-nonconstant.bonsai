@@ -1,0 +1,20 @@
+//! flags: -p ssa
+
+// unroll() needs a loop whose extent is a constant: it writes the body out
+// once per iteration, so it has to know how many there are. A loop over a
+// count only a run knows is refused, and the message says what to do
+// instead -- split by a constant chunk and unroll the inner loop.
+func run(n : u32, out : mut array[f32, n]) -> void {
+    parfor i in 0u:n {
+        out[i] = cast[[f32]](i);
+    }
+    return;
+}
+
+func main() -> i32 {
+    return 0;
+}
+
+schedule {
+    run.unroll(i);
+}

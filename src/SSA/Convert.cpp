@@ -29,6 +29,7 @@
 #include "SSA/Simplify.h"
 #include "SSA/SortRecursion.h"
 #include "SSA/SSA.h"
+#include "SSA/Unroll.h"
 
 #include "IR/Analysis.h"
 #include "IR/Printer.h"
@@ -2841,6 +2842,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                           [](const ir::Sort &) { return "sort"; },
                           [](const ir::Specialize &) { return "specialize"; },
                           [](const ir::Stage &) { return "stage"; },
+                          [](const ir::Unroll &) { return "unroll"; },
                           [](const ir::Vectorize &) { return "vectorize"; }},
                 t);
             std::cerr << "[time]   " << name << "." << kind << ": "
@@ -2877,6 +2879,14 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                                  fmap, name, v.i.names.back(), "vectorize")) {
                             vectorize(fmap, at.func, at.index,
                                       expanded_policies);
+                        }
+                    },
+                    [&](const ir::Unroll &u) {
+                        internal_assert(!u.i.names.empty())
+                            << "unroll() requires a loop name for: " << name;
+                        for (const LoopSite &at : resolve_loops(
+                                 fmap, name, u.i.names.back(), "unroll")) {
+                            unroll_loop(*fmap.at(at.func), at.index);
                         }
                     },
                     [&](const ir::Specialize &s) {
@@ -3626,8 +3636,11 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                 intervals.dump(std::cout, *f);
             }
         }
+        // The directives have run, so the lanes of a vector built from its
+        // lanes may be read back (SSA/Simplify.h, fold_built_lanes): the sort
+        // read the shape it needed from such vectors as it ran.
         for (const auto &[name, f] : fmap) {
-            simplify(*f, &intervals);
+            simplify(*f, &intervals, /*fold_built_lanes=*/true);
         }
     }
     phase("simplify after the directives");
@@ -3713,7 +3726,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // wavefront's per-material copies is then one material's BSDF and not
     // every one's (SSA/Simplify.h).
     for (const auto &[name, f] : fmap) {
-        simplify(*f);
+        simplify(*f, nullptr, /*fold_built_lanes=*/true);
     }
     phase("simplify after promotion");
 

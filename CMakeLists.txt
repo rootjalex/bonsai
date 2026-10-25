@@ -319,6 +319,7 @@ target_sources(
     src/SSA/Specialize.cpp
     src/SSA/SplitAggregates.cpp
     src/SSA/Stage.cpp
+    src/SSA/Unroll.cpp
     src/SSA/Rewrite.cpp
     src/SSA/SSA.cpp
     src/SSA/UniformizeLoops.cpp

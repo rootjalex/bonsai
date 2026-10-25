@@ -185,6 +185,23 @@ a SIMD unit. It sits here because its effect on the program is the
 Halide one, a loop of constant extent replaced by one gang-wide
 statement; Section 3 says how it combines with the bindings.
 
+**unroll(l).** The extent of `l` must be a constant; the loop is replaced
+by that many copies of its body one after another, the index a constant
+in each (Halide's `unroll`). Nothing is reordered and nothing runs in
+parallel that did not: the copies run in the loop's order. What it is
+for is the loop a tree's node tests its children in, which lowering
+writes as a loop over the children whatever their number so that a
+`vectorize` of it is one test of all of them at once: unrolled, a binary
+node's two tests are written out in a row, each child's box read off its
+own row, which is how FCPW's and pbrt's traversals are written.
+`closest.unroll(tris.Interior.children)`:
+
+    for each children in 0..2:          // the children's tests
+        test(children)
+    ==>
+    test(0)
+    test(1)
+
 **loopify(), loopify(n).** Recursion becomes iteration. A tail recursion
 becomes a loop: every call of the function by itself in tail position is a
 jump back to its entry. A recursion that goes through other functions

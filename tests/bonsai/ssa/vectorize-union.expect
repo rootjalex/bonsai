@@ -83,12 +83,8 @@ func weigh(b : Blob) -> f32 {
     let @20 = reinterpret_cast<f32>(@19) in
     let @21 = _t32[2u] in
     let @22 = reinterpret_cast<f32>(@21) in
-    let v = build<f32x3>(@18, @20, @22) in
-    let @24 = v[0u] in
-    let @25 = v[1u] in
-    let @26 = @24 + @25 in
-    let @27 = v[2u] in
-    let _t46 = @26 + @27 in
+    let @26 = @18 + @20 in
+    let _t46 = @26 + @22 in
     let @29 = -0f - _t46 in
     let @30 = select(neg, @29, _t46) in
     return @30

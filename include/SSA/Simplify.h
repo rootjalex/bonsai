@@ -59,8 +59,16 @@ class ConstantIntervals;
 //     `(a <= b) & (a < c)` being `a <= min(b, c - 1)`. These are what fold
 //     a traversal's prune against its running best into the slab test's
 //     one compare, as Embree's `tFar` carries the best (apps/rtq/PLAN.md).
-//     Without the analysis these rules stand down.
-void simplify(Function &func, const ConstantIntervals *intervals = nullptr);
+//     Without the analysis these rules stand down;
+//   * with `fold_built_lanes`, a lane of a vector built from its lanes at a
+//     constant lane is that lane: `extract_idx(make_struct<f32x2>(a, b), 1)`
+//     is `b`. Off while the directives run, since a run of calls whose
+//     arguments are the lanes of one such vector is the shape the sort
+//     lowering recognizes a node's children by (SSA/SortRecursion.cpp,
+//     lane_of); on once they have run, which is what lets an unrolled
+//     children loop (SSA/Unroll.h) read each child's box off its own row.
+void simplify(Function &func, const ConstantIntervals *intervals = nullptr,
+              bool fold_built_lanes = false);
 
 // Whether an instruction only computes a value, so that one nothing reads
 // can go. Storage, effects and the fetch-and-add are kept; so is `rand`,

@@ -434,6 +434,11 @@ void Printer::print(const Schedule &schedule) {
                                       print(vec.i);
                                       os << ")";
                                   },
+                                  [&](const Unroll &u) {
+                                      os << "unroll(";
+                                      print(u.i);
+                                      os << ")";
+                                  },
                                   [&](const Specialize &s) {
                                       if (!s.gang.empty()) {
                                           const char *compare = "";

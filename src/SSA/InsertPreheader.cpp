@@ -5,9 +5,11 @@
 #include "Utils.h"
 
 #include <algorithm>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace bonsai {
@@ -101,6 +103,45 @@ void rename_argument_in(const vector<shared_ptr<Block>> &blocks,
     }
 }
 
+// Every jump out of `block`, with the position in the target's argument
+// list its first operand binds to (the helper SSA/PromoteAllocas.cpp has,
+// for the same reason): 1 for a parfor's body, whose first argument is the
+// loop's index, and for the continuation of a call that returns a value,
+// which is handed the value first.
+vector<std::pair<Terminator::Jump *, size_t>> jumps_with_offset(Block &block) {
+    vector<std::pair<Terminator::Jump *, size_t>> result;
+    std::visit(overloads{
+                   [&](std::monostate &) {},
+                   [&](Terminator::Jump &j) { result.push_back({&j, 0}); },
+                   [&](Terminator::Dispatch &d) {
+                       for (auto &target : d.targets) {
+                           result.push_back({&target, 0});
+                       }
+                   },
+                   [&](Terminator::Return &) {},
+                   [&](Terminator::ParFor &p) {
+                       result.push_back({&p.body, 1});
+                       result.push_back({&p.cont, 0});
+                   },
+                   [&](Terminator::Yield &) {},
+                   [&](Terminator::Call &c) {
+                       result.push_back({&c.call, 0});
+                       result.push_back({&c.cont, c.drop ? size_t(0) : 1});
+                   },
+                   [&](Terminator::Spawn &s) {
+                       result.push_back({&s.call, 0});
+                       result.push_back({&s.cont, 0});
+                   },
+                   [&](Terminator::Join &j) { result.push_back({&j.next, 0}); },
+                   [&](Terminator::MultiCall &c) {
+                       result.push_back({&c.call, 0});
+                       result.push_back({&c.cont, c.drop ? size_t(0) : 1});
+                   },
+               },
+               block.terminator.data);
+    return result;
+}
+
 } // namespace
 
 void rename_argument(Function &func, const string &region, const string &from,
@@ -113,6 +154,92 @@ void rename_argument(Function &func, const string &region, const string &from,
         }
     }
     rename_argument_in(blocks, from, to);
+}
+
+void substitute_argument(Function &func, const string &region,
+                         const string &name, const shared_ptr<Value> &value) {
+    vector<shared_ptr<Block>> blocks;
+    const Cfg reach(func, region);
+    for (const auto &block : func.blocks) {
+        if (reach.contains(*block)) {
+            blocks.push_back(block);
+        }
+    }
+    // Where the region declares it: the block, and the position in its
+    // argument list, which is the operand the jumps to it drop.
+    std::map<string, size_t> declared;
+    for (const auto &block : blocks) {
+        for (size_t j = 0; j < block->args.size(); j++) {
+            if (block->args[j].name == name) {
+                declared[block->name] = j;
+            }
+        }
+    }
+    const auto subst = [&](shared_ptr<Value> &v) {
+        if (!v) {
+            return;
+        }
+        if (const auto *a = std::get_if<Argument>(&v->data);
+            a != nullptr && a->name == name) {
+            v = value;
+        }
+    };
+    for (const auto &block : blocks) {
+        for (const auto &instr : block->instrs) {
+            for (auto &operand : instr->operands) {
+                subst(operand);
+            }
+        }
+        block->lookups.erase(name);
+        for (auto &entry : block->lookups) {
+            subst(entry.second);
+        }
+        for (auto &[jump, first] : jumps_with_offset(*block)) {
+            if (const auto d = declared.find(jump->name);
+                d != declared.end() && d->second >= first) {
+                const size_t k = d->second - first;
+                internal_assert(k < jump->args.size())
+                    << "Jump from " << block->name << " to " << jump->name
+                    << " is missing an argument for " << name;
+                jump->args.erase(jump->args.begin() + k);
+            }
+            for (auto &a : jump->args) {
+                subst(a);
+            }
+        }
+        std::visit(overloads{
+                       [&](std::monostate &) {},
+                       [&](Terminator::Jump &) {},
+                       [&](Terminator::Dispatch &d) { subst(d.cond); },
+                       [&](Terminator::Return &r) { subst(r.value); },
+                       [&](Terminator::ParFor &p) {
+                           subst(p.start);
+                           subst(p.end);
+                           subst(p.stride);
+                       },
+                       [&](Terminator::Yield &) {},
+                       [&](Terminator::Call &) {},
+                       [&](Terminator::Spawn &) {},
+                       [&](Terminator::Join &) {},
+                       [&](Terminator::MultiCall &c) {
+                           for (auto &vs : c.varying) {
+                               for (auto &a : vs) {
+                                   subst(a);
+                               }
+                           }
+                           for (auto &k : c.keys) {
+                               subst(k);
+                           }
+                           for (auto &k : c.conds) {
+                               subst(k);
+                           }
+                       },
+                   },
+                   block->terminator.data);
+        if (const auto d = declared.find(block->name); d != declared.end()) {
+            block->args.erase(block->args.begin() + d->second);
+        }
+    }
 }
 
 string insert_preheader(Function &func, const string &header,

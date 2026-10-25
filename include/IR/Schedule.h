@@ -280,6 +280,17 @@ struct Vectorize {
     Location i;
 };
 
+// Unroll for-loop `i`, which must have a constant extent, into that many
+// copies of its body one after another, the index a constant in each
+// (Halide's `unroll`). What a binary node's children loop is written as to
+// be FCPW's and pbrt's straight-line visit -- each child's box read off its
+// own row and tested, both tests in a row -- where the loop form is what a
+// `vectorize` of the same loop takes. Applied at the SSA level (SSA/
+// Unroll.h), not by LoopTransforms.
+struct Unroll {
+    Location i;
+};
+
 // Bring into cache the storage that each hit child of a node refers to, in
 // the loop that tests the children -- written `trace.prefetch(tris.Interior.
 // children)`, the field of an arm whose type is a reference to the tree, or
@@ -399,7 +410,7 @@ struct Specialize {
 
 using Transform = std::variant<Bind, Collapse, Defer, Loopify, Persistent,
                                Prefetch, Reorder, Split, Sort, Specialize,
-                               Stage, Vectorize>;
+                               Stage, Unroll, Vectorize>;
 
 // The arms of a function's branches that a directive points at:
 //

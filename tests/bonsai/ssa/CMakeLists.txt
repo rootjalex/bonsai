@@ -28,6 +28,7 @@ add_bonsai_tests(
     child-volumes-sorted.bonsai
     child-volumes-sorted-wide.bonsai
     child-volumes-sorted-two.bonsai
+    child-volumes-unrolled-two.bonsai
     thread-dispatch.bonsai
     child-volumes-vectorized.bonsai
     tiled-leaf-vectorized.bonsai

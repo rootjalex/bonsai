@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/Unroll.cpp:74
+
+--> start.has_value() && end.has_value() && stride.has_value() && *stride > 0
+unroll(i) in run: the loop's extent is not a constant. unroll() writes the body out once per iteration, so it has to know how many there are: split the loop by a constant chunk and unroll the inner loop, as `split(i, io, ii, 4, true).unroll(ii)`.

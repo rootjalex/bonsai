@@ -2359,11 +2359,20 @@ void queue_recursion(Function &func, size_t size) {
                 func.blocks.push_back(from_two);
                 vector<Terminator::Jump> arms_from_two(
                     by_count.targets.begin() + 2, by_count.targets.end());
-                auto count_from_two = append(func, from_two, count_type,
-                                             Instruction::Op::Sub,
-                                             {hits, count_of(2)});
-                from_two->terminator.data = Terminator::Dispatch{
-                    count_from_two, std::move(arms_from_two)};
+                internal_assert(!arms_from_two.empty()) << "a run of " << n;
+                if (arms_from_two.size() == 1) {
+                    // A run of two lanes: past one hit there is only both,
+                    // so there is no count to dispatch on -- a dispatch of
+                    // one target is a jump (the relooper's switch wants two
+                    // arms, and refused this as one with one).
+                    from_two->terminator.data = arms_from_two.front();
+                } else {
+                    auto count_from_two = append(func, from_two, count_type,
+                                                 Instruction::Op::Sub,
+                                                 {hits, count_of(2)});
+                    from_two->terminator.data = Terminator::Dispatch{
+                        count_from_two, std::move(arms_from_two)};
+                }
                 hit->terminator.data = Terminator::Dispatch{
                     one, {Terminator::Jump{from_two->name}, by_count.targets[1]}};
                 if (!push) {

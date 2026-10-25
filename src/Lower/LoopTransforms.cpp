@@ -757,6 +757,9 @@ ir::Program LoopTransforms::run(ir::Program program,
                                       // no-op, applied by ConvertToSSA
                                       // instead (see SSA/Rewrite.h).
                                   },
+                                  [&](const Unroll &) {
+                                      // Likewise: SSA/Unroll.h.
+                                  },
                                   [&](const Specialize &) {
                                       // Likewise: SSA/Specialize.h.
                                   },

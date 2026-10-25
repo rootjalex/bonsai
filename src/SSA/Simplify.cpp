@@ -247,8 +247,9 @@ using UseCounts = std::map<const Instruction *, size_t>;
 UseCounts use_counts(const Function &func);
 
 struct Simplifier {
-    explicit Simplifier(Function &func, const ConstantIntervals *intervals)
-        : func(func), intervals(intervals) {
+    explicit Simplifier(Function &func, const ConstantIntervals *intervals,
+                        bool fold_built_lanes)
+        : func(func), intervals(intervals), fold_built_lanes(fold_built_lanes) {
         for (const auto &b : func.blocks) {
             for (const auto &instr : b->instrs) {
                 if (instr->op == Instruction::Op::Alloca) {
@@ -266,6 +267,9 @@ struct Simplifier {
     // when the caller computed it, for the rules that are exact only under
     // such a fact; null when none was computed, and those rules stand down.
     const ConstantIntervals *intervals = nullptr;
+    // Whether a lane of a vector built from its lanes is read back as that
+    // lane (SSA/Simplify.h): on once the directives have run.
+    bool fold_built_lanes = false;
 
     // What `v` lies between, as the current block reads it; everything
     // without the analysis.
@@ -2114,14 +2118,33 @@ struct Simplifier {
                 !ops[1]->get_type().is_scalar()) {
                 break;
             }
-            // (A lane of a vector built from its lanes, `extract_idx(
-            // make_struct<u32x2>(a, b), 1)`, is deliberately not folded to
-            // `b` here: a run of calls whose arguments are the lanes of one
-            // vector is the shape the sort lowering recognizes a gang's run
-            // by (SSA/SortRecursion.cpp, lane_of), and the fold would take
-            // it apart. The one pass that builds such a vector and wants its
-            // lanes read back folds them itself, SSA/Specialize.cpp's
-            // fold_forced_words.)
+            // A lane of a vector built from its lanes, `extract_idx(
+            // make_struct<u32x2>(a, b), 1)`, is `b` -- once the directives
+            // have run (fold_built_lanes). While they run it is left alone:
+            // a run of calls whose arguments are the lanes of one vector is
+            // the shape the sort lowering recognizes a node's children by
+            // (SSA/SortRecursion.cpp, lane_of), and the fold would take it
+            // apart; the one pass that builds such a vector and wants its
+            // lanes read back then folds them itself, SSA/Specialize.cpp's
+            // fold_forced_words. After them it is what lets an unrolled
+            // children loop (SSA/Unroll.h) read each child's box off its
+            // own row where the layout wrote the two children's as a pair.
+            // A vector of scalars only: a vector of vectors is built from
+            // its components (`make_struct<f32x3x2>(xs, ys, zs)`, three
+            // two-lane vectors for two three-lane lanes), so its operands
+            // are not its lanes.
+            if (fold_built_lanes && ops[0]->get_type().element_of().is_scalar()) {
+                const auto *built =
+                    std::get_if<shared_ptr<Instruction>>(&ops[0]->data);
+                const std::optional<uint64_t> lane = constant_index(ops[1]);
+                if (built != nullptr &&
+                    (*built)->op == Instruction::Op::MakeStruct &&
+                    lane.has_value() &&
+                    (*built)->operands.size() == ops[0]->get_type().lanes() &&
+                    *lane < (*built)->operands.size()) {
+                    return (*built)->operands[*lane];
+                }
+            }
             // A lane of a vector that lives in read-only storage, at a lane
             // only known when it runs, is read from the storage: a layout
             // row's `children[i]`, with `i` the low bits of a sorted key,
@@ -2882,8 +2905,9 @@ namespace {
 
 // One pass of the rules over every instruction of `func`, in order, and the
 // removal of what they replaced; whether anything was replaced.
-bool simplify_once(Function &func, const ConstantIntervals *intervals) {
-    Simplifier s(func, intervals);
+bool simplify_once(Function &func, const ConstantIntervals *intervals,
+                   bool fold_built_lanes) {
+    Simplifier s(func, intervals, fold_built_lanes);
     for (const auto &block : func.blocks) {
         s.enter(block);
         for (size_t i = 0; i < block->instrs.size(); i++) {
@@ -3009,7 +3033,8 @@ bool simplify_once(Function &func, const ConstantIntervals *intervals) {
 
 } // namespace
 
-void simplify(Function &func, const ConstantIntervals *intervals) {
+void simplify(Function &func, const ConstantIntervals *intervals,
+              bool fold_built_lanes) {
     // To a fixed point, within a bound: a rule's result is simplified as
     // it is made, but an instruction visited before one of its operands
     // was replaced -- `!x` made of a `!y` that a later merge made `y`'s
@@ -3025,7 +3050,9 @@ void simplify(Function &func, const ConstantIntervals *intervals) {
     // rules fold, on which a dispatch below folds -- so the whole is
     // repeated while any of them moved, within a bound.
     for (int outer = 0; outer < 8; outer++) {
-        for (int round = 0; round < 8 && simplify_once(func, intervals); round++) {
+        for (int round = 0;
+             round < 8 && simplify_once(func, intervals, fold_built_lanes);
+             round++) {
         }
         bool moved = substitute_threaded_arguments(func);
         if (fold_constant_dispatches(func)) {

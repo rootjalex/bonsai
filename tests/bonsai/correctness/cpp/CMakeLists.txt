@@ -18,6 +18,7 @@ add_bonsai_tests(
     bvh4_child_volumes.bonsai
     bvh4_child_volumes_vectorized.bonsai
     bvh4_child_volumes_packet.bonsai
+    bvh2_unrolled.bonsai
     bvh4_tiled_elements.bonsai
     bvh4_tiled_elements_vectorized.bonsai
     bvh4_tiled_elements_derived.bonsai

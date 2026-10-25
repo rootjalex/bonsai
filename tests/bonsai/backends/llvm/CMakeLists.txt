@@ -18,6 +18,7 @@ add_bonsai_tests(
     child-bounds-at-lane.bonsai
     child-volumes.bonsai
     child-volumes-sorted-two.bonsai
+    child-volumes-unrolled-two.bonsai
     child-volumes-vectorized.bonsai
     tiled-leaf-vectorized.bonsai
     prefetch-children.bonsai
