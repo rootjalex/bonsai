@@ -5498,16 +5498,20 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 // The copy's block arguments take fresh names too. A block's
                 // argument is named after the value it carries in, and
                 // clone_region keeps such names (the value is defined
-                // outside the region); but with the original alive beside
-                // the copy, two blocks of one function would define an
-                // argument of one name, and a pass that follows a value by
-                // its name within the function -- the record's SoA split
-                // (SSA/InducedStorage.cpp), which rewrites the uses of a
-                // slot's handle by the name the jumps pass it under --
-                // would take the copy's for the original's and thread the
-                // pass's handles into the producer. Every use inside a block
-                // is of the block's own argument, so renaming block by block
-                // is complete; the jumps into the copy pass positionally.
+                // outside the region) -- rightly in general, since a later
+                // `reach` finds a value in a block by that name. But here the
+                // copy carries *other* values than the original under those
+                // names: the pass's loads from the record where the original
+                // has the iteration's own values. Two blocks of one function
+                // would then define an argument of one name for two values,
+                // and a pass that follows a value by its name within the
+                // function -- the record's SoA split (SSA/InducedStorage.cpp),
+                // which rewrites the uses of a slot's handle by the name the
+                // jumps pass it under -- took the copy's for the original's
+                // and threaded the pass's handles into the producer. Every
+                // use inside a block is of the block's own argument, so
+                // renaming block by block is complete; the jumps into the
+                // copy pass positionally.
                 for (const auto &block : rest_blocks) {
                     vector<string> names;
                     for (const Argument &arg : block->args) {
