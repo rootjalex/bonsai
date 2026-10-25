@@ -21,8 +21,8 @@ set -euo pipefail
 # lanes; fcpw4w16-packet-points, the points) are run the single-threaded
 # way. A schedule named fcpwb* runs over WoSX's default tree instead --
 # FCPW's scalar binary BVH, FCPW_USE_ENOKI off, the layout in
-# schedules/layouts/fcpwb.bonsai -- and the driver is built to have FCPW
-# build that tree for WoSX's side too (WOSX_BINARY_BVH). A schedule named
+# apps/rtq/schedules/layouts/fcpwb.bonsai -- and the driver is built to have
+# FCPW build that tree for WoSX's side too (WOSX_BINARY_BVH). A schedule named
 # fcpwb2* runs over the same binary tree declared as FCPW traverses it,
 # each node holding its children's boxes (schedules/layouts/fcpwb2.bonsai,
 # WOSX_BINARY_BVH2). A schedule named *-gpu* is the GPU comparison: WoSX's
@@ -149,17 +149,17 @@ build_schedule() {
   local schedule="$1"
   local flags=(-p ssa --no-heap --ffp-contract)
   # The program: the walk on spheres (wosx.bonsai) unless the schedule is
-  # named wost-*, which is the walk on stars (stars.bonsai with its queries
-  # and elements, then wost.bonsai), compared against WoSX's WalkOnStars by
-  # a driver built with WOSX_STARS; the rest of the name says the tree and
-  # how it is run, as below.
+  # named wost-*, which is the walk on stars (wost.bonsai, over apps/rtq's
+  # silhouette query and the FCPW scalar metric's cone and edge arithmetic),
+  # compared against WoSX's WalkOnStars by a driver built with WOSX_STARS;
+  # the rest of the name says the tree and how it is run, as below.
   local program="wosx" tree_name="$schedule"
   local program_inputs=(-i $PREFIX/wosx.bonsai)
   local program_defines=()
   if [[ "$schedule" == wost-* ]]; then
     program="wost"
     tree_name="${schedule#wost-}"
-    program_inputs=(-i $PREFIX/stars.bonsai -i $PREFIX/wost.bonsai)
+    program_inputs=(-i $PREFIX/wost.bonsai)
     program_defines=(-DWOSX_STARS)
   fi
   # The arithmetic of the FCPW build the schedule's tree is compared
@@ -180,7 +180,7 @@ build_schedule() {
   # The tree the schedule's name says: fcpw<branching>w<width> is FCPW's
   # vectorized Mbvh at that branching and width (apps/rtq's layouts), fcpwb
   # FCPW's scalar binary BVH -- WoSX's default, FCPW_USE_ENOKI off
-  # (apps/wosx/schedules/layouts/fcpwb.bonsai, the driver's WOSX_BINARY_BVH),
+  # (apps/rtq/schedules/layouts/fcpwb.bonsai, the driver's WOSX_BINARY_BVH),
   # fcpwb2 the same binary tree with each node holding its children's boxes
   # (layouts/fcpwb2.bonsai, WOSX_BINARY_BVH2). The suffixes say how it is
   # run: -threads, -persistent and -packet* as above, -gpu* on the GPU. The

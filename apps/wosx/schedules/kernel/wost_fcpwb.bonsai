@@ -34,7 +34,7 @@ schedule {
                   .unroll(reflecting.Interior.children)
                   .loopify(64);
     closest_silhouette.sort(silhouettes.Interior,
-                            |i : u32, q : StarQuery, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                            |i : u32, q : SilhouetteQuery, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
                              axis : vector[vec3f, 2], half_angle : vector[f32, 2],
                              radius : vector[f32, 2]|
                             distmin(q, ConeBox{lo[i], hi[i], axis[i], half_angle[i], radius[i]}))

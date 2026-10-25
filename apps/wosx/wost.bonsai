@@ -7,7 +7,7 @@
 // is not a sphere to the nearest boundary but a star -- the largest ball
 // around the position inside which the reflecting boundary is seen as one
 // star-shaped sheet, found by the closest silhouette point of the
-// reflecting boundary (stars.bonsai), bounded by the distance to the
+// reflecting boundary (apps/rtq/silhouette.bonsai), bounded by the distance to the
 // absorbing boundary -- and the step is a ray cast from the position in a
 // uniform direction: where it hits the reflecting boundary the walk goes
 // on from the hit, on the boundary, and its next direction is drawn from
@@ -27,15 +27,26 @@
 // same trees: the silhouette query and the ray cast on the reflecting
 // boundary's normal cone hierarchy, the distance on the absorbing
 // boundary's tree. Compiled from the repository root over apps/rtq's
-// elements, the FCPW scalar metric and stars.bonsai:
+// elements and its FCPW scalar metric, whose silhouette section has the
+// cone and edge arithmetic:
 //
 //     ./build/compiler -p ssa --no-heap --ffp-contract \
 //         -i apps/rtq/elements.bonsai -i apps/rtq/metrics/fcpw_scalar.bonsai \
-//         -i apps/wosx/stars.bonsai -i apps/wosx/wost.bonsai \
-//         -i apps/wosx/schedules/wost-fcpwb.bonsai ...
+//         -i apps/wosx/wost.bonsai -i apps/wosx/schedules/wost-fcpwb.bonsai ...
 import stdlib/numerics;
 import apps/wosx/rng;
 import apps/wosx/walk_common;
+// The silhouette query and its set of edges, apps/rtq's (silhouette.bonsai).
+import apps/rtq/silhouette;
+
+// Three sets where the walk on spheres has one: the absorbing boundary's
+// triangles (Dirichlet data), the reflecting boundary's triangles (its rays
+// stop there), and the reflecting boundary's silhouette edges -- FCPW keeps
+// the edges in the same tree as the triangles, each leaf referencing its
+// triangles and its edges, and the layout reads the one node array as two
+// trees (schedules/layouts/fcpw_stars.bonsai).
+extern absorbing : set[Triangle];
+extern reflecting : set[Triangle];
 
 // WoSX: the part of WalkSettings and GeometricQueries the walk reads --
 // epsilonShellForAbsorbingBoundary, epsilonShellForReflectingBoundary,
@@ -91,16 +102,6 @@ func hit_reflecting(r0 : Ray) -> option[(Triangle, Hit)] {
                          map(|t : Triangle| (t, hit_record(r, t)), reflecting)));
 }
 
-// FCPW: Scene::findClosestSilhouettePoint -- the nearest silhouette edge of
-// the reflecting boundary within the sphere, and its distance; none where
-// no edge within the sphere is a silhouette, which most stars find
-// (stars.bonsai says why the test is the filter's `intersects`).
-func closest_silhouette(q : StarQuery) -> option[(Edge, Float)] {
-    return argmin(|e : Edge, d : Float| distmin(q, e),
-                  filter(|e : Edge, d : Float| intersects(q, e),
-                         map(|e : Edge| (e, silhouette_distance(q, e)), silhouettes)));
-}
-
 // WoSX: GeometricQueries::offsetPointAlongDirection -- a ray from a point
 // on the reflecting boundary begins a few ulps off it along the direction
 // (Waechter and Binder, "A Fast and Robust Method for Avoiding Self-
@@ -119,11 +120,13 @@ func offset_along(p : vec3f, n : vec3f) -> vec3f =
 // WoSX: computeStarRadiusForReflectingBoundary (fcpw_geometric_queries.h;
 // fcpw-geometric-queries.slang) and the shrink around it in walk(): the
 // star is bounded by the distance to the absorbing boundary and the
-// reflecting shell; the silhouette query within that radius, FCPW's
-// normals flipped (its convention), is skipped where the shell already
-// reaches the bound; the answer the distance found or the bound, never
-// under the shell; then a hundredth shrunk for robustness
-// (RADIUS_SHRINK_PERCENTAGE), never under the shell.
+// reflecting shell; the silhouette query (apps/rtq's closest_silhouette:
+// the nearest silhouette edge of the reflecting boundary within the
+// sphere, none where no edge within it is a silhouette, which most stars
+// find) within that radius, FCPW's normals flipped (its convention), is
+// skipped where the shell already reaches the bound; the answer the
+// distance found or the bound, never under the shell; then a hundredth
+// shrunk for robustness (RADIUS_SHRINK_PERCENTAGE), never under the shell.
 func star_radius(x : vec3f, dist : Float, problem : StarProblem) -> Float {
     min_r = problem.eps_reflecting;
     if min_r > dist {
@@ -131,10 +134,10 @@ func star_radius(x : vec3f, dist : Float, problem : StarProblem) -> Float {
     }
     r2 = select(dist < inf, dist * dist, inf);
     if min_r * min_r < r2 {
-        c = closest_silhouette(StarQuery{x, r2, min_r * min_r, problem.precision, 1u});
+        c = closest_silhouette(SilhouetteQuery{x, r2, min_r * min_r, problem.precision, 1u});
         if c {
             found = *c;
-            return max(0.99 * max(found[1], min_r), min_r);
+            return max(0.99 * max(found[1].d, min_r), min_r);
         }
     }
     return max(0.99 * max(dist, min_r), min_r);

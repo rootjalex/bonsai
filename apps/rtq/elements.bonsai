@@ -61,4 +61,41 @@ element Sphere {
     r2 : Float;
 }
 
+// FCPW: Edge (gpu/geometry.slang; SilhouetteEdge on the CPU) -- a silhouette
+// edge of the mesh: its two ends, the unit normals of its two adjacent
+// faces (the second zero where the edge has one face), its index, and
+// whether it has one adjacent face, in which case it is a silhouette from
+// everywhere. FCPW's CPU edge keeps indices into the polygon soup and
+// recomputes the two normals at every test; its GPU row (GPUEdge) and the
+// layouts here hold them.
+element Edge {
+    pa, pb, n0, n1 : vec3f;
+    index : u32;
+    one_face : u32;
+}
+
+// FCPW: SnchNode's BoundingBox and BoundingCone together, the node of its
+// normal cone hierarchy (the spatialized normal cone hierarchy of Sawhney,
+// Miller, Gkioulekas and Crane, "Walk on Stars", 2023): the box, and the
+// cone's axis, half angle and radius. A half angle below zero is an invalid
+// cone, a node holding no silhouette (BoundingCone::isValid).
+element ConeBox {
+    low, high, axis : vec3f;
+    half_angle, radius : Float;
+}
+
+// FCPW: the closest-silhouette query as findClosestSilhouettePoint takes it
+// -- the sphere (center, squared radius the search begins at), the squared
+// minimum radius under which the search is pointless (WoSX's reflecting
+// shell; zero asks for the exact closest), the silhouette precision, and
+// flipNormalOrientation (one as WoSX hands it for a single-sided problem:
+// FCPW's own convention has the normals flipped).
+element SilhouetteQuery {
+    c : vec3f;
+    r2 : Float;
+    min_r2 : Float;
+    precision : Float;
+    flip : u32;
+}
+
 extern triangles : set[Triangle];

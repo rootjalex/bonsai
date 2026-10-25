@@ -21,10 +21,12 @@
 // The node's cone is the children's to test, as the box is: the parent
 // holds its children's boxes and cones logically, read out of the
 // children's own rows (fcpwb.bonsai says why), and the tree's bounding
-// element is stars.bonsai's ConeBox, whose metrics do FCPW's cone test for
-// the silhouette query and the box test alone for the rays. The GPU rows'
-// counts and offsets are unsigned words, read here as the signed words the
-// CPU node has, the same bits.
+// element is apps/rtq's ConeBox (elements.bonsai), whose metrics do FCPW's
+// cone test for the silhouette query and the box test alone for the rays
+// (metrics/fcpw_scalar.bonsai). The GPU rows' counts and offsets are
+// unsigned words, read here as the signed words the CPU node has, the same
+// bits. apps/rtq/schedules/layouts/fcpws.bonsai is the reflecting pair
+// alone, under apps/rtq's names, for its own comparison on this tree.
 schedule {
     tree[[Triangle]] ABVH2 =
     | Interior(children : array[ABVH2, 2], lo hi : vector[vec3f, 2])

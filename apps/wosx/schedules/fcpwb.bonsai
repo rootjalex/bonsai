@@ -26,7 +26,7 @@
 // two tests were a loop of two over the pair of boxes the layout presents,
 // each iteration picking its lane -- the sixty instructions over FCPW's
 // visit that PLAN.md's "The binary CPU walk's gap" found (2026-10-24).
-import apps/wosx/schedules/layouts/fcpwb;
+import apps/rtq/schedules/layouts/fcpwb;
 
 schedule {
     walk.loopify();

@@ -35,6 +35,11 @@
 // this tree (apps/queries/cp/cp.bonsai on the branch ajr/pldi-benchmarks),
 // the two-lane vectors built by component. What a visit reads is then what
 // FCPW's reads: the node's row and its two children's rows.
+//
+// Imported by the schedules over this tree in apps/rtq (schedules/fcpwb*.
+// bonsai, the three queries against FCPW's scalar build and its GPU) and in
+// apps/wosx (its fcpwb* schedules, the walk on spheres against WoSX on its
+// default tree); the drivers copy FCPW's tree in with apps/rtq/fcpw_bvh.h.
 schedule {
     tree[[Triangle]] BVH2 =
     | Interior(children : array[BVH2, 2], lo hi : vector[vec3f, 2])

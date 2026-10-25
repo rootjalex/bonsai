@@ -1,0 +1,35 @@
+// apps/rtq's fourth query: FCPW's closest silhouette point
+// (Scene::findClosestSilhouettePoint; bvh.slang's findClosestSilhouettePoint)
+// over the set of silhouette edges of its normal cone hierarchy -- the query
+// the walk on stars asks for its star radius (apps/wosx/wost.bonsai). A file
+// of its own, imported by the programs that have the set (snch.bonsai here,
+// wost.bonsai in apps/wosx): rtq.bonsai's programs over a plain tree of
+// triangles have no silhouette edges, and with the extern set declared here
+// they need no layout for it. Declared over elements.bonsai and
+// metrics/fcpw_scalar.bonsai, whose silhouette section has the arithmetic
+// (the cone test, the edge test, the record).
+//
+// Written as `trace` is written (queries.bonsai): the test an edge has to
+// pass is the query's `intersects` -- within the radius and a silhouette
+// from the center -- which the tree bounds with its own form over the cone
+// box (FCPW's child test: cone valid, box within the radius, cone
+// overlapping the view cone), and the key the nearest passes by is
+// `distmin`, the edge's squared distance; the argmin is over a filter and
+// answers none where no edge passes, the common case (an argmin over every
+// element of a set has an element, and the query would otherwise have to
+// call every edge a candidate). The map annotates each candidate with
+// FCPW's record of it, the closest point on the edge and its distance, the
+// same computation the test and the key make, so the leaf makes it once.
+// What FCPW does that this does not: stop once a silhouette within the
+// query's minimum radius is found, since its caller clamps the answer to
+// that radius and any such silhouette gives the same answer; the exact
+// closest is found here and the clamp is the caller's (apps/wosx/PLAN.md,
+// "The silhouette query read against FCPW's", has the two traversals side
+// by side).
+extern silhouettes : set[Edge];
+
+func closest_silhouette(q : SilhouetteQuery) -> option[(Edge, SilhouetteHit)] {
+    return argmin(|e : Edge, h : SilhouetteHit| distmin(q, e),
+                  filter(|e : Edge, h : SilhouetteHit| intersects(q, e),
+                         map(|e : Edge| (e, silhouette_record(q, e)), silhouettes)));
+}

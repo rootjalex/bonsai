@@ -7,7 +7,7 @@
 // lanes' keys -- FCPW's CPU rule, as fcpwb.bonsai writes it -- each child
 // entered by the lanes whose query reaches its box. Single-threaded,
 // pinned, as fcpwb is run.
-import apps/wosx/schedules/layouts/fcpwb;
+import apps/rtq/schedules/layouts/fcpwb;
 
 schedule {
     walk.loopify();

@@ -302,3 +302,194 @@ func closest_record(q : Point, tri : Triangle) -> ClosestHit {
 }
 
 func no_closest() -> ClosestHit = ClosestHit{4294967295u, inf, vec3f{0.0, 0.0, 0.0}, 0.0, 0.0};
+
+//===----------------------------------------------------------------------===//
+// The silhouette query over FCPW's normal cone hierarchy
+//===----------------------------------------------------------------------===//
+//
+// FCPW: findClosestSilhouettePoint over the SNCH (bvh.inl, processSubtreeFor
+// ClosestSilhouettePoint; bvh.slang's findClosestSilhouettePoint is the same
+// arithmetic): a child is entered where its cone is valid, its box is within
+// the sphere's radius and its cone overlaps the "view cone" from the query
+// point to the box (BoundingCone::overlap: two cones overlap where a vector
+// of each is orthogonal to one of the other, which is where a silhouette can
+// be), the nearer child first by the box's squared distance; at a leaf each
+// edge within the radius is tested for being a silhouette from the query
+// point (isSilhouetteEdge: one adjacent face front-facing and the other
+// back-facing, the degenerate cases by the precision), and the nearest wins,
+// the radius shrinking to it. The test an edge has to pass is the query's
+// `intersects`, which the tree bounds with its own form over the cone box,
+// the child test above; the key is `distmin`, the edge's squared distance,
+// as FCPW shrinks `s.r2` to `d * d`. FCPW does not lower the radius to a
+// box's far corner here, since a box may hold no silhouette: `distmax` over
+// the cone box is infinite, the same statement. The query itself is
+// apps/rtq/silhouette.bonsai's `closest_silhouette`.
+
+// The closest point of a segment to a point, and its distance (FCPW's
+// findClosestPointLineSegment).
+element SegmentPoint {
+    p : vec3f;
+    d : Float;
+}
+
+func half_pi() -> Float = 1.5707963267948966;
+func flt_epsilon() -> Float = 1.1920928955078125e-07;
+func in_range(v : Float, lo : Float, hi : Float) -> bool = v >= lo && v <= hi;
+// Eigen's `norm()` and `normalized()`: the square root of its squared norm,
+// and a division of each component by it.
+func vlen(v : vec3f) -> Float = sqrt(sqnorm_eigen(v));
+func unit(v : vec3f) -> vec3f = v / vlen(v);
+func abs3(v : vec3f) -> vec3f = vec3f{abs(v.x), abs(v.y), abs(v.z)};
+
+// FCPW: computeOrthonormalBasis (Duff et al., "Building an Orthonormal
+// Basis, Revisited", 2017) and projectToPlane -- the largest projection of
+// the box's half extents onto the plane normal to `n`.
+func project_to_plane(n : vec3f, e : vec3f) -> Float {
+    sign = select(n.z >= 0.0, 1.0, -1.0);
+    a = -1.0 / (sign + n.z);
+    b = n.x * n.y * a;
+    b1 = vec3f{1.0 + sign * n.x * n.x * a, sign * b, -sign * n.x};
+    b2 = vec3f{b, sign + n.y * n.y * a, -n.y};
+    r1 = dot_eigen(e, abs3(b1));
+    r2 = dot_eigen(e, abs3(b2));
+    return sqrt(r1 * r1 + r2 * r2);
+}
+
+// FCPW: BoundingCone::overlap -- whether the node's cone overlaps the view
+// cone from `o` to the box, `d2min` the box's squared distance to `o`.
+// Overlap outright when the cone is wider than a right angle or the box
+// holds the point; else the angle between the two axes against the cone's
+// half angle, then against the half angles summed with the view cone's --
+// `asin(radius / l)` from outside the box's bounding sphere, `atan2` of the
+// box's extents projected on the view plane from inside it.
+func cone_overlaps(o : vec3f, b : ConeBox, d2min : Float) -> bool {
+    if b.half_angle >= half_pi() || d2min < flt_epsilon() {
+        return true;
+    }
+    c = (b.low + b.high) * 0.5;
+    view = c - o;
+    l = vlen(view);
+    view_axis = view / l;
+    d_axis = acos(max(-1.0, min(1.0, dot_eigen(b.axis, view_axis))));
+    if in_range(half_pi(), d_axis - b.half_angle, d_axis + b.half_angle) {
+        return true;
+    }
+    if l > b.radius {
+        view_half = asin(b.radius / l);
+        angles = b.half_angle + view_half;
+        return angles >= half_pi() || in_range(half_pi(), d_axis - angles, d_axis + angles);
+    }
+    e = b.high - c;
+    d = dot_eigen(e, abs3(view_axis));
+    s = l - d;
+    if s <= 0.0 {
+        return true;
+    }
+    dp = project_to_plane(view_axis, e);
+    view_half2 = atan2(dp, s);
+    angles2 = b.half_angle + view_half2;
+    return angles2 >= half_pi() || in_range(half_pi(), d_axis - angles2, d_axis + angles2);
+}
+
+// FCPW: the child test of the silhouette traversal -- `cone.isValid() &&
+// box.overlap(s, d2Min) && cone.overlap(s.c, box, d2Min)` -- and the key
+// the children are ordered by, the box's squared distance, the nearer
+// first; no far-corner bound, since a box may hold no silhouette.
+func intersects(q : SilhouetteQuery, b : ConeBox) -> bool {
+    d2 = distmin(Point{q.c}, AABB{b.low, b.high});
+    return b.half_angle >= 0.0 && d2 <= q.r2 && cone_overlaps(q.c, b, d2);
+}
+
+func distmin(q : SilhouetteQuery, b : ConeBox) -> Float = distmin(Point{q.c}, AABB{b.low, b.high});
+func distmax(q : SilhouetteQuery, b : ConeBox) -> Float = inf;
+
+// FCPW: findClosestPointLineSegment -- the projection parameter clamped to
+// the segment, the distance from each case's point.
+func closest_point_segment(pa : vec3f, pb : vec3f, x : vec3f) -> SegmentPoint {
+    u = pb - pa;
+    v = x - pa;
+    c1 = dot_eigen(u, v);
+    if c1 <= 0.0 {
+        return SegmentPoint{pa, vlen(x - pa)};
+    }
+    c2 = dot_eigen(u, u);
+    if c2 <= c1 {
+        return SegmentPoint{pb, vlen(x - pb)};
+    }
+    t = c1 / c2;
+    p = pa + u * t;
+    return SegmentPoint{p, vlen(x - p)};
+}
+
+// FCPW: isSilhouetteEdge -- from a point on the edge (within the precision)
+// the edge is a silhouette when it is concave, by the signed dihedral
+// angle; otherwise when the view direction is in one face's plane and the
+// other face is back-facing, or one face front-facing and the other back-
+// facing. `sign` is FCPW's reading of flipNormalOrientation.
+func is_silhouette_edge(e : Edge, view : vec3f, d : Float, flip : u32, precision : Float) -> bool {
+    sign = select(flip != 0u, 1.0, -1.0);
+    if d <= precision {
+        edge_dir = unit(e.pb - e.pa);
+        angle = atan2(dot_eigen(edge_dir, cross(e.n0, e.n1)), dot_eigen(e.n0, e.n1));
+        return sign * angle > precision;
+    }
+    vu = view / d;
+    dot0 = dot_eigen(vu, e.n0);
+    dot1 = dot_eigen(vu, e.n1);
+    if abs(dot0) <= precision {
+        return sign * dot1 > precision;
+    }
+    if abs(dot1) <= precision {
+        return sign * dot0 > precision;
+    }
+    return dot0 * dot1 < 0.0;
+}
+
+// FCPW: what findClosestSilhouettePoint leaves in its Interaction -- `d`
+// the distance, `p` the closest point on the edge, `primitiveIndex` the
+// edge's index -- made for every candidate at the leaf, the same closest
+// point the test and the key take, so the leaf computes it once (the
+// query's map, as `trace`'s carries the hit record).
+element SilhouetteHit {
+    index : u32;
+    d : Float;
+    p : vec3f;
+}
+
+func silhouette_record(q : SilhouetteQuery, e : Edge) -> SilhouetteHit {
+    sp = closest_point_segment(e.pa, e.pb, q.c);
+    return SilhouetteHit{e.index, sp.d, sp.p};
+}
+
+// FCPW: a miss leaves the Interaction as constructed, `d` the largest
+// float, the index -1 and the point zero.
+func no_silhouette() -> SilhouetteHit = SilhouetteHit{4294967295u, inf, vec3f{0.0, 0.0, 0.0}};
+
+// FCPW: Edge::findClosestSilhouettePoint -- the edge is a candidate where
+// it is within the sphere and a silhouette from the sphere's center (an
+// edge with one adjacent face always is); its key is the square of its
+// distance, as FCPW shrinks `s.r2` to `d * d`.
+func intersects(q : SilhouetteQuery, e : Edge) -> bool {
+    sp = closest_point_segment(e.pa, e.pb, q.c);
+    if sp.d * sp.d > q.r2 {
+        return false;
+    }
+    return e.one_face != 0u || is_silhouette_edge(e, q.c - sp.p, sp.d, q.flip, q.precision);
+}
+
+func distmin(q : SilhouetteQuery, e : Edge) -> Float {
+    d = closest_point_segment(e.pa, e.pb, q.c).d;
+    return d * d;
+}
+
+// The other queries over the same tree: the cone says nothing to a ray or
+// to a point query, so a cone box is its box (FCPW's intersect and
+// findClosestPoint traversals read the SnchNode's box alone).
+func distmin(r : Ray, b : ConeBox) -> Float = distmin(r, AABB{b.low, b.high});
+func distmax(r : Ray, b : ConeBox) -> Float = distmax(r, AABB{b.low, b.high});
+func intersects(r : Ray, b : ConeBox) -> bool = intersects(r, AABB{b.low, b.high});
+func contains(r : Ray, b : ConeBox) -> bool = false;
+func distmin(q : Point, b : ConeBox) -> Float = distmin(q, AABB{b.low, b.high});
+func distmax(q : Point, b : ConeBox) -> Float = distmax(q, AABB{b.low, b.high});
+func distmin(s : Sphere, b : ConeBox) -> Float = distmin(s, AABB{b.low, b.high});
+func distmax(s : Sphere, b : ConeBox) -> Float = distmax(s, AABB{b.low, b.high});

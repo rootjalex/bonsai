@@ -1,14 +1,15 @@
 // FCPW's scalar BVH -- the tree WoSX builds by default, FCPW_USE_ENOKI off,
 // and the one tree FCPW puts on a GPU -- copied into the layout that is its
-// bytes, for the driver that compares the program against WoSX on that
-// tree (wosx_hook.cpp built with WOSX_BINARY_BVH; compare.sh does so for
-// the schedules named fcpwb*; apps/rtq/fcpw_tree.h is the same for the
-// vectorized Mbvh, fcpw_bvh2.h for the layout storing the children's boxes
-// in the parent).
+// bytes, for the drivers that compare a program against FCPW on that tree:
+// apps/rtq's (rtq_hook.cpp built with RTQ_FCPW_BINARY, which compare.sh
+// does for the schedules named fcpwb*) and apps/wosx's (wosx_hook.cpp built
+// with WOSX_BINARY_BVH, likewise for its fcpwb* schedules). fcpw_tree.h is
+// the same for the vectorized Mbvh, apps/wosx/fcpw_bvh2.h for the layout
+// storing the children's boxes in the parent.
 //
 // Included after the program's generated header and <fcpw/fcpw.h>: the
 // layout's structs are the generated header's, as the compiler spells them
-// for apps/wosx/schedules/layouts/fcpwb.bonsai -- `_tree_layout0` the
+// for apps/rtq/schedules/layouts/fcpwb.bonsai -- `_tree_layout0` the
 // layout, `_tree_layout1` a triangle row, `_tree_layout2` a node row -- and
 // FCPW's node is BvhNode<3>. The node rows are the same bytes, which the
 // copy relies on and the asserts check. The triangle rows are the bytes
@@ -29,7 +30,7 @@
 #include <utility>
 #include <vector>
 
-namespace wosx_bvh {
+namespace rtq_bvh {
 
 using FcpwBvh = fcpw::Bvh<3, fcpw::BvhNode<3>, fcpw::Triangle>;
 using FcpwNode = fcpw::BvhNode<3>;
@@ -177,4 +178,4 @@ inline void describe(const Tree &tree) {
               << tree.prim_count * sizeof(TriangleRow) << " bytes)\n";
 }
 
-} // namespace wosx_bvh
+} // namespace rtq_bvh

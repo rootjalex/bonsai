@@ -12,7 +12,7 @@
 // (`unroll`), as bvh.slang writes them -- the two boxes tested one after
 // the other, then the swap -- not left a loop of two (fcpwb.bonsai says
 // what the loop cost).
-import apps/wosx/schedules/layouts/fcpwb;
+import apps/rtq/schedules/layouts/fcpwb;
 
 schedule {
     walk.loopify();

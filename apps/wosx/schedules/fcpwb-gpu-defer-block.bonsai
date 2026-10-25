@@ -15,7 +15,7 @@
 // that lives there), sized by the capacity at the launch; against the
 // card-wide deferral (fcpwb-gpu-defer.bonsai) the entries never leave the
 // SM and the rounds are a loop of the kernel's, not launches.
-import apps/wosx/schedules/layouts/fcpwb;
+import apps/rtq/schedules/layouts/fcpwb;
 
 schedule {
     closest_within.sort(triangles.Interior,

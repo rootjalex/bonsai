@@ -6,7 +6,7 @@
 // from the children's rows, as the layout says) -- each child entered by
 // the lanes whose query reaches its box, one stack of nodes, per-lane
 // bounds and masks. Single-threaded, pinned, as fcpwb is run.
-import apps/wosx/schedules/layouts/fcpwb;
+import apps/rtq/schedules/layouts/fcpwb;
 
 schedule {
     walk.loopify();

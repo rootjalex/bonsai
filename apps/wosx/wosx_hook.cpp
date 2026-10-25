@@ -90,7 +90,7 @@
 
 // The tree the schedule declared: FCPW's vectorized Mbvh in apps/rtq's
 // layouts (the default); FCPW's scalar binary BVH -- WoSX's default,
-// FCPW_USE_ENOKI off -- in apps/wosx/schedules/layouts/fcpwb.bonsai when
+// FCPW_USE_ENOKI off -- in apps/rtq/schedules/layouts/fcpwb.bonsai when
 // built with WOSX_BINARY_BVH (compare.sh, for the schedules named fcpwb*);
 // or the same binary tree with each node holding its children's boxes, as
 // FCPW's traversal reads it, in layouts/fcpwb2.bonsai when built with
@@ -100,7 +100,7 @@
 #if defined(WOSX_STARS)
 #include "apps/wosx/fcpw_stars_trees.h"
 #elif defined(WOSX_BINARY_BVH)
-#include "apps/wosx/fcpw_bvh.h"
+#include "apps/rtq/fcpw_bvh.h"
 #elif defined(WOSX_BINARY_BVH2)
 #include "apps/wosx/fcpw_bvh2.h"
 #else
@@ -599,12 +599,15 @@ int main(int argc, char **argv) {
     wosx_stars::copy_reflecting(reflecting_handler.scene, trees);
     trees.point();
     wosx_stars::describe(trees);
-    bonsai_buffer *tree_buffers[6] = {&trees.absorbing_triangles.buffer, &trees.absorbing_nodes.buffer,
-                                      &trees.reflecting_triangles.buffer, &trees.reflecting_nodes.buffer,
-                                      &trees.edges.buffer, &trees.reflecting_nodes.buffer};
+    // In the order the generated header takes the sets: the silhouette edges'
+    // layout (apps/rtq/silhouette.bonsai declares the set, imported before
+    // the walk's own two), then the absorbing and the reflecting triangles'.
+    bonsai_buffer *tree_buffers[6] = {&trees.edges.buffer, &trees.reflecting_nodes.buffer,
+                                      &trees.absorbing_triangles.buffer, &trees.absorbing_nodes.buffer,
+                                      &trees.reflecting_triangles.buffer, &trees.reflecting_nodes.buffer};
 #elif defined(WOSX_BINARY_BVH)
-    wosx_bvh::Tree tree = wosx_bvh::copy_fcpw_bvh(handler.scene);
-    wosx_bvh::describe(tree);
+    rtq_bvh::Tree tree = rtq_bvh::copy_fcpw_bvh(handler.scene);
+    rtq_bvh::describe(tree);
     bonsai_buffer *tree_buffers[2] = {&tree.prims_buffer, &tree.nodes_buffer};
 #elif defined(WOSX_BINARY_BVH2)
     wosx_bvh2::Tree tree = wosx_bvh2::copy_fcpw_bvh2(handler.scene);
@@ -882,7 +885,7 @@ int main(int argc, char **argv) {
                   "solve_stars takes these eleven buffers, in this order");
     const auto solve = [&] {
         solve_stars(n, &b_points, &b_dists, problem, walks, seed, &b_solution, &b_mean_steps,
-                    &b_walks_ended, trees.absorbing, trees.reflecting, trees.silhouettes);
+                    &b_walks_ended, trees.silhouettes, trees.absorbing, trees.reflecting);
     };
 #else
     Problem problem;

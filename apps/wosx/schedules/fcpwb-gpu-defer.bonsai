@@ -16,7 +16,7 @@
 // schedule is a queue entry per step -- the walk's position, distance,
 // step count and generator, about forty bytes, written and read once per
 // step -- and a launch per round.
-import apps/wosx/schedules/layouts/fcpwb;
+import apps/rtq/schedules/layouts/fcpwb;
 
 schedule {
     closest_within.sort(triangles.Interior,
