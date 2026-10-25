@@ -1,0 +1,391 @@
+; ---- device module: LLVM IR ----
+; ModuleID = 'bonsai_ptx'
+source_filename = "bonsai_module"
+target datalayout = "e-p6:32:32-i64:64-i128:128-i256:256-v16:16-v32:32-n16:32:64"
+target triple = "nvptx64-nvidia-cuda"
+
+%struct.Queue_sums = type { i32, ptr, ptr, ptr }
+
+@_kernel_p_0_total = internal addrspace(3) global i32 undef, align 16
+@_bonsai_dynamic_shared = external addrspace(3) global [0 x i8], align 16
+@_kernel_p_0_sums_queue = internal addrspace(3) global [2 x %struct.Queue_sums] undef, align 16
+
+; Function Attrs: mustprogress norecurse nounwind
+define ptx_kernel void @_kernel_p_0(i32 %_begin, i32 %_stride, i32 %n, ptr nofree writeonly captures(none) %out) local_unnamed_addr #0 {
+"!par_body_0":
+  %out.global = addrspacecast ptr %out to ptr addrspace(1)
+  %out.generic = addrspacecast ptr addrspace(1) %out.global to ptr
+  %ctaid = tail call i32 @llvm.nvvm.read.ptx.sreg.ctaid.x()
+  %0 = mul i32 %_stride, %ctaid
+  %p = add i32 %0, %_begin
+  %tid = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
+  %leader = icmp eq i32 %tid, 0
+  br i1 %leader, label %if_lane, label %if_lane_after
+
+sums_rest:                                        ; preds = %sums_join, %s_join
+  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
+  br i1 %in_phase, label %"sums_rest!run", label %sums_rest_join
+
+"sums!batch":                                     ; preds = %"sums!batch.lr.ph", %sums_join
+  %"@15.count100" = phi i32 [ %"@15.count97", %"sums!batch.lr.ph" ], [ %"@15.count", %sums_join ]
+  %extract_ptr99 = phi ptr [ addrspacecast (ptr addrspace(3) @_kernel_p_0_sums_queue to ptr), %"sums!batch.lr.ph" ], [ %extract_ptr, %sums_join ]
+  %1 = phi i32 [ 0, %"sums!batch.lr.ph" ], [ %23, %sums_join ]
+  %"sums!round498" = phi i32 [ 0, %"sums!batch.lr.ph" ], [ %22, %sums_join ]
+  %2 = xor i32 %1, 1
+  %_wide55 = zext nneg i32 %2 to i64
+  br i1 %leader, label %if_lane53, label %if_lane_after54
+
+if_lane:                                          ; preds = %"!par_body_0"
+  store i32 0, ptr addrspacecast (ptr addrspace(3) @_kernel_p_0_total to ptr), align 4, !tbaa !1
+  br label %if_lane_after
+
+if_lane_after:                                    ; preds = %if_lane, %"!par_body_0"
+  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
+  %3 = sext i32 %n to i64
+  %4 = shl nsw i64 %3, 2
+  %5 = add nsw i64 %4, 12
+  %6 = and i64 %5, -16
+  %7 = shl nsw i64 %6, 2
+  %sums_k_1_shared = getelementptr inbounds i8, ptr addrspace(3) @_bonsai_dynamic_shared, i64 %7
+  %sums_k_1 = addrspacecast ptr addrspace(3) %sums_k_1_shared to ptr
+  %8 = mul nsw i64 %6, 5
+  %sums_acc_1_shared = getelementptr inbounds i8, ptr addrspace(3) @_bonsai_dynamic_shared, i64 %8
+  %sums_acc_1 = addrspacecast ptr addrspace(3) %sums_acc_1_shared to ptr
+  %9 = mul nsw i64 %6, 6
+  %sums__slot_1_shared = getelementptr inbounds i8, ptr addrspace(3) @_bonsai_dynamic_shared, i64 %9
+  %sums__slot_1 = addrspacecast ptr addrspace(3) %sums__slot_1_shared to ptr
+  br i1 %leader, label %if_lane38, label %if_lane_after39
+
+if_lane38:                                        ; preds = %if_lane_after
+  %sums_k_0_shared = getelementptr inbounds i8, ptr addrspace(3) @_bonsai_dynamic_shared, i64 %6
+  %sums_k_0 = addrspacecast ptr addrspace(3) %sums_k_0_shared to ptr
+  %10 = insertvalue %struct.Queue_sums { i32 0, ptr undef, ptr undef, ptr undef }, ptr %sums_k_0, 1
+  %11 = shl nsw i64 %6, 1
+  %sums_acc_0_shared = getelementptr inbounds i8, ptr addrspace(3) @_bonsai_dynamic_shared, i64 %11
+  %sums_acc_0 = addrspacecast ptr addrspace(3) %sums_acc_0_shared to ptr
+  %12 = insertvalue %struct.Queue_sums %10, ptr %sums_acc_0, 2
+  %13 = mul nsw i64 %6, 3
+  %sums__slot_0_shared = getelementptr inbounds i8, ptr addrspace(3) @_bonsai_dynamic_shared, i64 %13
+  %sums__slot_0 = addrspacecast ptr addrspace(3) %sums__slot_0_shared to ptr
+  %14 = insertvalue %struct.Queue_sums %12, ptr %sums__slot_0, 3
+  store %struct.Queue_sums %14, ptr addrspacecast (ptr addrspace(3) @_kernel_p_0_sums_queue to ptr), align 8
+  br label %if_lane_after39
+
+if_lane_after39:                                  ; preds = %if_lane38, %if_lane_after
+  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
+  br i1 %leader, label %if_lane42, label %if_lane_after43
+
+if_lane42:                                        ; preds = %if_lane_after39
+  %15 = insertvalue %struct.Queue_sums { i32 0, ptr undef, ptr undef, ptr undef }, ptr %sums_k_1, 1
+  %16 = insertvalue %struct.Queue_sums %15, ptr %sums_acc_1, 2
+  %17 = insertvalue %struct.Queue_sums %16, ptr %sums__slot_1, 3
+  store %struct.Queue_sums %17, ptr getelementptr inbounds nuw (i8, ptr addrspacecast (ptr addrspace(3) @_kernel_p_0_sums_queue to ptr), i64 32), align 8
+  br label %if_lane_after43
+
+if_lane_after43:                                  ; preds = %if_lane42, %if_lane_after39
+  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
+  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
+  %in_phase = icmp ult i32 %tid, %n
+  br i1 %in_phase, label %"!par_body_2", label %s_join
+
+"!par_body_2":                                    ; preds = %if_lane_after43
+  %18 = add i32 %p, %tid
+  %19 = atomicrmw add ptr addrspacecast (ptr addrspace(3) @_kernel_p_0_sums_queue to ptr), i32 1 syncscope("device") monotonic, align 4
+  %k = load ptr, ptr getelementptr inbounds nuw (i8, ptr addrspacecast (ptr addrspace(3) @_kernel_p_0_sums_queue to ptr), i64 8), align 8
+  %_wide = zext i32 %19 to i64
+  %"@43" = getelementptr inbounds nuw [4 x i8], ptr %k, i64 %_wide
+  store i32 %18, ptr %"@43", align 4, !tbaa !1
+  %acc = load ptr, ptr getelementptr inbounds nuw (i8, ptr addrspacecast (ptr addrspace(3) @_kernel_p_0_sums_queue to ptr), i64 16), align 8
+  %"@46" = getelementptr inbounds nuw [4 x i8], ptr %acc, i64 %_wide
+  store i32 0, ptr %"@46", align 4, !tbaa !1
+  %_slot = load ptr, ptr getelementptr inbounds nuw (i8, ptr addrspacecast (ptr addrspace(3) @_kernel_p_0_sums_queue to ptr), i64 24), align 8
+  %"@49" = getelementptr inbounds nuw [4 x i8], ptr %_slot, i64 %_wide
+  store i32 %tid, ptr %"@49", align 4, !tbaa !1
+  br label %s_join
+
+s_join:                                           ; preds = %"!par_body_2", %if_lane_after43
+  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
+  %"@15.count97" = load i32, ptr addrspacecast (ptr addrspace(3) @_kernel_p_0_sums_queue to ptr), align 4
+  %20 = icmp eq i32 %"@15.count97", 0
+  br i1 %20, label %sums_rest, label %"sums!batch.lr.ph"
+
+"sums!batch.lr.ph":                               ; preds = %s_join
+  %sums61_wide = zext nneg i32 %tid to i64
+  br label %"sums!batch"
+
+if_lane53:                                        ; preds = %"sums!batch"
+  %sums_queue56 = getelementptr inbounds nuw [32 x i8], ptr addrspacecast (ptr addrspace(3) @_kernel_p_0_sums_queue to ptr), i64 %_wide55
+  store i32 0, ptr %sums_queue56, align 4, !tbaa !4
+  br label %if_lane_after54
+
+if_lane_after54:                                  ; preds = %"sums!batch", %if_lane53
+  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
+  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
+  %ptr_array_deref = getelementptr inbounds nuw [32 x i8], ptr addrspacecast (ptr addrspace(3) @_kernel_p_0_sums_queue to ptr), i64 %_wide55
+  %21 = icmp ult i32 %tid, %"@15.count100"
+  %or.cond = and i1 %in_phase, %21
+  br i1 %or.cond, label %"sums!run", label %sums_join
+
+sums_join:                                        ; preds = %"!merge_1.i", %"!then_0.i", %if_lane_after54
+  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
+  %22 = add i32 %"sums!round498", 1
+  %23 = and i32 %22, 1
+  %_wide49 = zext nneg i32 %23 to i64
+  %extract_ptr = getelementptr inbounds nuw [32 x i8], ptr addrspacecast (ptr addrspace(3) @_kernel_p_0_sums_queue to ptr), i64 %_wide49
+  %"@15.count" = load i32, ptr %extract_ptr, align 4
+  %24 = icmp eq i32 %"@15.count", 0
+  br i1 %24, label %sums_rest, label %"sums!batch"
+
+"sums!run":                                       ; preds = %if_lane_after54
+  %extract66 = load %struct.Queue_sums, ptr %extract_ptr99, align 8
+  %k67 = extractvalue %struct.Queue_sums %extract66, 1
+  %extract_ptr68 = getelementptr inbounds nuw [4 x i8], ptr %k67, i64 %sums61_wide
+  %extract69 = load i32, ptr %extract_ptr68, align 4
+  %acc73 = extractvalue %struct.Queue_sums %extract66, 2
+  %extract_ptr75 = getelementptr inbounds nuw [4 x i8], ptr %acc73, i64 %sums61_wide
+  %extract76 = load i32, ptr %extract_ptr75, align 4
+  %_slot80 = extractvalue %struct.Queue_sums %extract66, 3
+  %extract_ptr82 = getelementptr inbounds nuw [4 x i8], ptr %_slot80, i64 %sums61_wide
+  %extract83 = load i32, ptr %extract_ptr82, align 4
+  %25 = icmp slt i32 %extract69, 1
+  br i1 %25, label %"!then_0.i", label %"!merge_1.i"
+
+"!then_0.i":                                      ; preds = %"sums!run"
+  %extract83_wide = sext i32 %extract83 to i64
+  %ptr_array_deref84 = getelementptr inbounds [4 x i8], ptr addrspacecast (ptr addrspace(3) @_bonsai_dynamic_shared to ptr), i64 %extract83_wide
+  store i32 %extract76, ptr %ptr_array_deref84, align 4, !tbaa !1
+  br label %sums_join
+
+"!merge_1.i":                                     ; preds = %"sums!run"
+  %26 = add nsw i32 %extract69, -1
+  %27 = add i32 %extract76, %extract69
+  %28 = atomicrmw add ptr %ptr_array_deref, i32 1 syncscope("device") monotonic, align 4
+  %29 = getelementptr inbounds nuw i8, ptr %ptr_array_deref, i64 8
+  %k7.i = load ptr, ptr %29, align 8
+  %_wide.i = zext i32 %28 to i64
+  %"@9.i" = getelementptr inbounds nuw [4 x i8], ptr %k7.i, i64 %_wide.i
+  store i32 %26, ptr %"@9.i", align 4, !tbaa !1
+  %30 = getelementptr inbounds nuw i8, ptr %ptr_array_deref, i64 16
+  %acc9.i = load ptr, ptr %30, align 8
+  %"@12.i" = getelementptr inbounds nuw [4 x i8], ptr %acc9.i, i64 %_wide.i
+  store i32 %27, ptr %"@12.i", align 4, !tbaa !1
+  %31 = getelementptr inbounds nuw i8, ptr %ptr_array_deref, i64 24
+  %_slot.i = load ptr, ptr %31, align 8
+  %"@15.i" = getelementptr inbounds nuw [4 x i8], ptr %_slot.i, i64 %_wide.i
+  store i32 %extract83, ptr %"@15.i", align 4, !tbaa !1
+  br label %sums_join
+
+"sums_rest!run":                                  ; preds = %sums_rest
+  %sums_rest86_wide = zext nneg i32 %tid to i64
+  %extract_ptr89 = getelementptr inbounds nuw [4 x i8], ptr addrspacecast (ptr addrspace(3) @_bonsai_dynamic_shared to ptr), i64 %sums_rest86_wide
+  %extract90 = load i32, ptr %extract_ptr89, align 4
+  %32 = atomicrmw add ptr addrspacecast (ptr addrspace(3) @_kernel_p_0_total to ptr), i32 %extract90 syncscope("device") monotonic, align 4
+  br label %sums_rest_join
+
+sums_rest_join:                                   ; preds = %"sums_rest!run", %sums_rest
+  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
+  br i1 %leader, label %if_lane94, label %if_lane_after95
+
+if_lane94:                                        ; preds = %sums_rest_join
+  %p21_wide = sext i32 %p to i64
+  %out96 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %p21_wide
+  %deref_temp91 = load i32, ptr addrspacecast (ptr addrspace(3) @_kernel_p_0_total to ptr), align 4, !tbaa !1
+  store i32 %deref_temp91, ptr %out96, align 4, !tbaa !1
+  br label %if_lane_after95
+
+if_lane_after95:                                  ; preds = %if_lane94, %sums_rest_join
+  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
+  ret void
+}
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare noundef range(i32 0, 2147483647) i32 @llvm.nvvm.read.ptx.sreg.ctaid.x() #1
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare noundef range(i32 0, 1024) i32 @llvm.nvvm.read.ptx.sreg.tid.x() #1
+
+; Function Attrs: convergent nocallback nounwind
+declare void @llvm.nvvm.barrier.cta.sync.all(i32) #2
+
+attributes #0 = { mustprogress norecurse nounwind }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #2 = { convergent nocallback nounwind }
+
+!llvm.module.flags = !{!0}
+
+!0 = !{i32 4, !"nvvm-reflect-ftz", i32 0}
+!1 = !{!2, !2, i64 0}
+!2 = !{!"i32", !3, i64 0}
+!3 = !{!"bonsai"}
+!4 = !{!5, !5, i64 0}
+!5 = !{!"u32", !3, i64 0}
+
+; ---- device module: PTX ----
+//
+// Generated by LLVM NVPTX Back-End
+//
+
+.version 7.8
+.target sm_90
+.address_size 64
+
+	// .globl	_kernel_p_0
+// _kernel_p_0_total has been demoted
+.extern .shared .align 16 .b8 _bonsai_dynamic_shared[];
+// _kernel_p_0_sums_queue has been demoted
+
+.visible .entry _kernel_p_0(
+	.param .u32 _kernel_p_0_param_0,
+	.param .u32 _kernel_p_0_param_1,
+	.param .u32 _kernel_p_0_param_2,
+	.param .u64 .ptr .align 1 _kernel_p_0_param_3
+)
+{
+	.reg .pred 	%p<7>;
+	.reg .b32 	%r<23>;
+	.reg .b64 	%rd<54>;
+	// demoted variable
+	.shared .align 16 .u32 _kernel_p_0_total;
+	// demoted variable
+	.shared .align 16 .b8 _kernel_p_0_sums_queue[64];
+	ld.param.b32 	%r7, [_kernel_p_0_param_2];
+	ld.param.b64 	%rd12, [_kernel_p_0_param_3];
+	cvta.to.global.u64 	%rd1, %rd12;
+	mov.u32 	%r2, %tid.x;
+	setp.eq.b32 	%p1, %r2, 0;
+	@!%p1 bra 	$L__BB0_2;
+	st.shared.b32 	[_kernel_p_0_total], 0;
+$L__BB0_2:
+	barrier.sync 	0;
+	mul.wide.s32 	%rd13, %r7, 4;
+	add.s64 	%rd14, %rd13, 12;
+	and.b64 	%rd5, %rd14, -16;
+	shl.b64 	%rd15, %rd5, 2;
+	mov.b64 	%rd16, _bonsai_dynamic_shared;
+	add.s64 	%rd17, %rd16, %rd15;
+	cvta.shared.u64 	%rd6, %rd17;
+	add.s64 	%rd18, %rd17, %rd5;
+	cvta.shared.u64 	%rd7, %rd18;
+	add.s64 	%rd19, %rd18, %rd5;
+	cvta.shared.u64 	%rd8, %rd19;
+	@!%p1 bra 	$L__BB0_4;
+	add.s64 	%rd20, %rd16, %rd5;
+	cvta.shared.u64 	%rd21, %rd20;
+	add.s64 	%rd22, %rd20, %rd5;
+	cvta.shared.u64 	%rd23, %rd22;
+	add.s64 	%rd24, %rd22, %rd5;
+	cvta.shared.u64 	%rd25, %rd24;
+	st.shared.b64 	[_kernel_p_0_sums_queue+8], %rd21;
+	st.shared.b64 	[_kernel_p_0_sums_queue+16], %rd23;
+	st.shared.b64 	[_kernel_p_0_sums_queue+24], %rd25;
+	st.shared.b32 	[_kernel_p_0_sums_queue], 0;
+$L__BB0_4:
+	ld.param.b32 	%r8, [_kernel_p_0_param_0];
+	ld.param.b32 	%r9, [_kernel_p_0_param_1];
+	mov.u32 	%r10, %ctaid.x;
+	barrier.sync 	0;
+	@!%p1 bra 	$L__BB0_6;
+	st.shared.b64 	[_kernel_p_0_sums_queue+40], %rd6;
+	st.shared.b64 	[_kernel_p_0_sums_queue+48], %rd7;
+	st.shared.b64 	[_kernel_p_0_sums_queue+56], %rd8;
+	st.shared.b32 	[_kernel_p_0_sums_queue+32], 0;
+$L__BB0_6:
+	mad.lo.s32 	%r1, %r9, %r10, %r8;
+	barrier.sync 	0;
+	barrier.sync 	0;
+	setp.ge.u32 	%p2, %r2, %r7;
+	@%p2 bra 	$L__BB0_8;
+	add.s32 	%r11, %r1, %r2;
+	atom.relaxed.gpu.shared.add.u32 	%r12, [_kernel_p_0_sums_queue], 1;
+	ld.shared.b64 	%rd26, [_kernel_p_0_sums_queue+8];
+	mul.wide.u32 	%rd27, %r12, 4;
+	add.s64 	%rd28, %rd26, %rd27;
+	st.b32 	[%rd28], %r11;
+	ld.shared.b64 	%rd29, [_kernel_p_0_sums_queue+16];
+	add.s64 	%rd30, %rd29, %rd27;
+	st.b32 	[%rd30], 0;
+	ld.shared.b64 	%rd31, [_kernel_p_0_sums_queue+24];
+	add.s64 	%rd32, %rd31, %rd27;
+	st.b32 	[%rd32], %r2;
+$L__BB0_8:
+	barrier.sync 	0;
+	ld.shared.b32 	%r21, [_kernel_p_0_sums_queue];
+	setp.eq.b32 	%p3, %r21, 0;
+	@%p3 bra 	$L__BB0_14;
+	cvt.u64.u32 	%rd9, %r2;
+	mov.b32 	%r22, 0;
+	mov.b64 	%rd33, _kernel_p_0_sums_queue;
+	mov.b32 	%r3, 1;
+	shl.b64 	%rd38, %rd9, 2;
+	mov.b64 	%rd3, %rd33;
+	bra.uni 	$L__BB0_10;
+$L__BB0_21:
+	add.s32 	%r15, %r4, -1;
+	add.s32 	%r16, %r5, %r4;
+	atom.relaxed.gpu.shared.add.u32 	%r17, [%rd4], 1;
+	ld.shared.b64 	%rd42, [%rd4+8];
+	mul.wide.u32 	%rd43, %r17, 4;
+	add.s64 	%rd44, %rd42, %rd43;
+	st.b32 	[%rd44], %r15;
+	ld.shared.b64 	%rd45, [%rd4+16];
+	add.s64 	%rd46, %rd45, %rd43;
+	st.b32 	[%rd46], %r16;
+	ld.shared.b64 	%rd47, [%rd4+24];
+	add.s64 	%rd48, %rd47, %rd43;
+	st.b32 	[%rd48], %r6;
+$L__BB0_13:
+	barrier.sync 	0;
+	and.b32 	%r22, %r3, 1;
+	mul.wide.u32 	%rd51, %r22, 32;
+	add.s64 	%rd3, %rd33, %rd51;
+	ld.shared.b32 	%r21, [%rd3];
+	setp.eq.b32 	%p6, %r21, 0;
+	add.s32 	%r3, %r3, 1;
+	@%p6 bra 	$L__BB0_14;
+$L__BB0_10:
+	xor.b32 	%r13, %r22, 1;
+	mul.wide.u32 	%rd34, %r13, 32;
+	add.s64 	%rd4, %rd33, %rd34;
+	@!%p1 bra 	$L__BB0_12;
+	st.shared.b32 	[%rd4], 0;
+$L__BB0_12:
+	barrier.sync 	0;
+	barrier.sync 	0;
+	min.u32 	%r14, %r7, %r21;
+	setp.gt.u32 	%p4, %r14, %r2;
+	@!%p4 bra 	$L__BB0_13;
+	ld.shared.b64 	%rd35, [%rd3+24];
+	ld.shared.b64 	%rd36, [%rd3+16];
+	ld.shared.b64 	%rd37, [%rd3+8];
+	add.s64 	%rd39, %rd37, %rd38;
+	ld.b32 	%r4, [%rd39];
+	add.s64 	%rd40, %rd36, %rd38;
+	ld.b32 	%r5, [%rd40];
+	add.s64 	%rd41, %rd35, %rd38;
+	ld.b32 	%r6, [%rd41];
+	setp.gt.s32 	%p5, %r4, 0;
+	@%p5 bra 	$L__BB0_21;
+	cvt.s64.s32 	%rd10, %r6;
+	shl.b64 	%rd49, %rd10, 2;
+	add.s64 	%rd50, %rd16, %rd49;
+	st.shared.b32 	[%rd50], %r5;
+	bra.uni 	$L__BB0_13;
+$L__BB0_14:
+	barrier.sync 	0;
+	@%p2 bra 	$L__BB0_16;
+	mul.wide.u32 	%rd52, %r2, 4;
+	add.s64 	%rd2, %rd16, %rd52;
+	ld.shared.b32 	%r18, [%rd2];
+	atom.relaxed.gpu.shared.add.u32 	%r19, [_kernel_p_0_total], %r18;
+$L__BB0_16:
+	barrier.sync 	0;
+	@!%p1 bra 	$L__BB0_18;
+	mul.wide.s32 	%rd53, %r1, 4;
+	add.s64 	%rd11, %rd1, %rd53;
+	ld.shared.b32 	%r20, [_kernel_p_0_total];
+	st.global.b32 	[%rd11], %r20;
+$L__BB0_18:
+	barrier.sync 	0;
+	ret;
+
+}

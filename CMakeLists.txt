@@ -292,6 +292,8 @@ target_sources(
     src/SSA/RoundGuard.cpp
     src/SSA/Defer.cpp
     src/SSA/Definitions.cpp
+    src/SSA/LaunchValues.cpp
+    src/SSA/ThreadPhases.cpp
     src/SSA/QueueStorage.cpp
     src/SSA/Convert.cpp
     src/SSA/DemoteAtomics.cpp

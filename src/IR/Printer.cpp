@@ -1705,11 +1705,14 @@ void Printer::visit(const Allocate *node) {
         print_no_parens(node->value);
     }
     // Memory a schedule chose by name (IR/Storage.h): the device's, or
-    // managed. The heap and the stack print as they always have.
+    // managed, or a block's shared memory. The heap and the stack print as
+    // they always have.
     if (node->memory == Allocate::Memory::Device) {
         os << " device";
     } else if (node->memory == Allocate::Memory::Managed) {
         os << " managed";
+    } else if (node->memory == Allocate::Memory::Shared) {
+        os << " shared";
     }
     end_stmt();
 }

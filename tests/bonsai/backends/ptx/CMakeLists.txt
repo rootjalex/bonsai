@@ -43,6 +43,8 @@ add_bonsai_tests(
     demote-atomics-loopify.bonsai
     blocks.bonsai
     blocks-threads.bonsai
+    block-shared.bonsai
+    queue-shared.bonsai
     defer-device.bonsai
     device-function.bonsai
     dynamic-extract.bonsai

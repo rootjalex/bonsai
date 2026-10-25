@@ -35,7 +35,11 @@ namespace ir {
 // hierarchy once the schedule is applied (SSA/QueueStorage.h): every push
 // and the drain must run inside one iteration of a loop bound at the
 // memory's level -- one block for DeviceShared, one thread for Stack --
-// and an Extern queue's storage must reach the function's top.
+// and an Extern queue's storage must reach the function's top. The
+// converse holds too: a queue whose storage is made inside a loop bound to
+// GPUBlock lives in that block's shared memory, and the schedule has to say
+// so -- `queue(<block loop>, DeviceShared)` -- rather than have the lowering
+// decide where the queue lives.
 enum class Storage {
     Heap,
     Stack,

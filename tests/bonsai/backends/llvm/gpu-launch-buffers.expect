@@ -37,7 +37,7 @@ run:
 
 _kernel_i_0_launch:                               ; preds = %run
   %8 = sext i32 %n to i64
-  call void @bonsai_cuda_launch(ptr nonnull @_bonsai_ptx_text, ptr nonnull @_kernel_name, i64 1, i64 %8, ptr nonnull %_launch_params, i64 5, ptr null, i64 0)
+  call void @bonsai_cuda_launch(ptr nonnull @_bonsai_ptx_text, ptr nonnull @_kernel_name, i64 1, i64 %8, ptr nonnull %_launch_params, i64 5, ptr null, i64 0, i64 0)
   call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 2)
   br label %_kernel_i_0_launched
 
@@ -48,7 +48,7 @@ _kernel_i_0_launched:                             ; preds = %_kernel_i_0_launch,
 
 declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
 
-declare void @bonsai_cuda_launch(ptr, ptr, i64, i64, ptr, i64, ptr, i64) local_unnamed_addr
+declare void @bonsai_cuda_launch(ptr, ptr, i64, i64, ptr, i64, ptr, i64, i64) local_unnamed_addr
 
 declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
 

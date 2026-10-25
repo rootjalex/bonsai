@@ -1,0 +1,49 @@
+//! flags: -p ssa -b llvm -e
+
+// Two thread loops in one block loop's body, of different extents, with
+// block-level code between and after them. A launch has one block size, so
+// the kernel's block is the larger extent and each thread loop is a phase
+// of it: every thread runs the phase's body under `tid < extent`, a
+// barrier parts the phases, and the code between them runs on every thread
+// with its effects the leader's (Halide's FuseGPUThreadLoops, which fuses
+// the thread loops to the largest extent with a predicate each and injects
+// the barriers). The first phase fills a shared array with eight values;
+// the block level doubles one of them; the second phase, four threads
+// wide, sums the array in pairs into a shared word -- an accumulate the
+// block reduction leaves alone, since its phase is not the whole block --
+// and the epilogue stores the sum.
+
+func run(out : mut array[i32, 4], first : mut array[i32, 4]) -> void {
+    parfor p in 0:4 {
+        part : mut array[i32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+        total : mut i32 = 0;
+        parfor s in 0:8 {
+            part[s] = p * 10 + s;
+        }
+        part[0] = part[0] * 2;
+        first[p] = part[0];
+        parfor t in 0:4 {
+            atomic total += part[t] + part[t + 4];
+        }
+        out[p] = total;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 4] = {-1, -1, -1, -1};
+    first : mut array[i32, 4] = {-1, -1, -1, -1};
+    run(out, first);
+    // 8 * 10p + (0 + ... + 7) + 10p (the doubled part[0]) = 90p + 28.
+    // {28, 118, 208, 298}
+    print(out);
+    // {0, 20, 40, 60}
+    print(first);
+    return 0;
+}
+
+schedule {
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+    run.bind(t, GPUThread);
+}

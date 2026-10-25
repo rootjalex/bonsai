@@ -1,0 +1,40 @@
+//! flags: -p ssa
+
+// A queue placed at a loop bound to GPUBlock and put in the block's shared
+// memory by the storage word (`queue(p, DeviceShared)`, IR/Storage.h). What
+// to read for: the queue's arrays and header allocated inside the block
+// loop's body, before the thread loop that pushes (`sums_k_0 : mut i32[n]`
+// and the rest, each `shared`), sized by that loop's trip count; the round
+// loop inside the body, its header testing the count with a plain load --
+// the count is the block's own word, read after the barrier the drain
+// ends with, not the host's `bonsai_cuda_round_guard` -- and the drain and
+// the pass over the record two more loops bound to GPUThread beside the
+// pusher, each over the capacity (correctness/gpu/queue-shared runs it).
+
+func walk(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return walk(k - 1, acc + k);
+}
+
+func run(out : mut array[i32, 4], n : i32) -> void {
+    parfor p in 0:4 {
+        total : mut i32 = 0;
+        parfor s in 0:n {
+            atomic total += walk(p + s, 0);
+        }
+        out[p] = total;
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(p, DeviceShared);
+    run.defer(walk, sums);
+    walk.defer(walk, sums);
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+    run.bind(sums, GPUThread);
+    run.bind(sums_rest, GPUThread);
+}

@@ -42,7 +42,8 @@ add_bonsai_tests(
     queue-storage-host-on-gpu.bonsai
     queue-storage-device-on-cpu.bonsai
     queue-storage-extern-unexported.bonsai
-    queue-storage-shared-unimplemented.bonsai
+    queue-storage-shared-untagged.bonsai
+    queue-storage-shared-not-per-block.bonsai
     extent-undeclared-element.bonsai
     extent-variant-fields.bonsai
     match-expr-arm-types.bonsai
@@ -65,9 +66,7 @@ add_bonsai_tests(
     sort-after-loopify.bonsai
     ssa-unimplemented-transform.bonsai
     gpu-block-level-call.bonsai
-    gpu-block-level-local.bonsai
     gpu-thread-bounds-in-block.bonsai
-    gpu-two-thread-loops.bonsai
     ptx-no-gpu-loop.bonsai
     optixtree-software-query.bonsai
     rtcore-software-tree.bonsai

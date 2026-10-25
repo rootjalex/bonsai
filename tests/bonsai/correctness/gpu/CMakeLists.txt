@@ -37,6 +37,9 @@ add_bonsai_tests(
     mirror-derived-loads-twice.bonsai
     blocks.bonsai
     blocks-threads.bonsai
+    block-shared.bonsai
+    block-phases.bonsai
+    queue-shared.bonsai
     buffers-cpp.bonsai
     defer-capacity.bonsai
     defer-device.bonsai

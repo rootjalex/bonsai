@@ -38,6 +38,13 @@
 // recognition of parallelizing compilers (Allen & Kennedy, "Optimizing
 // Compilers for Modern Architectures", ch. 6).
 //
+// A block reduction is a collective -- its barrier is one every thread of
+// the block has to reach -- so it is made only in a thread loop that is the
+// whole block: the one thread loop of its block loop's body, or one whose
+// extent is every sibling's (SSA/ThreadPhases.h, which the PTX backend reads
+// too for which phases run under a predicate). An accumulate in a shorter
+// phase stays what the program wrote, an atomic.
+//
 // Runs on the SSA after the schedule's rewrites and the demotion of atomics
 // (SSA/DemoteAtomics.h), before the allocas are promoted, so the slots it
 // makes become ordinary values.

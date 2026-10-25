@@ -319,30 +319,6 @@ void CodeGen_PTX::append_linked_ptx() {
     }
 }
 
-const Terminator::ParFor *
-CodeGen_PTX::nested_thread_loop(const ir::ssa::Function &host,
-                                const Terminator::ParFor &loop) {
-    // The body's blocks end at its yield, so this is the body and whatever
-    // loops it holds.
-    const ir::ssa::Cfg body(host, loop.body.name);
-    const Terminator::ParFor *found = nullptr;
-    for (const auto &block : body.blocks()) {
-        const auto *p = std::get_if<Terminator::ParFor>(&block->terminator.data);
-        if (p == nullptr || !p->binding.has_value() ||
-            *p->binding != Resource::GPUThread) {
-            continue;
-        }
-        internal_assert(found == nullptr)
-            << "[unimplemented] the loop over " << loop.index
-            << ", bound to GPUBlock, holds two loops bound to GPUThread ("
-            << found->index << " and " << p->index << "). A launch has one "
-            << "block size, so two thread loops would have to be fused into "
-            << "one, which is not built yet.";
-        found = p;
-    }
-    return found;
-}
-
 std::vector<std::string>
 CodeGen_PTX::callees(const std::vector<std::shared_ptr<Block>> &region) {
     std::vector<std::string> names;
@@ -460,7 +436,13 @@ CodeGen_PTX::Kernel CodeGen_PTX::add_kernel(const ir::ssa::Function &host,
     Kernel kernel;
     kernel.name = symbol_name("_kernel_" + loop.index + "_" +
                               std::to_string(kernel_count++));
-    kernel.thread_loop = blocks ? nested_thread_loop(host, loop) : nullptr;
+    // The block's thread phases (SSA/ThreadPhases.h): the thread loops of
+    // the body, and which of them are the whole block.
+    phases = blocks ? ir::ssa::thread_phases(host, loop)
+                    : std::vector<ir::ssa::ThreadPhase>{};
+    for (const ir::ssa::ThreadPhase &phase : phases) {
+        kernel.thread_loops.push_back(phase.loop);
+    }
 
     const Block *body_head = nullptr;
     for (const auto &block : host.blocks) {
@@ -514,6 +496,7 @@ CodeGen_PTX::Kernel CodeGen_PTX::add_kernel(const ir::ssa::Function &host,
         fn->addFnAttr("nvvm.maxnreg", std::to_string(options->gpu_max_registers));
     }
 
+    building = &kernel;
     compile_kernel_body(host, loop, fn, [&](BoundLoop &bound) {
         // The index: the block's number for a block loop, the thread's for
         // a thread loop, as the loop counts -- begin + n * stride. Exact,
@@ -545,13 +528,15 @@ CodeGen_PTX::Kernel CodeGen_PTX::add_kernel(const ir::ssa::Function &host,
         if (seeds_rng(*body_head)) {
             emit_rng_setup(index, /*outer_state=*/nullptr);
         }
-        // A block loop's body with a thread loop in it is run by every
+        // A block loop's body with thread loops in it is run by every
         // thread of the block, and its effects are made once; see
         // effects_once_guard. Without a thread loop the block is one thread
         // and there is nothing to guard.
-        block_level = kernel.thread_loop != nullptr;
+        block_level = !kernel.thread_loops.empty();
     });
     block_level = false;
+    building = nullptr;
+    phases.clear();
     return kernel;
 }
 
@@ -607,11 +592,16 @@ llvm::Value *CodeGen_PTX::block_index() {
 }
 
 void CodeGen_PTX::barrier() {
-    // `bar.sync 0`: every thread of the block arrives, and the writes each
-    // made before are visible to all of them after.
+    // `barrier.sync 0`: every thread of the block arrives, and the writes
+    // each made before are visible to all of them after. The form without
+    // `.aligned`: an aligned barrier asks that every thread of a warp reach
+    // the same barrier instruction converged, and the threads arrive here
+    // from divergent paths -- a phase shorter than the block, which the
+    // threads past its extent skip, or an effect the leader alone made --
+    // reconverging at the barrier itself.
     builder->CreateCall(
         llvm::Intrinsic::getOrInsertDeclaration(
-            module.get(), llvm::Intrinsic::nvvm_barrier_cta_sync_aligned_all),
+            module.get(), llvm::Intrinsic::nvvm_barrier_cta_sync_all),
         {llvm::ConstantInt::get(i32_t, 0)});
 }
 
@@ -630,40 +620,17 @@ void CodeGen_PTX::emit_bound_parfor(BoundLoop &loop) {
         internal_assert(block_level)
             << "bind(" << p.index << ", GPUThread): this loop is not directly "
             << "inside a loop bound to GPUBlock. A thread loop is the threads "
-            << "of a block, so it sits inside the block loop, once; it cannot "
+            << "of a block, so it sits inside the block loop's body; it cannot "
             << "be nested in another thread loop or reached from a function "
             << "a kernel calls.";
-        // What the thread loop reads from the block body: values every
-        // thread computed alike, or the kernel's own arguments -- never a
-        // local of the block body, which each thread has a copy of its own
-        // of and which the threads would have to share.
-        for (const auto &capture : p.body.args) {
-            const std::shared_ptr<Value> *base = &capture;
-            while (true) {
-                const auto *instr =
-                    std::get_if<std::shared_ptr<Instruction>>(&(*base)->data);
-                if (instr == nullptr) {
-                    break;
-                }
-                const Instruction::Op op = (*instr)->op;
-                if ((op == Instruction::Op::GEP ||
-                     op == Instruction::Op::FieldPtr ||
-                     op == Instruction::Op::AddressOf) &&
-                    !(*instr)->operands.empty()) {
-                    base = &(*instr)->operands[0];
-                    continue;
-                }
-                internal_assert(op != Instruction::Op::Alloca &&
-                                op != Instruction::Op::Alloc)
-                    << "[unimplemented] the thread loop over " << p.index
-                    << " reads `" << (*instr)->name << "`, a local of the "
-                    << "block loop's body. A block's threads each have a "
-                    << "copy of such a local, so one the thread loop reads "
-                    << "or writes has to be one thing the block shares -- "
-                    << "shared memory, which the PTX backend does not "
-                    << "allocate yet. Move it into the thread loop, or out "
-                    << "of the block loop.";
-                break;
+        // Which phase of the block this loop is (SSA/ThreadPhases.h): the
+        // whole block runs its body as it is; a phase whose extent is not
+        // every sibling's runs it under `tid < extent`, the threads past the
+        // extent going straight to the barrier after.
+        bool whole_block = true;
+        for (const ir::ssa::ThreadPhase &phase : phases) {
+            if (phase.loop == &p) {
+                whole_block = phase.whole_block;
             }
         }
         barrier();
@@ -697,7 +664,16 @@ void CodeGen_PTX::emit_bound_parfor(BoundLoop &loop) {
             llvm::BasicBlock::Create(*context, p.body.name, current_function);
         llvm::BasicBlock *join = llvm::BasicBlock::Create(
             *context, p.index + "_join", current_function);
-        builder->CreateBr(body_bb);
+        if (whole_block) {
+            builder->CreateBr(body_bb);
+        } else {
+            const Expr extent_e =
+                trip_count(begin_e, loop.operand(p.end), stride_e);
+            llvm::Value *extent = builder->CreateIntCast(
+                codegen_expr(extent_e), n->getType(), extent_e.type().is_int());
+            builder->CreateCondBr(builder->CreateICmpULT(n, extent, "in_phase"),
+                                  body_bb, join);
+        }
         builder->SetInsertPoint(body_bb);
         block_level = false;
         loop.emit_body(body_bb, join);
@@ -1036,6 +1012,76 @@ llvm::Value *CodeGen_PTX::effects_once_guard() {
     }
     return builder->CreateICmpEQ(thread_index(),
                                  llvm::ConstantInt::get(i32_t, 0), "leader");
+}
+
+void CodeGen_PTX::after_once_effect() {
+    // The leader's write -- into shared memory, or into global memory the
+    // block goes on to read -- made visible to every thread of the block
+    // before any of them goes on. The block-level code is uniform, so every
+    // thread reaches the barrier.
+    if (block_level) {
+        barrier();
+    }
+}
+
+llvm::Value *CodeGen_PTX::allocate_shared(llvm::Type *elem_t, const Expr &size,
+                                          const std::string &name) {
+    internal_assert(building != nullptr)
+        << "`" << name << "`: a block's shared memory outside a kernel";
+    const llvm::DataLayout &dl = module->getDataLayout();
+    const uint64_t element_bytes = dl.getTypeAllocSize(elem_t);
+    llvm::Type *generic_t = llvm::PointerType::getUnqual(*context);
+    // A size the compiler knows: a `.shared` global of the module, one per
+    // allocation site, as the block reduction's slots are (block_reduce).
+    // Each block has its own copy, which is what shared memory is.
+    std::optional<uint64_t> constant;
+    if (!size.defined()) {
+        constant = 1;
+    } else if (const auto *i = size.as<IntImm>()) {
+        constant = uint64_t(i->value);
+    } else if (const auto *u = size.as<UIntImm>()) {
+        constant = u->value;
+    }
+    if (constant.has_value()) {
+        llvm::Type *t = size.defined()
+                            ? static_cast<llvm::Type *>(llvm::ArrayType::get(elem_t, *constant))
+                            : elem_t;
+        auto *global = new llvm::GlobalVariable(
+            *module, t, /*isConstant=*/false, llvm::GlobalValue::InternalLinkage,
+            llvm::UndefValue::get(t), symbol_name(building->name + "_" + name),
+            nullptr, llvm::GlobalValue::NotThreadLocal, /*AddressSpace=*/3);
+        global->setAlignment(llvm::Align(16));
+        return builder->CreateAddrSpaceCast(global, generic_t, name);
+    }
+    // A size the launch sets: this allocation is the run of the kernel's
+    // dynamic shared memory that begins where the ones before it end, each
+    // rounded up to sixteen bytes (Kernel::dynamic_shared). The host adds
+    // the same sizes up for the launch; both compute them from the body's
+    // captures, which the kernel has in its parameters.
+    if (dynamic_shared == nullptr) {
+        auto *t = llvm::ArrayType::get(i8_t, 0);
+        dynamic_shared = new llvm::GlobalVariable(
+            *module, t, /*isConstant=*/false, llvm::GlobalValue::ExternalLinkage,
+            nullptr, "_bonsai_dynamic_shared", nullptr,
+            llvm::GlobalValue::NotThreadLocal, /*AddressSpace=*/3);
+        dynamic_shared->setAlignment(llvm::Align(16));
+    }
+    llvm::Value *offset = llvm::ConstantInt::get(i64_t, 0);
+    llvm::Value *fifteen = llvm::ConstantInt::get(i64_t, 15);
+    for (const Kernel::SharedAllocation &before : building->dynamic_shared) {
+        llvm::Value *count = builder->CreateIntCast(
+            codegen_expr(before.size), i64_t, before.size.type().is_int());
+        llvm::Value *bytes = builder->CreateMul(
+            count, llvm::ConstantInt::get(i64_t, before.element_bytes));
+        bytes = builder->CreateAnd(builder->CreateAdd(bytes, fifteen),
+                                   llvm::ConstantInt::get(i64_t, ~uint64_t(15)));
+        offset = builder->CreateAdd(offset, bytes);
+    }
+    building->dynamic_shared.push_back(
+        Kernel::SharedAllocation{name, element_bytes, size});
+    llvm::Value *place = builder->CreateInBoundsGEP(i8_t, dynamic_shared, {offset},
+                                                    name + "_shared");
+    return builder->CreateAddrSpaceCast(place, generic_t, name);
 }
 
 void CodeGen_PTX::check_block_level_call(const std::string &callee) {

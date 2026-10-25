@@ -584,9 +584,11 @@ Stmt codegen_instruction(const Instruction &instr) {
                     memory = Allocate::Stack;
                     break;
                 case Storage::DeviceGlobal:
-                case Storage::DeviceShared:
                 case Storage::ExternDevice:
                     memory = Allocate::Device;
+                    break;
+                case Storage::DeviceShared:
+                    memory = Allocate::Shared;
                     break;
                 case Storage::Managed:
                 case Storage::ExternManaged:
@@ -2756,6 +2758,10 @@ std::shared_ptr<ir::Function> codegen_stmt(const ssa::Function &func,
     out->schedule_uses = func.schedule_uses;
     out->optix_program = func.optix_program;
     return out;
+}
+
+Expr pure_instruction_expr(const Instruction &instr, std::vector<Expr> args) {
+    return pure_expr(instr, std::move(args));
 }
 
 } // namespace ssa

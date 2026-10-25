@@ -188,6 +188,38 @@ size_t place_queue_storage(Function &func, bool exported) {
         }
     }
 
+    // The index of the loop a block is launched by, for the messages.
+    const auto loop_index = [&](BlockId launching) -> string {
+        const auto *p = std::get_if<Terminator::ParFor>(
+            &loops.cfg[launching].terminator.data);
+        return p != nullptr ? p->index : loops.cfg.name(launching);
+    };
+
+    // The converse of the storage word: a queue's storage made inside a loop
+    // bound to GPUBlock, outside the thread loops in it, is the block's
+    // shared memory on the device (Allocate::Memory::Shared,
+    // CodeGen_LLVM_SSA.cpp), and the schedule has to have said so
+    // (IR/Storage.h), so that where a queue lives is the schedule's statement
+    // and never the lowering's choice.
+    for (const auto &block : func.blocks) {
+        for (const auto &instr : block->instrs) {
+            if ((instr->op != Instruction::Op::Alloca &&
+                 instr->op != Instruction::Op::Alloc) ||
+                instr->queue.empty() || instr->storage.has_value()) {
+                continue;
+            }
+            const BlockId home = loops.block_of(*instr);
+            const auto &around = loops.bound_around[home];
+            internal_assert(around.empty() || around.back().second != Resource::GPUBlock)
+                << instr->name << " is storage of the queue " << instr->queue
+                << ", made inside the loop over " << loop_index(around.back().first)
+                << " bound to GPUBlock: it lives in the block's shared memory, "
+                   "and the schedule has to say so -- `"
+                << instr->queue << " = <function>.queue(" << loop_index(around.back().first)
+                << ", DeviceShared)`.";
+        }
+    }
+
     size_t made = 0;
     for (const shared_ptr<Instruction> &alloc : placed) {
         const Storage storage = *alloc->storage;
@@ -195,12 +227,39 @@ size_t place_queue_storage(Function &func, bool exported) {
         internal_assert(home != NO_BLOCK) << alloc->name << " is in no block";
         const auto &uses = accesses[alloc.get()];
 
-        internal_assert(storage != Storage::DeviceShared)
-            << "[unimplemented] " << describe(*alloc)
-            << ": a queue in shared memory lives in one block's memory and "
-               "must be pushed to and drained inside one iteration of a loop "
-               "bound to GPUBlock; the PTX backend allocates no shared memory "
-               "for a queue yet (apps/pbrt/PLAN.md)";
+        if (storage == Storage::DeviceShared) {
+            // Shared memory is one block's: the queue is placed at a loop
+            // bound to GPUBlock, so that its storage is made inside that
+            // loop's body -- outside the thread loops in it, where a block's
+            // allocation is shared (CodeGen_LLVM_SSA.cpp) -- and every push
+            // and the drain run inside the same body, by the block's own
+            // threads.
+            const auto &at_home = loops.bound_around[home];
+            internal_assert(!at_home.empty() && at_home.back().second == Resource::GPUBlock)
+                << describe(*alloc) << ": shared memory is one block's, so a queue "
+                << "in it is placed at a loop bound to GPUBlock -- `queue(<block "
+                << "loop>, DeviceShared)` -- and its storage made inside that "
+                << "loop's body, outside its thread loops. This storage is made "
+                << (at_home.empty()
+                        ? string("outside every loop bound to the GPU")
+                        : "inside the loop over " + loop_index(at_home.back().first) +
+                              " bound to " + to_string(at_home.back().second))
+                << ".";
+            const BlockId block_loop = at_home.back().first;
+            for (const Access &use : uses) {
+                const auto &around = loops.bound_around[use.block];
+                const bool inside = std::any_of(
+                    around.begin(), around.end(),
+                    [&](const auto &x) { return x.first == block_loop; });
+                internal_assert(inside)
+                    << describe(*alloc) << " is the shared memory of a block of the "
+                    << "loop over " << loop_index(block_loop) << ", and "
+                    << (use.capture != nullptr
+                            ? "the loop over " + use.capture->index + " takes it as a capture"
+                            : "it is accessed in block " + loops.cfg.name(use.block))
+                    << " outside that loop: only the block's own threads address it.";
+            }
+        }
 
         const StorageSide side = side_of(storage);
         for (const Access &use : uses) {

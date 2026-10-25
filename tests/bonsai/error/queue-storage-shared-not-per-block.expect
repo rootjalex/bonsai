@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/QueueStorage.cpp:238
+
+--> !at_home.empty() && at_home.back().second == Resource::GPUBlock
+sums_result (in DeviceShared memory): shared memory is one block's, so a queue in it is placed at a loop bound to GPUBlock -- `queue(<block loop>, DeviceShared)` -- and its storage made inside that loop's body, outside its thread loops. This storage is made outside every loop bound to the GPU.

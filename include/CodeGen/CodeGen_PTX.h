@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CodeGen/CodeGen_LLVM.h"
+#include "SSA/ThreadPhases.h"
 
 #include <map>
 #include <set>
@@ -31,16 +32,26 @@ void to_ptx(const ir::Program &program, const CompilerOptions &options);
 // its kernel (see CodeGen_LLVM::emit_gpu_launch and runtime/bonsai_cuda.h).
 //
 // A kernel is the body of one bound loop, so its shape follows the binds. A
-// loop bound to GPUBlock runs one *block* per iteration, and the loop bound
-// to GPUThread inside it, if there is one, one thread per iteration of that:
-// the grid is the outer count, the block is the inner, and both are exact,
-// so no thread has to ask whether it is past the end. The block loop's body
-// outside the thread loop is run by every thread of the block, because a
-// block is nothing but its threads; a value computed there is computed by
-// each of them alike, and a side effect there -- a store, an accumulate, a
-// print -- is made by thread zero alone with a barrier on either side of the
-// thread loop, which is Halide's rule for the same code. A loop bound to
-// GPUThread with no block loop around it is one block of that many threads.
+// loop bound to GPUBlock runs one *block* per iteration, and the loops bound
+// to GPUThread inside its body, if there are any, run one thread per
+// iteration of theirs: the grid is the outer count, the block is the largest
+// of the inner counts, and each thread loop is a *phase* of the kernel that
+// every thread of the block runs under `tid < extent` -- no test when the
+// extent is the block's, which it is by construction for the one thread
+// loop of a block or for loops whose bounds resolve to the same values
+// (SSA/ThreadPhases.h) -- with a barrier on either side. The block loop's
+// body outside the thread loops is run by every thread of the block,
+// because a block is nothing but its threads: a value computed there is
+// computed by each of them alike; an allocation made there is one per
+// block, the block's shared memory (allocate_shared), since a copy per
+// thread would be no use to the thread loop that reads it; and a side
+// effect there -- a store, an accumulate, a print -- is made by thread zero
+// alone and followed by a barrier, so that every thread reads what it
+// wrote. This is Halide's FuseGPUThreadLoops (the shared allocations
+// extracted, the thread loops fused to the largest extent with a predicate
+// each, the barriers injected) as the device generator emits it, kernel by
+// kernel. A loop bound to GPUThread with no block loop around it is one
+// block of that many threads.
 //
 // This is the software path: the traversals are the loops the schedule made
 // of them, on the SM. The RT cores come with CodeGen_OptiX, a subclass of
@@ -69,10 +80,25 @@ struct CodeGen_PTX : public CodeGen_LLVM {
         // bytes over.
         std::vector<uint64_t> param_offsets;
         uint64_t param_struct_bytes = 0;
-        // For a loop bound to GPUBlock: the loop bound to GPUThread inside
-        // its body, whose iteration count is the block's size; null when
+        // For a loop bound to GPUBlock: the loops bound to GPUThread inside
+        // its body, the kernel's thread phases (SSA/ThreadPhases.h), the
+        // largest of whose iteration counts is the block's size; empty when
         // there is none, and the block is one thread.
-        const ir::ssa::Terminator::ParFor *thread_loop = nullptr;
+        std::vector<const ir::ssa::Terminator::ParFor *> thread_loops;
+        // The allocations of the block loop's body whose size is known only
+        // at the launch -- a queue's arrays, sized by its capacity -- laid
+        // out one after another in the block's dynamic shared memory
+        // (allocate_shared), in this order, each at a sixteen-byte boundary.
+        // The host adds their bytes up for the launch's shared memory from
+        // the same sizes the kernel computes its offsets from: each an
+        // expression over the body's captures (SSA/LaunchValues.h), which
+        // the host maps to its own operands.
+        struct SharedAllocation {
+            std::string name;
+            uint64_t element_bytes = 0;
+            ir::Expr size;
+        };
+        std::vector<SharedAllocation> dynamic_shared;
         // For a raygen program: how many payload words its traces use --
         // two for a context by address, a promoted context's own count
         // otherwise -- which the launch hands the runtime so the pipeline
@@ -117,12 +143,6 @@ struct CodeGen_PTX : public CodeGen_LLVM {
     void append_linked_ptx();
     const std::string &optimized_ir() const { return ir_text; }
 
-    // The thread loop directly inside `loop`'s body, or null when there is
-    // none; an error for more than one, which one block size cannot serve.
-    static const ir::ssa::Terminator::ParFor *
-    nested_thread_loop(const ir::ssa::Function &host,
-                       const ir::ssa::Terminator::ParFor &loop);
-
   protected:
     // The NVPTX machine: `nvptx64-nvidia-cuda`, the `sm_NN` asked for or the
     // GPU in this machine, and the PTX ISA version that SM needs.
@@ -138,12 +158,28 @@ struct CodeGen_PTX : public CodeGen_LLVM {
     // `tex_sample_grad_2d` as `tex.grad.2d.v4.f32.f32` on a texture object.
     llvm::Value *codegen_texture_sample(const ir::Intrinsic *node) override;
 
-    // A loop bound to GPUThread met inside a block loop's kernel: the
-    // thread's iteration, between two barriers. Anything else bound is an
-    // error here -- a block loop inside a kernel, or a CPU thread.
+    // A loop bound to GPUThread met inside a block loop's kernel: a phase
+    // of the block -- the thread's iteration, under `tid < extent` unless
+    // the phase is the whole block, between two barriers. Anything else
+    // bound is an error here -- a block loop inside a kernel, or a CPU
+    // thread.
     void emit_bound_parfor(BoundLoop &loop) override;
     // `tid.x == 0` at the block level of a kernel; null elsewhere.
     llvm::Value *effects_once_guard() override;
+    // The barrier after an effect the leader made at the block level, so
+    // that every thread of the block reads what it wrote.
+    void after_once_effect() override;
+    bool device_code() const override { return true; }
+    // A block's shared memory for an allocation of the block loop's body
+    // (Allocate::Memory::Shared): a `.shared` global of the module for a
+    // size the compiler knows, as the block reduction's slots are; a run of
+    // the kernel's dynamic shared memory, `extern .shared .b8
+    // _bonsai_dynamic_shared[]`, for one the launch sets, at the offset the
+    // allocations before it end at (Kernel::dynamic_shared). Either as a
+    // generic pointer, which the NVPTX backend's address-space inference
+    // takes back to `ld.shared` and `st.shared`.
+    llvm::Value *allocate_shared(llvm::Type *elem_t, const ir::Expr &size,
+                                 const std::string &name) override;
     // Device scope: `atom.gpu`, what CUDA's atomicAdd is, rather than the
     // system-scope `atom.sys` LLVM's default names.
     llvm::SyncScope::ID atomic_scope() override;
@@ -218,10 +254,19 @@ struct CodeGen_PTX : public CodeGen_LLVM {
     // Functions already in the module, and what is known of their effects.
     std::set<std::string> declared;
     std::map<std::string, bool> effects;
-    // True while emitting the body of a block loop outside its thread loop:
+    // True while emitting the body of a block loop outside its thread loops:
     // where every thread runs the same code and effects are made once. Set
-    // by add_kernel, cleared for the thread loop's body.
+    // by add_kernel, cleared for a thread loop's body.
     bool block_level = false;
+    // The kernel being emitted (add_kernel), for the shared allocations its
+    // body makes; and the thread phases of its block loop's body
+    // (SSA/ThreadPhases.h), for which of them run under a predicate.
+    Kernel *building = nullptr;
+    std::vector<ir::ssa::ThreadPhase> phases;
+    // `extern .shared .b8 _bonsai_dynamic_shared[]`, made on the first
+    // allocation that wants it: the one array the launch's dynamic shared
+    // memory is, which every such allocation is a run of.
+    llvm::GlobalVariable *dynamic_shared = nullptr;
     unsigned kernel_count = 0;
     std::string ptx_text, ir_text;
 };

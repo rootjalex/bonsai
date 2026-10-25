@@ -76,6 +76,7 @@ add_bonsai_tests(
     defer-remat-through-queues.bonsai
     defer-remat-address.bonsai
     defer-address-parameter.bonsai
+    queue-shared.bonsai
     defer-spawn.bonsai
     defer-spawn-join.bonsai
     defer-continuation.bonsai

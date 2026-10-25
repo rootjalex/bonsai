@@ -1,0 +1,35 @@
+//! flags: -p ssa
+
+// A queue placed at a loop bound to GPUBlock without the storage word: its
+// storage is made inside the block loop's body, which on the device is the
+// block's shared memory, and the schedule has to say so -- `queue(p,
+// DeviceShared)` -- rather than have the lowering decide where the queue
+// lives (SSA/QueueStorage.h; the user's rule that a queue in shared memory
+// is tagged as such in the schedule).
+func walk(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return walk(k - 1, acc + k);
+}
+
+func run(out : mut array[i32, 4], n : i32) -> void {
+    parfor p in 0:4 {
+        total : mut i32 = 0;
+        parfor s in 0:n {
+            atomic total += walk(p + s, 0);
+        }
+        out[p] = total;
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(p);
+    run.defer(walk, sums);
+    walk.defer(walk, sums);
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+    run.bind(sums, GPUThread);
+    run.bind(sums_rest, GPUThread);
+}

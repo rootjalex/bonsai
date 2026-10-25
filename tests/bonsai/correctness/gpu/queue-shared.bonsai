@@ -1,0 +1,55 @@
+//! flags: -p ssa -b llvm -e
+
+// A queue in a block's shared memory: `queue(p, DeviceShared)`, one queue
+// per iteration of the block loop (the placement) in the block's own memory
+// (the storage word, IR/Storage.h, which the schedule has to say: a queue
+// whose storage lands in a block loop's body lives in shared memory, and
+// the check refuses one that does not say so, SSA/QueueStorage.h). The
+// shape of apps/wosx's per-block deferral (apps/wosx/scratch/defer/fcpwb-
+// gpu-defer-block.bonsai): a point per block, its walks the first thread
+// phase pushing their first step, the drain a phase per round over the
+// queue's capacity -- the walks' count, so the phases are the block --
+// with the round loop, the buffer swap and the count's reset at the block
+// level, and the pass over the record a third phase adding each walk's
+// value into the point's sum. The queue's arrays and header are shared
+// allocations sized by the capacity, which the launch hands the kernel as
+// dynamic shared memory. out[p] = T(p) + ... + T(p + 7).
+
+func walk(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return walk(k - 1, acc + k);
+}
+
+func run(out : mut array[i32, 4], n : i32) -> void {
+    parfor p in 0:4 {
+        total : mut i32 = 0;
+        parfor s in 0:n {
+            atomic total += walk(p + s, 0);
+        }
+        out[p] = total;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 4] = {-1, -1, -1, -1};
+    run(out, 8);
+    // {84, 120, 164, 216}
+    print(out);
+    run(out, 3);
+    // T(p) + T(p+1) + T(p+2): {4, 10, 19, 31}
+    print(out);
+    return 0;
+}
+
+schedule {
+    sums = run.queue(p, DeviceShared);
+    run.defer(walk, sums);
+    walk.defer(walk, sums);
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+    run.bind(sums, GPUThread);
+    run.bind(sums_rest, GPUThread);
+}

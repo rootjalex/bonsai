@@ -1,9 +1,12 @@
 #include "CodeGen/CodeGen_GPU_Host.h"
 
 #include "CodeGen/CodeGen_X86.h"
+#include "IR/Mutator.h"
 #include "IR/Operators.h"
 #include "IR/Printer.h"
 #include "SSA/Analysis.h"
+#include "SSA/LaunchValues.h"
+#include "Utils.h"
 
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
@@ -21,6 +24,23 @@ using ir::ssa::Block;
 using ir::ssa::Instruction;
 using ir::ssa::Terminator;
 using ir::ssa::Value;
+
+namespace {
+
+// A launch value (SSA/LaunchValues.h) as the host computes it: the body's
+// captures, which the expression names by the body head's argument names,
+// replaced by what the launching block passes for each.
+struct OnHost : public ir::Mutator {
+    const std::map<std::string, Expr> &captures;
+    explicit OnHost(const std::map<std::string, Expr> &captures)
+        : captures(captures) {}
+    Expr visit(const Var *v) override {
+        const auto it = captures.find(v->name);
+        return it != captures.end() ? it->second : ir::Mutator::visit(v);
+    }
+};
+
+} // namespace
 
 template <typename CodeGen_CPU>
 std::unique_ptr<llvm::Module>
@@ -693,36 +713,45 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
     }
 
     // The grid and the block: as many blocks as the block loop has
-    // iterations, as many threads as the thread loop has, and one of either
-    // that there is no loop for. Exact for the loop's bounds as they stand,
-    // so the kernel needs no guard of the launch's making: a loop over a
-    // queue has its end set to the queue's capacity and its body guarded by
-    // the count read on the device (Bind.cpp), which is what makes the
-    // launch go without the host reading the count. The
-    // thread loop's bounds are values of the block loop's body, so they are
-    // read here only if they came into that body from outside it -- as
-    // captures, or constants -- which is what makes them the same for every
-    // block, as one block size has to be.
-    const auto host_value = [&](const std::shared_ptr<Value> &v,
-                                const char *what) -> Expr {
-        if (std::holds_alternative<ir::ssa::Constant>(v->data)) {
-            return loop.operand(v);
-        }
-        if (const auto *a = std::get_if<ir::ssa::Argument>(&v->data)) {
-            for (size_t i = 1; i < body_head.args.size(); i++) {
-                if (body_head.args[i].name == a->name) {
-                    return loop.operand(p.body.args[i - 1]);
-                }
+    // iterations, as many threads as the largest thread loop has, and one of
+    // either that there is no loop for. Exact for the loop's bounds as they
+    // stand, so the kernel needs no guard of the launch's making: a loop
+    // over a queue has its end set to the queue's capacity and its body
+    // guarded by the count read on the device (Bind.cpp), which is what
+    // makes the launch go without the host reading the count; a thread loop
+    // shorter than the block runs under `tid < extent` (CodeGen_PTX). The
+    // thread loops' bounds, and the sizes of the body's shared allocations,
+    // are values of the block loop's body, which the host computes as the
+    // launch values they are (SSA/LaunchValues.h): expressions over what
+    // the body captures, with the captures replaced by what this block
+    // passes for them -- which is what makes them the same for every block,
+    // as one block size and one shared memory have to be.
+    std::map<std::string, Expr> capture_exprs;
+    for (size_t i = 1; i < body_head.args.size(); i++) {
+        capture_exprs[body_head.args[i].name] = loop.operand(p.body.args[i - 1]);
+    }
+    const auto on_host = [&](const Expr &e) { return OnHost(capture_exprs).mutate(e); };
+    const auto block_of = [&](const Terminator::ParFor &t) -> std::string {
+        for (const auto &block : loop.func.blocks) {
+            if (std::get_if<Terminator::ParFor>(&block->terminator.data) == &t) {
+                return block->name;
             }
         }
-        internal_error
-            << "the " << what << " of the thread loop over "
-            << kernel.thread_loop->index << " is computed inside the body of "
-            << "the block loop over " << p.index
-            << ". A launch has one block size, so the thread loop's bounds "
-            << "have to be known before the block loop starts: compute them "
+        internal_error << "the loop over " << t.index << " is no terminator of "
+                       << loop.func.blocks.front()->name;
+        return "";
+    };
+    const auto host_value = [&](const std::shared_ptr<Value> &v, const std::string &block,
+                                const std::string &what) -> Expr {
+        std::string why;
+        const std::optional<Expr> launch =
+            ir::ssa::launch_value(loop.func, body_head, block, v, &why);
+        internal_assert(launch.has_value())
+            << "the " << what << " is " << why << ". A launch has one block "
+            << "size, so the thread loops' bounds have to be functions of what "
+            << "the block loop over " << p.index << " captures: compute them "
             << "outside it.";
-        return Expr();
+        return on_host(*launch);
     };
     const Expr count_e = trip_count(begin_e, end_e, stride_e);
     llvm::Value *count = builder->CreateIntCast(codegen_expr(count_e), i64_t,
@@ -733,27 +762,42 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
         block = count;
     } else {
         grid = count;
-        if (kernel.thread_loop != nullptr) {
-            const Terminator::ParFor &t = *kernel.thread_loop;
-            const Expr t_begin = host_value(t.start, "start"),
-                       t_end = host_value(t.end, "end"),
-                       t_stride = host_value(t.stride, "stride");
-            block = builder->CreateIntCast(
-                codegen_expr(trip_count(t_begin, t_end, t_stride)), i64_t,
-                t_begin.type().is_int());
+        Expr block_e;
+        for (const Terminator::ParFor *t : kernel.thread_loops) {
+            const std::string at = block_of(*t);
+            const std::string of = "of the thread loop over " + t->index;
+            const Expr t_begin = host_value(t->start, at, "start " + of),
+                       t_end = host_value(t->end, at, "end " + of),
+                       t_stride = host_value(t->stride, at, "stride " + of);
+            Expr extent = Cast::make(Int_t::make(64), trip_count(t_begin, t_end, t_stride));
+            block_e = block_e.defined() ? max(block_e, extent) : extent;
+        }
+        if (block_e.defined()) {
+            block = codegen_expr(block_e);
         }
     }
+    // The block's dynamic shared memory: the body's allocations whose size
+    // the launch sets, laid end to end at sixteen-byte boundaries, as the
+    // kernel computes their offsets (CodeGen_PTX::allocate_shared).
+    Expr shared_e = make_const(Int_t::make(64), 0);
+    for (const CodeGen_PTX::Kernel::SharedAllocation &a : kernel.dynamic_shared) {
+        const Expr elements = Cast::make(Int_t::make(64), on_host(a.size));
+        const Expr bytes = elements * make_const(Int_t::make(64), int64_t(a.element_bytes));
+        const Expr sixteen = make_const(Int_t::make(64), 16);
+        shared_e = shared_e + (bytes + make_const(Int_t::make(64), 15)) / sixteen * sixteen;
+    }
+    llvm::Value *shared = codegen_expr(shared_e);
 
     llvm::Value *ptx = builder->CreateLoad(ptr_t, ptx_global, "_ptx");
     llvm::Value *name = builder->CreateGlobalString(kernel.name, "_kernel_name");
     // void bonsai_cuda_launch(const char *ptx, const char *kernel,
     //                         int64_t grid_x, int64_t block_x, void **params,
     //                         int64_t nparams, bonsai_cuda_buffer *buffers,
-    //                         int64_t nbuffers);
+    //                         int64_t nbuffers, int64_t shared_bytes);
     llvm::FunctionCallee launch = module->getOrInsertFunction(
         "bonsai_cuda_launch",
         llvm::FunctionType::get(
-            void_t, {ptr_t, ptr_t, i64_t, i64_t, ptr_t, i64_t, ptr_t, i64_t},
+            void_t, {ptr_t, ptr_t, i64_t, i64_t, ptr_t, i64_t, ptr_t, i64_t, i64_t},
             false));
     // void bonsai_optix_launch(const char *ptx, const char *raygen,
     //                          int64_t count, void *params,
@@ -830,7 +874,7 @@ void CodeGen_GPU_Host<CodeGen_CPU>::emit_gpu_launch(
         builder->CreateCall(launch,
                             {ptx, name, grid, block, params,
                              llvm::ConstantInt::get(i64_t, n), buffers,
-                             llvm::ConstantInt::get(i64_t, copies.size())});
+                             llvm::ConstantInt::get(i64_t, copies.size()), shared});
     }
     // The launch is asynchronous; the function waits for the device before
     // it returns (CodeGen_LLVM::wait_for_device_if_launched).

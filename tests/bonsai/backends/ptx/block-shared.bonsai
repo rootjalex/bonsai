@@ -1,0 +1,36 @@
+//! flags: -p ssa -b ptx
+
+// A block loop whose body has locals the thread loop reads and writes
+// (correctness/gpu/block-shared runs it). What to read for in the device
+// module: the block body's allocations as the block's shared memory -- the
+// `addrspace(3)` globals for `total`, `n` and `hist`, beside the block
+// reduction's own slots -- with the stores the block level makes under the
+// leader's guard and a `bar.sync` after each, so that every thread of the
+// block reads what the leader wrote; the thread loop's accumulates into
+// `hist` as atomics on shared memory; and the epilogue's loads of all
+// three by every thread.
+
+func run(mean : mut array[i32, 4], counts : mut array[i32, 4],
+         spread : mut array[i32, 4]) -> void {
+    parfor p in 0:4 {
+        total : mut i32 = 0;
+        n : mut i32 = 0;
+        hist : mut array[i32, 4] = {0, 0, 0, 0};
+        parfor s in 0:8 {
+            if (s % 2 == 0) {
+                atomic total += p * 100 + s;
+                atomic n += 1;
+            }
+            atomic hist[(s + p) % 4] += s;
+        }
+        mean[p] = total / max(n, 1);
+        counts[p] = n;
+        spread[p] = hist[0] + 10 * hist[1] + 100 * hist[2] + 1000 * hist[3];
+    }
+    return;
+}
+
+schedule {
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+}

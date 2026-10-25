@@ -1,0 +1,40 @@
+//! flags: -p ssa -b ptx
+
+// A queue in a block's shared memory, `queue(p, DeviceShared)`
+// (correctness/gpu/queue-shared runs it). What to read for in the device
+// module: one kernel for the block loop with three thread phases in it --
+// the pushes of the first steps, the drain of a round, the pass over the
+// record -- each under `tid < extent` where the extent is not the block's
+// by construction, a barrier between them; the queue's arrays and header
+// in dynamic shared memory (`extern .shared` indexed by offsets the kernel
+// computes from the capacity), the count read by every thread at the top
+// of each round and reset by the leader; and the launch's shared bytes
+// computed on the host from the same capacity.
+
+func walk(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return walk(k - 1, acc + k);
+}
+
+func run(out : mut array[i32, 4], n : i32) -> void {
+    parfor p in 0:4 {
+        total : mut i32 = 0;
+        parfor s in 0:n {
+            atomic total += walk(p + s, 0);
+        }
+        out[p] = total;
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(p, DeviceShared);
+    run.defer(walk, sums);
+    walk.defer(walk, sums);
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+    run.bind(sums, GPUThread);
+    run.bind(sums_rest, GPUThread);
+}

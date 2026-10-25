@@ -15,7 +15,7 @@ define ptx_kernel void @_kernel_b_0(i32 %_begin, i32 %_stride, ptr nofree writeo
   %1 = mul i32 %b, 1040796640
   %2 = add i32 %1, 1121052041
   %3 = mul i32 %2, %b
-  tail call void @llvm.nvvm.barrier.cta.sync.aligned.all(i32 0)
+  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
   %tid = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
   %rng_seed = add nuw nsw i32 %tid, 576942909
   %4 = add i32 %rng_seed, %3
@@ -36,7 +36,7 @@ define ptx_kernel void @_kernel_b_0(i32 %_begin, i32 %_stride, ptr nofree writeo
   %_wide = sext i32 %17 to i64
   %out8 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %_wide
   store float %15, ptr %out8, align 4, !tbaa !1
-  tail call void @llvm.nvvm.barrier.cta.sync.aligned.all(i32 0)
+  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
   ret void
 }
 
@@ -44,7 +44,7 @@ define ptx_kernel void @_kernel_b_0(i32 %_begin, i32 %_stride, ptr nofree writeo
 declare noundef range(i32 0, 2147483647) i32 @llvm.nvvm.read.ptx.sreg.ctaid.x() #1
 
 ; Function Attrs: convergent nocallback nounwind
-declare void @llvm.nvvm.barrier.cta.sync.aligned.all(i32) #2
+declare void @llvm.nvvm.barrier.cta.sync.all(i32) #2
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare noundef range(i32 0, 1024) i32 @llvm.nvvm.read.ptx.sreg.tid.x() #1
@@ -114,7 +114,7 @@ attributes #3 = { mustprogress nofree norecurse nosync nounwind willreturn memor
 	mov.u32 	%r3, %ctaid.x;
 	mad.lo.s32 	%r4, %r2, %r3, %r1;
 	mad.lo.s32 	%r5, %r4, 1040796640, 1121052041;
-	bar.sync 	0;
+	barrier.sync 	0;
 	mov.u32 	%r6, %tid.x;
 	mad.lo.s32 	%r7, %r5, %r4, %r6;
 	add.s32 	%r8, %r7, 576942909;
@@ -131,7 +131,7 @@ attributes #3 = { mustprogress nofree norecurse nosync nounwind willreturn memor
 	mul.wide.s32 	%rd3, %r18, 4;
 	add.s64 	%rd4, %rd2, %rd3;
 	st.global.b32 	[%rd4], %r16;
-	bar.sync 	0;
+	barrier.sync 	0;
 	ret;
 
 }

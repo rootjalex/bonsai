@@ -33,8 +33,17 @@ namespace ssa {
 //     an access from a different thread-bound loop nested inside it is a
 //     second thread writing one thread's queue. (The per-thread queue is a
 //     placement, `queue(<loop bound to CPUThread>)`, not a storage word.)
-//   * DeviceShared is per block the same way, and is refused until the PTX
-//     backend allocates shared memory for a queue (apps/pbrt/PLAN.md).
+//   * DeviceShared is one block's memory: the queue is placed at a loop
+//     bound to GPUBlock -- `queue(<block loop>, DeviceShared)` -- so that
+//     its storage is made inside that loop's body, outside the thread
+//     loops in it, and every push and the drain run inside the same body.
+//     The PTX backend then allocates it as the block's shared memory
+//     (Allocate::Memory::Shared, CodeGen_PTX::allocate_shared). And the
+//     converse: a queue whose storage is made inside a GPUBlock loop's
+//     body lives in shared memory whatever the schedule said, so one that
+//     says nothing is refused -- the schedule states where a queue lives,
+//     the lowering does not choose (Instruction::queue marks a queue's
+//     storage for this).
 //   * Extern storage is the caller's, so there is one of it per call: the
 //     allocation has to sit in the function's top region, outside every
 //     loop (as a queue placed at a loop the hoisting pass could cross does

@@ -288,6 +288,16 @@ struct Allocate : StmtNode<Allocate> {
         // that moves data -- the copies work on it -- and allocated by
         // bonsai_cuda_malloc_managed.
         Managed,
+        // A GPU block's shared memory: one allocation per block, addressed
+        // by every thread of the block (NVPTX's address space 3). What an
+        // allocation in a block loop's body outside its thread loops is on
+        // the device -- a block is only its threads, and a copy per thread
+        // would be no use to the thread loop that reads it
+        // (CodeGen_LLVM_SSA.cpp) -- and what the schedule's DeviceShared
+        // storage word asks for a queue (IR/Storage.h). Only the device
+        // generator allocates it (CodeGen_PTX::allocate_shared); a host has
+        // no blocks.
+        Shared,
     };
     Memory memory;
 

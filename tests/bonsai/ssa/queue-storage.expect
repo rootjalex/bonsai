@@ -49,7 +49,7 @@ func crawl(k : i32, acc : i32, _queue_tally : mut (Queue_tally*), _result_tally 
 
 func [[export]] exported_run(out : mut i32[8], tally_k_0 : mut i32[8], tally_acc_0 : mut i32[8], tally__slot_0 : mut i32[8], tally_k_1 : mut i32[8], tally_acc_1 : mut i32[8], tally__slot_1 : mut i32[8]) -> void {
   tally!round : mut u32
-  tally_result : mut i32[8]
+  alloc tally_result : mut i32[8] device
   alloc tally_queue : mut Queue_tally[2] device
   let @3 = build<Queue_tally>(0u, tally_k_0, tally_acc_0, tally__slot_0) in
   tally_queue[0u] = @3
@@ -104,7 +104,7 @@ func [[export]] exported_run(out : mut i32[8], tally_k_0 : mut i32[8], tally_acc
 
 func hosted(out : mut i32[8]) -> void {
   counts!round : mut u32
-  counts_result : mut i32[8]
+  alloc counts_result : mut i32[8]
   alloc counts_k_0 : mut i32[8]
   alloc counts_acc_0 : mut i32[8]
   alloc counts__slot_0 : mut i32[8]
@@ -147,6 +147,7 @@ func hosted(out : mut i32[8]) -> void {
     out[i] = @0
     continue
   }
+  free(counts_result)
   free(counts_k_0)
   free(counts_acc_0)
   free(counts__slot_0)
@@ -169,7 +170,7 @@ func main() -> i32 {
 
 func run(out : mut i32[8]) -> void {
   sums!round : mut u32
-  sums_result : mut i32[8]
+  alloc sums_result : mut i32[8] device
   alloc sums_k_0 : mut i32[8] device
   alloc sums_acc_0 : mut i32[8] device
   alloc sums__slot_0 : mut i32[8] device

@@ -302,6 +302,17 @@ struct Instruction {
     // and Alloc.
     std::optional<Storage> storage;
 
+    // The queue whose storage this allocation is, by name, when it is one
+    // (SSA/Defer.cpp): the arrays of the entries, the header, the sort's
+    // permutation, and the record's slots and arrays, all sized by the
+    // queue's capacity and made where its storage is made. Empty for any
+    // other allocation. What SSA/QueueStorage.h checks against the
+    // schedule's storage word: a queue whose storage lands in a block loop's
+    // body lives in the block's shared memory, and the schedule has to say
+    // so. Copied with the allocation (SSA/InducedStorage.cpp, the arrays a
+    // struct of arrays is split into).
+    std::string queue;
+
     // An argmin's or argmax's places written alongside its pair when the
     // key improves (ir::Accumulate::alongside): this many (place, value)
     // pairs close the operand list, after the place, the value and the

@@ -5,6 +5,7 @@
 #include "IR/Type.h"
 #include "SSA/Analysis.h"
 #include "SSA/Contention.h"
+#include "SSA/ThreadPhases.h"
 
 #include <limits>
 #include <map>
@@ -465,6 +466,14 @@ void ReduceBlockAccumulates::run(Function &f) {
         }
     }
     for (const auto &[block, loop] : loops) {
+        // A block reduction is a collective: every thread of the block
+        // takes part, so it is made only in a thread loop that is the whole
+        // block (SSA/ThreadPhases.h). A phase shorter than its block keeps
+        // its atomics, which the threads it has make into shared or global
+        // memory as the program wrote them.
+        if (!whole_block(f, block->name, loop)) {
+            continue;
+        }
         reduce_thread_loop(f, block, loop, nests);
     }
 }

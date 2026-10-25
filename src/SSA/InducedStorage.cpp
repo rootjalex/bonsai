@@ -342,6 +342,7 @@ class Splitter {
             vector<shared_ptr<Value>>{}, block);
         in->scratch = like.scratch;
         in->storage = like.storage;
+        in->queue = like.queue;
         block->instrs.insert(block->instrs.begin() + long(at), in);
         auto v = std::make_shared<Value>(in);
         block->lookups[in->name] = v;

@@ -1992,6 +1992,13 @@ void CodeGen_LLVM::visit(const BinOp *node) {
             value = builder->CreateICmpEQ(a, b);
             return;
         }
+        case BinOp::Neq: {
+            // Exclusive or, as a comparison: `(a < 0) != (b < 0)` is how a
+            // sign test is written (pbrt's `(ray.d.z > 0) ^ (radius < 0)`,
+            // apps/pbrt/camera.bonsai).
+            value = builder->CreateICmpNE(a, b);
+            return;
+        }
         default: {
             internal_error << "Unimplemented BinOp lowering for boolean: "
                            << Expr(node);
@@ -5385,6 +5392,15 @@ void CodeGen_LLVM::allocate_dynamic_array_type(const Allocate *node) {
 
 // TODO(ajr): Figure out which parts of Halide's Store
 // codegen we can steal. They do better with __restrict
+llvm::Value *CodeGen_LLVM::allocate_shared(llvm::Type *, const ir::Expr &,
+                                            const std::string &name) {
+    internal_error << "`" << name << "` is a GPU block's shared memory "
+                   << "(Allocate::Memory::Shared), which only the device "
+                   << "generator allocates; this generator runs on a host, "
+                   << "which has no blocks.";
+    return nullptr;
+}
+
 void CodeGen_LLVM::visit(const Allocate *node) {
     std::string name = node->loc.base;
     Type allocate_type = node->loc.base_type;
@@ -5392,6 +5408,24 @@ void CodeGen_LLVM::visit(const Allocate *node) {
 
     if (is_dynamic_array_struct_type(allocate_type)) {
         allocate_dynamic_array_type(node);
+        return;
+    }
+    if (node->memory == Allocate::Memory::Shared) {
+        // A GPU block's shared memory: the device generator's to allocate,
+        // as an array of elements or one value (Allocate::Memory::Shared).
+        // The SSA builder split any initial value into a store of its own,
+        // so there is none to make here; the name is bound to the storage
+        // itself, as a stack local's is below.
+        internal_assert(!value.defined())
+            << "a shared allocation with an initial value: " << Stmt(node);
+        internal_assert(node->loc.accesses.empty())
+            << "Allocating Allocate to non-local value: " << Stmt(node);
+        const Array_t *array_t = allocate_type.as<Array_t>();
+        llvm::Type *elem_t =
+            codegen_type(array_t != nullptr ? array_t->etype : allocate_type);
+        llvm::Value *storage =
+            allocate_shared(elem_t, array_t != nullptr ? array_t->size : Expr(), name);
+        frames.add_to_frame(name, storage);
         return;
     }
 

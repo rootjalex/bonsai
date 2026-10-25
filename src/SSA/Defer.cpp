@@ -111,13 +111,17 @@ void insert_side_effect(const shared_ptr<Block> &block, size_t at,
     block->instrs.insert(block->instrs.begin() + at, instr);
 }
 
-// Storage a deferral makes is emptied or written before it is read in every
-// iteration of the owner -- a queue's count is reset before its pushes, a
-// record's slot written by the producer before the pass reads it -- so it
-// may be made once, outside the loops around the owner, and shared by their
-// iterations (Instruction::scratch; SSA/HoistAllocations.h).
-shared_ptr<Value> scratch(shared_ptr<Value> storage) {
-    std::get<shared_ptr<Instruction>>(storage->data)->scratch = true;
+// Storage a deferral makes for `queue` is emptied or written before it is
+// read in every iteration of the owner -- a queue's count is reset before
+// its pushes, a record's slot written by the producer before the pass reads
+// it -- so it may be made once, outside the loops around the owner, and
+// shared by their iterations (Instruction::scratch; SSA/HoistAllocations.h).
+// And it is the queue's (Instruction::queue): SSA/QueueStorage.h checks
+// where it lands against what the schedule said of the queue's memory.
+shared_ptr<Value> scratch(const string &queue, shared_ptr<Value> storage) {
+    Instruction &in = *std::get<shared_ptr<Instruction>>(storage->data);
+    in.scratch = true;
+    in.queue = queue;
     return storage;
 }
 
@@ -432,6 +436,7 @@ clone_region(Function &func, const vector<shared_ptr<Block>> &region,
             instr_copy->slack = instr->slack;
             instr_copy->scratch = instr->scratch;
             instr_copy->storage = instr->storage;
+            instr_copy->queue = instr->queue;
             instr_copy->alongside = instr->alongside;
             instrs[instr.get()] = instr_copy;
             copy->instrs.push_back(instr_copy);
@@ -2975,6 +2980,21 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
         return index;
     };
+    // The memory of what is the drain's own: the header, the sort's
+    // permutation, and the record -- the slots, the continuation's values,
+    // the path's result. The memory the queue was placed in, except that an
+    // Extern queue's are the function's own, in the memory the Extern kind
+    // names: the arrays of the entries are what the caller provides, sized
+    // by the capacity, and these are words the function fills and reads
+    // itself, which the caller has no business with (SSA/QueueStorage.h).
+    const std::optional<ir::Storage> header_memory =
+        !queue.storage.has_value() ? std::nullopt
+        : *queue.storage == ir::Storage::ExternHost ? std::optional(ir::Storage::Heap)
+        : *queue.storage == ir::Storage::ExternDevice
+            ? std::optional(ir::Storage::DeviceGlobal)
+        : *queue.storage == ir::Storage::ExternManaged
+            ? std::optional(ir::Storage::Managed)
+            : queue.storage;
     // The slot arrays, by the local each replaces.
     map<const Instruction *, shared_ptr<Value>> slot_arrays;
     const auto give_slot = [&](const Instruction *local, const string &named) {
@@ -2985,9 +3005,11 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         internal_assert(home) << what << ": the local " << named
                               << " outlived its block";
         const Type etype = local->type.as<Ptr_t>()->etype;
-        auto slots = scratch(make_alloca(*O, alloc_point,
-                                         Array_t::make(etype, as_expr(size)),
-                                         queue.name + "_" + named + "_slots"));
+        auto slots = stored_in(header_memory,
+                               scratch(queue.name,
+                                       make_alloca(*O, alloc_point,
+                                                   Array_t::make(etype, as_expr(size)),
+                                                   queue.name + "_" + named + "_slots")));
         // One array of the local's type here; a struct of arrays once every
         // directive has run (SSA/InducedStorage.h), under `<queue>.<local>`.
         register_induced(*O, Function::InducedStorage{
@@ -3034,9 +3056,11 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         give_slot(local, local->name);
     }
     for (RecordValue &rv : record_values) {
-        rv.array = scratch(make_alloca(*O, alloc_point,
-                                       Array_t::make(rv.type, as_expr(size)),
-                                       queue.name + "_rest_" + rv.name));
+        rv.array = stored_in(header_memory,
+                             scratch(queue.name,
+                                     make_alloca(*O, alloc_point,
+                                                 Array_t::make(rv.type, as_expr(size)),
+                                                 queue.name + "_rest_" + rv.name)));
         register_induced(*O, Function::InducedStorage{
                                  queue.name + ".rest." + rv.name, rv.name,
                                  queue.name + "_rest_", "", rv.type, queue.vector_leaves,
@@ -3052,9 +3076,11 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // would hold what the last owner iteration left.
     shared_ptr<Value> ran_array;
     if (rest_pass && !call_on_every_iteration) {
-        ran_array = scratch(make_alloca(*O, alloc_point,
-                                        Array_t::make(u8(), as_expr(size)),
-                                        queue.name + "_ran"));
+        ran_array = stored_in(header_memory,
+                              scratch(queue.name,
+                                      make_alloca(*O, alloc_point,
+                                                  Array_t::make(u8(), as_expr(size)),
+                                                  queue.name + "_ran")));
         register_induced(*O, Function::InducedStorage{
                                  queue.name + ".ran", "ran", queue.name + "_", "", u8(),
                                  queue.vector_leaves, queue.adt_storages, {ran_array}, {},
@@ -3077,9 +3103,11 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         producer_index = slot_index_at(producer.block, at);
     }
     if (keeps_result) {
-        result_array = scratch(make_alloca(*O, alloc_point,
-                                           Array_t::make(ret_type, as_expr(size)),
-                                           queue.name + "_result"));
+        result_array = stored_in(header_memory,
+                                 scratch(queue.name,
+                                         make_alloca(*O, alloc_point,
+                                                     Array_t::make(ret_type, as_expr(size)),
+                                                     queue.name + "_result")));
         register_induced(*O, Function::InducedStorage{
                                  queue.name + ".result", "result", queue.name + "_", "",
                                  ret_type, queue.vector_leaves, queue.adt_storages,
@@ -4594,10 +4622,11 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 }
                 stores[i].push_back(stored_in(
                     queue.storage,
-                    scratch(make_alloca(
-                        *O, alloc_point, Array_t::make(leaf.type, as_expr(size)),
-                        qname + "_" + leaf.name +
-                            (double_buffered ? "_" + std::to_string(i) : "")))));
+                    scratch(queue.name,
+                            make_alloca(
+                                *O, alloc_point, Array_t::make(leaf.type, as_expr(size)),
+                                qname + "_" + leaf.name +
+                                    (double_buffered ? "_" + std::to_string(i) : "")))));
             }
         }
         // Then the bytes the bools are packed into.
@@ -4611,25 +4640,16 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             }
             stores[i].push_back(stored_in(
                 queue.storage,
-                scratch(make_alloca(
-                    *O, alloc_point, Array_t::make(leaf.type, as_expr(size)),
-                    qname + "_" + leaf.name +
-                        (double_buffered ? "_" + std::to_string(i) : "")))));
+                scratch(queue.name,
+                        make_alloca(
+                            *O, alloc_point, Array_t::make(leaf.type, as_expr(size)),
+                            qname + "_" + leaf.name +
+                                (double_buffered ? "_" + std::to_string(i) : "")))));
         }
     }
-    // The header too, in the same memory -- except that an Extern queue's
-    // header stays the function's own, in the memory the Extern names: the
-    // arrays are what the caller provides, sized by the capacity; the header
-    // is a few words the function fills with their addresses and the count,
-    // and the caller has no business with it (SSA/QueueStorage.h).
-    const std::optional<ir::Storage> header_memory =
-        !queue.storage.has_value() ? std::nullopt
-        : *queue.storage == ir::Storage::ExternHost ? std::optional(ir::Storage::Heap)
-        : *queue.storage == ir::Storage::ExternDevice
-            ? std::optional(ir::Storage::DeviceGlobal)
-        : *queue.storage == ir::Storage::ExternManaged
-            ? std::optional(ir::Storage::Managed)
-            : queue.storage;
+    // The header too, in the drain's own memory (header_memory, above): a
+    // few words the function fills with the arrays' addresses and the
+    // count.
     // The sort's permutation, one index per entry, filled before each pass
     // from the key leaf (QueueSpec::sort_key) and read by the pass's entry
     // loads in place of the loop's index. One array serves a
@@ -4650,12 +4670,14 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             << queue.name << ")";
         perm_array = stored_in(
             header_memory,
-            scratch(make_alloca(*O, alloc_point, Array_t::make(u32(), as_expr(size)),
+            scratch(queue.name,
+                    make_alloca(*O, alloc_point, Array_t::make(u32(), as_expr(size)),
                                 queue.name + "__perm")));
     }
     const shared_ptr<Value> queues = stored_in(
         header_memory,
-        scratch(many ? make_alloca(*O, alloc_point,
+        scratch(queue.name,
+                many ? make_alloca(*O, alloc_point,
                                    Array_t::make(queue_t, UIntImm::make(u32(), nqueues)),
                                    queue.name + "_queue")
                      : make_alloca(*O, alloc_point, queue_t, queue.name + "_queue")));

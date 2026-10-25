@@ -1,0 +1,57 @@
+//! flags: -p ssa -b llvm -e
+
+// A block loop whose body has locals the thread loop reads and writes: the
+// shape of a point and its walks (apps/wosx/scratch/defer/fcpwb-gpu-block-
+// plain.bonsai). An allocation in a block loop's body outside its thread
+// loop is one per block, not one per thread, so the PTX backend puts it in
+// the block's shared memory (Halide's FuseGPUThreadLoops, the shared
+// allocations), where the stores made at the block level are the leader's,
+// each followed by a barrier so that every thread reads what it wrote.
+// `total` and `n` are accumulated by every thread to one word, which the
+// block reduction makes one accumulate (SSA/BlockAccumulates.h); `hist` is
+// indexed by the thread, so its accumulates stay atomics on shared memory;
+// the epilogue reads all three.
+
+func run(mean : mut array[i32, 4], counts : mut array[i32, 4],
+         spread : mut array[i32, 4]) -> void {
+    parfor p in 0:4 {
+        total : mut i32 = 0;
+        n : mut i32 = 0;
+        hist : mut array[i32, 4] = {0, 0, 0, 0};
+        parfor s in 0:8 {
+            if (s % 2 == 0) {
+                atomic total += p * 100 + s;
+                atomic n += 1;
+            }
+            atomic hist[(s + p) % 4] += s;
+        }
+        mean[p] = total / max(n, 1);
+        counts[p] = n;
+        spread[p] = hist[0] + 10 * hist[1] + 100 * hist[2] + 1000 * hist[3];
+    }
+    return;
+}
+
+func main() -> i32 {
+    mean : mut array[i32, 4] = {-1, -1, -1, -1};
+    counts : mut array[i32, 4] = {-1, -1, -1, -1};
+    spread : mut array[i32, 4] = {-1, -1, -1, -1};
+    run(mean, counts, spread);
+    // The even threads: (0 + 2 + 4 + 6) / 4 = 3, plus the point's hundreds.
+    // {3, 103, 203, 303}
+    print(mean);
+    // {4, 4, 4, 4}
+    print(counts);
+    // hist[b] is the sum of the s with (s + p) % 4 == b: for p = 0 the bins
+    // hold 0+4, 1+5, 2+6, 3+7 = 4, 6, 8, 10 -> 4 + 60 + 800 + 10000; each
+    // further p rotates the bins by one the other way (bin b holds what bin
+    // b - 1 held).
+    // {10864, 8650, 6508, 5086}
+    print(spread);
+    return 0;
+}
+
+schedule {
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+}

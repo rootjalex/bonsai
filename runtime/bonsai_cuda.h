@@ -60,16 +60,19 @@ struct bonsai_cuda_buffer {
 };
 
 // Runs `kernel` of `ptx` over grid_x x 1 x 1 blocks of block_x x 1 x 1
-// threads. `params[i]` is the address of the i-th argument's value, as
-// cuLaunchKernel takes them. The PTX module is loaded once per distinct
-// `ptx` pointer and kept; the primary context of device 0 is used. Any
-// failure -- no driver, no device, a kernel the PTX does not define, a
+// threads, each block with `shared_bytes` of dynamic shared memory (the
+// kernel's `extern .shared` array, CodeGen_PTX::allocate_shared; zero for a
+// kernel with none). `params[i]` is the address of the i-th argument's
+// value, as cuLaunchKernel takes them. The PTX module is loaded once per
+// distinct `ptx` pointer and kept; the primary context of device 0 is used.
+// Any failure -- no driver, no device, a kernel the PTX does not define, a
 // launch the device rejects -- prints the driver's reason and aborts, since
 // a render that silently skipped its kernel would be a wrong image rather
 // than an error.
 void bonsai_cuda_launch(const char *ptx, const char *kernel, int64_t grid_x,
                         int64_t block_x, void **params, int64_t nparams,
-                        bonsai_cuda_buffer *buffers, int64_t nbuffers);
+                        bonsai_cuda_buffer *buffers, int64_t nbuffers,
+                        int64_t shared_bytes);
 
 // Loads the PTX module ahead of its first launch, so that the load is part
 // of a driver's setup rather than of its first timed call. What the
@@ -293,6 +296,9 @@ constexpr CUresult CUDA_SUCCESS = 0;
 constexpr int CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK = 1;
 constexpr int CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR = 75;
 constexpr int CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR = 76;
+constexpr int CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN = 97;
+// cuda.h's CUfunction_attribute, an int-sized enum: the one value asked for.
+constexpr int CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES = 8;
 
 struct Driver {
     CUresult (*cuInit)(unsigned int);
@@ -312,6 +318,10 @@ struct Driver {
     CUresult (*cuLaunchKernel)(CUfunction, unsigned, unsigned, unsigned,
                                unsigned, unsigned, unsigned, unsigned,
                                CUstream, void **, void **);
+    // A kernel's dynamic shared memory past the 48 KB every kernel may ask
+    // for is opted into per function (bonsai_cuda_launch). The attribute is
+    // cuda.h's CUfunction_attribute, an int-sized enum.
+    CUresult (*cuFuncSetAttribute)(CUfunction, int, int);
     CUresult (*cuCtxSynchronize)(void);
     // Asynchronous launches (bonsai_cuda_launch, bonsai_optix_launch): a
     // launch's parameters go to the device from pinned memory without the
@@ -350,6 +360,11 @@ struct Driver {
     CUdevice device = 0;
     CUcontext context = nullptr;
     int max_threads_per_block = 0;
+    // The most dynamic shared memory a block may have once its kernel has
+    // opted in (CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN), and
+    // the kernels that have.
+    int max_shared_per_block = 0;
+    std::unordered_map<CUfunction, bool> shared_opted_in;
     std::string arch;
     std::unordered_map<const char *, CUmodule> modules;
     // A launch's kernel, looked up once: keyed by the name's address, a
@@ -392,6 +407,7 @@ inline Driver &driver() {
         load(d.cuMemcpyHtoD, "cuMemcpyHtoD_v2");
         load(d.cuMemcpyDtoH, "cuMemcpyDtoH_v2");
         load(d.cuLaunchKernel, "cuLaunchKernel");
+        load(d.cuFuncSetAttribute, "cuFuncSetAttribute");
         load(d.cuCtxSynchronize, "cuCtxSynchronize");
         load(d.cuMemHostAlloc, "cuMemHostAlloc");
         load(d.cuMemcpyHtoDAsync, "cuMemcpyHtoDAsync_v2");
@@ -442,7 +458,12 @@ inline Driver &driver() {
             failed(d.cuDeviceGetAttribute(
                        &d.max_threads_per_block,
                        CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK, d.device),
-                   "cuDeviceGetAttribute(max threads per block)")) {
+                   "cuDeviceGetAttribute(max threads per block)") ||
+            failed(d.cuDeviceGetAttribute(
+                       &d.max_shared_per_block,
+                       CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
+                       d.device),
+                   "cuDeviceGetAttribute(max shared memory per block)")) {
             return;
         }
         d.arch = "sm_" + std::to_string(major * 10 + minor);
@@ -1008,7 +1029,8 @@ __attribute__((used)) inline void bonsai_cuda_texture_destroy(uint64_t texture) 
 __attribute__((used)) inline void
 bonsai_cuda_launch(const char *ptx, const char *kernel, int64_t grid_x,
                    int64_t block_x, void **params, int64_t nparams,
-                   bonsai_cuda_buffer *buffers, int64_t nbuffers) {
+                   bonsai_cuda_buffer *buffers, int64_t nbuffers,
+                   int64_t shared_bytes) {
     using namespace bonsai_cuda_detail;
     Driver &d = ready((std::string("launch `") + kernel + "`").c_str());
     // One launch at a time: the module cache and the context are shared,
@@ -1035,6 +1057,22 @@ bonsai_cuda_launch(const char *ptx, const char *kernel, int64_t grid_x,
     if (grid_x < 1 || grid_x > 2147483647LL) {
         fail("`" + std::string(kernel) + "` asks for a grid of " +
              std::to_string(grid_x) + " blocks; the device allows 1 to 2^31-1.");
+    }
+    if (shared_bytes < 0 || shared_bytes > d.max_shared_per_block) {
+        fail("`" + std::string(kernel) + "` asks for " +
+             std::to_string(shared_bytes) + " bytes of shared memory per block; "
+             "the device allows up to " + std::to_string(d.max_shared_per_block) +
+             ". Place less in the block's shared memory, or split the block.");
+    }
+    // Past 48 KB a kernel has to opt in, once, up to the device's limit.
+    if (shared_bytes > 48 * 1024 && !d.shared_opted_in[function]) {
+        check(d,
+              d.cuFuncSetAttribute(function,
+                                   CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+                                   d.max_shared_per_block),
+              "cuFuncSetAttribute(" + std::string(kernel) +
+                  ", max dynamic shared size)");
+        d.shared_opted_in[function] = true;
     }
 
     // The buffers: to the device, and their slots repointed.
@@ -1064,7 +1102,7 @@ bonsai_cuda_launch(const char *ptx, const char *kernel, int64_t grid_x,
     stats.begin(d);
     check(d,
           d.cuLaunchKernel(function, unsigned(grid_x), 1, 1, unsigned(block_x),
-                           1, 1, /*sharedMemBytes=*/0, /*stream=*/nullptr,
+                           1, 1, unsigned(shared_bytes), /*stream=*/nullptr,
                            params, nullptr),
           "cuLaunchKernel(" + std::string(kernel) + ")");
     stats.mark(d);

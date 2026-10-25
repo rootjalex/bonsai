@@ -1,11 +1,11 @@
 //! flags: -p ssa
 
-// A queue in a block's shared memory (`DeviceShared`): the word is in the
-// language, and the rule it will be checked by is stated -- pushed to and
-// drained inside one iteration of a loop bound to GPUBlock -- but the PTX
-// backend allocates no shared memory for a queue yet, so the check refuses
-// it as unimplemented rather than letting it fall through to global memory
-// (apps/pbrt/PLAN.md).
+// A queue in a block's shared memory (`DeviceShared`) placed at root: shared
+// memory is one block's, so a queue in it is pushed to and drained inside
+// one iteration of a loop bound to GPUBlock, and the queue has to be placed
+// at that loop (`queue(<block loop>, DeviceShared)`). Placed at root its
+// storage is the function's, outside every block, and the check refuses the
+// word (SSA/QueueStorage.h).
 func walk(k : i32, acc : i32) -> i32 {
     if (k <= 0) {
         return acc;

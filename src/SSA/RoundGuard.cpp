@@ -222,6 +222,22 @@ void rewrite_round_guards(FuncMap &funcs, ir::Program &program) {
         const Cfg cfg(*f);
         const DomTree dom = compute_dominator_tree(cfg);
         const LoopForest forest = compute_loop_forest(cfg, dom);
+        // The blocks that run on the device: inside the body of a loop bound
+        // to the GPU. A round loop there -- a queue placed at a loop bound to
+        // GPUBlock and drained by the block's threads in rounds -- reads its
+        // count where it is, a load of the block's own word after the
+        // drain's barrier (CodeGen_PTX); the guard is the host's way of
+        // asking the device, and has no place in a kernel.
+        BlockSet device_blocks;
+        for (const auto &block : f->blocks) {
+            const auto *p = std::get_if<Terminator::ParFor>(&block->terminator.data);
+            if (p == nullptr || !on_gpu(*p) || cfg.find(p->body.name) == NO_BLOCK) {
+                continue;
+            }
+            for (BlockId inside : reachable_from(cfg, cfg.id(p->body.name))) {
+                device_blocks.insert(inside);
+            }
+        }
 
         vector<Candidate> candidates;
         for (const auto &header : f->blocks) {
@@ -276,7 +292,7 @@ void rewrite_round_guards(FuncMap &funcs, ir::Program &program) {
             // the host's view of this count must stay exact.
             const BlockId hid = cfg.find(*header);
             const Loop *loop = hid == NO_BLOCK ? nullptr : forest.find(hid);
-            if (loop == nullptr) {
+            if (loop == nullptr || device_blocks.contains(hid)) {
                 continue;
             }
             bool gpu_drain = false, host_drain = false;

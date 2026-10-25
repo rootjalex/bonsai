@@ -418,6 +418,22 @@ struct CodeGen_LLVM : public ir::Visitor {
     // effects, or its result would exist in one thread only. Checked by the
     // device; nothing to check on a host.
     virtual void check_block_level_call(const std::string &callee) {}
+    // After an effect made under effects_once_guard: where the device puts
+    // the barrier that lets every thread of the block see what the leader
+    // wrote before any of them reads it (CodeGen_PTX). Nothing on a host.
+    virtual void after_once_effect() {}
+    // Whether the code being emitted runs on a device -- the body of a loop
+    // bound to the GPU, as a kernel -- so that an allocation there is the
+    // thread's own or the block's (Allocate::Memory::Shared), and never the
+    // host's residency analysis's business (CodeGen_LLVM_SSA.cpp).
+    virtual bool device_code() const { return false; }
+    // Storage one GPU block shares among its threads (Allocate::Memory::
+    // Shared): `size` elements of `elem_t`, or one value of it when `size`
+    // is undefined, as a pointer the kernel's code dereferences like any
+    // other. Only a device has blocks; CodeGen_PTX allocates it, and a host
+    // refuses.
+    virtual llvm::Value *allocate_shared(llvm::Type *elem_t, const ir::Expr &size,
+                                         const std::string &name);
     llvm::Value *codegen_expr(const ir::Expr &expr);
     std::vector<llvm::Value *> codegen_exprs(const std::vector<ir::Expr> exprs);
     // Generates an expression of void type for its effect alone -- a

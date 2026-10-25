@@ -1,0 +1,104 @@
+type Entry_sums = struct Entry_sums{ k : i32; acc : i32; _slot : i32 }
+type Queue_sums = struct Queue_sums{ count : u32; k : i32[]; acc : i32[]; _slot : i32[] }
+
+func run(out : mut i32[4], n : i32) -> void {
+  parfor p in [0:4:1] {
+    sums!round : mut u32
+    total : mut i32
+    total = 0
+    alloc sums_result : mut i32[n] shared
+    alloc sums_k_0 : mut i32[n] shared
+    alloc sums_acc_0 : mut i32[n] shared
+    alloc sums__slot_0 : mut i32[n] shared
+    alloc sums_k_1 : mut i32[n] shared
+    alloc sums_acc_1 : mut i32[n] shared
+    alloc sums__slot_1 : mut i32[n] shared
+    alloc sums_queue : mut Queue_sums[2] shared
+    let @5 = build<Queue_sums>(0u, sums_k_0, sums_acc_0, sums__slot_0) in
+    sums_queue[0u] = @5
+    let @7 = build<Queue_sums>(0u, sums_k_1, sums_acc_1, sums__slot_1) in
+    sums_queue[1u] = @7
+    parfor s in [0:n:1] {
+      let @0 = p + s in
+      let @10 = build<Entry_sums>(@0, 0, s) in
+      let @41 = atomic_add((&sums_queue[0u].count), 1u) in
+      let @43 = sums_queue[0u].k in
+      @43[@41] = @0
+      let @46 = sums_queue[0u].acc in
+      @46[@41] = 0
+      let @49 = sums_queue[0u]._slot in
+      @49[@41] = s
+      continue
+    }
+    sums!round = 0u
+    while (!(sums_queue[(*sums!round) & 1u].count == 0u)) {
+      let @14 = (*sums!round) & 1u in
+      let @16 = sums_queue[(*sums!round) & 1u].count in
+      let @18 = @14 ^ 1u in
+      sums_queue[@18].count = 0u
+      let @34 = cast<u32>(n) in
+      parfor sums in [0u:@34:1u] {
+        let @19 = (&sums_queue[@18]) in
+        let @37 = (&sums_queue[@14].count) in
+        let @38 = (*@37) in
+        let @39 = sums < @38 in
+        if (@39) {
+          let @23 = sums_queue[@14].k in
+          let @24 = @23[sums] in
+          let @26 = sums_queue[@14].acc in
+          let @27 = @26[sums] in
+          let @29 = sums_queue[@14]._slot in
+          let @30 = @29[sums] in
+          walk(@24, @27, @19, (&sums_result[@30]), @30)
+          continue
+        } else {
+          continue
+        }
+      }
+      let @13 = (*sums!round) + 1u in
+      sums!round = @13
+    }
+    parfor sums_rest in [0:n:1] {
+      let @33 = sums_result[sums_rest] in
+      let @1 = @33 in
+      atomic total += @1
+      continue
+    }
+    let @2 = (*total) in
+    out[p] = @2
+    continue
+  }
+  return
+}
+
+func walk(k : i32, acc : i32, _queue_sums : mut (Queue_sums*), _result_sums : mut (i32*), _slot_sums : i32) -> void {
+  let @0 = k <= 0 in
+  if (@0) {
+    _result_sums = acc
+    return
+  } else {
+    let @1 = k - 1 in
+    let @2 = acc + k in
+    let @4 = build<Entry_sums>(@1, @2, _slot_sums) in
+    let @7 = atomic_add((&(*_queue_sums).count), 1u) in
+    let @9 = (*_queue_sums).k in
+    @9[@7] = @1
+    let @12 = (*_queue_sums).acc in
+    @12[@7] = @2
+    let @15 = (*_queue_sums)._slot in
+    @15[@7] = _slot_sums
+    return
+  }
+}
+
+
+schedule {
+    sums = run.queue(p, DeviceShared);
+    run.defer(walk, sums)
+       .bind(p, GPUBlock)
+       .bind(s, GPUThread)
+       .bind(sums, GPUThread)
+       .bind(sums_rest, GPUThread)
+    walk.defer(walk, sums)
+
+}

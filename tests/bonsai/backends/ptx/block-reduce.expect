@@ -21,7 +21,7 @@ define ptx_kernel void @_kernel_b_0(i32 %_begin, i32 %_stride, i32 %n, ptr nofre
   %ctaid = tail call i32 @llvm.nvvm.read.ptx.sreg.ctaid.x()
   %0 = mul i32 %_stride, %ctaid
   %b = add i32 %0, %_begin
-  tail call void @llvm.nvvm.barrier.cta.sync.aligned.all(i32 0)
+  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
   %tid = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
   %1 = uitofp nneg i32 %tid to float
   %2 = fmul nnan float %1, 5.000000e-01
@@ -84,7 +84,7 @@ define ptx_kernel void @_kernel_b_0(i32 %_begin, i32 %_stride, i32 %n, ptr nofre
   br label %"!par_body_2!done"
 
 "!par_body_2!done":                               ; preds = %"!par_body_2!leader", %reduce_warps_after57
-  tail call void @llvm.nvvm.barrier.cta.sync.aligned.all(i32 0)
+  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
   ret void
 
 if_lane:                                          ; preds = %"!par_body_0"
@@ -98,7 +98,7 @@ if_lane:                                          ; preds = %"!par_body_0"
   br label %if_lane_after
 
 if_lane_after:                                    ; preds = %if_lane, %"!par_body_0"
-  tail call void @llvm.nvvm.barrier.cta.sync.aligned.all(i32 0)
+  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
   %42 = add nsw i32 %nwarps, -1
   %xtraiter = and i32 %nwarps, 7
   %43 = icmp ult i32 %42, 7
@@ -271,7 +271,7 @@ if_lane18:                                        ; preds = %reduce_warps_after
   br label %if_lane_after19
 
 if_lane_after19:                                  ; preds = %if_lane18, %reduce_warps_after
-  tail call void @llvm.nvvm.barrier.cta.sync.aligned.all(i32 0)
+  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
   %xtraiter99 = and i32 %nwarps, 3
   %167 = icmp ult i32 %42, 3
   br i1 %167, label %reduce_warps20.epil.preheader, label %if_lane_after19.new
@@ -414,7 +414,7 @@ if_lane37:                                        ; preds = %reduce_warps_after2
   br label %if_lane_after38
 
 if_lane_after38:                                  ; preds = %if_lane37, %reduce_warps_after21
-  tail call void @llvm.nvvm.barrier.cta.sync.aligned.all(i32 0)
+  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
   %xtraiter108 = and i32 %nwarps, 7
   %256 = icmp ult i32 %42, 7
   br i1 %256, label %reduce_warps39.epil.preheader, label %if_lane_after38.new
@@ -531,7 +531,7 @@ if_lane54:                                        ; preds = %reduce_warps_after4
   br label %if_lane_after55
 
 if_lane_after55:                                  ; preds = %if_lane54, %reduce_warps_after40
-  tail call void @llvm.nvvm.barrier.cta.sync.aligned.all(i32 0)
+  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
   %xtraiter115 = and i32 %nwarps, 7
   %327 = icmp ult i32 %42, 7
   br i1 %327, label %reduce_warps56.epil.preheader, label %if_lane_after55.new
@@ -622,7 +622,7 @@ reduce_warps_after57:                             ; preds = %reduce_warps56.epil
 declare noundef range(i32 0, 2147483647) i32 @llvm.nvvm.read.ptx.sreg.ctaid.x() #1
 
 ; Function Attrs: convergent nocallback nounwind
-declare void @llvm.nvvm.barrier.cta.sync.aligned.all(i32) #2
+declare void @llvm.nvvm.barrier.cta.sync.all(i32) #2
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare noundef range(i32 0, 1024) i32 @llvm.nvvm.read.ptx.sreg.tid.x() #1
@@ -700,7 +700,7 @@ attributes #5 = { nocallback nofree nosync nounwind willreturn memory(inaccessib
 	cvta.to.global.u64 	%rd3, %rd10;
 	mov.u32 	%r22, %ctaid.x;
 	mad.lo.s32 	%r1, %r21, %r22, %r20;
-	bar.sync 	0;
+	barrier.sync 	0;
 	mov.u32 	%r2, %tid.x;
 	cvt.rn.f32.u32 	%r23, %r2;
 	mul.rn.f32 	%r3, %r23, 0f3F000000;
@@ -741,7 +741,7 @@ attributes #5 = { nocallback nofree nosync nounwind willreturn memory(inaccessib
 	st.shared.b32 	[%rd5], %r10;
 $L__BB0_2:
 	cvt.rn.f32.s32 	%r4, %r1;
-	bar.sync 	0;
+	barrier.sync 	0;
 	add.s32 	%r11, %r7, -1;
 	and.b32 	%r219, %r7, 7;
 	setp.lt.u32 	%p12, %r11, 7;
@@ -840,7 +840,7 @@ $L__BB0_8:
 	st.shared.b32 	[%rd15+8], %r100;
 $L__BB0_10:
 	and.b32 	%r24, %r2, 1;
-	bar.sync 	0;
+	barrier.sync 	0;
 	and.b32 	%r209, %r7, 3;
 	setp.lt.u32 	%p27, %r11, 3;
 	mov.b32 	%r210, 0f00000000;
@@ -918,7 +918,7 @@ $L__BB0_16:
 	st.shared.b32 	[%rd6], %r18;
 $L__BB0_18:
 	selp.f32 	%r5, 0f00000000, 0f42C80000, %p4;
-	bar.sync 	0;
+	barrier.sync 	0;
 	mov.b32 	%r216, 0f00000000;
 	mov.b32 	%r214, 0;
 	@%p12 bra 	$L__BB0_22;
@@ -975,7 +975,7 @@ $L__BB0_24:
 	add.rn.f32 	%r19, %r173, %r175;
 	st.shared.b32 	[%rd7], %r19;
 $L__BB0_26:
-	bar.sync 	0;
+	barrier.sync 	0;
 	mov.b32 	%r220, 0f00000000;
 	mov.b32 	%r218, 0;
 	@%p12 bra 	$L__BB0_30;
@@ -1038,7 +1038,7 @@ $L__BB0_32:
 	add.rn.f32 	%r202, %r220, %r201;
 	st.global.b32 	[%rd24], %r202;
 $L__BB0_34:
-	bar.sync 	0;
+	barrier.sync 	0;
 	ret;
 
 }

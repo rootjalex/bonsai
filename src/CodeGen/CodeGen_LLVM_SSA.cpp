@@ -3,6 +3,7 @@
 #include "IR/Operators.h"
 #include "Lower/Random.h"
 #include "SSA/Analysis.h"
+#include "SSA/LaunchValues.h"
 #include "SSA/SSA.h"
 #include "SSA/Storage.h"
 
@@ -546,33 +547,24 @@ struct CodeGen_LLVM::SSALowering {
         return *v;
     }
 
-    // The locals made where every thread of a block runs the same code (see
-    // CodeGen_LLVM::effects_run_once): one per thread, as a thread's locals
-    // are, so a store into one is that thread's own and is not an effect
-    // made once for the block. A thread loop that reads one is refused (see
-    // CodeGen_PTX::emit_bound_parfor), since that would be memory the block
-    // shares.
-    std::set<std::string> thread_private;
+    // For a kernel (run_kernel): the head block of the bound loop's body,
+    // whose arguments are the launch's captures -- what a size the launch
+    // has to know is an expression over (SSA/LaunchValues.h).
+    const Block *kernel_body_head = nullptr;
 
     void emit_instruction(const std::shared_ptr<Instruction> &instr) {
         // Where one thread of many makes the effects, an effect goes under
-        // that thread's guard; everything else is a value every thread
-        // computes for itself, a store into a thread's own local included.
+        // that thread's guard and is followed by what lets the others see
+        // it (CodeGen_LLVM::after_once_effect, the device's barrier);
+        // everything else is a value every thread computes for itself. The
+        // block body's allocations are the block's shared memory
+        // (Allocate::Memory::Shared, below), so a store into one is an
+        // effect the block makes once like any other.
         if (is_effect(instr->op)) {
-            bool own_memory = false;
-            if (instr->op != Instruction::Op::Print) {
-                const Value &base = base_of(instr->operands[0]);
-                const auto *base_instr =
-                    std::get_if<std::shared_ptr<Instruction>>(&base.data);
-                own_memory = base_instr != nullptr &&
-                             thread_private.count((*base_instr)->name) != 0;
-            }
-            if (!own_memory) {
-                if (llvm::Value *guard = cg.effects_once_guard()) {
-                    cg.emit_if(guard,
-                               [&] { emit_instruction_unguarded(instr); });
-                    return;
-                }
+            if (llvm::Value *guard = cg.effects_once_guard()) {
+                cg.emit_if(guard, [&] { emit_instruction_unguarded(instr); });
+                cg.after_once_effect();
+                return;
             }
         }
         emit_instruction_unguarded(instr);
@@ -593,24 +585,21 @@ struct CodeGen_LLVM::SSALowering {
             instr->op == Instruction::Op::Ramp) {
             return;
         }
-        if (cg.effects_run_once()) {
-            if (instr->op == Instruction::Op::Alloca ||
-                instr->op == Instruction::Op::Alloc) {
-                thread_private.insert(instr->name);
-            } else if (instr->op == Instruction::Op::AtomicAdd ||
-                       instr->op == Instruction::Op::Append) {
-                // A value fetched here would exist in the thread that fetched
-                // it only; handing it to the rest is shared memory, which is
-                // how a block's threads hold one thing between them.
-                internal_error
-                    << "[unimplemented] " << op_name(instr->op) << " `"
-                    << instr->name << "` in the body of a loop bound to "
-                    << "GPUBlock, outside its thread loop. A block's threads "
-                    << "all run this code, and what this fetches has to be one "
-                    << "thing the block shares -- shared memory, which the PTX "
-                    << "backend does not allocate yet. Move it into the thread "
-                    << "loop, or out of the block loop.";
-            }
+        if (cg.effects_run_once() && (instr->op == Instruction::Op::AtomicAdd ||
+                                      instr->op == Instruction::Op::Append)) {
+            // A value fetched here would exist in the thread that fetched
+            // it only; handing it to the rest is a store of the leader's
+            // into the block's shared memory and a load by every thread
+            // after the barrier, which is not built: nothing has wanted a
+            // slot claimed at the block level yet.
+            internal_error
+                << "[unimplemented] " << op_name(instr->op) << " `"
+                << instr->name << "` in the body of a loop bound to "
+                << "GPUBlock, outside its thread loops. A block's threads "
+                << "all run this code, and what this fetches would exist in "
+                << "the thread that fetched it only; broadcasting it through "
+                << "the block's shared memory is not built. Move it into a "
+                << "thread loop, or out of the block loop.";
         }
         if (instr->op == Instruction::Op::Print) {
             cg.codegen_stmt(Print::make(operands(*instr)));
@@ -638,21 +627,60 @@ struct CodeGen_LLVM::SSALowering {
                     << "Alloc(a) must have pointer type: " << instr->type;
                 allocated = ptr_t->etype;
             }
-            // On the device when only kernels read or write it (see
-            // CodeGen_LLVM::device_resident), or where the schedule said a
-            // queue's storage lives (Instruction::storage; IR/Storage.h),
-            // which device_resident_allocations has already folded in.
-            const Allocate::Memory memory =
-                instr->storage == ir::Storage::Managed   ? Allocate::Managed
-                : instr->storage == ir::Storage::Heap    ? Allocate::Heap
-                : instr->storage == ir::Storage::Stack   ? Allocate::Stack
-                : cg.device_resident.contains(instr->name) ? Allocate::Device
-                : instr->op == Instruction::Op::Alloca    ? Allocate::Stack
-                                                          : Allocate::Heap;
-            internal_assert(instr->storage != ir::Storage::DeviceShared)
-                << "[unimplemented] " << instr->name
-                << " is a queue in DeviceShared memory: the PTX backend "
-                   "allocates no shared memory yet (apps/pbrt/PLAN.md)";
+            // Where it lives. In a kernel, an allocation made at the block
+            // level -- where every thread of the block runs the same code
+            // (CodeGen_LLVM::effects_run_once) -- is one per block, the
+            // block's shared memory (Allocate::Memory::Shared), whatever
+            // the schedule said or did not say of it: a block is only its
+            // threads, and a copy per thread would be no use to the thread
+            // loop that reads it; one made inside a thread loop is the
+            // thread's, on its stack. On the host, on the device when only
+            // kernels read or write it (see CodeGen_LLVM::device_resident),
+            // or where the schedule said a queue's storage lives
+            // (Instruction::storage; IR/Storage.h), which
+            // device_resident_allocations has already folded in.
+            Allocate::Memory memory;
+            if (cg.device_code()) {
+                memory = cg.effects_run_once() ? Allocate::Shared : Allocate::Stack;
+            } else {
+                memory = instr->storage == ir::Storage::Managed   ? Allocate::Managed
+                         : instr->storage == ir::Storage::Heap    ? Allocate::Heap
+                         : instr->storage == ir::Storage::Stack   ? Allocate::Stack
+                         : cg.device_resident.contains(instr->name) ? Allocate::Device
+                         : instr->op == Instruction::Op::Alloca    ? Allocate::Stack
+                                                                   : Allocate::Heap;
+            }
+            internal_assert(instr->storage != ir::Storage::DeviceShared ||
+                            memory == Allocate::Shared)
+                << instr->name << " (in DeviceShared memory) is placed in a "
+                << "block's shared memory but is made outside every loop bound "
+                << "to GPUBlock (SSA/QueueStorage.h should have refused it)";
+            if (memory == Allocate::Shared) {
+                // The host sets the block's shared memory at the launch, so
+                // a run-time size has to be one the launch can compute: an
+                // expression over what the body captures (SSA/LaunchValues.h),
+                // which the kernel computes its offsets from too
+                // (CodeGen_PTX::allocate_shared).
+                const Array_t *array = allocated.as<Array_t>();
+                if (array != nullptr && !is_const(array->size)) {
+                    internal_assert(kernel_body_head != nullptr)
+                        << instr->name << ": a shared allocation outside a kernel";
+                    const std::shared_ptr<Block> home = instr->owner.lock();
+                    internal_assert(home) << instr->name << " outlived its block";
+                    std::string why;
+                    const std::optional<Expr> launch = ir::ssa::launch_value(
+                        func, *kernel_body_head, home->name, array->size, &why);
+                    internal_assert(launch.has_value())
+                        << "[unimplemented] `" << instr->name << "` is an "
+                        << "allocation of the block loop's body, so it is the "
+                        << "block's shared memory, and its size (" << array->size
+                        << ") is " << why << ". The host sets a block's shared "
+                        << "memory at the launch, so the size has to be a function "
+                        << "of what the block loop's body captures: compute it "
+                        << "outside the block loop.";
+                    allocated = Array_t::make(array->etype, *launch);
+                }
+            }
             internal_assert(!instr->storage.has_value() ||
                             !ir::is_extern(*instr->storage))
                 << instr->name << " is Extern storage that was not made a "
@@ -1297,6 +1325,7 @@ struct CodeGen_LLVM::SSALowering {
         // other launches.
         kernel_defs = ir::ssa::instruction_names(func);
         launch_writes = ir::ssa::kernel_writes(func, p.body.name);
+        kernel_body_head = by_name.at(p.body.name);
         if (std::getenv("BONSAI_EXPLAIN_DEVICE") != nullptr) {
             std::cerr << "kernel over " << p.index << ": writes";
             if (launch_writes->unknown) {

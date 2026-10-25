@@ -464,7 +464,6 @@ CodeGen_PTX::Kernel CodeGen_OptiX::add_raygen(const ir::ssa::Function &host,
         << "an OptiX module holds one raygen program; make another module";
     Kernel kernel;
     kernel.name = symbol_name("__raygen__" + loop.index);
-    kernel.thread_loop = nullptr;
 
     const Block *body_head = nullptr;
     for (const auto &block : host.blocks) {

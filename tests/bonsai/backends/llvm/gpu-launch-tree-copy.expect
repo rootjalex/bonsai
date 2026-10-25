@@ -94,7 +94,7 @@ run:
   store ptr %sums_queue38, ptr %13, align 8
   %14 = getelementptr inbounds nuw i8, ptr %_launch_params, i64 48
   store ptr %13, ptr %14, align 16
-  call void @bonsai_cuda_launch(ptr nonnull @_bonsai_ptx_text, ptr nonnull @_kernel_name, i64 1, i64 8, ptr nonnull %_launch_params, i64 7, ptr null, i64 0)
+  call void @bonsai_cuda_launch(ptr nonnull @_bonsai_ptx_text, ptr nonnull @_kernel_name, i64 1, i64 8, ptr nonnull %_launch_params, i64 7, ptr null, i64 0, i64 0)
   %15 = call i32 @bonsai_cuda_round_guard(i32 0, ptr %sums_queue38)
   %16 = icmp eq i32 %15, 0
   br i1 %16, label %sums_rest, label %"sums!batch.lr.ph"
@@ -133,7 +133,7 @@ sums_rest:                                        ; preds = %"sums!batch", %run
   store ptr %device73, ptr %33, align 16
   %34 = getelementptr inbounds nuw i8, ptr %_launch_params72, i64 24
   store ptr %33, ptr %34, align 8
-  call void @bonsai_cuda_launch(ptr nonnull @_bonsai_ptx_text, ptr nonnull @_kernel_name.2, i64 1, i64 8, ptr nonnull %_launch_params72, i64 4, ptr null, i64 0)
+  call void @bonsai_cuda_launch(ptr nonnull @_bonsai_ptx_text, ptr nonnull @_kernel_name.2, i64 1, i64 8, ptr nonnull %_launch_params72, i64 4, ptr null, i64 0, i64 0)
   call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 2)
   call void @bonsai_cuda_synchronize()
   call void @bonsai_cuda_free(ptr %sums_result37)
@@ -176,7 +176,7 @@ sums_rest:                                        ; preds = %"sums!batch", %run
   store ptr %sums_result37, ptr %26, align 16
   store ptr %ptr_array_deref99, ptr %28, align 8
   store <4 x ptr> %27, ptr %24, align 8
-  call void @bonsai_cuda_launch(ptr nonnull @_bonsai_ptx_text, ptr nonnull @_kernel_name.1, i64 1, i64 8, ptr nonnull %_launch_params55, i64 9, ptr null, i64 0)
+  call void @bonsai_cuda_launch(ptr nonnull @_bonsai_ptx_text, ptr nonnull @_kernel_name.1, i64 1, i64 8, ptr nonnull %_launch_params55, i64 9, ptr null, i64 0, i64 0)
   %37 = add i32 %"sums!round398", 1
   %38 = and i32 %37, 1
   %_wide = zext nneg i32 %38 to i64
@@ -194,7 +194,7 @@ declare ptr @bonsai_cuda_malloc(i64) local_unnamed_addr
 
 declare void @bonsai_cuda_store_async(ptr, ptr, i64) local_unnamed_addr
 
-declare void @bonsai_cuda_launch(ptr, ptr, i64, i64, ptr, i64, ptr, i64) local_unnamed_addr
+declare void @bonsai_cuda_launch(ptr, ptr, i64, i64, ptr, i64, ptr, i64, i64) local_unnamed_addr
 
 declare void @bonsai_cuda_store_word_async(ptr, i32) local_unnamed_addr
 
