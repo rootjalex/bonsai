@@ -4838,6 +4838,15 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     // Read from PBRT rather than written down, so that scene_dump's flag and
     // the reference render below cannot mean different things by it.
     out.disable_pixel_jitter = pbrt::Options->disablePixelJitter ? 1u : 0u;
+    // PBRT has three films: `rgb`, `gbuffer` (the same pixels plus the
+    // visible surface's channels) and `spectral` (the wavelengths binned,
+    // SpectralFilm). This renderer writes the first two; a `spectral` film
+    // used to fall through here as an rgb one and render without a word,
+    // which is the failure this program exists to refuse (the user, 10-24).
+    if (builder.film_type != "rgb" && builder.film_type != "gbuffer") {
+        fail("this renderer writes the `rgb` and `gbuffer` films, and the "
+             "scene asks for a `" + builder.film_type + "` film");
+    }
     // PBRT: Film::UsesVisibleSurface(), which only GBufferFilm answers yes to.
     out.film_visible_surface = builder.film_type == "gbuffer" ? 1u : 0u;
 

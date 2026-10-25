@@ -16889,3 +16889,64 @@ and without the sort (256 / 128 pixels), which the sort's growth with spp
 points at even more sharply now; the paper's CPU figure is redrawn from
 the two CSVs (plots/cpu-wavefront-speedups.pdf), and REPORT's 10-23
 14:00 entry is superseded by today's.
+
+## Feature gaps against pbrt --gpu, and the scene set reconverted (10-24)
+
+The user asked whether the renderer is feature-complete with pbrt's GPU
+renderer and whether it is spectral as pbrt is. It is spectral (four
+wavelengths a ray, SampleVisible, the sigmoid RGB-to-spectrum tables,
+TerminateSecondary at a dispersive interface, the sensor to RGB), and
+scene_dump's refusals, read against pbrt-v4's wavefront sources, leave
+these gaps where `pbrt --gpu` accepts and this renderer refuses:
+
+- cameras: `perspective` only (pbrt's GPU also runs `orthographic`,
+  `spherical`, `realistic`);
+- the pixel filter: `gaussian` only (`box`, `triangle`, `mitchell`, `sinc`);
+- lights: no `goniometric` or `projection`; no `infinite` with an
+  `illuminance`; no area light with an image or a `power`; no bilinear
+  patch with an `emissionfilename`;
+- light samplers: `bvh` and `uniform` (`power`, `exhaustive`);
+- textures: no `checkerboard`, `dots`, `bilerp`; the image filter
+  `bilinear` only; a texture graph read three composites deep; `ptex`,
+  which pbrt's GPU refuses as well;
+- a subsurface material's `sigma_a`, `sigma_s`, `reflectance` and a hair
+  material's `sigma_a` given as textures;
+- lights and media placed through a named coordinate system; a shutter
+  other than [0, 1]. Moving geometry is not a gap: pbrt's GPU warns and
+  ignores animated shapes, and killeroo-moving converts here.
+
+One gap was silent: `Film "spectral"` was not refused -- the film type
+was only tested for `gbuffer`, so a spectral film rendered as an rgb one
+without a word. scene_dump now refuses any film but `rgb` and `gbuffer`
+(tried on a killeroo-simple with its Film changed: refused by name).
+
+**Which gaps the scene set can test.** The converter run over the 29
+top-level scenes of ~/projects/pbrt-v4-scenes that were not yet in
+scenes/converted (the variants that share a converted sibling's geometry,
+materials and lights -- kroken's and watercolor's other cameras, the
+landscape views, the zero-day and transparent-machines frames, bistro's
+variants -- were not rerun): **25 convert** -- all eleven hair scenes
+(4 to 13 s each), bunny-fur, dragon_50 and dragon_250,
+lte-orb-blue-agat-spec, sportscar-area-lights, sanmiguel's six other
+views, dambreak1, watercolor camera-8 (which crashed the converter on
+09-26 and converts in 39 s now). Four refuse, and these are the only gaps
+the set exercises:
+
+- sanmiguel-realistic-courtyard: the `realistic` camera;
+- probes/alpha_gradient_d1: the `orthographic` camera;
+- pavilion-night (`bdpt`) and contemporary-bathroom (`sppm`): integrators
+  pbrt's GPU cannot run either; `pbrt --gpu` swaps in its wavefront
+  volpath for them, so a `--integrator volpath` override in scene_dump
+  would make the two comparable on equal terms.
+
+(probes/manylights_grid.pbrt is an include file, not a scene: pbrt's own
+parser rejects it outside a world block.) Every other gap above --
+filters, the two light kinds, the two light samplers, the three
+textures, the spectral film, the texture-valued subsurface and hair
+parameters -- has no scene in the set, and would need a scene written
+for it. The 25 newly converted scenes have been converted only; none has
+been rendered against `pbrt --gpu` yet, and the hair set in particular
+(curves and the hair material, built 10-04) is the untested part of the
+renderer's feature claim. The scene_dump change moves the conversion
+stamp, so every scene in scenes/converted is reconverted on its next use
+(37 GB over the heatmap's list, kroken the slowest at about four minutes).
