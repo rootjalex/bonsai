@@ -16,6 +16,25 @@
 // binary tree (apps/wosx/compare.sh, the schedules named fcpwb*); the
 // Sphere forms are the query as FCPW asks it, a center and a squared
 // radius, with a box or a triangle past the radius an infinite key.
+//
+// Eigen's two reductions of a 3-vector, as the build FCPW ships compiles
+// them (clang, -ffp-contract=fast; measured, apps/wosx/scratch/wost/
+// eigen_order2_main.cpp, each form the one of four that agrees on every one
+// of 300000 random inputs): `a.dot(b)` is `(p0 + p1) + p2` with the newer
+// product fused at each step, `fma(a.z, b.z, fma(a.y, b.y, a.x * b.x))`;
+// `squaredNorm()` -- and `norm()`, its square root, and the box distances
+// `d2Min`/`d2Max` -- is `p0 + (p1 + p2)` with the left product fused,
+// `fma(v.x, v.x, fma(v.y, v.y, v.z * v.z))`. The `dot` intrinsic fuses
+// `(p0 + p1) + p2` the other way round, and the last bit between any two of
+// these decides whether a point on the sphere passes `d * d <= r2` on one
+// side and not the other, which the probe showed as ties at the radius.
+// Written with `fma` outright so that the metric is FCPW's whether or not
+// the program is compiled with --ffp-contract. (The GPU's `dot` is the
+// hardware's, in neither order; the GPU comparisons are within a
+// tolerance.) `cross` and `sqrt(a * a + b * b)` fuse their left products
+// on both sides and are written plainly.
+func dot_eigen(a : vec3f, b : vec3f) -> Float = fma(a.z, b.z, fma(a.y, b.y, a.x * b.x));
+func sqnorm_eigen(v : vec3f) -> Float = fma(v.x, v.x, fma(v.y, v.y, v.z * v.z));
 
 element FInterval {
     low, high : Float;
@@ -84,22 +103,22 @@ func intersectsp_ray_tri(r : Ray, tri : Triangle) -> option[TriangleHit] {
     v1 = -tri.e1;
     v2 = tri.e2;
     p = cross(r.d, v2);
-    det = dot(v1, p);
+    det = dot_eigen(v1, p);
     if !(abs(det) > epsilon) {
         return {};
     }
     invDet = 1.0 / det;
     s = r.o - tri.v0;
-    v = dot(s, p) * invDet;
+    v = dot_eigen(s, p) * invDet;
     if !(v >= 0.0 && v <= 1.0) {
         return {};
     }
     q = cross(s, v1);
-    w = dot(r.d, q) * invDet;
+    w = dot_eigen(r.d, q) * invDet;
     if !(w >= 0.0 && v + w <= 1.0) {
         return {};
     }
-    d = dot(v2, q) * invDet;
+    d = dot_eigen(v2, q) * invDet;
     if !(d >= 0.0 && d <= r.tfar) {
         return {};
     }
@@ -136,14 +155,14 @@ func distmin(q : Point, b : AABB) -> Float {
     u = b.low - q.p;
     v = q.p - b.high;
     m = max(max(u, v), 0.0);
-    return dot(m, m);
+    return sqnorm_eigen(m);
 }
 
 func distmax(q : Point, b : AABB) -> Float {
     u = b.low - q.p;
     v = q.p - b.high;
     m = min(u, v);
-    return dot(m, m);
+    return sqnorm_eigen(m);
 }
 
 // FCPW: the same query asked with a BoundingSphere -- `overlap(s, d2Min,
@@ -181,22 +200,22 @@ func closest_point_fcpw(q : Point, tri : Triangle) -> ClosestPoint {
     ab = -tri.e1;
     ac = tri.e2;
     ax = q.p - pa;
-    d1 = dot(ab, ax);
-    d2 = dot(ac, ax);
+    d1 = dot_eigen(ab, ax);
+    d2 = dot_eigen(ac, ax);
     if d1 <= 0.0 && d2 <= 0.0 {
         return ClosestPoint{pa, 1.0, 0.0};
     }
     pb = pa + ab;
     bx = q.p - pb;
-    d3 = dot(ab, bx);
-    d4 = dot(ac, bx);
+    d3 = dot_eigen(ab, bx);
+    d4 = dot_eigen(ac, bx);
     if d3 >= 0.0 && d4 <= d3 {
         return ClosestPoint{pb, 0.0, 1.0};
     }
     pc = pa + ac;
     cx = q.p - pc;
-    d5 = dot(ab, cx);
-    d6 = dot(ac, cx);
+    d5 = dot_eigen(ab, cx);
+    d6 = dot_eigen(ac, cx);
     if d6 >= 0.0 && d5 <= d6 {
         return ClosestPoint{pc, 0.0, 0.0};
     }
@@ -224,7 +243,7 @@ func closest_point_fcpw(q : Point, tri : Triangle) -> ClosestPoint {
 func distmin(q : Point, tri : Triangle) -> Float {
     cp = closest_point_fcpw(q, tri);
     diff = q.p - cp.p;
-    d = sqrt(dot(diff, diff));
+    d = sqrt(sqnorm_eigen(diff));
     return d * d;
 }
 
@@ -256,7 +275,7 @@ func hit_record(r : Ray, tri : Triangle) -> Hit {
         v2 = tri.e2;
         p = tri.v0 + v1 * e.u + v2 * e.v;
         ng = cross(v1, v2);
-        n = ng * (1.0 / sqrt(dot(ng, ng)));
+        n = ng / sqrt(dot_eigen(ng, ng));
         return Hit{tri.primID, e.t, p, n, 1.0 - e.u - e.v, e.u};
     }
     return no_hit();
@@ -279,7 +298,7 @@ element ClosestHit {
 func closest_record(q : Point, tri : Triangle) -> ClosestHit {
     cp = closest_point_fcpw(q, tri);
     diff = q.p - cp.p;
-    return ClosestHit{tri.primID, sqrt(dot(diff, diff)), cp.p, cp.u, cp.v};
+    return ClosestHit{tri.primID, sqrt(sqnorm_eigen(diff)), cp.p, cp.u, cp.v};
 }
 
 func no_closest() -> ClosestHit = ClosestHit{4294967295u, inf, vec3f{0.0, 0.0, 0.0}, 0.0, 0.0};

@@ -85,7 +85,10 @@ extern silhouettes : set[Edge];
 func half_pi() -> Float = 1.5707963267948966;
 func flt_epsilon() -> Float = 1.1920928955078125e-07;
 func in_range(v : Float, lo : Float, hi : Float) -> bool = v >= lo && v <= hi;
-func vlen(v : vec3f) -> Float = sqrt(dot(v, v));
+// Eigen's `norm()`, over the metric file's `sqnorm_eigen` (its order of
+// summation, which the CPU comparison matches to the bit; the dot products
+// here are Eigen's `dot`, the other order, `dot_eigen`).
+func vlen(v : vec3f) -> Float = sqrt(sqnorm_eigen(v));
 func unit(v : vec3f) -> vec3f = v / vlen(v);
 func abs3(v : vec3f) -> vec3f = vec3f{abs(v.x), abs(v.y), abs(v.z)};
 
@@ -98,8 +101,8 @@ func project_to_plane(n : vec3f, e : vec3f) -> Float {
     b = n.x * n.y * a;
     b1 = vec3f{1.0 + sign * n.x * n.x * a, sign * b, -sign * n.x};
     b2 = vec3f{b, sign + n.y * n.y * a, -n.y};
-    r1 = dot(e, abs3(b1));
-    r2 = dot(e, abs3(b2));
+    r1 = dot_eigen(e, abs3(b1));
+    r2 = dot_eigen(e, abs3(b2));
     return sqrt(r1 * r1 + r2 * r2);
 }
 
@@ -118,7 +121,7 @@ func cone_overlaps(o : vec3f, b : ConeBox, d2min : Float) -> bool {
     view = c - o;
     l = vlen(view);
     view_axis = view / l;
-    d_axis = acos(max(-1.0, min(1.0, dot(b.axis, view_axis))));
+    d_axis = acos(max(-1.0, min(1.0, dot_eigen(b.axis, view_axis))));
     if in_range(half_pi(), d_axis - b.half_angle, d_axis + b.half_angle) {
         return true;
     }
@@ -128,7 +131,7 @@ func cone_overlaps(o : vec3f, b : ConeBox, d2min : Float) -> bool {
         return angles >= half_pi() || in_range(half_pi(), d_axis - angles, d_axis + angles);
     }
     e = b.high - c;
-    d = dot(e, abs3(view_axis));
+    d = dot_eigen(e, abs3(view_axis));
     s = l - d;
     if s <= 0.0 {
         return true;
@@ -156,11 +159,11 @@ func distmax(q : StarQuery, b : ConeBox) -> Float = inf;
 func closest_point_segment(pa : vec3f, pb : vec3f, x : vec3f) -> SegmentPoint {
     u = pb - pa;
     v = x - pa;
-    c1 = dot(u, v);
+    c1 = dot_eigen(u, v);
     if c1 <= 0.0 {
         return SegmentPoint{pa, vlen(x - pa)};
     }
-    c2 = dot(u, u);
+    c2 = dot_eigen(u, u);
     if c2 <= c1 {
         return SegmentPoint{pb, vlen(x - pb)};
     }
@@ -178,12 +181,12 @@ func is_silhouette_edge(e : Edge, view : vec3f, d : Float, flip : u32, precision
     sign = select(flip != 0u, 1.0, -1.0);
     if d <= precision {
         edge_dir = unit(e.pb - e.pa);
-        angle = atan2(dot(edge_dir, cross(e.n0, e.n1)), dot(e.n0, e.n1));
+        angle = atan2(dot_eigen(edge_dir, cross(e.n0, e.n1)), dot_eigen(e.n0, e.n1));
         return sign * angle > precision;
     }
     vu = view / d;
-    dot0 = dot(vu, e.n0);
-    dot1 = dot(vu, e.n1);
+    dot0 = dot_eigen(vu, e.n0);
+    dot1 = dot_eigen(vu, e.n1);
     if abs(dot0) <= precision {
         return sign * dot1 > precision;
     }

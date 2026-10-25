@@ -1606,6 +1606,104 @@ beyond the radius" select as mask compares and blends. Those are codegen
 of `vec3f` arithmetic and the program's own tests, no longer the sort's
 or the loop's.
 
+### The silhouette query read against FCPW's, and Eigen's two sums (2026-10-25, afternoon)
+
+The user asked how FCPW's silhouette traversal can return early, whether
+the two sides perform the same query, and whether our code for it is
+better or worse. Read side by side (bvh.inl,
+processSubtreeForClosestSilhouettePoint and SilhouetteEdge::
+findClosestSilhouettePoint; our `closest_silhouette` as the SSA and the
+LLVM of `wost-fcpwb` come out), with `r2` FCPW's running bound (the query
+radius squared, shrunk to each silhouette found), `min_r2` WoSX's
+reflecting shell squared, `R2` the query radius squared as our program
+keeps it and `best` our argmin's running key (infinite to start):
+
+    FCPW                                        ours
+    pop (node, d2); skip if d2 > r2             pop (node, d2); skip unless d2 < best
+    leaf, per edge:                             leaf, per edge:
+      skip if edge is the current best
+      return false if min_r2 >= r2        (A)
+      d = distance(x, edge)                       d = distance(x, edge)
+      skip if d*d > r2                    (B)     skip if d*d > R2
+      skip unless one_face || silhouette          skip unless one_face || silhouette
+      best = edge; r2 = min(r2, d*d)              if d*d < best: best = edge, d*d
+      break if min_r2 >= r2               (A)
+    child k: valid && box_d2 <= r2 && cone (C)  child k: valid && box_d2 <= R2 && cone && box_d2 < best
+    push the far hit, enter the near            push the far hit, enter the near
+
+The same answer, not the same search. (A) is unsafe as a closest-point
+query -- it stops with whatever silhouette lies within the shell, and a
+closer one may exist -- and is safe only because WoSX clamps the result to
+`max(d, minRadius)` afterwards, so every silhouette inside the shell gives
+the same radius; our argmin is exact and `star_radius` applies the same
+clamp, so the star radii agree (the probe below: zero star-radius
+mismatches at every point). FCPW's GPU kernel has the same two shell
+exits (bvh.slang lines 509 and 563). (B) and (C) are the running bound
+tested before the orientation test and before the cone test in FCPW,
+after them here: the filter's predicate is the program's `intersects` and
+the lowering appends its own `&& distmin < best` to it, evaluated left to
+right; the running best is not the program's to name, so the author cannot
+write FCPW's order, and the lowering has no semantic grounds to reorder
+conjuncts (the user's ruling: no such heuristic). Where no silhouette is
+found, most queries, `best` stays infinite and the two orders make the
+same tests with the same outcomes. The metric floor `max(d*d, min_r2)`
+would express (A)'s effect on the node gate and the per-edge test, not
+the `break`, and is not to be made until the isolated benchmarks say
+better or worse.
+
+The generated code: each child's box distance once (the SSA's second
+`distmin` call, from the fused improvement test, is merged by LLVM; the
+`.ll` shows one `fcmp` against `best` on the value already computed), the
+edge row one contiguous 56-byte read, the two unrolled child tests
+straight-line, `acos`/`asin`/`atan2` as the same libm calls. FCPW's per-
+edge test reaches the edge through `silhouetteRefs` and a virtual call,
+reads both endpoints through the soup's index arrays, and recomputes both
+face normals from the soup on every test (`SilhouetteEdge::normal`: three
+position loads, two subtractions, a cross product and a normalization
+each); ours reads `n0` and `n1` from the row. That is why the pavilion
+profile had our silhouette query at less time than WoSX's despite (B) and
+(C) -- about 24 s against 29 s of the 44 s run, from perf samples with
+libm split evenly -- and the closest point (12 s against 8 s) and the ray
+cast (6 s against 4 s) on the same binary trees at more. Those are sample
+attributions; the isolated apps/rtq benchmarks on FCPW's scalar binary
+trees, CPU and GPU, are what settles it (the plan below).
+
+Eigen's arithmetic, measured rather than read (apps/wosx/scratch/wost/
+eigen_order2_main.cpp, each FCPW expression as FCPW writes it, built with
+its flags, against the four fused forms of a three-term sum, 300000 random
+inputs): `a.dot(b)` is `(p0 + p1) + p2` with the newer product fused at
+each step, `fma(a.z, b.z, fma(a.y, b.y, a.x * b.x))`; `squaredNorm()`,
+`norm()`, the box distances `d2Min`/`d2Max` are `p0 + (p1 + p2)` with the
+left product fused, `fma(v.x, v.x, fma(v.y, v.y, v.z * v.z))`; `cross` and
+`sqrt(r1*r1 + r2*r2)` fuse their left products, as our contraction does.
+The `dot` intrinsic fused `(p0 + p1) + p2` the other way round -- Redux.h's
+halving unroller, read first, said `p0 + (p1 + p2)` for both, and was
+wrong for `dot`. metrics/fcpw_scalar.bonsai now has `dot_eigen` and
+`sqnorm_eigen`, written as `fma` chains so that they are FCPW's whether or
+not the program is compiled with --ffp-contract, used at every dot product
+and norm of the triangle tests and the box distances; stars.bonsai's dot
+products and `vlen` likewise. The probe (scratch/wost/probe.sh, the three
+queries against FCPW's through WoSX's at the sample points and three steps
+on): the comb, 569 points, had 5-9 silhouette mismatches a step, every one
+an edge at exactly the radius (the cut's edges lie on the absorbing
+boundary, so `d*d <= r2` is a tie decided by the last bit) and the star
+radii equal; now 0 at every step, and 0 on the whale (99648 triangles,
+1153 points, three steps) too. Two artifacts of the probe fixed on the
+way: it asked the silhouette query where the shell already reached the
+radius, which FCPW answers with nothing (`squaredMinRadius >= s.r2`) and
+`star_radius` does not ask; and two answers under the shell count as
+agreement, since FCPW stops at the first (A).
+
+Not matched, by design: the hit record's unit normal. Eigen's
+`normalized()` inside `Triangle::intersect` is vectorized by clang's SLP
+pass (two squares packed, an unfused add, one fused multiply-add), which
+no scalar form reproduces; the normal is a record field, reported by
+apps/rtq's deviation column, never a key or a test. A compiler bug found
+on the way, to fix when the compiler is unfrozen (bonsai-f9's run), with a
+test: `if c && cond` with `c` an option fails in `try_match_types`
+(src/IR/Expr.cpp:317, "bool versus bool"): the option's truth cast and a
+comparison carry bool types that do not compare equal.
+
 ### Next
 
 - The other binary-tree schedules measured again with the unrolled visit

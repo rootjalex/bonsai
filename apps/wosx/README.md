@@ -421,8 +421,11 @@ in question (PLAN.md, the persistent schedule).
   (`compare.sh --schedule fcpwb,fcpwb-packet`), so WoSX's side runs as it
   ships, and compiles the program over `apps/rtq/metrics/fcpw_scalar.bonsai`,
   the scalar build's arithmetic (true divisions, FCPW's GPU kernels'
-  too), where the `fcpw4w16*` schedules take `metrics/fcpw.bonsai`, the
-  vectorized build's.
+  too; Eigen's two reduction orders, `dot` summing `(p0 + p1) + p2` with
+  the newer product fused and `squaredNorm` summing `p0 + (p1 + p2)` with
+  the left one fused, written as `fma` chains so that every key and every
+  test against the radius is FCPW's to the bit), where the `fcpw4w16*`
+  schedules take `metrics/fcpw.bonsai`, the vectorized build's.
   `schedules/fcpwb-gpu.bonsai`: the schedule matching WoSX's GPU solver
   (above), and its variants `fcpwb-gpu-parallel` (every walk a thread of one
   launch, no persistent workers), `fcpwb-gpu-reorder` (the walks fastest: a
