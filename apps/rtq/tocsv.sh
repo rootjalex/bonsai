@@ -22,8 +22,10 @@
 #   nodes,leaves,query,rays,side,count,reference_rate,bonsai_rate,speedup,
 #   same,ties,differ,reference_found,bonsai_found,callbacks_per_query,units
 #
-# query is nearest|any|closest (the driver's intersect|occluded|closest);
-# rays is primary|ao|diffuse|near|volume. The CSV is written whole from the
+# query is nearest|any|closest|silhouette (the driver's intersect|occluded|
+# closest|silhouette); rays is primary|ao|diffuse|near|volume; reference is
+# embree, fcpw or fcpw-gpu (the schedules named -gpu, against FCPW's
+# GPUScene). The CSV is written whole from the
 # logs given; with --keep, the rows of an earlier CSV whose cell (reference,
 # schedule, width, mesh, query, rays) was not measured this time are carried
 # over with their own date and commit, so one file holds every cell once.
@@ -59,26 +61,43 @@ for log in "${LOGS[@]}"; do
   if [[ "$name" =~ \.s([0-9]+)(\.|$) ]]; then side="${BASH_REMATCH[1]}"; fi
   awk -v date="$DATE" -v commit="$COMMIT" -v machine="$MACHINE" -v repeats="$REPEATS" \
       -v mesh="$mesh" -v side_given="$side" '
+    # The width of the tree (no apostrophes in these comments: the awk
+    # program is a single-quoted string): the binary trees of FCPW (fcpwb,
+    # fcpws, and their -gpu forms) 2, its Mbvh its branching, Embree eight
+    # or four.
     function width_of(s) {
+      if (s ~ /^fcpw[bs](-gpu)?$/) return 2
       if (s ~ /^fcpw/) { sub(/^fcpw/, "", s); sub(/w.*$/, "", s); return s }
       if (s ~ /^packet/) return 8
       if (s ~ /4$/) return 4
       return 8
     }
+    # The reference: the GPU of FCPW for a schedule named -gpu, FCPW for
+    # the other fcpw schedules, Embree otherwise.
+    function reference_of(s) {
+      if (s ~ /-gpu$/) return "fcpw-gpu"
+      if (s ~ /^fcpw/) return "fcpw"
+      return "embree"
+    }
     /^pinned to cpu / { cpu = $4; sub(/,$/, "", cpu) }
-    /^=== schedule / { schedule = $3; reference = (schedule ~ /^fcpw/) ? "fcpw" : "embree"; width = width_of(schedule); pside = ""; next }
+    /^=== schedule / { schedule = $3; reference = reference_of(schedule); width = width_of(schedule); pside = ""; next }
     /^ +[0-9]+ triangles,/ { triangles = $1; next }
     /^tree: / {
-      nodes = $2
+      # The node count: the first number before "nodes" or "node rows"
+      # ("tree: 12345 nodes ...", Embree; "tree: FCPW scalar BVH, 12345
+      # binary nodes ..."; "tree: 12345 node rows of 4 ..."); the leaf
+      # count the number before "leaves" or "of them leaves".
+      nodes = ""
       for (i = 1; i <= NF; i++) {
+        if (nodes == "" && $i ~ /^[0-9]+$/ && ($(i+1) ~ /^node/ || ($(i+1) == "binary" && $(i+2) ~ /^node/))) nodes = $i
         if ($(i+1) == "leaves" && $i ~ /^[0-9]+$/) leaves = $i
         if ($(i+1) == "of" && $(i+2) == "them" && $(i+3) == "leaves") leaves = $i
       }
       next
     }
-    /^(primary|ao|diffuse|near|volume) +(intersect|occluded|closest) / {
+    /^(primary|ao|diffuse|near|volume) +(intersect|occluded|closest|silhouette) / {
       rays = $1; q = $2; count = $3; ref = $4; ours = $5; sp = $6; sub(/x$/, "", sp)
-      query = (q == "intersect") ? "nearest" : (q == "occluded") ? "any" : "closest"
+      query = (q == "intersect") ? "nearest" : (q == "occluded") ? "any" : (q == "silhouette") ? "silhouette" : "closest"
       same = ""; ties = ""; differ = ""; rfound = ""; bfound = ""; cbq = ""
       rest = $0; sub(/^[^ ]+ +[^ ]+ +[^ ]+ +[^ ]+ +[^ ]+ +[^ ]+x +/, "", rest)
       n = split(rest, parts, /[ ,;()]+/)
@@ -94,7 +113,7 @@ for log in "${LOGS[@]}"; do
       if (q == "occluded") ties = 0
       if (rays == "primary") pside = int(sqrt(count) + 0.5)
       side = (side_given != "") ? side_given : pside
-      units = (q == "closest") ? "Mqueries/s" : "Mrays/s"
+      units = (q == "closest" || q == "silhouette") ? "Mqueries/s" : "Mrays/s"
       printf "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
         date, commit, machine, cpu, repeats, reference, schedule, width, mesh, triangles, nodes, leaves,
         query, rays, side, count, ref, ours, sp, same, ties, differ, rfound, bfound, cbq, units

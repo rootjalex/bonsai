@@ -14,7 +14,10 @@
 # schedule` section of the same runs; a packet schedule, packet16, runs its
 # own sections -- the two ray queries only, against Embree's rtcIntersect16
 # and rtcOccluded16, which compare.sh asks of the driver by the schedule's
-# name -- since Embree has no packet point query), --meshes (default the thirteen, in
+# name -- since Embree has no packet point query; the schedules over FCPW's
+# scalar trees, fcpwb and fcpws, run their own section against FCPW built
+# scalar, and the GPU schedules, fcpwb-gpu and fcpws-gpu, theirs against
+# FCPW's GPUScene: `--schedules fcpwb,fcpws,fcpwb-gpu,fcpws-gpu`), --meshes (default the thirteen, in
 # order of triangle count), --out DIR for the logs (default
 # apps/rtq/results/logs), --repeats (default 5, each number the least of
 # them after a warm-up), --rays-side / --points-side / --fcpw-side (2048 /
@@ -30,9 +33,12 @@
 # otherwise); RTQ_CPUS the core to pin to (compare.sh's rule otherwise).
 #
 # What a run does. Before each mesh the machine is checked idle -- nothing
-# but this at over half a core -- and a busy machine is waited for, up to
-# ten minutes, then the run stops and says so: it never measures beside
-# another load. `touch <out>/PAUSE` holds it at the next mesh boundary until
+# but this at over half a core, no other process on the GPU, and no other
+# benchmark's claim in /tmp/benchmark.lock (the sessions' convention: one
+# line naming the holder, written while a measurement runs; this script
+# writes its own while it measures and removes it when done) -- and a busy
+# machine is waited for, up to ten minutes, then the run stops and says so:
+# it never measures beside another load. `touch <out>/PAUSE` holds it at the next mesh boundary until
 # the file goes. Each cell's log is written as `<log>.partial` and renamed
 # when complete, so a log that exists is a complete run and a stopped sweep
 # resumes with the same command (--fresh clears them first). The logs are
@@ -100,8 +106,21 @@ mesh_path() {
 }
 
 # Anything but this run's own processes and the sessions' shells at over
-# half a core means someone else is measuring or compiling.
+# half a core means someone else is measuring or compiling; so does a
+# process on the GPU (the GPU cells share the card with the other sessions'
+# GPU runs), and so does another benchmark's claim in the lock file.
+LOCK=/tmp/benchmark.lock
+OWN_LOCK=0
 machine_busy() {
+  if [[ -e "$LOCK" && "$OWN_LOCK" -eq 0 ]]; then
+    echo "  $LOCK is held: $(cat "$LOCK" 2>/dev/null)"
+    return 0
+  fi
+  if command -v nvidia-smi >/dev/null 2>&1 &&
+     [[ -n "$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null)" ]]; then
+    echo "  a process is on the GPU: $(nvidia-smi --query-compute-apps=pid,process_name --format=csv,noheader 2>/dev/null | head -2 | tr '\n' ';')"
+    return 0
+  fi
   ps -eo pid,pcpu,comm --no-headers | awk '
     $2 > 50 && $3 !~ /^(claude|node|tmux|sshd|ps|awk|bash|rtq\.out)$/ { busy = 1 }
     END { exit !busy }'
@@ -113,13 +132,29 @@ wait_idle() {
     sleep 30; waited=$((waited + 30))
     if (( waited >= 600 )); then echo "[$(date +%T)] the machine did not go idle in ten minutes; stopping before $1" >&2; exit 3; fi
   done
+  # The claim, while this measures: the holder and the start time, as the
+  # sessions write it; removed when the sweep ends or is stopped.
+  if [[ "$OWN_LOCK" -eq 0 ]]; then
+    echo "bonsai-ac apps/rtq/benchmark.sh since $(date +%F\ %T)" > "$LOCK"
+    OWN_LOCK=1
+    trap 'if [[ "$OWN_LOCK" -eq 1 ]]; then rm -f "$LOCK"; fi' EXIT
+  fi
 }
 
+# The schedules by the section they run in: Embree's (embree, tuned,
+# embree4, tuned4), the packet ones, FCPW's over its Mbvh (fcpw<b>w<w>[t]),
+# FCPW's over its scalar trees (fcpwb, fcpws: FCPW built scalar, the driver
+# RTQ_FCPW_BINARY or RTQ_FCPW_SNCH) and the GPU ones (*-gpu, against FCPW's
+# GPUScene), each group one compare.sh run per mesh with its own log.
 EMBREE_SCHEDULES=""
 FCPW_SCHEDULES=""
+SCALAR_SCHEDULES=""
+GPU_SCHEDULES=""
 PACKET_SCHEDULES=""
 for s in $(tr , ' ' <<< "$SCHEDULES"); do
-  if [[ "$s" == fcpw* ]]; then FCPW_SCHEDULES="$FCPW_SCHEDULES${FCPW_SCHEDULES:+,}$s"
+  if [[ "$s" == *-gpu ]]; then GPU_SCHEDULES="$GPU_SCHEDULES${GPU_SCHEDULES:+,}$s"
+  elif [[ "$s" == fcpwb || "$s" == fcpws ]]; then SCALAR_SCHEDULES="$SCALAR_SCHEDULES${SCALAR_SCHEDULES:+,}$s"
+  elif [[ "$s" == fcpw* ]]; then FCPW_SCHEDULES="$FCPW_SCHEDULES${FCPW_SCHEDULES:+,}$s"
   elif [[ "$s" == packet* ]]; then PACKET_SCHEDULES="$PACKET_SCHEDULES${PACKET_SCHEDULES:+,}$s"
   else EMBREE_SCHEDULES="$EMBREE_SCHEDULES${EMBREE_SCHEDULES:+,}$s"; fi
 done
@@ -159,8 +194,17 @@ if (( ! PLOT_ONLY )); then
     if [[ -n "$FCPW_SCHEDULES" ]]; then
       run "$OUT/$mesh.s$FCPW_SIDE.fcpw.log" --schedule "$FCPW_SCHEDULES" --side "$FCPW_SIDE" --repeats "$REPEATS" "$path"
     fi
+    # FCPW's scalar trees and its GPU, every query of each (the silhouette
+    # query included, for fcpws), at FCPW's side.
+    if [[ -n "$SCALAR_SCHEDULES" ]]; then
+      run "$OUT/$mesh.s$FCPW_SIDE.fcpw-scalar.log" --schedule "$SCALAR_SCHEDULES" --side "$FCPW_SIDE" --repeats "$REPEATS" "$path"
+    fi
+    if [[ -n "$GPU_SCHEDULES" ]]; then
+      run "$OUT/$mesh.s$FCPW_SIDE.gpu.log" --schedule "$GPU_SCHEDULES" --side "$FCPW_SIDE" --repeats "$REPEATS" "$path"
+    fi
   done
   echo "[$(date +%T)] measured: $OUT"
+  if [[ "$OWN_LOCK" -eq 1 ]]; then rm -f "$LOCK"; OWN_LOCK=0; fi
 fi
 
 # The compiler the rows were measured under: the commit, marked when the
