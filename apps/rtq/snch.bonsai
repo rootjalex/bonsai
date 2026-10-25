@@ -10,9 +10,11 @@
 // cast and its star radius, isolated.
 //
 // The silhouette batch is answered with FCPW's record (SilhouetteHit: the
-// edge's index, the distance, the closest point on the edge; a miss `d`
-// infinite and the index -1, as FCPW's Interaction is left), made once per
-// query for the edge the argmin settled on.
+// edge's index, the distance, the closest point on the edge), made once per
+// query for the edge the argmin settled on; a miss writes nothing, the
+// caller having initialized the records to the miss record (the metric
+// file's `no_silhouette`: the index -1, `d` infinite, as FCPW leaves its
+// Interaction), rtq.bonsai's contract and the references'.
 import apps/rtq/rtq;
 import apps/rtq/silhouette;
 
@@ -23,8 +25,6 @@ func [[export]] silhouette_all(n : u32, queries : array[SilhouetteQuery, n],
         if h {
             found = *h;
             hits[i] = found[1];
-        } else {
-            hits[i] = no_silhouette();
         }
     }
     return;

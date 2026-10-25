@@ -1483,16 +1483,36 @@ bool packets_native(RTCDevice device) {
 
 #endif // !RTQ_FCPW
 
-// The program over a batch: the exported parfor, a plain loop.
+// The records a batch is handed, initialized to the miss record -- the
+// invalid id, an infinite distance, the rest zero: the metric file's
+// `no_hit`, `no_closest` and `no_silhouette`, as a caller of rtcIntersect1
+// sets geomID invalid and FCPW constructs its Interaction -- since the
+// program writes only hits (rtq.bonsai says why). Made off the clock, as
+// the references' structs are.
+Hit miss_hit() {
+    Hit h{};
+    h.primID = kNoHit;
+    h.d = kInf;
+    return h;
+}
+
+ClosestHit miss_closest() {
+    ClosestHit c{};
+    c.primID = kNoHit;
+    c.d = kInf;
+    return c;
+}
+
+// The program over a batch: the exported parfor, a plain loop, over records
+// the caller initialized (the GPU form of each, under RTQ_GPU, is below the
+// timer).
 void bonsai_intersect(const Tree &tree, const std::vector<Ray> &rays,
                       std::vector<Hit> &hits) {
-    hits.resize(rays.size());
     trace_all(uint32_t(rays.size()), rays.data(), hits.data(), tree.layout);
 }
 
 void bonsai_occluded(const Tree &tree, const std::vector<Ray> &rays,
                      std::vector<uint32_t> &blocked) {
-    blocked.resize(rays.size());
     occluded_all(uint32_t(rays.size()), rays.data(), blocked.data(),
                  tree.layout);
 }
@@ -1640,7 +1660,6 @@ uint64_t embree_closest(RTCScene scene, const Mesh &mesh, std::vector<RTCPointQu
 
 void bonsai_closest(const Tree &tree, const std::vector<Point> &points,
                     std::vector<ClosestHit> &hits) {
-    hits.resize(points.size());
     closest_all(uint32_t(points.size()), points.data(), hits.data(), tree.layout);
 }
 
@@ -1668,9 +1687,15 @@ std::vector<SilhouetteQuery> silhouette_queries(const std::vector<Point> &points
     return out;
 }
 
+SilhouetteHit miss_silhouette() {
+    SilhouetteHit s{};
+    s.index = kNoHit;
+    s.d = kInf;
+    return s;
+}
+
 void bonsai_silhouette(const Tree &tree, const std::vector<SilhouetteQuery> &queries,
                        std::vector<SilhouetteHit> &hits) {
-    hits.resize(queries.size());
     silhouette_all(uint32_t(queries.size()), queries.data(), hits.data(), tree.silhouettes);
 }
 #endif
@@ -1740,30 +1765,48 @@ double timed(int repeats, F &&f) {
 
 #ifndef RTQ_GPU
 
+// The records set to the miss record before each run, off the clock, as the
+// references' structs are reset between runs off it.
 double time_bonsai_intersect(const Tree &tree, const std::vector<Ray> &rays, int repeats,
                              std::vector<Hit> &hits) {
-    return timed(repeats, [&] { bonsai_intersect(tree, rays, hits); });
+    return timed(
+        repeats, [&] { hits.assign(rays.size(), miss_hit()); },
+        [&] { bonsai_intersect(tree, rays, hits); });
 }
 
 double time_bonsai_occluded(const Tree &tree, const std::vector<Ray> &rays, int repeats,
                             std::vector<uint32_t> &blocked) {
-    return timed(repeats, [&] { bonsai_occluded(tree, rays, blocked); });
+    return timed(
+        repeats, [&] { blocked.assign(rays.size(), 0u); },
+        [&] { bonsai_occluded(tree, rays, blocked); });
 }
 
 double time_bonsai_closest(const Tree &tree, const std::vector<Point> &points, int repeats,
                            std::vector<ClosestHit> &hits) {
-    return timed(repeats, [&] { bonsai_closest(tree, points, hits); });
+    return timed(
+        repeats, [&] { hits.assign(points.size(), miss_closest()); },
+        [&] { bonsai_closest(tree, points, hits); });
 }
 
 #ifdef RTQ_FCPW_SNCH
 double time_bonsai_silhouette(const Tree &tree, const std::vector<SilhouetteQuery> &queries,
                               int repeats, std::vector<SilhouetteHit> &hits) {
-    return timed(repeats, [&] { bonsai_silhouette(tree, queries, hits); });
+    return timed(
+        repeats, [&] { hits.assign(queries.size(), miss_silhouette()); },
+        [&] { bonsai_silhouette(tree, queries, hits); });
 }
 #endif
 
 #else // RTQ_GPU
 
+// The records set to the miss record on the host and staged to the device
+// once, before the first run, as FCPW's interactions buffer is uploaded
+// pre-filled once; a run writes only hits, so every run leaves the same
+// records and nothing is reset between them. (Copying the records back
+// and up again before each run, off the clock, made every row read 10-30%
+// slower on pavilion: the copies pass tens of megabytes through the card
+// between runs, where FCPW's side runs with whatever the last run left in
+// the card's caches, and so does this now.)
 template <typename In, typename Out, typename Call>
 double time_staged(const std::vector<In> &in, std::vector<Out> &out, bonsai_buffer *group0,
                    bonsai_buffer *group1, const uint8_t *sides, int repeats, Call &&call) {
@@ -1785,7 +1828,7 @@ double time_staged(const std::vector<In> &in, std::vector<Out> &out, bonsai_buff
 
 double time_bonsai_intersect(const Tree &tree, const std::vector<Ray> &rays, int repeats,
                              std::vector<Hit> &hits) {
-    hits.resize(rays.size());
+    hits.assign(rays.size(), miss_hit());
     return time_staged(rays, hits, tree.layout.group0_prims, tree.layout.group1_index,
                        trace_all_sides, repeats, [&](bonsai_buffer *in, bonsai_buffer *out) {
                            trace_all(uint32_t(rays.size()), in, out, tree.layout);
@@ -1794,7 +1837,7 @@ double time_bonsai_intersect(const Tree &tree, const std::vector<Ray> &rays, int
 
 double time_bonsai_occluded(const Tree &tree, const std::vector<Ray> &rays, int repeats,
                             std::vector<uint32_t> &blocked) {
-    blocked.resize(rays.size());
+    blocked.assign(rays.size(), 0u);
     return time_staged(rays, blocked, tree.layout.group0_prims, tree.layout.group1_index,
                        occluded_all_sides, repeats, [&](bonsai_buffer *in, bonsai_buffer *out) {
                            occluded_all(uint32_t(rays.size()), in, out, tree.layout);
@@ -1803,7 +1846,7 @@ double time_bonsai_occluded(const Tree &tree, const std::vector<Ray> &rays, int 
 
 double time_bonsai_closest(const Tree &tree, const std::vector<Point> &points, int repeats,
                            std::vector<ClosestHit> &hits) {
-    hits.resize(points.size());
+    hits.assign(points.size(), miss_closest());
     return time_staged(points, hits, tree.layout.group0_prims, tree.layout.group1_index,
                        closest_all_sides, repeats, [&](bonsai_buffer *in, bonsai_buffer *out) {
                            closest_all(uint32_t(points.size()), in, out, tree.layout);
@@ -1813,7 +1856,7 @@ double time_bonsai_closest(const Tree &tree, const std::vector<Point> &points, i
 #ifdef RTQ_FCPW_SNCH
 double time_bonsai_silhouette(const Tree &tree, const std::vector<SilhouetteQuery> &queries,
                               int repeats, std::vector<SilhouetteHit> &hits) {
-    hits.resize(queries.size());
+    hits.assign(queries.size(), miss_silhouette());
     return time_staged(queries, hits, tree.silhouettes.group0_edges, tree.silhouettes.group1_snode,
                        silhouette_all_sides, repeats,
                        [&](bonsai_buffer *in, bonsai_buffer *out) {
