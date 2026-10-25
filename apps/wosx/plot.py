@@ -366,10 +366,15 @@ def draw_gpu(rows, schedules, out_dir, formats, exclude):
                      + (f" ({', '.join(ms)})" if len(ms) <= 4 else ""))
     notes += [
         "crown and beast have fewer walks (29440, 86016) than the kernel has threads, so a "
-        "thread claims one walk and the card runs nearly empty (15-25% occupancy, three lanes "
-        "of 32 active per warp); the kernel's time is the longest walks' latency on both sides, "
-        "and every schedule sits at 1; with 1024 walks a point they are 1.16x and 1.24x. "
-        "apps/wosx/PLAN.md, 'The crown and the beast'",
+        "thread claims one walk and the card runs nearly empty (15-25% achieved occupancy "
+        "against 32-49% on a full mesh); the kernel's time is the longest walks' latency on "
+        "both sides, and every schedule sits at 1; with 1024 walks a point they are 1.16x and "
+        "1.24x. apps/wosx/PLAN.md, 'The crown and the beast'",
+        "on every mesh both kernels keep about three of a warp's 32 lanes active per "
+        "instruction (ncu, head and dragon: WoSX 3.1 and 2.4, ours 2.8 and 2.1): a warp holds "
+        "its 32 walks until the longest ends, and the lanes' traversals diverge within a step; "
+        "our lead is in the registers (64 against 82, 49% occupancy against 32%), not the "
+        "lanes. apps/wosx/PLAN.md, 'The lanes of a warp'",
         "persistent-point: a point a claim leaves 460 to 16348 threads busy of 131072, an empty "
         "card",
     ]

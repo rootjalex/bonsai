@@ -1104,7 +1104,10 @@ bonsai-f9 for it):
   claims at most one walk, the persistent loop never claims a second, and
   the card runs nearly empty: on the crown ncu has WoSX's kernel at 15%
   achieved occupancy (7.4 warps a multiprocessor) with 2.9 of 32 lanes
-  active per warp on average, ours at 25% with 2.6 lanes. The kernel's
+  active per warp on average, ours at 25% with 2.6 lanes (the occupancy
+  is the small meshes' symptom -- 32% and 49% on a full mesh -- but the
+  lanes are not: both kernels run at about three of 32 everywhere, see
+  'The lanes of a warp' below). The kernel's
   time is the longest walks' chain of dependent steps, not throughput:
   460 walks (one a point) take 2 ms, 29440 take 3 ms, 117760 take 4 ms,
   and only at 471040 (1024 a point) does the time grow with the work,
@@ -1183,8 +1186,146 @@ rather than transposed into two lanes (the lowering of a `vector[vec3f,
 user to decide; the comb's 0.73 is the whole of it, and the threaded and
 persistent forms are ahead on every mesh but the comb regardless.
 
+### The lanes of a warp, and two deferral trials (2026-10-24, evening)
+
+The user asked whether the schedules had moved since the table, and
+whether a deferral -- the steps queued, the long walks grouped and the
+live ones compacted -- would help. No schedule has been added since the
+seven (the afternoon went to the two profiles above and the figures).
+Measured first, ncu with metrics alone on both sides' persistent kernels
+at the table's settings (scratch/gpu-gap/ncu-lanes.sh, {head,dragon}-ncu-
+lanes.csv; 131072 threads, 64 walks a point, the lock held 17:50-17:53):
+
+| | head, WoSX | head, ours | dragon, WoSX | dragon, ours |
+|---|---|---|---|---|
+| kernel time | 22.8 ms | 19.4 ms | 305 ms | 243 ms |
+| registers a thread | 82 | 64 | 82 | 64 |
+| achieved occupancy | 31.6% | 49.2% | 31.5% | 49.1% |
+| lanes active per warp instruction, of 32 | 3.10 | 2.78 | 2.38 | 2.14 |
+| issue slots busy | 46.5% | 64.8% | 31.0% | 48.7% |
+| cycles between a warp's issues | 8.4 | 9.1 | 12.5 | 12.1 |
+| warp instructions | 19.4 G | 22.9 G | 171 G | 210 G |
+| L2 hit rate, DRAM of peak | 100%, 0.0% | 99.9%, 0.2% | 79.9%, 12.7% | 82.8%, 19.2% |
+
+**Reading.** Fewer than one lane in ten does anything, on either side,
+on a full card as on the crown: the crown note's "three lanes" is the
+kernels' normal state, not the small meshes' symptom (corrected above).
+Two divergences multiply. A warp claims 32 walks together and holds them
+until the longest has ended -- the lanes whose walks are done wait at
+the reconvergence after the walk loop, and WoSX's `while (true) {
+InterlockedAdd; walk }` (point-estimation.cs.slang) has the same shape --
+and within a step the lanes' traversals visit different numbers of
+nodes. The first can only be estimated here: walk lengths with a mean
+of 14 and a long tail (the cap is 1024 steps) have a greatest-of-32 of
+about four times the mean, so about a quarter of the lanes hold a live
+walk at a time; the traversal's divergence is then the remaining 2.5x,
+the usual figure for incoherent traversal. Our lead over WoSX (1.18x on
+the head, 1.25x on the dragon in these runs) is in the registers -- 64
+against 82, so 49% occupancy against 32% -- and the issue rate, not in
+the lanes, where we are a little worse (more warp instructions a step:
+4.5 k thread-instructions a step against WoSX's 4.2 k on the head).
+
+**What a deferral would do.** `walk.defer(walk, q)` makes the step the
+drain's unit: each round runs one step of every walk still alive,
+compacted, so the walk-length divergence goes -- every lane of every
+warp holds a live walk until the last rounds -- and the traversal's
+stays. The ceiling is about the 4x estimated above in warp instructions
+where the issue slots set the pace (the head: 65% busy), less on the
+dragon, where L2 misses do. The costs: an entry of about 40 bytes
+written and read per step (position, distance, step count, the
+generator's 16 bytes, the point) -- a few percent of a step's node
+traffic -- and a launch per round, as many rounds as the longest walk
+(up to the cap of 1024), the late rounds nearly empty: pbrt's guarded
+launch over the capacity, about 10 us each, so up to 10 ms, which is
+the comb's whole kernel (1.1 ms) and half the head's and nothing on the
+dragon's. A `sort` of the queue by a Morton key of the position each
+round would also keep a warp's walks on one part of the tree
+(persistent-reorder's 7% is that coherence on the first step alone).
+
+**Two trials, both refused by the compiler** (scratch/defer/):
+
+- `fcpwb-gpu-defer.bonsai`, card-wide: the nest interchanged and
+  collapsed as the reorder schedules have it, `steps =
+  solve_all.queue(root)`, `solve_all.defer(walk, steps)`,
+  `walk.defer(walk, steps)`, the pairs and the drain in blocks of 256.
+  Refused by SSA/Defer.cpp:2504: after the call to walk "solve_all goes
+  on to use total, an address (f32*) computed inside the producer's
+  iteration that is not one of its mutable locals" -- `total` is the
+  point's slot in the array `reorder(i, w)` privatized the sums into,
+  and the pass keeps a continuation's value only if it is in scope at
+  the pass, a local's slot, a loop index, or arithmetic on indices
+  (`rematerializable`: Add, Sub, Mul, Shl, Cast). The fix at the root:
+  the element address of storage that outlives the iteration (the slot
+  array is the owner's, hoisted) is the index's arithmetic too, to be
+  recomputed at the pass as the indices are. A small extension of what
+  the pass accepts, for the user to say yes to.
+- `fcpwb-gpu-defer-block.bonsai`, per block: a point's walks to one
+  block, `steps = solve_all.queue(i)`, the walks and the drain bound to
+  the block's threads, so that the sums stay the owner iteration's
+  locals. Refused by CodeGen_PTX.cpp:335: "the loop over i, bound to
+  GPUBlock, holds two loops bound to GPUThread (w and steps). A launch
+  has one block size, so two thread loops would have to be fused into
+  one, which is not built yet." By estimate it is the weaker form
+  anyway: with 64 walks a point the tail of the longest runs one lane,
+  about 37% of the lanes live against the card-wide form's near 100%.
+
+A third form needs no queue: the persistent claim taken per lane
+inside the step loop -- a lane whose walk ended claims the next walk
+while the warp's other lanes step on -- compaction in registers, no
+rounds, no entry traffic (Aila and Laine's persistent threads fetched
+per warp; this is per lane). It is not a composition of today's
+directives (`persistent` claims a whole walk) and would be a new mode
+or primitive, to ask the user about before building. WoSX does neither,
+so either form is a lead of the schedule alone, which is the table's
+story.
+
+### Which solver next (2026-10-24, the user's question)
+
+The user asked whether the plain walk is too simple a solver to show
+richer schedules on, and which others are worth beating -- walk on stars?
+What deps/wosx has: WoS and WoSt (walk on stars, Neumann and Robin
+boundaries) on both the CPU and the GPU through the same persistent
+kernel; boundary value caching on both; the reverse walk (splatting
+walks from the boundary onto evaluation points) on the CPU only. The
+2D demo runs all four; the 3D demos (electrostatics, thermal conduction,
+potential flow, geometric deformation) are WoS and WoSt.
+
+- **WoSt first.** Its step is heterogeneous where WoS's is one query:
+  the star radius is a closest-silhouette-point query on the Neumann
+  boundary's tree (FCPW's SNCH, nodes carrying normal cones), the step
+  is a ray cast against that boundary (the ray stops where it hits, the
+  walk continues on the surface), the Neumann contribution samples a
+  boundary point inside the star through the tree, and the Dirichlet
+  distance is the closest-point query we have; Russian roulette and
+  splitting on the throughput besides. That is the shape `stage` and
+  per-kernel queues were built for -- pbrt's trace and shade queues, a
+  queue per query kind with its own kernel -- and the ray cast can go
+  to the RT cores as pbrt's does. Program work: the SNCH layout with
+  cones, the silhouette query over edges, the boundary sampling
+  descent, the Green's function terms; the ray query apps/rtq has.
+- **The source term** (Poisson) is the cheap completion of WoS: one
+  Green's-function sample in the ball per step, no new tree. More
+  arithmetic a step; the schedule story does not change.
+- **The reverse walk** is the workload for a branching deferral: its
+  splitting pushes a variable number of walk states onto a std::queue
+  and drains it per point (reverse_walk_on_stars.h), and its
+  contributions scatter to many evaluation points through a tree over
+  them. Linear deferral was the user's choice for now; this is what
+  would motivate lifting it. CPU only in WoSX.
+- **Boundary value caching** is two phases: walks from boundary
+  samples (WoS or WoSt again), then an all-pairs boundary integral at
+  the evaluation points -- a dense kernel over two sets, a layout and
+  tiling story more than a traversal one.
+
 ### Next
 
+- The deferral forms above: the Defer.cpp extension (an element address
+  of hoisted storage recomputed at the pass) for the card-wide step
+  queue, or a per-lane claim in `persistent`, each only with the user's
+  say-so; then the step queue measured on the head, the ganesha and the
+  dragon, with and without a `sort` by position.
+- Walk on stars as the second solver, if the user wants a heterogeneous
+  step to schedule.
 - The layout-language extension above, if the user wants WoSX's default
   tree matched; the hybrid switch as a schedule point (the packet section).
 - The scalar-BVH layout and FCPW's scalar arithmetic, for WoSX's default
