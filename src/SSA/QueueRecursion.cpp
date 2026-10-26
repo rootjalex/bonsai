@@ -888,6 +888,12 @@ void queue_recursion(Function &func, size_t size) {
             for (BlockId reached : reachable_from(cfg, cfg.id(call->cont.name))) {
                 const Block &block = cfg[reached];
                 const string &after = block.name;
+                internal_assert(
+                    !std::holds_alternative<Terminator::Defer>(block.terminator.data))
+                    << "Cannot put the recursion of " << entry_name
+                    << " on a stack: " << after << " defers (pushes) after "
+                    << "the recursive call in " << name
+                    << ", which would be deferred past it";
                 for (const auto &instr : block.instrs) {
                     internal_assert(instr->op != Instruction::Op::Store &&
                                     instr->op != Instruction::Op::Print &&

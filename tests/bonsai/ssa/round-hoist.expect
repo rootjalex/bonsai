@@ -106,14 +106,14 @@ func step(k : i32, acc : i32, slot : i32, out : mut i32[8], marks : mut i32[8], 
     out[slot] = acc
     return
   } else {
-    let @6 = build<Entry_scores>(k, acc, slot) in
-    let @9 = atomic_add((&(*_queue_scores).count), 1u) in
-    let @11 = (*_queue_scores).k in
-    @11[@9] = k
-    let @14 = (*_queue_scores).acc in
-    @14[@9] = acc
-    let @17 = (*_queue_scores).slot in
-    @17[@9] = slot
+    let @5 = build<Entry_scores>(k, acc, slot) in
+    let @8 = atomic_add((&(*_queue_scores).count), 1u) in
+    let @10 = (*_queue_scores).k in
+    @10[@8] = k
+    let @13 = (*_queue_scores).acc in
+    @13[@8] = acc
+    let @16 = (*_queue_scores).slot in
+    @16[@8] = slot
     return
   }
 }

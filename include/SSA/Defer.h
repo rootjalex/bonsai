@@ -436,15 +436,25 @@ std::vector<Type> defer(FuncMap &funcs, const std::string &func,
 // The functions `f` calls, by name: the call graph's edges out of `f`.
 std::set<std::string> callees_of(const Function &f);
 
-// Replaces every Push with what it stands for: a fetch-and-add of the queue's
-// count, atomic when the push is, and a store of each stored scalar of the
-// entry (QueueLayout) into its array at the slot that claimed. A gang's push
-// -- one whose value is a slot per lane -- adds the number of lanes that
-// push and scatters their entries to the slots at their ranks. Run once the
-// schedule is applied, right before code generation, since until then a
-// push has to stay one instruction for the vectorizer to recognize (see
-// Instruction::Op::Push).
+// Replaces every deferral (Terminator::Defer, the push that ends its
+// activity) and every Push with what they stand for: a fetch-and-add of the
+// queue's count, atomic when the push is, a store of each stored scalar of
+// the entry (QueueLayout) into its array at the slot that claimed, and for a
+// deferral the yield or return it ends with. A gang's push -- one whose
+// value is a slot per lane -- adds the number of lanes that push and
+// scatters their entries to the slots at their ranks. Run once the schedule
+// is applied, right before code generation, since until then a push has to
+// stay one thing for the vectorizer to recognize (see Instruction::Op::Push
+// and Terminator::Defer).
 void lower_pushes(Function &func, const QueueLayouts &layouts);
+
+// Every Terminator::Defer of `func` as the push instruction and the end it
+// stands for: an atomic Instruction::Op::Push appended to its block, and a
+// Yield or a Return after it. The vectorizer takes a gang variant's
+// deferrals apart this way before linearizing, since its form of one is the
+// predicated push and the lanes' exit; lower_pushes does the same first and
+// then lowers the push it left.
+void split_defer_terminators(Function &func);
 
 } // namespace ssa
 } // namespace ir

@@ -64,6 +64,7 @@ void terminator_operands(const Block &block,
                        jump(s.cont);
                    },
                    [&](const Terminator::Join &j) { jump(j.next); },
+                   [&](const Terminator::Defer &) {},
                    [&](const Terminator::MultiCall &c) {
                        jump(c.call);
                        jump(c.cont);

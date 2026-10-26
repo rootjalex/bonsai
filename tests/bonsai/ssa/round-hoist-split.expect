@@ -420,7 +420,7 @@ func surface(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queu
     let @11 = x * 0.25f in
     let @12 = depth - 1 in
     let @13 = acc + v$1 in
-    let @31 = build<Entry_rays>(@11, @12, @13, _slot_rays) in
+    let @30 = build<Entry_rays>(@11, @12, @13, _slot_rays) in
     let @52 = atomic_add((&(*_queue_rays).count), 1u) in
     let @54 = (*_queue_rays).x in
     @54[@52] = @11
@@ -439,7 +439,7 @@ func surface(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queu
     let @18 = x * 0.5f in
     let @19 = depth - 1 in
     let @20 = acc + v$2 in
-    let @33 = build<Entry_rays>(@18, @19, @20, _slot_rays) in
+    let @31 = build<Entry_rays>(@18, @19, @20, _slot_rays) in
     let @66 = atomic_add((&(*_queue_rays).count), 1u) in
     let @68 = (*_queue_rays).x in
     @68[@66] = @18
@@ -458,7 +458,7 @@ func surface(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queu
     let @25 = x + 1f in
     let @26 = depth - 1 in
     let @27 = acc - v$3 in
-    let @35 = build<Entry_rays>(@25, @26, @27, _slot_rays) in
+    let @32 = build<Entry_rays>(@25, @26, @27, _slot_rays) in
     let @80 = atomic_add((&(*_queue_rays).count), 1u) in
     let @82 = (*_queue_rays).x in
     @82[@80] = @25
@@ -474,90 +474,90 @@ func surface(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queu
 }
 
 func surface!Big(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _slot_rays : i32) -> void {
-  let @37 = r._pad in
-  let @38 = r.payload in
-  let r!Big = build<Found>(1u, @37, @38) in
-  let @9 = @38[0u] in
+  let @33 = r._pad in
+  let @34 = r.payload in
+  let r!Big = build<Found>(1u, @33, @34) in
+  let @9 = @34[0u] in
   let v$1 = reinterpret_cast<f32>(@9) in
   let @11 = x * 0.25f in
   let @12 = depth - 1 in
   let @13 = acc + v$1 in
-  let @31 = build<Entry_rays>(@11, @12, @13, _slot_rays) in
-  let @40 = atomic_add((&(*_queue_rays).count), 1u) in
-  let @42 = (*_queue_rays).x in
-  @42[@40] = @11
-  let @45 = (*_queue_rays).depth in
-  @45[@40] = @12
-  let @48 = (*_queue_rays).acc in
-  @48[@40] = @13
-  let @51 = (*_queue_rays)._slot in
-  @51[@40] = _slot_rays
+  let @30 = build<Entry_rays>(@11, @12, @13, _slot_rays) in
+  let @37 = atomic_add((&(*_queue_rays).count), 1u) in
+  let @39 = (*_queue_rays).x in
+  @39[@37] = @11
+  let @42 = (*_queue_rays).depth in
+  @42[@37] = @12
+  let @45 = (*_queue_rays).acc in
+  @45[@37] = @13
+  let @48 = (*_queue_rays)._slot in
+  @48[@37] = _slot_rays
   return
 }
 
 func surface!Huge(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _slot_rays : i32) -> void {
-  let @37 = r._pad in
-  let @38 = r.payload in
-  let r!Huge = build<Found>(0u, @37, @38) in
-  let @2 = @38[0u] in
+  let @33 = r._pad in
+  let @34 = r.payload in
+  let r!Huge = build<Found>(0u, @33, @34) in
+  let @2 = @34[0u] in
   let v = reinterpret_cast<f32>(@2) in
   let @4 = x * 0.125f in
   let @5 = depth - 1 in
   let @6 = acc + v in
   let @29 = build<Entry_rays>(@4, @5, @6, _slot_rays) in
-  let @40 = atomic_add((&(*_queue_rays).count), 1u) in
-  let @42 = (*_queue_rays).x in
-  @42[@40] = @4
-  let @45 = (*_queue_rays).depth in
-  @45[@40] = @5
-  let @48 = (*_queue_rays).acc in
-  @48[@40] = @6
-  let @51 = (*_queue_rays)._slot in
-  @51[@40] = _slot_rays
+  let @37 = atomic_add((&(*_queue_rays).count), 1u) in
+  let @39 = (*_queue_rays).x in
+  @39[@37] = @4
+  let @42 = (*_queue_rays).depth in
+  @42[@37] = @5
+  let @45 = (*_queue_rays).acc in
+  @45[@37] = @6
+  let @48 = (*_queue_rays)._slot in
+  @48[@37] = _slot_rays
   return
 }
 
 func surface!Mid(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _slot_rays : i32) -> void {
-  let @37 = r._pad in
-  let @38 = r.payload in
-  let r!Mid = build<Found>(2u, @37, @38) in
-  let @16 = @38[0u] in
+  let @33 = r._pad in
+  let @34 = r.payload in
+  let r!Mid = build<Found>(2u, @33, @34) in
+  let @16 = @34[0u] in
   let v$2 = reinterpret_cast<f32>(@16) in
   let @18 = x * 0.5f in
   let @19 = depth - 1 in
   let @20 = acc + v$2 in
-  let @33 = build<Entry_rays>(@18, @19, @20, _slot_rays) in
-  let @40 = atomic_add((&(*_queue_rays).count), 1u) in
-  let @42 = (*_queue_rays).x in
-  @42[@40] = @18
-  let @45 = (*_queue_rays).depth in
-  @45[@40] = @19
-  let @48 = (*_queue_rays).acc in
-  @48[@40] = @20
-  let @51 = (*_queue_rays)._slot in
-  @51[@40] = _slot_rays
+  let @31 = build<Entry_rays>(@18, @19, @20, _slot_rays) in
+  let @37 = atomic_add((&(*_queue_rays).count), 1u) in
+  let @39 = (*_queue_rays).x in
+  @39[@37] = @18
+  let @42 = (*_queue_rays).depth in
+  @42[@37] = @19
+  let @45 = (*_queue_rays).acc in
+  @45[@37] = @20
+  let @48 = (*_queue_rays)._slot in
+  @48[@37] = _slot_rays
   return
 }
 
 func surface!Small(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _slot_rays : i32) -> void {
-  let @37 = r._pad in
-  let @38 = r.payload in
-  let r!Small = build<Found>(3u, @37, @38) in
-  let @23 = @38[0u] in
+  let @33 = r._pad in
+  let @34 = r.payload in
+  let r!Small = build<Found>(3u, @33, @34) in
+  let @23 = @34[0u] in
   let v$3 = reinterpret_cast<f32>(@23) in
   let @25 = x + 1f in
   let @26 = depth - 1 in
   let @27 = acc - v$3 in
-  let @35 = build<Entry_rays>(@25, @26, @27, _slot_rays) in
-  let @40 = atomic_add((&(*_queue_rays).count), 1u) in
-  let @42 = (*_queue_rays).x in
-  @42[@40] = @25
-  let @45 = (*_queue_rays).depth in
-  @45[@40] = @26
-  let @48 = (*_queue_rays).acc in
-  @48[@40] = @27
-  let @51 = (*_queue_rays)._slot in
-  @51[@40] = _slot_rays
+  let @32 = build<Entry_rays>(@25, @26, @27, _slot_rays) in
+  let @37 = atomic_add((&(*_queue_rays).count), 1u) in
+  let @39 = (*_queue_rays).x in
+  @39[@37] = @25
+  let @42 = (*_queue_rays).depth in
+  @42[@37] = @26
+  let @45 = (*_queue_rays).acc in
+  @45[@37] = @27
+  let @48 = (*_queue_rays)._slot in
+  @48[@37] = _slot_rays
   return
 }
 

@@ -193,6 +193,10 @@ shared_ptr<Function> clone_function(const Function &func) {
                 [&](const Terminator::Join &j) -> decltype(Terminator::data) {
                     return Terminator::Join{clone_jump(j.next, instrs)};
                 },
+                [&](const Terminator::Defer &d) -> decltype(Terminator::data) {
+                    return Terminator::Defer{clone_value(d.queue, instrs),
+                                             clone_value(d.entry, instrs), d.yields};
+                },
                 [&](const Terminator::MultiCall &c)
                     -> decltype(Terminator::data) {
                     std::vector<std::vector<shared_ptr<Value>>> varying;

@@ -17095,7 +17095,8 @@ the pass runs it for every slot, the same result
 (ssa/defer-conditional-in-chain, red). (2) An explicit `Defer <entry>
 <queue>` terminator in the SSA for the push that ends an iteration, which
 `lower_pushes` turns into the store and the yield; today the push is an
-instruction followed by a `Return` (ssa/defer-terminator, red). (3) The
+instruction followed by a `Return` (ssa/defer-terminator, red) -- **built
+10-25 evening, see below**. (3) The
 GPU rest kernel binding every induced slot its continuation writes, not
 only those it reads (CodeGen_LLVM.cpp:1756, seen with a store to
 `visible.set` after the call under gpu-optix); the small form,
@@ -17274,3 +17275,28 @@ before the film's reads of the radiance slot, and the spawned queues
 own, since the rays drain's iteration ends without a join. killeroo-simple
 at 16 spp under gpu-optix against pbrt --gpu (18:40): 3.15x, the image
 matching pbrt's, the kernel 27.66 ms against the afternoon's 27.62.
+
+**The `Defer` terminator, built (10-25 evening; to-do 2).** The push that
+ends an iteration is one terminator of the SSA, `defer q entry`
+(Terminator::Defer, include/SSA/SSA.h): the store of the entry and the end
+of the activity in one, where the deferral wrote a push instruction and a
+return, two things for one. The deferral's site ends at it
+(SSA/Defer.cpp push_entry, `ends`); the owner's own first push
+(initial_push) and a spawned call's push stay instructions, since their
+blocks go on. Every pass that walks terminators knows it -- no successors;
+the queue and the entry its operands, cloned, renamed, substituted,
+retyped, counted and read as a return's value is (about forty visitor
+sites, each found by the compiler once the variant grew) -- and the
+analyses that looked for push instructions see it as the push it is: the
+distinct-slots count, the gate pass's push sites, the write and the
+escape analyses, the refusals of collapse, of loopify's stack and of the
+hit continuations. The vectorizer takes a gang variant's deferrals apart
+into the predicated push and a yield before linearizing
+(split_defer_terminators), and lower_pushes does the same first and then
+lowers the push it left, so the lowered program is as before. Tests:
+ssa/defer-terminator passes against the dump it had written by hand ahead
+of the feature; defer-conditional-rejoin's dump shows `defer _queue_q @0`
+for its push and return; eight goldens move by value numbers alone, the
+push's name now drawn at the lowering. Built in a private worktree on the
+branch ajr/ssa-defer-terminator and fast-forwarded, since the tree does
+not compile between the variant's growth and the last visitor.

@@ -80,6 +80,11 @@ void collapse(FuncMap &funcs, string func, string outer, string inner,
             << ", which a collapsed loop would repeat once per " << inner
             << " step instead of once per " << outer << " step";
     }
+    internal_assert(!std::holds_alternative<Terminator::Defer>(body->terminator.data))
+        << "collapse(" << outer << ", " << inner << ") on " << func << ": "
+        << outer << " defers (pushes and ends) before running " << inner
+        << ", which a collapsed loop would repeat once per " << inner
+        << " step instead of once per " << outer << " step";
     const auto *inner_ptr =
         std::get_if<Terminator::ParFor>(&body->terminator.data);
     internal_assert(inner_ptr != nullptr && inner_ptr->index == inner)

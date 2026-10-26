@@ -2450,6 +2450,16 @@ struct ConstantIntervals::State {
                             called(block->name, c.call.name, c.call_args(k));
                         }
                     },
+                    [&](const Terminator::Defer &d) {
+                        // A deferral writes the queue, and the entry's
+                        // handles go into it, as a push's operands do.
+                        for (const ValuePtr &v : {d.queue, d.entry}) {
+                            const Type &t = v->get_type();
+                            if (t.is<Ptr_t>() || t.is_reference()) {
+                                escaped_through(block->name, v);
+                            }
+                        }
+                    },
                     [&](const auto &) {},
                 },
                 block->terminator.data);

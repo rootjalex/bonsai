@@ -208,6 +208,10 @@ void edit_argument(Block &block, const string &name,
                            visit(a);
                        }
                    },
+                   [&](Terminator::Defer &d) {
+                       visit(d.queue);
+                       visit(d.entry);
+                   },
                    [&](Terminator::Join &j) {
                        for (auto &a : j.next.args) {
                            visit(a);
@@ -551,6 +555,10 @@ clone_region(Function &func, const vector<shared_ptr<Block>> &region,
                 },
                 [&](const Terminator::Join &j) -> decltype(Terminator::data) {
                     return Terminator::Join{clone_jump(j.next)};
+                },
+                [&](const Terminator::Defer &d) -> decltype(Terminator::data) {
+                    return Terminator::Defer{clone_value(d.queue),
+                                             clone_value(d.entry), d.yields};
                 },
                 [&](const Terminator::MultiCall &c)
                     -> decltype(Terminator::data) {
@@ -2012,6 +2020,11 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 if (write && !in->operands.empty() && rooted_at(block->name, in->operands[0])) {
                     return true;
                 }
+            }
+            // A deferral writes the queue it pushes onto.
+            if (const auto *d = std::get_if<Terminator::Defer>(&block->terminator.data);
+                d != nullptr && rooted_at(block->name, d->queue)) {
+                return true;
             }
             const auto handed = [&](const vector<shared_ptr<Value>> &args) {
                 return std::any_of(args.begin(), args.end(), [&](const shared_ptr<Value> &a) {
@@ -4536,15 +4549,29 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // defined only there (the material of a hit, under `Some`). `finish`
     // ends every block that pushed, given its slot and which queue that is
     // in.
+    // `ends`: the push ends the activity that makes it -- a deferred call's
+    // site, whose function returns at the push -- and is a Terminator::Defer,
+    // one thing for the store and the end (the user, 10-25); `finish` is then
+    // told of no slot. Otherwise the push is an instruction the block goes on
+    // after: a spawned call's site, which runs its continuation, and the
+    // owner's own first push (initial_push), after which a lone call goes on
+    // to the drain.
     const auto push_entry =
         [&](const shared_ptr<Function> &fn, const shared_ptr<Block> &block,
             const shared_ptr<Value> &base, const shared_ptr<Value> &entry,
             const map<string, shared_ptr<Value>> &params,
             const std::function<void(const shared_ptr<Block> &,
                                      const shared_ptr<Value> &,
-                                     const shared_ptr<Value> &)> &finish) {
+                                     const shared_ptr<Value> &)> &finish,
+            bool ends) {
             const auto push_onto = [&](const shared_ptr<Block> &at,
                                        const shared_ptr<Value> &q, size_t which) {
+                if (ends) {
+                    at->terminator.data = Terminator::Defer{
+                        q, reach(at, entry), /*yields=*/fn.get() == O.get()};
+                    finish(at, nullptr, constant_u32(which));
+                    return;
+                }
                 auto slot = at->make_instruction(u32(), Instruction::Op::Push,
                                                  {q, reach(at, entry)});
                 std::get<shared_ptr<Instruction>>(slot->data)->atomic = true;
@@ -4665,6 +4692,8 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         if (spawned) {
             spawn_cont = fmap.at(call.cont.name);
         }
+        // A deferred call's site ends at the push (Terminator::Defer, set by
+        // push_entry); a spawned call's site goes on to its continuation.
         push_entry(funcs.at(site_function[s]), site,
                    queue_of.at(site_function[s]), entry,
                    params_at(site, call.call.args),
@@ -4674,10 +4703,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                            at->terminator.data = Terminator::Jump{
                                spawn_cont->name, reach_all(at, call.cont.args)};
                            spawn_cont->preds = {at};
-                           return;
                        }
-                       at->terminator.data = Terminator::Return{};
-                   });
+                   },
+                   /*ends=*/!spawned);
     }
     remove_unreachable_blocks(*F);
     for (const string &g : queue.also_from) {
@@ -4984,7 +5012,8 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                                end->preds.push_back(at);
                            }
                            at->terminator.data = Terminator::Jump{end->name};
-                       });
+                       },
+                       /*ends=*/false);
         }
     }
 
@@ -5877,7 +5906,28 @@ shared_ptr<Value> lane_rank(Function &func, const shared_ptr<Block> &block,
 
 } // namespace
 
+void split_defer_terminators(Function &func) {
+    for (const auto &block : func.blocks) {
+        const auto *d = std::get_if<Terminator::Defer>(&block->terminator.data);
+        if (d == nullptr) {
+            continue;
+        }
+        const Terminator::Defer defer = *d;
+        auto slot = block->make_instruction(u32(), Instruction::Op::Push,
+                                            {defer.queue, defer.entry});
+        std::get<shared_ptr<Instruction>>(slot->data)->atomic = true;
+        if (defer.yields) {
+            block->terminator.data = Terminator::Yield{};
+        } else {
+            block->terminator.data = Terminator::Return{};
+        }
+    }
+}
+
 void lower_pushes(Function &func, const QueueLayouts &layouts) {
+    // A deferral first as the push and the end it stands for, then the push
+    // as every push below.
+    split_defer_terminators(func);
     for (const auto &block : func.blocks) {
         for (size_t i = 0; i < block->instrs.size(); i++) {
             const shared_ptr<Instruction> push = block->instrs[i];

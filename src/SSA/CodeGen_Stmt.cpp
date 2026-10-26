@@ -1038,6 +1038,7 @@ std::set<std::string> reachable(const std::string &name,
                 [&](const Terminator::Join &j) {
                     succs.push_back(j.next.name);
                 },
+                [&](const Terminator::Defer &) {},
                 [&](const Terminator::MultiCall &c) {
                     succs.push_back(c.cont.name);
                 },
@@ -1107,6 +1108,7 @@ find_merge_block(const std::vector<std::string> &branches,
                 [&](const Terminator::Join &j) {
                     succs.push_back(j.next.name);
                 },
+                [&](const Terminator::Defer &) {},
                 [&](const Terminator::MultiCall &c) {
                     succs.push_back(c.cont.name);
                 },
@@ -1386,6 +1388,7 @@ BlockInfoMap classify_blocks(const ssa::Function &func,
                        [&](const Terminator::Join &j) {
                            succs.push_back(j.next.name);
                        },
+                       [&](const Terminator::Defer &) {},
                        [&](const Terminator::MultiCall &c) {
                            succs.push_back(c.cont.name);
                        },
@@ -1822,6 +1825,7 @@ Stmt structurize(const std::string &start, const std::string &exit,
                         return {{&s.cont.args, 0}};
                     return std::nullopt;
                 },
+                [&](const Terminator::Defer &) -> Found { return std::nullopt; },
                 [&](const Terminator::Join &j) -> Found {
                     if (j.next.name == target)
                         return {{&j.next.args, 0}};
@@ -2503,6 +2507,14 @@ Stmt structurize(const std::string &start, const std::string &exit,
                     emit_jump_args(j.next.name, j.next.args);
                     append(Join::make());
                     name = j.next.name;
+                },
+
+                [&](const Terminator::Defer &) {
+                    // lower_pushes (SSA/Defer.cpp) turns every deferral into
+                    // its stores and its yield or return before this runs.
+                    internal_error << "a deferral (Terminator::Defer) in "
+                                   << name << " reached code generation "
+                                   << "unlowered";
                 },
 
                 [&](const Terminator::MultiCall &c) {

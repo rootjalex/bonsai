@@ -70,6 +70,7 @@ vector<std::pair<Terminator::Jump *, size_t>> jumps(Block &block) {
                        result.push_back({&s.cont, 0});
                    },
                    [&](Terminator::Join &j) { result.push_back({&j.next, 0}); },
+                   [&](Terminator::Defer &) {},
                    [&](Terminator::MultiCall &c) {
                        result.push_back({&c.call, 0});
                        result.push_back({&c.cont, c.drop ? size_t(0) : 1});
@@ -111,6 +112,10 @@ vector<shared_ptr<Value>> terminator_uses(const Block &block) {
                 }
             },
             [&](const Terminator::Join &) {},
+            [&](const Terminator::Defer &d) {
+                uses.push_back(d.queue);
+                uses.push_back(d.entry);
+            },
             [&](const Terminator::MultiCall &c) {
                 for (const auto &a : c.call.args) {
                     uses.push_back(a);

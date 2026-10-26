@@ -496,7 +496,14 @@ parameters of the function that the caller fills.
 
 `f.defer(g, q)` is written on `f` about its call to `g`. The call is
 replaced by a push of the continuation's data onto `q`, and `q`'s owner
-runs a loop, the *drain*, that makes the waiting calls. The drain is a
+runs a loop, the *drain*, that makes the waiting calls. In the SSA that
+push is one terminator, `defer q entry` (`Terminator::Defer`): the store
+of the entry and the end of the activity in one, which every analysis
+sees the block end at, lowered after the last directive has run into the
+count's atomic add, the entry's stores and the return or yield
+(`lower_pushes`; a gang variant's deferral becomes the predicated push and
+a yield before it is linearized). A spawned call's push and the owner's
+own first push stay instructions, since their blocks go on. The drain is a
 `parfor` named after the queue, so later directives can split, vectorize
 or bind it. It runs immediately after the loop that pushed the entries
 and before anything the program ordered after that loop; where several

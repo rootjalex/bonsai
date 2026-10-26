@@ -517,6 +517,12 @@ void reorder(FuncMap &funcs, string func, string inner, string outer, bool vecto
         const Cfg region(*f, B0->name);
         for (const auto &block : region.blocks()) {
             in_p.insert(block->name);
+            // A deferral writes the queue and the entry's handles escape
+            // into it, as a push's operands do.
+            if (const auto *d = std::get_if<Terminator::Defer>(&block->terminator.data)) {
+                escapes(block->name, d->queue);
+                escapes(block->name, d->entry);
+            }
             for (const auto &instr : block->instrs) {
                 switch (instr->op) {
                 case Instruction::Op::Store:

@@ -165,8 +165,8 @@ func step(x : f32, n : i32, rec : mut (Record*)) -> void {
 }
 
 func step!False(x : f32, n : i32, rec_hits : mut (i32*), _queue_q!False : mut (Queue_q!False*), _slot_q!False : i32) -> void {
-  let @10 = (*rec_hits) in
-  let @2 = @10 + 1 in
+  let @9 = (*rec_hits) in
+  let @2 = @9 + 1 in
   rec_hits = @2
   let @4 = n == 0 in
   if (@4) {
@@ -187,8 +187,8 @@ func step!False(x : f32, n : i32, rec_hits : mut (i32*), _queue_q!False : mut (Q
 }
 
 func step!True(x : f32, n : i32, rec_p : mut ([[packed]] f32x3*), rec_hits : mut (i32*), rec_seen : mut (bool*), _queue_q!True : mut (Queue_q!True*), _slot_q!True : i32) -> void {
-  let @10 = (*rec_hits) in
-  let @2 = @10 + 1 in
+  let @9 = (*rec_hits) in
+  let @2 = @9 + 1 in
   rec_hits = @2
   let @4 = n == 0 in
   if (@4) {

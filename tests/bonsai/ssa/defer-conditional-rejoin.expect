@@ -101,8 +101,7 @@ q_rest!skip(): // preds: q_rest!run
 ; --- step ---
 func step(x : f32, acc : (f32*), _queue_q : (Queue_q*), _slot_q : i32): 
   @0 = make_struct<Entry_q>(_slot_q)
-  @1 = push _queue_q @0
-  ret
+  defer _queue_q @0
 
 ; --- work ---
 func work(x : f32, acc : (f32*)): 

@@ -1,18 +1,17 @@
 //! flags: -p ssa --dump-ssa-postschedule
 
-// FAILS, on purpose, until the push that ends an iteration is a terminator
-// of its own (the user, 10-25): `Defer <entry> <queue>`, the write of the
-// entry to the queue and the end of the activity in one, which
-// `lower_pushes` turns into the atomic count, the stores and the return.
-// Today the deferral writes `@4 = push _queue_q @3` as an instruction and a
-// `ret` after it, two things for one. The program is
+// The push that ends an iteration is a terminator of its own (the user,
+// 10-25): `defer <queue> <entry>`, Terminator::Defer, the write of the entry
+// to the queue and the end of the activity in one, which `lower_pushes`
+// turns into the atomic count, the stores and the return once the schedule
+// has run (the lowered program below the dump shows them). Until 10-25 the
+// deferral wrote `@4 = push _queue_q @3` as an instruction and a `ret`
+// after it, two things for one. The program is
 // correctness/llvm/defer-continuation's: `step` calls `work` and goes on,
-// and the call with its continuation is deferred.
-//
-// The expectation is the intended shape written by hand over today's dump:
-// the block `step` ending in `defer _queue_q @3` where it ended in the push
-// and the return. The spelling is a guess; when the terminator lands, read
-// the dump and bless it (BONSAI_UPDATE_EXPECT=1).
+// and the call with its continuation is deferred. What to read for: the
+// block `step` ending in `defer _queue_q @3`, with no push instruction and
+// no return of its own. (The expectation was written by hand ahead of the
+// terminator as a reminder that failed on purpose; the dump matched it.)
 import stdlib/numerics;
 
 func work(x : Float) -> Float {

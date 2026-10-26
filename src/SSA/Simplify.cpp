@@ -2342,6 +2342,7 @@ void resolve_uses(Function &func, const Simplifier &s) {
                            resolve_jump(sp.cont, s);
                        },
                        [&](Terminator::Join &j) { resolve_jump(j.next, s); },
+                       [&](Terminator::Defer &) {},
                        [&](Terminator::MultiCall &c) {
                            resolve_jump(c.call, s);
                            resolve_jump(c.cont, s);
@@ -2433,6 +2434,10 @@ UseCounts use_counts(const Function &func) {
                            count(s.cont, uses);
                        },
                        [&](const Terminator::Join &j) { count(j.next, uses); },
+                       [&](const Terminator::Defer &d) {
+                           count(d.queue, uses);
+                           count(d.entry, uses);
+                       },
                        [&](const Terminator::MultiCall &c) {
                            count(c.call, uses);
                            count(c.cont, uses);
@@ -2635,6 +2640,10 @@ bool substitute_threaded_arguments(Function &func) {
                            sub_jump(sp.cont);
                        },
                        [&](Terminator::Join &j) { sub_jump(j.next); },
+                       [&](Terminator::Defer &d) {
+                           sub(d.queue);
+                           sub(d.entry);
+                       },
                        [&](Terminator::MultiCall &c) {
                            sub_jump(c.call);
                            sub_jump(c.cont);

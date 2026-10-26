@@ -442,6 +442,25 @@ struct Terminator {
     struct Join {
         Jump next;
     };
+    // `defer q entry` (SSA/Defer.cpp): the entry stored onto the queue and
+    // the activity ended, as one thing -- the iteration's end when the push
+    // sits in the owner's loop body (`yields`), the function's return when
+    // it sits in a function of the chain, since a deferral ends the parallel
+    // iteration up through the call stack (the user, 10-25: a continuation
+    // is stored only if the call would be made, and the storing ends the
+    // iteration). It is a terminator rather than an Instruction::Op::Push
+    // followed by a Return so that the two are not two things for one, and
+    // so that every analysis sees the block end at the push. lower_pushes
+    // (SSA/Defer.cpp), after the schedule, turns it into the count's atomic
+    // add, the stores of the entry's leaves and the yield or return; the
+    // vectorizer's gang form is the predicated Push and a Yield, since a
+    // gang's lanes leave one by one (SSA/Vectorize.cpp). A spawned call's
+    // push stays an Instruction::Op::Push: its site goes on.
+    struct Defer {
+        std::shared_ptr<Value> queue; // the queue's address (or a split's)
+        std::shared_ptr<Value> entry; // the entry, a MakeStruct of the leaves
+        bool yields = false;          // ends an iteration, not the function
+    };
     struct MultiCall {
         // A run of calls to one callee, differing only in some arguments, and
         // then one continuation after all of them. This is what a tree query's
@@ -476,7 +495,7 @@ struct Terminator {
     };
 
     std::variant<std::monostate, Jump, Dispatch, Return, ParFor, Yield, Call,
-                 MultiCall, Spawn, Join>
+                 MultiCall, Spawn, Join, Defer>
         data;
 
     bool defined() const {

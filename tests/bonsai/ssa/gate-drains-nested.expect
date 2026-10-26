@@ -268,8 +268,8 @@ func step(x : f32, total : mut (f32*), _queue_hits : mut Queue_hits[3]) -> void 
   default: {
     let @17 = (*finish_of$r7) in
     let @16 = (*classify$r6) in
-    let @22 = @17.tag in
-    switch (@22) {
+    let @21 = @17.tag in
+    switch (@21) {
     case 0: {
       let @52 = atomic_add((&_queue_hits[1u].count), 1u) in
       let @59 = (*classify$r6).payload in

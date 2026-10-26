@@ -127,6 +127,7 @@ void collect_argument_flows(const Cfg &cfg, BlockId from,
                    },
                    [&](const Terminator::Spawn &s) { add(s.cont, 0); },
                    [&](const Terminator::Join &j) { add(j.next, 0); },
+                   [&](const Terminator::Defer &) {},
                    [&](const Terminator::MultiCall &c) {
                        add(c.cont, c.drop ? 0 : 1);
                    },

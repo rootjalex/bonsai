@@ -62,6 +62,10 @@ void for_each_value(Block &block, const F &fn) {
                        all(s.cont.args);
                    },
                    [&](Terminator::Join &j) { all(j.next.args); },
+                   [&](Terminator::Defer &d) {
+                       fn(d.queue);
+                       fn(d.entry);
+                   },
                    [&](Terminator::Call &c) {
                        all(c.call.args);
                        all(c.cont.args);

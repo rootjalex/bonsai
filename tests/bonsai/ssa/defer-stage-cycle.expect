@@ -75,14 +75,14 @@ func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
 
 func step(x : f32, n : i32, k : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _slot_rays : i32, _queue_hits : mut (Queue_hits*), _slot_hits : i32) -> void {
   let @0 = work(x) in
-  let @7 = build<Entry_hits>(@0, n, _slot_hits) in
-  let @10 = atomic_add((&(*_queue_hits).count), 1u) in
-  let @12 = (*_queue_hits).@0 in
-  @12[@10] = @0
-  let @15 = (*_queue_hits).n in
-  @15[@10] = n
-  let @18 = (*_queue_hits)._slot in
-  @18[@10] = _slot_hits
+  let @6 = build<Entry_hits>(@0, n, _slot_hits) in
+  let @9 = atomic_add((&(*_queue_hits).count), 1u) in
+  let @11 = (*_queue_hits).@0 in
+  @11[@9] = @0
+  let @14 = (*_queue_hits).n in
+  @14[@9] = n
+  let @17 = (*_queue_hits)._slot in
+  @17[@9] = _slot_hits
   return
 }
 

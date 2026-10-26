@@ -436,6 +436,9 @@ parallel_loops_by_block(const Function &f) {
                 [&](const Terminator::Join &join) {
                     worklist.emplace_back(join.next.name, stack);
                 },
+                [](const Terminator::Defer &) {
+                    // Ends the iteration, or the function, at the push.
+                },
                 [&](const Terminator::MultiCall &call) {
                     worklist.emplace_back(call.cont.name, stack);
                 },

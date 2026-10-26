@@ -107,14 +107,14 @@ func shade(x : i32, depth : i32, p : i32, max_depth : i32, rad : mut (f32*), _qu
 
 func step(x : i32, depth : i32, p : i32, max_depth : i32, rad : mut (f32*), _queue_rays : mut (Queue_rays*), _slot_rays : i32, _queue_hits : mut (Queue_hits*), _slot_hits : i32) -> void {
   let @0 = p + depth in
-  let @5 = mulhi(@0, 1431655766) in
-  let @6 = @5 >> 31 in
-  let @7 = reinterpret_cast<u32>(@6) in
-  let @8 = @7 >> 31u in
-  let @9 = reinterpret_cast<i32>(@8) in
-  let @10 = @5 + @9 in
-  let @11 = @10 * 3 in
-  let @1 = @0 - @11 in
+  let @4 = mulhi(@0, 1431655766) in
+  let @5 = @4 >> 31 in
+  let @6 = reinterpret_cast<u32>(@5) in
+  let @7 = @6 >> 31u in
+  let @8 = reinterpret_cast<i32>(@7) in
+  let @9 = @4 + @8 in
+  let @10 = @9 * 3 in
+  let @1 = @0 - @10 in
   let @2 = @1 == 0 in
   if (@2) {
     rad += 0.5f

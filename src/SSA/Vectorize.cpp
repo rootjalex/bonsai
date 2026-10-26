@@ -1,6 +1,7 @@
 #include "SSA/Analysis.h"
 #include "SSA/AnalyzeDivergence.h"
 #include "SSA/CloneFunction.h"
+#include "SSA/Defer.h"
 #include "SSA/InvariantDivision.h"
 #include "SSA/Linearize.h"
 #include "SSA/PromoteAllocas.h"
@@ -443,6 +444,10 @@ void substitute(Block &block, const string &name,
                            replace(a);
                        }
                    },
+                   [&](Terminator::Defer &d) {
+                       replace(d.queue);
+                       replace(d.entry);
+                   },
                    [&](Terminator::Join &j) {
                        for (auto &a : j.next.args) {
                            replace(a);
@@ -562,6 +567,10 @@ void widen_argument(const Cfg &region, BlockId owner, const string &name,
                            for (auto &a : t.cont.args) {
                                retype(a);
                            }
+                       },
+                       [&](Terminator::Defer &t) {
+                           retype(t.queue);
+                           retype(t.entry);
                        },
                        [&](Terminator::Join &t) {
                            for (auto &a : t.next.args) {
@@ -1898,6 +1907,10 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
 
     auto variant = clone_function(*original->second);
     variant->specialized_from = key.callee;
+    // A deferral in gang code is the predicated push and a yield: the lanes
+    // that push leave one by one, as the linearizer has every lane leave
+    // (Terminator::Defer; SSA/Defer.cpp split_defer_terminators).
+    split_defer_terminators(*variant);
     // Only what the entry reaches: a block an earlier rewrite disconnected --
     // the continuation of a call loopify() turned into a jump -- is not part
     // of the region the passes below work on, and yet still passes arguments
@@ -1939,6 +1952,7 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
                                s.cont.name = name;
                            }
                        },
+                       [&](Terminator::Defer &) {},
                        [&](Terminator::Join &j) {
                            if (j.next.name == old_entry) {
                                j.next.name = name;

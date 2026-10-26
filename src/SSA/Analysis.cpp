@@ -190,6 +190,7 @@ OriginMap make_origin_map(const ssa::Function &func) {
                 },
                 [&](const Terminator::Spawn &s) { handle_jump(s.cont, false); },
                 [&](const Terminator::Join &j) { handle_jump(j.next, false); },
+                [&](const Terminator::Defer &) {},
                 [&](const Terminator::MultiCall &call) {
                     handle_jump(call.cont, !call.drop);
                 },
@@ -298,6 +299,7 @@ shared_ptr<Value> passed_to(const Block &pred, const Block &block, size_t k) {
                     result = s.cont.args[k];
                 }
             },
+            [&](const Terminator::Defer &) {},
             [&](const Terminator::Join &j) {
                 if (j.next.name == block.name && k < j.next.args.size()) {
                     result = j.next.args[k];
@@ -347,6 +349,7 @@ vector<string> successors(const Block &block) {
             [](const Terminator::Join &j) -> vector<string> {
                 return {j.next.name};
             },
+            [](const Terminator::Defer &) -> vector<string> { return {}; },
             [](const Terminator::MultiCall &c) -> vector<string> {
                 // Like Call: the callee is a separate function, so within this
                 // CFG the only successor is what comes after the run.
@@ -432,6 +435,7 @@ void for_each_value(Terminator &terminator,
                        each_jump(s.cont);
                    },
                    [&](Terminator::Join &j) { each_jump(j.next); },
+                   [&](Terminator::Defer &) {},
                    [&](Terminator::MultiCall &c) {
                        each_jump(c.call);
                        each_jump(c.cont);
@@ -531,6 +535,9 @@ bool has_uses(const Function &func, const Instruction *of) {
                     return in_jump(s.call) || in_jump(s.cont);
                 },
                 [&](const Terminator::Join &j) { return in_jump(j.next); },
+                [&](const Terminator::Defer &d) {
+                    return is_of(d.queue) || is_of(d.entry);
+                },
                 [&](const Terminator::MultiCall &c) {
                     if (in_jump(c.call) || in_jump(c.cont) ||
                         std::any_of(c.keys.begin(), c.keys.end(), is_of) ||
@@ -821,6 +828,10 @@ ReadPaths read_paths_through(const Function &func, const Functions *funcs,
                     thread(b, s.cont, 0);
                 },
                 [&](const Terminator::Join &j) { thread(b, j.next, 0); },
+                [&](const Terminator::Defer &d) {
+                    read(b, d.queue);
+                    read(b, d.entry);
+                },
                 [&](const Terminator::MultiCall &c) {
                     for (const auto &arg : c.call.args) {
                         read(b, arg); // a run of calls: whole
@@ -955,6 +966,7 @@ vector<Terminator::Jump *> jumps_of(Block &block) {
                    [&](Terminator::Call &c) { jumps.push_back(&c.cont); },
                    [&](Terminator::Spawn &s) { jumps.push_back(&s.cont); },
                    [&](Terminator::Join &j) { jumps.push_back(&j.next); },
+                   [&](Terminator::Defer &) {},
                    [&](Terminator::MultiCall &c) { jumps.push_back(&c.cont); },
                },
                block.terminator.data);
@@ -2034,6 +2046,19 @@ KernelWrites kernel_writes(const Function &func, const string &body_entry) {
                        },
                        [&](const Terminator::ParFor &loop) {
                            add_jump(loop.body);
+                       },
+                       [&](const Terminator::Defer &d) {
+                           // A deferral writes the queue as a push does: the
+                           // header cell and the memory behind its fields.
+                           Roots roots = roots_of(d.queue, defs);
+                           if (roots.unknown && !writes.unknown) {
+                               writes.unknown = true;
+                               writes.why = "a deferral's queue";
+                           }
+                           for (const string &r : roots.names) {
+                               writes.prefixes.insert(r);
+                               writes.prefixes.insert("*(" + r + ")");
+                           }
                        },
                        [&](const auto &) {},
                    },

@@ -240,6 +240,7 @@ vector<vector<Incoming>> snapshot_arguments(const Cfg &cfg) {
                        },
                        [&](const Terminator::Spawn &s) { record(s.cont); },
                        [&](const Terminator::Join &j) { record(j.next); },
+                       [&](const Terminator::Defer &) {},
                        [&](const Terminator::MultiCall &c) {
                            // Like Call: the run's calls all leave the region,
                            // and the only edge inside it is the one after
@@ -2152,6 +2153,10 @@ BlockMasks linearize(Function &func, const string &entry_name,
                             for (auto &a : t.cont.args) {
                                 replace(a);
                             }
+                        },
+                        [&](Terminator::Defer &t) {
+                            replace(t.queue);
+                            replace(t.entry);
                         },
                         [&](Terminator::Join &t) {
                             for (auto &a : t.next.args) {

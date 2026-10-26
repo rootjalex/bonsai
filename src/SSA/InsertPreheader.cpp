@@ -82,6 +82,10 @@ void rename_argument_in(const vector<shared_ptr<Block>> &blocks,
                            }
                        },
                        [&](Terminator::Join &) {},
+                       [&](Terminator::Defer &d) {
+                           rename(d.queue);
+                           rename(d.entry);
+                       },
                        [&](Terminator::MultiCall &c) {
                            for (const auto &a : c.call.args) {
                                rename(a);
@@ -133,6 +137,7 @@ vector<std::pair<Terminator::Jump *, size_t>> jumps_with_offset(Block &block) {
                        result.push_back({&s.cont, 0});
                    },
                    [&](Terminator::Join &j) { result.push_back({&j.next, 0}); },
+                   [&](Terminator::Defer &) {},
                    [&](Terminator::MultiCall &c) {
                        result.push_back({&c.call, 0});
                        result.push_back({&c.cont, c.drop ? size_t(0) : 1});
@@ -221,6 +226,10 @@ void substitute_argument(Function &func, const string &region,
                        [&](Terminator::Call &) {},
                        [&](Terminator::Spawn &) {},
                        [&](Terminator::Join &) {},
+                       [&](Terminator::Defer &d) {
+                           subst(d.queue);
+                           subst(d.entry);
+                       },
                        [&](Terminator::MultiCall &c) {
                            for (auto &vs : c.varying) {
                                for (auto &a : vs) {

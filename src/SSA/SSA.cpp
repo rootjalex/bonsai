@@ -475,6 +475,15 @@ void Terminator::dump(std::ostream &os) const {
                        os << "join ";
                        dump_target(os, j.next);
                    },
+                   [&](const Defer &d) {
+                       os << "defer ";
+                       d.queue->dump(os);
+                       os << " ";
+                       d.entry->dump(os);
+                       if (d.yields) {
+                           os << " yield";
+                       }
+                   },
                    [&](const MultiCall &c) {
                        os << "multicall";
                        if (!c.drop) {
@@ -786,6 +795,12 @@ std::shared_ptr<Value> Block::get_value(const std::string &name,
                               << this->name << " lists a predecessor whose join "
                               << "does not point to it (" << j.next.name << ")";
                           j.next.args.push_back(p->get_value(name, type));
+                      },
+                      [&](const Terminator::Defer &) {
+                          internal_error
+                              << "Block: " << p->name
+                              << " ends at a deferral but is listed as a "
+                              << "predecessor to: " << name;
                       },
                       [&](Terminator::MultiCall &c) {
                           // Appending is safe for the varying positions, which

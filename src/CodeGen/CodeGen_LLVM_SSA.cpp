@@ -1006,6 +1006,7 @@ struct CodeGen_LLVM::SSALowering {
                        [&](const Terminator::Join &j) {
                            out.push_back(j.next.name);
                        },
+                       [&](const Terminator::Defer &) {},
                        [&](const Terminator::MultiCall &c) {
                            out.push_back(c.cont.name);
                        },
@@ -1530,6 +1531,10 @@ struct CodeGen_LLVM::SSALowering {
                     note_jump(s.cont, 0);
                 },
                 [&](const Terminator::Join &j) { note_jump(j.next, 0); },
+                [&](const Terminator::Defer &d) {
+                    escapes(d.queue);
+                    escapes(d.entry);
+                },
                 [&](const Terminator::MultiCall &c) {
                     for (const auto &a : c.call.args) {
                         escapes(a);
@@ -2114,6 +2119,14 @@ struct CodeGen_LLVM::SSALowering {
                     // stood (below), so the join is the jump it looks like.
                     supply(j.next, from, 0);
                     cg.builder->CreateBr(blocks.at(j.next.name));
+                },
+                [&](const Terminator::Defer &) {
+                    // lower_pushes (SSA/Defer.cpp) turns every deferral into
+                    // its stores and its yield or return before code
+                    // generation.
+                    internal_error << "a deferral (Terminator::Defer) in "
+                                   << block.name << " reached code generation "
+                                   << "unlowered";
                 },
                 [&](const Terminator::Spawn &s) {
                     // A spawn no schedule took up: the call is made here,

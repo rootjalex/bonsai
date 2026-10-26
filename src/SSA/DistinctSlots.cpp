@@ -116,6 +116,10 @@ struct Counter {
     // is every iteration's, so anything it pushes is more than one.
     size_t terminator_weight(const Function &f, const Block &block) {
         const Terminator &t = block.terminator;
+        // A deferral is one push, and ends the activity there.
+        if (std::holds_alternative<Terminator::Defer>(t.data)) {
+            return 1;
+        }
         if (const auto *p = std::get_if<Terminator::ParFor>(&t.data)) {
             const size_t inside = region_count(f, p->body.name);
             if (inside > 0) {

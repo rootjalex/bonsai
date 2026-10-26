@@ -144,6 +144,7 @@ vector<const Terminator::Jump *> edges_of(const Block &block) {
                    [&](const Terminator::Call &c) { out.push_back(&c.cont); },
                    [&](const Terminator::Spawn &s) { out.push_back(&s.cont); },
                    [&](const Terminator::Join &j) { out.push_back(&j.next); },
+                   [&](const Terminator::Defer &) {},
                    [&](const Terminator::MultiCall &c) {
                        out.push_back(&c.cont);
                    },

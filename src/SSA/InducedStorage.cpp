@@ -140,6 +140,7 @@ vector<std::pair<Terminator::Jump *, size_t>> jumps(Block &block) {
                        result.push_back({&s.cont, 0});
                    },
                    [&](Terminator::Join &j) { result.push_back({&j.next, 0}); },
+                   [&](Terminator::Defer &) {},
                    [&](Terminator::MultiCall &c) {
                        result.push_back({&c.call, 0});
                        result.push_back({&c.cont, c.drop ? size_t(0) : 1});
@@ -858,6 +859,10 @@ class Splitter {
                                found = found || refers(v, name);
                            }
                        },
+                       [&](const Terminator::Defer &d) {
+                           found = found || refers(d.queue, name) ||
+                                   refers(d.entry, name);
+                       },
                        [&](const Terminator::Join &j) {
                            for (const auto &v : j.next.args) {
                                found = found || refers(v, name);
@@ -1387,6 +1392,10 @@ class Splitter {
                                }
                            },
                            [&](const Terminator::Join &) {},
+                           [&](const Terminator::Defer &d) {
+                               found = found || refers(d.queue, name) ||
+                                       refers(d.entry, name);
+                           },
                            [&](const Terminator::MultiCall &c) {
                                for (const auto &v : c.call.args) {
                                    found = found || refers(v, name);

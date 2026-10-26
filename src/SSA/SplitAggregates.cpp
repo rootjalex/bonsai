@@ -778,6 +778,10 @@ SplitResult split_aggregates(Function &func, const string &entry,
                                fix_whole(a);
                            }
                        },
+                       [&](Terminator::Defer &t) {
+                           fix_whole(t.queue);
+                           fix_whole(t.entry);
+                       },
                        [&](Terminator::Join &t) {
                            for (auto &a : t.next.args) {
                                fix_whole(a);

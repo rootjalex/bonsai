@@ -735,6 +735,20 @@ gate_drains(FuncMap &fmap,
                 p.conds = dominating_conditions(*f, *block, doms_cache);
                 pushes.push_back(std::move(p));
             }
+            // A deferral is a push that ends the block (Terminator::Defer).
+            if (const auto *d = std::get_if<Terminator::Defer>(&block->terminator.data)) {
+                const auto q = queue_of(d->queue);
+                if (!q) {
+                    continue;
+                }
+                PushSite p;
+                p.func = f.get();
+                p.block = block;
+                p.family = q->first;
+                p.leaf = q->second;
+                p.conds = dominating_conditions(*f, *block, doms_cache);
+                pushes.push_back(std::move(p));
+            }
         }
     }
 
