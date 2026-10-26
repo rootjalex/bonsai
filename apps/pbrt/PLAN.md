@@ -17667,6 +17667,38 @@ row already holds material, alpha, media and first light, the record's
 fields. Awaiting the user's word on the range as a set value before any
 of (b) is built.
 
+**Corrected within the hour (the user: "the layout language allows us to
+specify how a reference type maps to the concrete value of the stored
+type, right? That's how Scion's layout language works").** Right, and the
+range in the program was wrong, as was "a new storage kind": the storage
+kind exists. A layout `group` maps a reference -- its index -- to the
+element's value field by field, each field stored (`name : type`) or
+computed from the reference and the stored fields (`name = expr`,
+ir::Materialize), and a group all of whose fields are computed stores no
+bytes (Lower/Layouts.cpp stores_nothing: Embree's NodeRef, "the reference
+is the data"); the tree leaves use computed fields already (`left = mnode
++ 1`, `data = range(tris, pOffset, nPrims)`). So pbrt's two storages of a
+mesh's triangles are two layouts of the one declaration `Mesh(mesh, tris :
+set[Triangle])`, with no change to the program:
+
+    // CPU, pbrt's CPU: a Triangle object per row, 8 bytes
+    group tris[tCount] k : u32 { mesh : u32; tri : u32; };
+    // GPU, pbrt's GPU: nothing stored, the Triangle computed from its reference
+    group tris[tCount] k : u32 { mesh = holder.mesh; tri = k - holder.first; };
+
+The one thing missing: a computed field may name the group's index and
+its own stored fields, not the *holder* -- the Mesh primitive whose run
+of `tris` the element lies in -- although `Mesh.tris : OptixTree from
+tris` binds the set to its holder and the Mesh arm stores the run's first
+row and count. The extension is `holder` in the computed fields of a
+group bound as a holder's set: general to every set a holder owns, no
+program change, and on the OptiX side the holder is in the hit record
+already (and its fields inline after part (a)). What (b) now is, with the
+user's yes: `holder` in a group's computed fields, the OptiX layout above,
+and Lower/Trees.cpp taking a computed group as a run's element storage
+(`stored(tris, base + prim)` becoming arithmetic). The 10-19 range
+proposal is withdrawn.
+
 **The composition built (10-26, landed as 190ffe86; apps/pbrt's gpu-optix
 schedule compiles and its render.o is byte for byte 99c5de0d's).** A
 deferral whose owner's call is an earlier deferral's
