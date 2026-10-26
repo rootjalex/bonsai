@@ -212,8 +212,8 @@ hit_z_all:
   br i1 %.not151.i, label %"!visit_pop.i", label %"!merge_15.i"
 
 "!merge_15.i":                                    ; preds = %"!merge_10.i"
-  %"@65._field0.i" = load <8 x float>, ptr %"_best0$i33$i44", align 32
-  %57 = fcmp olt <8 x float> %47, %"@65._field0.i"
+  %"@62._field0.i" = load <8 x float>, ptr %"_best0$i33$i44", align 32
+  %57 = fcmp olt <8 x float> %47, %"@62._field0.i"
   %58 = and <8 x i1> %55, %57
   %59 = bitcast <8 x i1> %58 to i8
   %.not152.i = icmp eq i8 %59, 0
@@ -279,32 +279,32 @@ hit_z_all:
   br i1 %cond.i, label %"!merge_25.i", label %"!merge_25.i.thread"
 
 "!merge_25.i":                                    ; preds = %"!for_data_body_23.i"
-  %81 = bitcast i32 %extract80.unpack157.unpack195.i to float
-  %82 = insertelement <8 x i32> poison, i32 %extract80.unpack157.unpack.i, i64 0
-  %.splatinsert81.i = bitcast <8 x i32> %82 to <8 x float>
+  %81 = insertelement <8 x i32> poison, i32 %extract80.unpack157.unpack.i, i64 0
+  %.splatinsert81.i = bitcast <8 x i32> %81 to <8 x float>
   %.splat82.i = shufflevector <8 x float> %.splatinsert81.i, <8 x float> poison, <8 x i32> zeroinitializer
-  %83 = fsub <8 x float> %.splat82.i, %extract_o_0
-  %84 = bitcast <2 x i32> %80 to <2 x float>
-  %.splat84.i = shufflevector <2 x float> %84, <2 x float> poison, <8 x i32> zeroinitializer
-  %85 = fsub <8 x float> %.splat84.i, %extract_o_1
-  %86 = bitcast <2 x i32> %80 to <2 x float>
-  %.splat86.i = shufflevector <2 x float> %86, <2 x float> poison, <8 x i32> <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
-  %87 = fsub <8 x float> %.splat86.i, %extract_o_2
-  %88 = fmul <8 x float> %extract_d_0, %83
-  %89 = fmul <8 x float> %extract_d_1, %85
-  %90 = fadd <8 x float> %88, %89
-  %91 = fmul <8 x float> %extract_d_2, %87
-  %92 = fadd <8 x float> %90, %91
-  %93 = fmul <8 x float> %83, %83
-  %94 = fmul <8 x float> %85, %85
-  %95 = fmul <8 x float> %87, %87
+  %82 = fsub <8 x float> %.splat82.i, %extract_o_0
+  %83 = bitcast <2 x i32> %80 to <2 x float>
+  %.splat84.i = shufflevector <2 x float> %83, <2 x float> poison, <8 x i32> zeroinitializer
+  %84 = fsub <8 x float> %.splat84.i, %extract_o_1
+  %85 = bitcast <2 x i32> %80 to <2 x float>
+  %.splat86.i = shufflevector <2 x float> %85, <2 x float> poison, <8 x i32> <i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1, i32 1>
+  %86 = fsub <8 x float> %.splat86.i, %extract_o_2
+  %87 = fmul <8 x float> %extract_d_0, %82
+  %88 = fmul <8 x float> %extract_d_1, %84
+  %89 = fadd <8 x float> %87, %88
+  %90 = fmul <8 x float> %extract_d_2, %86
+  %91 = fadd <8 x float> %89, %90
+  %92 = bitcast i32 %extract80.unpack157.unpack195.i to float
+  %93 = fmul <8 x float> %82, %82
+  %94 = fmul <8 x float> %84, %84
+  %95 = fmul <8 x float> %86, %86
   %96 = fadd <8 x float> %93, %94
   %97 = fadd <8 x float> %96, %95
-  %98 = fmul float %81, %81
+  %98 = fmul float %92, %92
   %.splatinsert87.i = insertelement <8 x float> poison, float %98, i64 0
   %.splat88.i = shufflevector <8 x float> %.splatinsert87.i, <8 x float> poison, <8 x i32> zeroinitializer
   %99 = fsub <8 x float> %97, %.splat88.i
-  %100 = fmul <8 x float> %92, %92
+  %100 = fmul <8 x float> %91, %91
   %101 = fmul <8 x float> %15, %99
   %102 = fsub <8 x float> %100, %101
   %103 = fcmp olt <8 x float> %102, zeroinitializer
@@ -312,9 +312,9 @@ hit_z_all:
   %105 = and <8 x i1> %58, %104
   %106 = and <8 x i1> %58, %103
   %107 = tail call <8 x float> @llvm.sqrt.v8f32(<8 x float> %102)
-  %108 = fsub <8 x float> %92, %107
+  %108 = fsub <8 x float> %91, %107
   %109 = fdiv <8 x float> %108, %15
-  %110 = fadd <8 x float> %92, %107
+  %110 = fadd <8 x float> %91, %107
   %111 = fdiv <8 x float> %110, %15
   %min_lt89.i = fcmp olt <8 x float> %111, %109
   %min90.i = select <8 x i1> %min_lt89.i, <8 x float> %111, <8 x float> %109
@@ -384,8 +384,8 @@ hit_z_all:
   br i1 %.not212.i, label %"!merge_36.i", label %"!then_50.i"
 
 "!then_50.i":                                     ; preds = %"!merge_37.i"
-  %"@262._field0.i" = load <8 x float>, ptr %"_best0$i33$i44", align 32
-  %147 = fcmp olt <8 x float> %"distmin_Ray_Shape$r4.i", %"@262._field0.i"
+  %"@253._field0.i" = load <8 x float>, ptr %"_best0$i33$i44", align 32
+  %147 = fcmp olt <8 x float> %"distmin_Ray_Shape$r4.i", %"@253._field0.i"
   %148 = and <8 x i1> %145, %147
   %149 = bitcast <8 x i1> %148 to i8
   %.not213.i = icmp eq i8 %149, 0

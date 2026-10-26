@@ -37,111 +37,111 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, p : Point, _best0 : 
     let _t91 = _t90[(*tris_index!top)] in
     let @2 = _t91.low in
     let _t0$i25 = cast<f32x3>(@2) in
-    let @4 = _t91.high in
-    let _t5$i25 = cast<f32x3>(@4) in
     let v$i25 = p.vec in
     let _t1$i25 = _t0$i25 - v$i25 in
     let sqLow$i25 = _t1$i25 * _t1$i25 in
-    let @11 = v$i25 < _t0$i25 in
-    let @12 = f32x3(0f) in
-    let low$i25 = select(@11, sqLow$i25, @12) in
+    let @7 = v$i25 < _t0$i25 in
+    let @8 = f32x3(0f) in
+    let low$i25 = select(@7, sqLow$i25, @8) in
+    let @10 = _t91.high in
+    let _t5$i25 = cast<f32x3>(@10) in
     let _t6$i25 = v$i25 - _t5$i25 in
     let sqHigh$i25 = _t6$i25 * _t6$i25 in
-    let @17 = _t5$i25 < v$i25 in
-    let high$i25 = select(@17, sqHigh$i25, @12) in
-    let @20 = low$i25 + high$i25 in
-    let @21 = reduce<+>(@20) in
-    SqDistPointAABB$r25 = @21
-    let @22 = (*SqDistPointAABB$r25) in
-    let @23 = sqrt(@22) in
-    let @24 = (*_best0) in
-    let @25 = @24._field0 in
-    let @26 = @23 < @25 in
-    if (@26) {
+    let @14 = _t5$i25 < v$i25 in
+    let high$i25 = select(@14, sqHigh$i25, @8) in
+    let @17 = low$i25 + high$i25 in
+    let @18 = reduce<+>(@17) in
+    SqDistPointAABB$r25 = @18
+    let @19 = (*SqDistPointAABB$r25) in
+    let @20 = sqrt(@19) in
+    let @21 = (*_best0) in
+    let @22 = @21._field0 in
+    let @23 = @20 < @22 in
+    if (@23) {
       let _t89 = _t91.nPrims in
-      let @28 = _t89 == 0u in
-      if (@28) {
-        let @29 = v$i25 - _t0$i25 in
-        let @30 = abs(@29) in
-        let @31 = abs(_t6$i25) in
-        let span$i0 = max(@30, @31) in
-        let @33 = span$i0[0] in
+      let @25 = _t89 == 0u in
+      if (@25) {
+        let @26 = v$i25 - _t0$i25 in
+        let @27 = abs(@26) in
+        let @28 = abs(_t6$i25) in
+        let span$i0 = max(@27, @28) in
+        let @30 = span$i0[0] in
+        let @32 = @30 * @30 in
+        let @33 = span$i0[1] in
         let @35 = @33 * @33 in
-        let @36 = span$i0[1] in
-        let @38 = @36 * @36 in
-        let @39 = @35 + @38 in
-        let @40 = span$i0[2] in
-        let @42 = @40 * @40 in
-        let @43 = @39 + @42 in
-        let @44 = sqrt(@43) in
-        _best0._field0 min= @44
+        let @36 = @32 + @35 in
+        let @37 = span$i0[2] in
+        let @39 = @37 * @37 in
+        let @40 = @36 + @39 in
+        let @41 = sqrt(@40) in
+        _best0._field0 min= @41
         let _t19 = (*tris_index!top) + 1u in
-        let @48 = _t90[_t19] in
-        let _t26$low0 = @48.low in
+        let @45 = _t90[_t19] in
+        let _t26$low0 = @45.low in
         let _t28 = cast<f32x3>(_t26$low0) in
-        let _t26$high1 = @48.high in
+        let _t26$high1 = @45.high in
         let _t43 = cast<f32x3>(_t26$high1) in
-        let @54 = _t91.offset in
-        let _t23 = (*tris_index!top) + @54 in
-        let @56 = _t90[_t23] in
-        let _t59$low2 = @56.low in
-        let _t59$high3 = @56.high in
-        let @68 = build<AABB>(_t28, _t43) in
-        let @69 = SqDistPointAABB(p, @68) in
-        let @70 = sqrt(@69) in
-        let @71 = cast<f32x3>(_t59$low2) in
-        let @72 = cast<f32x3>(_t59$high3) in
-        let @73 = build<AABB>(@71, @72) in
-        let @74 = SqDistPointAABB(p, @73) in
-        let @75 = sqrt(@74) in
-        let @120 = @70 < @75 in
-        let @123 = select(@120, _t19, _t23) in
-        let @124 = select(@120, _t23, _t19) in
-        !stack[(*!count)] = @124
-        let @131 = (*!count) + 1u in
-        tris_index!top = @123
-        !count = @131
+        let @51 = _t91.offset in
+        let _t23 = (*tris_index!top) + @51 in
+        let @53 = _t90[_t23] in
+        let _t59$low2 = @53.low in
+        let _t59$high3 = @53.high in
+        let @65 = build<AABB>(_t28, _t43) in
+        let @66 = SqDistPointAABB(p, @65) in
+        let @67 = sqrt(@66) in
+        let @68 = cast<f32x3>(_t59$low2) in
+        let @69 = cast<f32x3>(_t59$high3) in
+        let @70 = build<AABB>(@68, @69) in
+        let @71 = SqDistPointAABB(p, @70) in
+        let @72 = sqrt(@71) in
+        let @117 = @67 < @72 in
+        let @120 = select(@117, _t19, _t23) in
+        let @121 = select(@117, _t23, _t19) in
+        !stack[(*!count)] = @121
+        let @128 = (*!count) + 1u in
+        tris_index!top = @120
+        !count = @128
         continue
       } else {
         data = 0u
         while ((*data) < _t89) {
-          let @77 = _t91.offset in
-          let _t81 = @77 + (*data) in
-          let @79 = tris.prims in
-          let tri$i1 = @79[_t81] in
-          let @81 = closestPointonTriangle(p, tri$i1) in
-          let pts$i1 = @81 in
-          let @82 = pts$i1._field0 in
-          let @83 = @82.vec in
-          let @84 = v$i25 - @83 in
-          let @85 = @84[0] in
-          let @90 = @85 * @85 in
-          let @94 = @84[1] in
-          let @99 = @94 * @94 in
-          let @100 = @90 + @99 in
-          let @104 = @84[2] in
-          let @109 = @104 * @104 in
-          let @110 = @100 + @109 in
-          let @111 = sqrt(@110) in
-          let @113 = (*_best0) in
-          let @114 = @113._field0 in
-          let @115 = @111 < @114 in
-          if (@115) {
-            let @117 = build<__tuple_0>(_t81) in
-            let @118 = build<__tuple_1>(@111, @117) in
-            _best0 argmin= @118
+          let @74 = _t91.offset in
+          let _t81 = @74 + (*data) in
+          let @76 = tris.prims in
+          let tri$i1 = @76[_t81] in
+          let @78 = closestPointonTriangle(p, tri$i1) in
+          let pts$i1 = @78 in
+          let @79 = pts$i1._field0 in
+          let @80 = @79.vec in
+          let @81 = v$i25 - @80 in
+          let @82 = @81[0] in
+          let @87 = @82 * @82 in
+          let @91 = @81[1] in
+          let @96 = @91 * @91 in
+          let @97 = @87 + @96 in
+          let @101 = @81[2] in
+          let @106 = @101 * @101 in
+          let @107 = @97 + @106 in
+          let @108 = sqrt(@107) in
+          let @110 = (*_best0) in
+          let @111 = @110._field0 in
+          let @112 = @108 < @111 in
+          if (@112) {
+            let @114 = build<__tuple_0>(_t81) in
+            let @115 = build<__tuple_1>(@108, @114) in
+            _best0 argmin= @115
           }
-          let @119 = (*data) + 1u in
-          data = @119
+          let @116 = (*data) + 1u in
+          data = @116
         }
       }
     }
-    let @126 = (*!count) != 0u in
-    if (@126) {
-      let @127 = (*!count) - 1u in
-      let @128 = !stack[@127] in
-      tris_index!top = @128
-      !count = @127
+    let @123 = (*!count) != 0u in
+    if (@123) {
+      let @124 = (*!count) - 1u in
+      let @125 = !stack[@124] in
+      tris_index!top = @125
+      !count = @124
       continue
     } else {
       return

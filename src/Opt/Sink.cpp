@@ -102,14 +102,32 @@ struct SinkImpl : Mutator {
             // Dead (DCE's business), or on every path (nothing improves).
             return std::nullopt;
         }
-        for (const size_t k : using_arms) {
-            if (touches_name(arms[k], name)) {
-                return std::nullopt;
+        // Moved into one arm, the let goes to the arm's head under its own
+        // name: it bound the arm's free reads of the name from above the
+        // branch and binds them from the arm's head the same, whatever the
+        // arm holds -- a call inside the arm is no obstacle, the value being
+        // pure. Duplicated into several, the uses in each arm are renamed,
+        // and an arm that could rebind the name (or that holds a statement
+        // the walk does not understand) is refused, so no inner shadow is
+        // renamed through.
+        if (using_arms.size() > 1) {
+            for (const size_t k : using_arms) {
+                if (touches_name(arms[k], name)) {
+                    return std::nullopt;
+                }
             }
         }
+        // The arm the let enters is sunk again with the let at its head:
+        // the arm's own statements settled before the let arrived (visit
+        // (Sequence) does children first), and the let's use may be in a
+        // branch nested inside the arm, which it reaches only by sliding
+        // down this arm in turn -- a field read three branches deep sinks
+        // three levels, one per arm entered, as lazy code motion places it
+        // at its latest point whatever the nesting.
         if (using_arms.size() == 1) {
-            arms[using_arms[0]] = prepend(LetStmt::make(let->loc, let->value),
-                                          arms[using_arms[0]]);
+            arms[using_arms[0]] =
+                mutate(prepend(LetStmt::make(let->loc, let->value),
+                               arms[using_arms[0]]));
         } else {
             for (const size_t k : using_arms) {
                 const std::string fresh =
@@ -118,10 +136,10 @@ struct SinkImpl : Mutator {
                 rename.from = name;
                 rename.to = fresh;
                 Stmt renamed = rename.mutate(arms[k]);
-                arms[k] = prepend(
+                arms[k] = mutate(prepend(
                     LetStmt::make(WriteLoc(fresh, let->loc.base_type),
                                   let->value),
-                    std::move(renamed));
+                    std::move(renamed)));
             }
         }
         if (const IfElse *fork = branch.as<IfElse>()) {

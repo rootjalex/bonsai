@@ -14,12 +14,12 @@ func partial(p : Point, z : f32) -> Point {
 
 func run(out : mut f32[4], p : Point, v : f32x3, z : f32) -> void {
   let _t0 = p.x in
-  let _t1 = p.y in
   out[0] = _t0
+  let _t1 = p.y in
   out[1] = _t1
   out[2] = z
-  let @16 = v[1] in
-  out[3] = @16
+  let @9 = v[1] in
+  out[3] = @9
   return
 }
 

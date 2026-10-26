@@ -211,19 +211,17 @@ func _recloop_func2(items_index : u32, items : _tree_layout0, lo : i32, hi : i32
   do {
     let @0 = items.group0_index in
     let @1 = @0[(*items_index!top)] in
-    let _t106$idl0 = @1.idl in
     let _t106$idh1 = @1.idh in
-    let _t106$nPrims2 = @1.nPrims in
-    let _t106$split0on_nPrims3 = @1.split0on_nPrims in
-    let @12 = lo <= _t106$idh1 in
-    if (@12) {
-      let _t104 = _t106$idl0 in
-      let @13 = _t104 <= hi in
-      if (@13) {
-        let @14 = (*_best0) in
-        let @15 = _t104 < @14 in
-        if (@15) {
-          let _t98 = _t106$nPrims2 in
+    let @3 = lo <= _t106$idh1 in
+    if (@3) {
+      let _t104 = @1.idl in
+      let @7 = _t104 <= hi in
+      if (@7) {
+        let @8 = (*_best0) in
+        let @9 = _t104 < @8 in
+        if (@9) {
+          let _t106$split0on_nPrims3 = @1.split0on_nPrims in
+          let _t98 = @1.nPrims in
           let @16 = _t98 == 0u in
           if (@16) {
             let @17 = (*items_index!top) + 1u in

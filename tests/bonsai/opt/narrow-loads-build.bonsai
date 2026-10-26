@@ -1,0 +1,40 @@
+//! flags: -p narrow-loads
+
+// The build pattern of Opt/NarrowLoads (scalar replacement of aggregates
+// on a pure aggregate built in place): `r` is a struct built from pure
+// values and read only at its fields. What to read for in the dump:
+//
+// - In place of `r`'s let, one let per field READ whose value is an
+//   expression -- `r$heavy*` for `sqrt(x * y)`, `r$sum*` for `x + y` -- at
+//   the place the build stood, and every read of `r.f` renamed onto its
+//   let; `r.lo`, whose value is the bare variable `x`, reads `x` itself
+//   and gets no let (an alias left behind would be one more `let a = b`
+//   for every later pass to see through). The build goes, nothing reading
+//   it any more.
+// - `r.mid` is read nowhere, so `x - y` gets no let: it is never computed.
+// - The split happens although every other field is read: its point is
+//   downstream, where `r$heavy*`'s let can sink into the `big` arm that
+//   alone reads it (Opt/Sink, run next in the pipeline) -- which the whole
+//   build, read on both paths, never could.
+// - `tag`, passed whole to `probe_whole`, is left exactly as written: a
+//   whole-value use disqualifies the split.
+
+element Rec {
+    lo : f32;
+    mid : f32;
+    heavy : f32;
+    sum : f32;
+}
+
+func probe_whole(r : Rec) -> f32 {
+    return r.lo;
+}
+
+func [[export]] pick(x : f32, y : f32, big : bool) -> f32 {
+    r : Rec = {x, x - y, sqrt(x * y), x + y};
+    tag : Rec = {y, x, y, x};
+    if big {
+        return r.lo + r.heavy + probe_whole(tag);
+    }
+    return r.sum;
+}

@@ -110,41 +110,41 @@ occluded_all:
   %48 = lshr exact i32 %"tris_ref!top.i", 4
   %_wide30.i = zext nneg i32 %48 to i64
   %ptr_array_deref.i = getelementptr inbounds nuw [112 x i8], ptr %group0_row2, i64 %_wide30.i
-  %lo_gep.i = getelementptr inbounds nuw i8, ptr %ptr_array_deref.i, i64 16
   %hi_gep.i = getelementptr inbounds nuw i8, ptr %ptr_array_deref.i, i64 64
+  %lo_gep.i = getelementptr inbounds nuw i8, ptr %ptr_array_deref.i, i64 16
   br label %"!par_body_5.i"
 
 "!par_body_5.i":                                  ; preds = %"!then_2.i", %"!par_body_5.i"
   %indvars.iv = phi i64 [ 0, %"!then_2.i" ], [ %indvars.iv.next, %"!par_body_5.i" ]
   %"!count3.i32" = phi i32 [ %"!count.i", %"!then_2.i" ], [ %86, %"!par_body_5.i" ]
   %49 = sub nuw nsw i64 3, %indvars.iv
-  %extract_ptr32.i = getelementptr inbounds nuw [4 x i8], ptr %lo_gep.i, i64 %49
+  %extract_ptr32.i = getelementptr inbounds nuw [4 x i8], ptr %hi_gep.i, i64 %49
   %extract33.i = load float, ptr %extract_ptr32.i, align 4, !invariant.load !0
   %50 = sub nuw nsw i64 7, %indvars.iv
-  %extract_ptr35.i = getelementptr inbounds nuw [4 x i8], ptr %lo_gep.i, i64 %50
+  %extract_ptr35.i = getelementptr inbounds nuw [4 x i8], ptr %hi_gep.i, i64 %50
   %extract36.i = load float, ptr %extract_ptr35.i, align 4, !invariant.load !0
   %51 = sub nuw nsw i64 11, %indvars.iv
-  %extract_ptr38.i = getelementptr inbounds nuw [4 x i8], ptr %lo_gep.i, i64 %51
+  %extract_ptr38.i = getelementptr inbounds nuw [4 x i8], ptr %hi_gep.i, i64 %51
   %extract39.i = load float, ptr %extract_ptr38.i, align 4, !invariant.load !0
-  %extract_ptr43.i = getelementptr inbounds nuw [4 x i8], ptr %hi_gep.i, i64 %49
+  %extract_ptr43.i = getelementptr inbounds nuw [4 x i8], ptr %lo_gep.i, i64 %49
   %extract44.i = load float, ptr %extract_ptr43.i, align 4, !invariant.load !0
-  %extract_ptr46.i = getelementptr inbounds nuw [4 x i8], ptr %hi_gep.i, i64 %50
+  %extract_ptr46.i = getelementptr inbounds nuw [4 x i8], ptr %lo_gep.i, i64 %50
   %extract47.i = load float, ptr %extract_ptr46.i, align 4, !invariant.load !0
-  %extract_ptr49.i = getelementptr inbounds nuw [4 x i8], ptr %hi_gep.i, i64 %51
+  %extract_ptr49.i = getelementptr inbounds nuw [4 x i8], ptr %lo_gep.i, i64 %51
   %extract50.i = load float, ptr %extract_ptr49.i, align 4, !invariant.load !0
-  %.splatinsert.i = insertelement <8 x float> poison, float %extract44.i, i64 0
+  %.splatinsert.i = insertelement <8 x float> poison, float %extract33.i, i64 0
   %.splat.i = shufflevector <8 x float> %.splatinsert.i, <8 x float> poison, <8 x i32> zeroinitializer
-  %.splatinsert51.i = insertelement <8 x float> poison, float %extract33.i, i64 0
+  %.splatinsert51.i = insertelement <8 x float> poison, float %extract44.i, i64 0
   %.splat52.i = shufflevector <8 x float> %.splatinsert51.i, <8 x float> poison, <8 x i32> zeroinitializer
   %52 = select <8 x i1> %40, <8 x float> %.splat.i, <8 x float> %.splat52.i
-  %.splatinsert53.i = insertelement <8 x float> poison, float %extract47.i, i64 0
+  %.splatinsert53.i = insertelement <8 x float> poison, float %extract36.i, i64 0
   %.splat54.i = shufflevector <8 x float> %.splatinsert53.i, <8 x float> poison, <8 x i32> zeroinitializer
-  %.splatinsert55.i = insertelement <8 x float> poison, float %extract36.i, i64 0
+  %.splatinsert55.i = insertelement <8 x float> poison, float %extract47.i, i64 0
   %.splat56.i = shufflevector <8 x float> %.splatinsert55.i, <8 x float> poison, <8 x i32> zeroinitializer
   %53 = select <8 x i1> %41, <8 x float> %.splat54.i, <8 x float> %.splat56.i
-  %.splatinsert57.i = insertelement <8 x float> poison, float %extract50.i, i64 0
+  %.splatinsert57.i = insertelement <8 x float> poison, float %extract39.i, i64 0
   %.splat58.i = shufflevector <8 x float> %.splatinsert57.i, <8 x float> poison, <8 x i32> zeroinitializer
-  %.splatinsert59.i = insertelement <8 x float> poison, float %extract39.i, i64 0
+  %.splatinsert59.i = insertelement <8 x float> poison, float %extract50.i, i64 0
   %.splat60.i = shufflevector <8 x float> %.splatinsert59.i, <8 x float> poison, <8 x i32> zeroinitializer
   %54 = select <8 x i1> %42, <8 x float> %.splat58.i, <8 x float> %.splat60.i
   %55 = fsub <8 x float> %52, %extract_o_0
@@ -207,10 +207,10 @@ occluded_all:
   br label %"!for_data_17!loop.i"
 
 "!for_data_17!loop.i":                            ; preds = %"!for_data_17!loop.i.lr.ph", %"!latch.i"
-  %"@169.i28" = phi <8 x i1> [ undef, %"!for_data_17!loop.i.lr.ph" ], [ %"@1697.i", %"!latch.i" ]
-  %"@167.i27" = phi i32 [ undef, %"!for_data_17!loop.i.lr.ph" ], [ %"@1676.i", %"!latch.i" ]
-  %"!live.i24" = phi <8 x i1> [ %44, %"!for_data_17!loop.i.lr.ph" ], [ %"@1697.i", %"!latch.i" ]
-  %"data!loop.i23" = phi i32 [ 0, %"!for_data_17!loop.i.lr.ph" ], [ %"@1676.i", %"!latch.i" ]
+  %"@166.i28" = phi <8 x i1> [ undef, %"!for_data_17!loop.i.lr.ph" ], [ %"@1667.i", %"!latch.i" ]
+  %"@164.i27" = phi i32 [ undef, %"!for_data_17!loop.i.lr.ph" ], [ %"@1646.i", %"!latch.i" ]
+  %"!live.i24" = phi <8 x i1> [ %44, %"!for_data_17!loop.i.lr.ph" ], [ %"@1667.i", %"!latch.i" ]
+  %"data!loop.i23" = phi i32 [ 0, %"!for_data_17!loop.i.lr.ph" ], [ %"@1646.i", %"!latch.i" ]
   %"_holds0$i1767.122" = phi <8 x i1> [ %"_holds0$i1767.0", %"!for_data_17!loop.i.lr.ph" ], [ %"_holds0$i1767.2", %"!latch.i" ]
   %89 = icmp ult i32 %"data!loop.i23", %87
   br i1 %89, label %"!for_data_body_18.i", label %"!break.i"
@@ -500,21 +500,21 @@ occluded_all:
   %252 = and <8 x i1> %"!live.i24", %251
   %253 = and <8 x i1> %"!live.i24", %250
   %not..i = xor <8 x i1> %253, splat (i1 true)
-  %254 = and <8 x i1> %"@169.i28", %not..i
+  %254 = and <8 x i1> %"@166.i28", %not..i
   %255 = add nuw i32 %"data!loop.i23", 1
   %256 = select <8 x i1> %252, <8 x i1> splat (i1 true), <8 x i1> %254
   br label %"!latch.i"
 
 "!break.i":                                       ; preds = %"!for_data_17!loop.i"
   %"not.!live.i" = xor <8 x i1> %"!live.i24", splat (i1 true)
-  %257 = and <8 x i1> %"@169.i28", %"not.!live.i"
+  %257 = and <8 x i1> %"@166.i28", %"not.!live.i"
   br label %"!latch.i"
 
 "!latch.i":                                       ; preds = %"!break.i", %"intersectsp_ray_tri$gang8_v0$masked.exit"
   %"_holds0$i1767.2" = phi <8 x i1> [ %250, %"intersectsp_ray_tri$gang8_v0$masked.exit" ], [ %"_holds0$i1767.122", %"!break.i" ]
-  %"@1676.i" = phi i32 [ %255, %"intersectsp_ray_tri$gang8_v0$masked.exit" ], [ %"@167.i27", %"!break.i" ]
-  %"@1697.i" = phi <8 x i1> [ %256, %"intersectsp_ray_tri$gang8_v0$masked.exit" ], [ %257, %"!break.i" ]
-  %258 = bitcast <8 x i1> %"@1697.i" to i8
+  %"@1646.i" = phi i32 [ %255, %"intersectsp_ray_tri$gang8_v0$masked.exit" ], [ %"@164.i27", %"!break.i" ]
+  %"@1667.i" = phi <8 x i1> [ %256, %"intersectsp_ray_tri$gang8_v0$masked.exit" ], [ %257, %"!break.i" ]
+  %258 = bitcast <8 x i1> %"@1667.i" to i8
   %.not75.i = icmp eq i8 %258, 0
   br i1 %.not75.i, label %"!visit_pop.i", label %"!for_data_17!loop.i"
 

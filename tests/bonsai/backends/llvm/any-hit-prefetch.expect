@@ -91,12 +91,12 @@ occluded:
 "!then_2.i":                                      ; preds = %"!then_2.i.lr.ph", %"!par_cont_6!hits1.i"
   %"tris_ref!top1.i40" = phi i64 [ %"tris_ref!top1.i.ph44", %"!then_2.i.lr.ph" ], [ %extract134.i, %"!par_cont_6!hits1.i" ]
   %38 = inttoptr i64 %"tris_ref!top1.i40" to ptr
-  %lower_x_gep.i = getelementptr inbounds nuw i8, ptr %38, i64 64
-  %lower_y_gep.i = getelementptr inbounds nuw i8, ptr %38, i64 128
-  %lower_z_gep.i = getelementptr inbounds nuw i8, ptr %38, i64 192
   %upper_x_gep.i = getelementptr inbounds nuw i8, ptr %38, i64 96
   %upper_y_gep.i = getelementptr inbounds nuw i8, ptr %38, i64 160
   %upper_z_gep.i = getelementptr inbounds nuw i8, ptr %38, i64 224
+  %lower_x_gep.i = getelementptr inbounds nuw i8, ptr %38, i64 64
+  %lower_y_gep.i = getelementptr inbounds nuw i8, ptr %38, i64 128
+  %lower_z_gep.i = getelementptr inbounds nuw i8, ptr %38, i64 192
   %picked_address = getelementptr i8, ptr %38, i64 %picked_offset
   %picked = load <8 x float>, ptr %picked_address, align 4
   %picked_address165 = getelementptr i8, ptr %38, i64 %picked_offset164

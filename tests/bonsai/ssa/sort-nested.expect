@@ -54,147 +54,146 @@ func _recloop_func0(instances_index : u32, instances : _tree_layout0, ray : Ray,
     let dirIsNeg$i28 = invDir$i28 < @3 in
     let @5 = instances.group1_index in
     let @6 = @5[(*instances_index!top)] in
-    let _t46$low0 = @6.low in
     let _t46$high1 = @6.high in
-    let _t170$i28 = cast<f32x3>(_t46$low0) in
     let _t169$i28 = cast<f32x3>(_t46$high1) in
+    let _t46$low0 = @6.low in
+    let _t170$i28 = cast<f32x3>(_t46$low0) in
     let low_parts$i28 = select(dirIsNeg$i28, _t169$i28, _t170$i28) in
     let _t173$i28 = ray.o in
-    let @18 = low_parts$i28 - _t173$i28 in
-    let @19 = @18 * invDir$i28 in
-    tMin$i28 = @19
+    let @15 = low_parts$i28 - _t173$i28 in
+    let @16 = @15 * invDir$i28 in
+    tMin$i28 = @16
     let high_parts$i28 = select(dirIsNeg$i28, _t170$i28, _t169$i28) in
-    let @21 = high_parts$i28 - _t173$i28 in
-    let @22 = @21 * invDir$i28 in
-    tMax$i28 = @22
-    let @23 = (f32)eps in
-    let @24 = 0.5f * @23 in
-    let _t164$i16$i28 = 3f * @24 in
-    let @26 = 1f - _t164$i16$i28 in
-    let @27 = _t164$i16$i28 / @26 in
-    gamma$r16$i28 = @27
-    let @28 = (*gamma$r16$i28) in
-    let @29 = 2f * @28 in
-    let @30 = 1f + @29 in
-    tMax$i28 *= @30
-    let @31 = (*tMax$i28) in
-    let @32 = @31[1u] in
-    let @33 = (*tMin$i28) in
-    let @34 = @33[0u] in
-    let @35 = @32 < @34 in
-    let @37 = @31[0u] in
-    let @39 = @33[1u] in
-    let @40 = @37 < @39 in
-    let @41 = @35 || @40 in
-    if (@41) {
-      let @42 = build<_option1>() in
-      intersectsp_ray_aabb$r28 = @42
+    let @18 = high_parts$i28 - _t173$i28 in
+    let @19 = @18 * invDir$i28 in
+    tMax$i28 = @19
+    let @20 = (f32)eps in
+    let @21 = 0.5f * @20 in
+    let _t164$i16$i28 = 3f * @21 in
+    let @23 = 1f - _t164$i16$i28 in
+    let @24 = _t164$i16$i28 / @23 in
+    gamma$r16$i28 = @24
+    let @25 = (*gamma$r16$i28) in
+    let @26 = 2f * @25 in
+    let @27 = 1f + @26 in
+    tMax$i28 *= @27
+    let @28 = (*tMax$i28) in
+    let @29 = @28[1u] in
+    let @30 = (*tMin$i28) in
+    let @31 = @30[0u] in
+    let @32 = @29 < @31 in
+    let @34 = @28[0u] in
+    let @36 = @30[1u] in
+    let @37 = @34 < @36 in
+    let @38 = @32 || @37 in
+    if (@38) {
+      let @39 = build<_option1>() in
+      intersectsp_ray_aabb$r28 = @39
     } else {
-      let @43 = (*tMin$i28) in
-      let @44 = @43[0u] in
-      let @46 = @43[1u] in
-      let @47 = max(@44, @46) in
-      let @48 = (*tMax$i28) in
-      let @49 = @48[0u] in
-      let @51 = @48[1u] in
-      let @52 = min(@49, @51) in
-      let @54 = @48[2u] in
-      let @56 = @54 < @47 in
-      let @59 = @43[2u] in
-      let @60 = @52 < @59 in
-      let @61 = @56 || @60 in
-      if (@61) {
-        let @62 = build<_option1>() in
-        intersectsp_ray_aabb$r28 = @62
-        tmin$i28 = @47
-        tmax$i28 = @52
+      let @40 = (*tMin$i28) in
+      let @41 = @40[0u] in
+      let @43 = @40[1u] in
+      let @44 = max(@41, @43) in
+      let @45 = (*tMax$i28) in
+      let @46 = @45[0u] in
+      let @48 = @45[1u] in
+      let @49 = min(@46, @48) in
+      let @51 = @45[2u] in
+      let @53 = @51 < @44 in
+      let @56 = @40[2u] in
+      let @57 = @49 < @56 in
+      let @58 = @53 || @57 in
+      if (@58) {
+        let @59 = build<_option1>() in
+        intersectsp_ray_aabb$r28 = @59
+        tmin$i28 = @44
+        tmax$i28 = @49
       } else {
-        let @64 = (*tMin$i28) in
-        let @65 = @64[2u] in
-        let @66 = max(@47, @65) in
-        let @68 = (*tMax$i28) in
-        let @69 = @68[2u] in
-        let @70 = min(@52, @69) in
-        let @73 = build<FInterval>(@66, @70) in
-        let @74 = build<_option1>(@73, true) in
-        intersectsp_ray_aabb$r28 = @74
-        tmin$i28 = @66
-        tmax$i28 = @70
+        let @61 = (*tMin$i28) in
+        let @62 = @61[2u] in
+        let @63 = max(@44, @62) in
+        let @65 = (*tMax$i28) in
+        let @66 = @65[2u] in
+        let @67 = min(@49, @66) in
+        let @70 = build<FInterval>(@63, @67) in
+        let @71 = build<_option1>(@70, true) in
+        intersectsp_ray_aabb$r28 = @71
+        tmin$i28 = @63
+        tmax$i28 = @67
       }
     }
-    let @75 = (*intersectsp_ray_aabb$r28) in
-    let _t336 = @75.set in
+    let @72 = (*intersectsp_ray_aabb$r28) in
+    let _t336 = @72.set in
     if (_t336) {
-      let @77 = (*intersectsp_ray_aabb$r28) in
-      let extract$i0 = @77.value in
-      let @79 = extract$i0.low in
-      let @80 = ray.tmax in
-      let @81 = @79 < @80 in
-      let @82 = extract$i0.high in
-      let @83 = 0f < @82 in
-      let @84 = @81 & @83 in
-      intersects_Ray_AABB$r0 = @84
+      let @74 = (*intersectsp_ray_aabb$r28) in
+      let extract$i0 = @74.value in
+      let @76 = extract$i0.low in
+      let @77 = ray.tmax in
+      let @78 = @76 < @77 in
+      let @79 = extract$i0.high in
+      let @80 = 0f < @79 in
+      let @81 = @78 & @80 in
+      intersects_Ray_AABB$r0 = @81
     } else {
       intersects_Ray_AABB$r0 = false
     }
-    let _t46$nInsts2 = @6.nInsts in
-    let _t46$axis3 = @6.axis in
-    let _t46$split0on_nInsts4 = @6.split0on_nInsts in
-    let @94 = (*intersects_Ray_AABB$r0) in
-    if (@94) {
+    let @82 = (*intersects_Ray_AABB$r0) in
+    if (@82) {
       if (_t336) {
-        let @95 = (*intersectsp_ray_aabb$r28) in
-        let extract$i1 = @95.value in
-        let @97 = extract$i1.low in
-        distmin_Ray_AABB$r1 = @97
+        let @83 = (*intersectsp_ray_aabb$r28) in
+        let extract$i1 = @83.value in
+        let @85 = extract$i1.low in
+        distmin_Ray_AABB$r1 = @85
       } else {
-        let @98 = (f32)inf in
-        let @99 = -0f - @98 in
-        distmin_Ray_AABB$r1 = @99
+        let @86 = (f32)inf in
+        let @87 = -0f - @86 in
+        distmin_Ray_AABB$r1 = @87
       }
-      let @101 = (*_best0) in
-      let @102 = @101._field0 in
-      let @103 = (*distmin_Ray_AABB$r1) < @102 in
-      if (@103) {
-        let _t35 = _t46$nInsts2 in
-        let @104 = _t35 == 0u in
-        if (@104) {
+      let @89 = (*_best0) in
+      let @90 = @89._field0 in
+      let @91 = (*distmin_Ray_AABB$r1) < @90 in
+      if (@91) {
+        let _t46$split0on_nInsts4 = @6.split0on_nInsts in
+        let _t35 = @6.nInsts in
+        let @98 = _t35 == 0u in
+        if (@98) {
+          let _t46$axis3 = @6.axis in
           let _t19 = dirIsNeg$i28[_t46$axis3] in
-          let @106 = (*instances_index!top) + 1u in
-          let @107 = reinterpret_cast<_tree_layout5>(_t46$split0on_nInsts4) in
-          let @108 = @107.offset in
-          let @109 = (*instances_index!top) + @108 in
-          let @111 = !_t19 in
-          let @125 = select(@111, @106, @109) in
-          let @126 = select(@111, @109, @106) in
-          !stack[(*!count)] = @126
-          let @133 = (*!count) + 1u in
-          instances_index!top = @125
-          !count = @133
+          let @103 = (*instances_index!top) + 1u in
+          let @104 = reinterpret_cast<_tree_layout5>(_t46$split0on_nInsts4) in
+          let @105 = @104.offset in
+          let @106 = (*instances_index!top) + @105 in
+          let @108 = !_t19 in
+          let @122 = select(@108, @103, @106) in
+          let @123 = select(@108, @106, @103) in
+          !stack[(*!count)] = @123
+          let @130 = (*!count) + 1u in
+          instances_index!top = @122
+          !count = @130
           continue
         } else {
-          let @113 = cast<u32>(_t35) in
+          let @110 = cast<u32>(_t35) in
           data = 0u
-          while ((*data) < @113) {
-            let @115 = instances.insts in
-            let @116 = reinterpret_cast<_tree_layout6>(_t46$split0on_nInsts4) in
-            let @117 = @116.pOffset in
-            let @118 = @117 + (*data) in
-            let @119 = @115[@118] in
-            let _subtree0 = @119.blas in
+          while ((*data) < @110) {
+            let @112 = instances.insts in
+            let @113 = reinterpret_cast<_tree_layout6>(_t46$split0on_nInsts4) in
+            let @114 = @113.pOffset in
+            let @115 = @114 + (*data) in
+            let @116 = @112[@115] in
+            let _subtree0 = @116.blas in
             _recloop_func1(_subtree0, instances, ray, _best0, (*instances_index!top), (*data))
-            let @121 = (*data) + 1u in
-            data = @121
+            let @118 = (*data) + 1u in
+            data = @118
           }
         }
       }
     }
-    let @128 = (*!count) != 0u in
-    if (@128) {
-      let @129 = (*!count) - 1u in
-      let @130 = !stack[@129] in
-      instances_index!top = @130
-      !count = @129
+    let @125 = (*!count) != 0u in
+    if (@125) {
+      let @126 = (*!count) - 1u in
+      let @127 = !stack[@126] in
+      instances_index!top = @127
+      !count = @126
       continue
     } else {
       return
@@ -225,168 +224,167 @@ func _recloop_func1(_subtree0_bnode : u32, instances : _tree_layout0, ray : Ray,
     let dirIsNeg$i29 = invDir$i29 < @3 in
     let @5 = instances.group0_bnode in
     let @6 = @5[(*_subtree0_bnode!top)] in
-    let _t119$low0 = @6.low in
     let _t119$high1 = @6.high in
-    let _t170$i29 = cast<f32x3>(_t119$low0) in
     let _t169$i29 = cast<f32x3>(_t119$high1) in
+    let _t119$low0 = @6.low in
+    let _t170$i29 = cast<f32x3>(_t119$low0) in
     let low_parts$i29 = select(dirIsNeg$i29, _t169$i29, _t170$i29) in
     let _t173$i29 = ray.o in
-    let @18 = low_parts$i29 - _t173$i29 in
-    let @19 = @18 * invDir$i29 in
-    tMin$i29 = @19
+    let @15 = low_parts$i29 - _t173$i29 in
+    let @16 = @15 * invDir$i29 in
+    tMin$i29 = @16
     let high_parts$i29 = select(dirIsNeg$i29, _t170$i29, _t169$i29) in
-    let @21 = high_parts$i29 - _t173$i29 in
-    let @22 = @21 * invDir$i29 in
-    tMax$i29 = @22
-    let @23 = (f32)eps in
-    let @24 = 0.5f * @23 in
-    let _t164$i16$i29 = 3f * @24 in
-    let @26 = 1f - _t164$i16$i29 in
-    let @27 = _t164$i16$i29 / @26 in
-    gamma$r16$i29 = @27
-    let @28 = (*gamma$r16$i29) in
-    let @29 = 2f * @28 in
-    let @30 = 1f + @29 in
-    tMax$i29 *= @30
-    let @31 = (*tMax$i29) in
-    let @32 = @31[1u] in
-    let @33 = (*tMin$i29) in
-    let @34 = @33[0u] in
-    let @35 = @32 < @34 in
-    let @37 = @31[0u] in
-    let @39 = @33[1u] in
-    let @40 = @37 < @39 in
-    let @41 = @35 || @40 in
-    if (@41) {
-      let @42 = build<_option1>() in
-      intersectsp_ray_aabb$r29 = @42
+    let @18 = high_parts$i29 - _t173$i29 in
+    let @19 = @18 * invDir$i29 in
+    tMax$i29 = @19
+    let @20 = (f32)eps in
+    let @21 = 0.5f * @20 in
+    let _t164$i16$i29 = 3f * @21 in
+    let @23 = 1f - _t164$i16$i29 in
+    let @24 = _t164$i16$i29 / @23 in
+    gamma$r16$i29 = @24
+    let @25 = (*gamma$r16$i29) in
+    let @26 = 2f * @25 in
+    let @27 = 1f + @26 in
+    tMax$i29 *= @27
+    let @28 = (*tMax$i29) in
+    let @29 = @28[1u] in
+    let @30 = (*tMin$i29) in
+    let @31 = @30[0u] in
+    let @32 = @29 < @31 in
+    let @34 = @28[0u] in
+    let @36 = @30[1u] in
+    let @37 = @34 < @36 in
+    let @38 = @32 || @37 in
+    if (@38) {
+      let @39 = build<_option1>() in
+      intersectsp_ray_aabb$r29 = @39
     } else {
-      let @43 = (*tMin$i29) in
-      let @44 = @43[0u] in
-      let @46 = @43[1u] in
-      let @47 = max(@44, @46) in
-      let @48 = (*tMax$i29) in
-      let @49 = @48[0u] in
-      let @51 = @48[1u] in
-      let @52 = min(@49, @51) in
-      let @54 = @48[2u] in
-      let @56 = @54 < @47 in
-      let @59 = @43[2u] in
-      let @60 = @52 < @59 in
-      let @61 = @56 || @60 in
-      if (@61) {
-        let @62 = build<_option1>() in
-        intersectsp_ray_aabb$r29 = @62
-        tmin$i29 = @47
-        tmax$i29 = @52
+      let @40 = (*tMin$i29) in
+      let @41 = @40[0u] in
+      let @43 = @40[1u] in
+      let @44 = max(@41, @43) in
+      let @45 = (*tMax$i29) in
+      let @46 = @45[0u] in
+      let @48 = @45[1u] in
+      let @49 = min(@46, @48) in
+      let @51 = @45[2u] in
+      let @53 = @51 < @44 in
+      let @56 = @40[2u] in
+      let @57 = @49 < @56 in
+      let @58 = @53 || @57 in
+      if (@58) {
+        let @59 = build<_option1>() in
+        intersectsp_ray_aabb$r29 = @59
+        tmin$i29 = @44
+        tmax$i29 = @49
       } else {
-        let @64 = (*tMin$i29) in
-        let @65 = @64[2u] in
-        let @66 = max(@47, @65) in
-        let @68 = (*tMax$i29) in
-        let @69 = @68[2u] in
-        let @70 = min(@52, @69) in
-        let @73 = build<FInterval>(@66, @70) in
-        let @74 = build<_option1>(@73, true) in
-        intersectsp_ray_aabb$r29 = @74
-        tmin$i29 = @66
-        tmax$i29 = @70
+        let @61 = (*tMin$i29) in
+        let @62 = @61[2u] in
+        let @63 = max(@44, @62) in
+        let @65 = (*tMax$i29) in
+        let @66 = @65[2u] in
+        let @67 = min(@49, @66) in
+        let @70 = build<FInterval>(@63, @67) in
+        let @71 = build<_option1>(@70, true) in
+        intersectsp_ray_aabb$r29 = @71
+        tmin$i29 = @63
+        tmax$i29 = @67
       }
     }
-    let @75 = (*intersectsp_ray_aabb$r29) in
-    let _t352 = @75.set in
+    let @72 = (*intersectsp_ray_aabb$r29) in
+    let _t352 = @72.set in
     if (_t352) {
-      let @77 = (*intersectsp_ray_aabb$r29) in
-      let extract$i2 = @77.value in
-      let @79 = extract$i2.low in
-      let @80 = ray.tmax in
-      let @81 = @79 < @80 in
-      let @82 = extract$i2.high in
-      let @83 = 0f < @82 in
-      let @84 = @81 & @83 in
-      intersects_Ray_AABB$r2 = @84
+      let @74 = (*intersectsp_ray_aabb$r29) in
+      let extract$i2 = @74.value in
+      let @76 = extract$i2.low in
+      let @77 = ray.tmax in
+      let @78 = @76 < @77 in
+      let @79 = extract$i2.high in
+      let @80 = 0f < @79 in
+      let @81 = @78 & @80 in
+      intersects_Ray_AABB$r2 = @81
     } else {
       intersects_Ray_AABB$r2 = false
     }
-    let _t119$nPrims2 = @6.nPrims in
-    let _t119$axis3 = @6.axis in
-    let _t119$split0on_nPrims4 = @6.split0on_nPrims in
-    let @94 = (*intersects_Ray_AABB$r2) in
-    if (@94) {
+    let @82 = (*intersects_Ray_AABB$r2) in
+    if (@82) {
       if (_t352) {
-        let @95 = (*intersectsp_ray_aabb$r29) in
-        let extract$i3 = @95.value in
-        let @97 = extract$i3.low in
-        distmin_Ray_AABB$r3 = @97
+        let @83 = (*intersectsp_ray_aabb$r29) in
+        let extract$i3 = @83.value in
+        let @85 = extract$i3.low in
+        distmin_Ray_AABB$r3 = @85
       } else {
-        let @98 = (f32)inf in
-        let @99 = -0f - @98 in
-        distmin_Ray_AABB$r3 = @99
+        let @86 = (f32)inf in
+        let @87 = -0f - @86 in
+        distmin_Ray_AABB$r3 = @87
       }
-      let @101 = (*_best0) in
-      let @102 = @101._field0 in
-      let @103 = (*distmin_Ray_AABB$r3) < @102 in
-      if (@103) {
-        let _t108 = _t119$nPrims2 in
-        let @104 = _t108 == 0u in
-        if (@104) {
+      let @89 = (*_best0) in
+      let @90 = @89._field0 in
+      let @91 = (*distmin_Ray_AABB$r3) < @90 in
+      if (@91) {
+        let _t119$split0on_nPrims4 = @6.split0on_nPrims in
+        let _t108 = @6.nPrims in
+        let @98 = _t108 == 0u in
+        if (@98) {
+          let _t119$axis3 = @6.axis in
           let _t63 = dirIsNeg$i29[_t119$axis3] in
-          let @106 = (*_subtree0_bnode!top) + 1u in
-          let @107 = reinterpret_cast<_tree_layout2>(_t119$split0on_nPrims4) in
-          let @108 = @107.offset in
-          let @109 = (*_subtree0_bnode!top) + @108 in
-          let @111 = !_t63 in
-          let @141 = select(@111, @106, @109) in
-          let @142 = select(@111, @109, @106) in
-          !stack[(*!count)] = @142
-          let @149 = (*!count) + 1u in
-          _subtree0_bnode!top = @141
-          !count = @149
+          let @103 = (*_subtree0_bnode!top) + 1u in
+          let @104 = reinterpret_cast<_tree_layout2>(_t119$split0on_nPrims4) in
+          let @105 = @104.offset in
+          let @106 = (*_subtree0_bnode!top) + @105 in
+          let @108 = !_t63 in
+          let @138 = select(@108, @103, @106) in
+          let @139 = select(@108, @106, @103) in
+          !stack[(*!count)] = @139
+          let @146 = (*!count) + 1u in
+          _subtree0_bnode!top = @138
+          !count = @146
           continue
         } else {
-          let @113 = cast<u32>(_t108) in
+          let @110 = cast<u32>(_t108) in
           data_1 = 0u
-          while ((*data_1) < @113) {
-            let @115 = reinterpret_cast<_tree_layout3>(_t119$split0on_nPrims4) in
-            let @116 = @115.pOffset in
-            let _t101 = @116 + (*data_1) in
-            let @118 = instances.prims in
-            let @119 = @118[_t101] in
-            let @120 = intersectsp_ray_tri(ray, @119) in
-            let _t237 = @120 in
-            let @121 = _t237.set in
-            if (@121) {
+          while ((*data_1) < @110) {
+            let @112 = reinterpret_cast<_tree_layout3>(_t119$split0on_nPrims4) in
+            let @113 = @112.pOffset in
+            let _t101 = @113 + (*data_1) in
+            let @115 = instances.prims in
+            let @116 = @115[_t101] in
+            let @117 = intersectsp_ray_tri(ray, @116) in
+            let _t237 = @117 in
+            let @118 = _t237.set in
+            if (@118) {
               let isect_$i4 = _t237.value in
-              let @123 = isect_$i4.t in
-              let @125 = (*_best0) in
-              let @126 = @125._field0 in
-              let @150 = reinterpret_cast<i32>(@123) in
-              let @151 = reinterpret_cast<i32>(@126) in
-              let @152 = @150 < @151 in
-              if (@152) {
-                let @129 = instances.group1_index in
-                let @130 = @129[instances_index] in
-                let @131 = @130.split0on_nInsts in
-                let @132 = reinterpret_cast<_tree_layout6>(@131) in
-                let @133 = @132.pOffset in
-                let @134 = @133 + data in
-                let @135 = build<__tuple_1>(@134, _t101) in
-                let @136 = build<__tuple_2>(@123, @135) in
-                _best0 argmin= @136
+              let @120 = isect_$i4.t in
+              let @122 = (*_best0) in
+              let @123 = @122._field0 in
+              let @147 = reinterpret_cast<i32>(@120) in
+              let @148 = reinterpret_cast<i32>(@123) in
+              let @149 = @147 < @148 in
+              if (@149) {
+                let @126 = instances.group1_index in
+                let @127 = @126[instances_index] in
+                let @128 = @127.split0on_nInsts in
+                let @129 = reinterpret_cast<_tree_layout6>(@128) in
+                let @130 = @129.pOffset in
+                let @131 = @130 + data in
+                let @132 = build<__tuple_1>(@131, _t101) in
+                let @133 = build<__tuple_2>(@120, @132) in
+                _best0 argmin= @133
               }
             }
-            let @137 = (*data_1) + 1u in
-            data_1 = @137
+            let @134 = (*data_1) + 1u in
+            data_1 = @134
           }
         }
       }
     }
-    let @144 = (*!count) != 0u in
-    if (@144) {
-      let @145 = (*!count) - 1u in
-      let @146 = !stack[@145] in
-      _subtree0_bnode!top = @146
-      !count = @145
+    let @141 = (*!count) != 0u in
+    if (@141) {
+      let @142 = (*!count) - 1u in
+      let @143 = !stack[@142] in
+      _subtree0_bnode!top = @143
+      !count = @142
       continue
     } else {
       return

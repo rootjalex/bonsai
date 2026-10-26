@@ -33,7 +33,15 @@ struct ValueClass : ir::Visitor {
     void visit(const ir::Construct *) override { sinkable = false; }
     void visit(const ir::PtrTo *) override { sinkable = false; }
     void visit(const ir::Deref *node) override {
-        memory = true;
+        // A read through a read-only pointer -- a layout's storage, the
+        // host's, filled before the program runs and written by nothing in
+        // it (Type::is_readonly; PtrTo::make marks the address of a place
+        // in such storage) -- is a value, not a read anything the program
+        // does could change: it crosses writes, and sinks past the stores
+        // of an inlined function's result temp into the arm that reads it.
+        if (!(node->expr.type().defined() && node->expr.type().is_readonly())) {
+            memory = true;
+        }
         ir::Visitor::visit(node);
     }
     void visit(const ir::StoredElement *node) override {

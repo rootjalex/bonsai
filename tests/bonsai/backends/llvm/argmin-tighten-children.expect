@@ -4,7 +4,7 @@ source_filename = "bonsai_module"
 ; Function Attrs: mustprogress
 define void @closest(ptr nofree noundef nonnull writeonly captures(none) %_ret0, ptr noundef nonnull readonly captures(none) %p, ptr noundef nonnull readonly captures(none) %tris_buffer) local_unnamed_addr #0 {
 closest:
-  %"@213207.i" = alloca [4 x i32], align 16
+  %"@210207.i" = alloca [4 x i32], align 16
   %"!stack0208.i" = alloca [64 x float], align 4
   %"!stack209.i" = alloca [64 x i32], align 4
   %0 = getelementptr inbounds nuw i8, ptr %tris_buffer, i64 4
@@ -14,12 +14,12 @@ closest:
   %group1_row = load ptr, ptr %1, align 1
   %group1_row2 = tail call ptr @bonsai_buffer_require_aligned(ptr %group1_row, i32 1, i32 4)
   %deref_temp.unpack = load <3 x float>, ptr %p, align 16
-  call void @llvm.lifetime.start.p0(ptr nonnull %"@213207.i")
+  call void @llvm.lifetime.start.p0(ptr nonnull %"@210207.i")
   call void @llvm.lifetime.start.p0(ptr nonnull %"!stack0208.i")
   call void @llvm.lifetime.start.p0(ptr nonnull %"!stack209.i")
-  %.splat136.i = shufflevector <3 x float> %deref_temp.unpack, <3 x float> poison, <4 x i32> zeroinitializer
-  %.splat138.i = shufflevector <3 x float> %deref_temp.unpack, <3 x float> poison, <4 x i32> <i32 1, i32 1, i32 1, i32 1>
-  %.splat140.i = shufflevector <3 x float> %deref_temp.unpack, <3 x float> poison, <4 x i32> <i32 2, i32 2, i32 2, i32 2>
+  %.splat124.i = shufflevector <3 x float> %deref_temp.unpack, <3 x float> poison, <4 x i32> zeroinitializer
+  %.splat126.i = shufflevector <3 x float> %deref_temp.unpack, <3 x float> poison, <4 x i32> <i32 1, i32 1, i32 1, i32 1>
+  %.splat128.i = shufflevector <3 x float> %deref_temp.unpack, <3 x float> poison, <4 x i32> <i32 2, i32 2, i32 2, i32 2>
   br label %"_recloop_func0!loop.i"
 
 "_recloop_func0!loop.i":                          ; preds = %"!visit_next.i", %closest
@@ -54,33 +54,33 @@ closest:
   %extract117.i = load <4 x float>, ptr %lower_y_gep.i, align 4, !invariant.load !0
   %lower_z_gep.i = getelementptr inbounds nuw i8, ptr %ptr_array_deref111.i, i64 80
   %extract121.i = load <4 x float>, ptr %lower_z_gep.i, align 4, !invariant.load !0
-  %upper_x_gep.i = getelementptr inbounds nuw i8, ptr %ptr_array_deref111.i, i64 32
-  %extract125.i = load <4 x float>, ptr %upper_x_gep.i, align 4, !invariant.load !0
-  %upper_y_gep.i = getelementptr inbounds nuw i8, ptr %ptr_array_deref111.i, i64 64
-  %extract129.i = load <4 x float>, ptr %upper_y_gep.i, align 4, !invariant.load !0
-  %upper_z_gep.i = getelementptr inbounds nuw i8, ptr %ptr_array_deref111.i, i64 96
-  %extract133.i = load <4 x float>, ptr %upper_z_gep.i, align 4, !invariant.load !0
-  %6 = fsub <4 x float> %extract113.i, %.splat136.i
-  %7 = fsub <4 x float> %extract117.i, %.splat138.i
-  %8 = fsub <4 x float> %extract121.i, %.splat140.i
+  %6 = fsub <4 x float> %extract113.i, %.splat124.i
+  %7 = fsub <4 x float> %extract117.i, %.splat126.i
+  %8 = fsub <4 x float> %extract121.i, %.splat128.i
   %9 = fmul <4 x float> %6, %6
   %10 = fmul <4 x float> %7, %7
   %11 = fmul <4 x float> %8, %8
-  %12 = fcmp olt <4 x float> %.splat136.i, %extract113.i
-  %13 = fcmp olt <4 x float> %.splat138.i, %extract117.i
-  %14 = fcmp olt <4 x float> %.splat140.i, %extract121.i
+  %12 = fcmp olt <4 x float> %.splat124.i, %extract113.i
+  %13 = fcmp olt <4 x float> %.splat126.i, %extract117.i
+  %14 = fcmp olt <4 x float> %.splat128.i, %extract121.i
   %15 = select <4 x i1> %12, <4 x float> %9, <4 x float> zeroinitializer
   %16 = select <4 x i1> %13, <4 x float> %10, <4 x float> zeroinitializer
   %17 = select <4 x i1> %14, <4 x float> %11, <4 x float> zeroinitializer
-  %18 = fsub <4 x float> %.splat136.i, %extract125.i
-  %19 = fsub <4 x float> %.splat138.i, %extract129.i
-  %20 = fsub <4 x float> %.splat140.i, %extract133.i
+  %upper_x_gep.i = getelementptr inbounds nuw i8, ptr %ptr_array_deref111.i, i64 32
+  %extract132.i = load <4 x float>, ptr %upper_x_gep.i, align 4, !invariant.load !0
+  %upper_y_gep.i = getelementptr inbounds nuw i8, ptr %ptr_array_deref111.i, i64 64
+  %extract136.i = load <4 x float>, ptr %upper_y_gep.i, align 4, !invariant.load !0
+  %upper_z_gep.i = getelementptr inbounds nuw i8, ptr %ptr_array_deref111.i, i64 96
+  %extract140.i = load <4 x float>, ptr %upper_z_gep.i, align 4, !invariant.load !0
+  %18 = fsub <4 x float> %.splat124.i, %extract132.i
+  %19 = fsub <4 x float> %.splat126.i, %extract136.i
+  %20 = fsub <4 x float> %.splat128.i, %extract140.i
   %21 = fmul <4 x float> %18, %18
   %22 = fmul <4 x float> %19, %19
   %23 = fmul <4 x float> %20, %20
-  %24 = fcmp olt <4 x float> %extract125.i, %.splat136.i
-  %25 = fcmp olt <4 x float> %extract129.i, %.splat138.i
-  %26 = fcmp olt <4 x float> %extract133.i, %.splat140.i
+  %24 = fcmp olt <4 x float> %extract132.i, %.splat124.i
+  %25 = fcmp olt <4 x float> %extract136.i, %.splat126.i
+  %26 = fcmp olt <4 x float> %extract140.i, %.splat128.i
   %27 = select <4 x i1> %24, <4 x float> %21, <4 x float> zeroinitializer
   %28 = select <4 x i1> %25, <4 x float> %22, <4 x float> zeroinitializer
   %29 = select <4 x i1> %26, <4 x float> %23, <4 x float> zeroinitializer
@@ -93,9 +93,9 @@ closest:
   %.splatinsert142.i = insertelement <4 x float> poison, float %"_best0$i25.sroa.0.2", i64 0
   %.splat143.i = shufflevector <4 x float> %.splatinsert142.i, <4 x float> poison, <4 x i32> zeroinitializer
   %36 = fcmp olt <4 x float> %35, %.splat143.i
-  %37 = fsub <4 x float> %.splat136.i, %extract113.i
-  %38 = fsub <4 x float> %.splat138.i, %extract117.i
-  %39 = fsub <4 x float> %.splat140.i, %extract121.i
+  %37 = fsub <4 x float> %.splat124.i, %extract113.i
+  %38 = fsub <4 x float> %.splat126.i, %extract117.i
+  %39 = fsub <4 x float> %.splat128.i, %extract121.i
   %40 = tail call <4 x float> @llvm.fabs.v4f32(<4 x float> %37)
   %41 = tail call <4 x float> @llvm.fabs.v4f32(<4 x float> %38)
   %42 = tail call <4 x float> @llvm.fabs.v4f32(<4 x float> %39)
@@ -144,14 +144,14 @@ closest:
   %67 = bitcast <4 x float> %35 to <4 x i32>
   %68 = tail call range(i32 1, 33) i32 @llvm.cttz.i32(i32 %66, i1 true)
   %69 = select <4 x i1> %36, <4 x i32> %67, <4 x i32> zeroinitializer
-  store <4 x i32> %69, ptr %"@213207.i", align 16
-  %extract_ptr161.i = getelementptr inbounds nuw [4 x i8], ptr %"@213207.i", i64 %_wide156.i
+  store <4 x i32> %69, ptr %"@210207.i", align 16
+  %extract_ptr161.i = getelementptr inbounds nuw [4 x i8], ptr %"@210207.i", i64 %_wide156.i
   %extract162.i = load i32, ptr %extract_ptr161.i, align 4
   %isneg.i = icmp slt i32 %extract162.i, 0
   %70 = select i1 %isneg.i, i32 2147483647, i32 0
   %71 = xor i32 %70, %extract162.i
   %_wide163.i = zext nneg i32 %68 to i64
-  %extract_ptr164.i = getelementptr inbounds nuw [4 x i8], ptr %"@213207.i", i64 %_wide163.i
+  %extract_ptr164.i = getelementptr inbounds nuw [4 x i8], ptr %"@210207.i", i64 %_wide163.i
   %extract165.i = load i32, ptr %extract_ptr164.i, align 4
   %isneg320.i = icmp slt i32 %extract165.i, 0
   %72 = select i1 %isneg320.i, i32 2147483647, i32 0
@@ -173,7 +173,7 @@ closest:
   %82 = tail call i32 @llvm.smin.i32(i32 %71, i32 %73)
   %83 = tail call range(i32 1, 33) i32 @llvm.cttz.i32(i32 %79, i1 true)
   %_wide169.i = zext nneg i32 %83 to i64
-  %extract_ptr170.i = getelementptr inbounds nuw [4 x i8], ptr %"@213207.i", i64 %_wide169.i
+  %extract_ptr170.i = getelementptr inbounds nuw [4 x i8], ptr %"@210207.i", i64 %_wide169.i
   %extract171.i = load i32, ptr %extract_ptr170.i, align 4
   %isneg322.i = icmp slt i32 %extract171.i, 0
   %84 = select i1 %isneg322.i, i32 2147483647, i32 0
@@ -202,7 +202,7 @@ closest:
   %101 = tail call i32 @llvm.smin.i32(i32 %82, i32 %85)
   %102 = tail call range(i32 1, 33) i32 @llvm.cttz.i32(i32 %96, i1 true)
   %_wide175.i = zext nneg i32 %102 to i64
-  %extract_ptr176.i = getelementptr inbounds nuw [4 x i8], ptr %"@213207.i", i64 %_wide175.i
+  %extract_ptr176.i = getelementptr inbounds nuw [4 x i8], ptr %"@210207.i", i64 %_wide175.i
   %extract177.i = load i32, ptr %extract_ptr176.i, align 4
   %isneg324.i = icmp slt i32 %extract177.i, 0
   %103 = select i1 %isneg324.i, i32 2147483647, i32 0
@@ -310,9 +310,9 @@ closest:
   %139 = fsub <4 x float> %133, %130
   %140 = fsub <4 x float> %134, %131
   %141 = fsub <4 x float> %135, %132
-  %142 = fsub <4 x float> %.splat136.i, %130
-  %143 = fsub <4 x float> %.splat138.i, %131
-  %144 = fsub <4 x float> %.splat140.i, %132
+  %142 = fsub <4 x float> %.splat124.i, %130
+  %143 = fsub <4 x float> %.splat126.i, %131
+  %144 = fsub <4 x float> %.splat128.i, %132
   %145 = fmul <4 x float> %142, %139
   %146 = fmul <4 x float> %143, %140
   %147 = fadd <4 x float> %145, %146
@@ -330,9 +330,9 @@ closest:
   %159 = fcmp ugt <4 x float> %157, zeroinitializer
   %160 = or <4 x i1> %158, %159
   %161 = and <4 x i1> %128, %160
-  %162 = fsub <4 x float> %.splat136.i, %133
-  %163 = fsub <4 x float> %.splat138.i, %134
-  %164 = fsub <4 x float> %.splat140.i, %135
+  %162 = fsub <4 x float> %.splat124.i, %133
+  %163 = fsub <4 x float> %.splat126.i, %134
+  %164 = fsub <4 x float> %.splat128.i, %135
   %165 = fmul <4 x float> %139, %162
   %166 = fmul <4 x float> %140, %163
   %167 = fadd <4 x float> %165, %166
@@ -383,9 +383,9 @@ closest:
   %212 = select <4 x i1> %201, <4 x float> %209, <4 x float> %185
   %213 = or <4 x i1> %192, %200
   %214 = or <4 x i1> %196, %213
-  %215 = fsub <4 x float> %.splat136.i, %136
-  %216 = fsub <4 x float> %.splat138.i, %137
-  %217 = fsub <4 x float> %.splat140.i, %138
+  %215 = fsub <4 x float> %.splat124.i, %136
+  %216 = fsub <4 x float> %.splat126.i, %137
+  %217 = fsub <4 x float> %.splat128.i, %138
   %218 = fmul <4 x float> %139, %215
   %219 = fmul <4 x float> %140, %216
   %220 = fadd <4 x float> %218, %219
@@ -489,9 +489,9 @@ closest:
   %318 = select <4 x i1> %300, <4 x float> %315, <4 x float> %296
   %319 = select <4 x i1> %300, <4 x float> %316, <4 x float> %297
   %320 = select <4 x i1> %300, <4 x float> %317, <4 x float> %298
-  %321 = fsub <4 x float> %.splat136.i, %318
-  %322 = fsub <4 x float> %.splat138.i, %319
-  %323 = fsub <4 x float> %.splat140.i, %320
+  %321 = fsub <4 x float> %.splat124.i, %318
+  %322 = fsub <4 x float> %.splat126.i, %319
+  %323 = fsub <4 x float> %.splat128.i, %320
   %324 = fmul <4 x float> %321, %321
   %325 = fmul <4 x float> %322, %322
   %326 = fadd <4 x float> %324, %325
@@ -555,7 +555,7 @@ closest:
   br label %"_recloop_func0!loop.i"
 
 _recloop_func0.exit:                              ; preds = %"!visit_pop.i"
-  call void @llvm.lifetime.end.p0(ptr nonnull %"@213207.i")
+  call void @llvm.lifetime.end.p0(ptr nonnull %"@210207.i")
   call void @llvm.lifetime.end.p0(ptr nonnull %"!stack0208.i")
   call void @llvm.lifetime.end.p0(ptr nonnull %"!stack209.i")
   %351 = lshr i32 %"_best0$i25.sroa.7.1", 2

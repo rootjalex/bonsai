@@ -165,6 +165,7 @@ add_bonsai_tests(
     shadowed-let.bonsai
     simplify-facts.bonsai
     sink.bonsai
+    narrow-loads-build.bonsai
     specialize.bonsai
     specialize-bool.bonsai
     specialize-callee.bonsai

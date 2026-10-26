@@ -1,0 +1,34 @@
+//! flags: -p ssa -b llvm -e
+
+// Execution under the ssa pipeline, where Opt/NarrowLoads splits a pure
+// built struct into its read fields and Opt/Sink moves them: the answers
+// must be the ones the unsplit program gives. The shapes: a field read by
+// one arm alone (sunk), one read on both paths, one read nowhere, and a
+// struct passed whole to a function, which stays whole.
+
+element Rec {
+    lo : f32;
+    mid : f32;
+    heavy : f32;
+    sum : f32;
+}
+
+func probe_whole(r : Rec) -> f32 {
+    return r.lo + r.mid;
+}
+
+func pick(x : f32, y : f32, big : bool) -> f32 {
+    r : Rec = {x, x - y, sqrt(x * y), x + y};
+    tag : Rec = {y, x, y, x};
+    if big {
+        return r.lo + r.heavy + probe_whole(tag);
+    }
+    return r.sum;
+}
+
+func main() -> i32 {
+    // 3 + 6 + (12 + 3) = 24; 3 + 12 = 15.
+    print(pick(3.0, 12.0, true));
+    print(pick(3.0, 12.0, false));
+    return 0;
+}

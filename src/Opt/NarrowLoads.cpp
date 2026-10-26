@@ -312,6 +312,87 @@ struct NarrowImpl : Mutator {
             if (let == nullptr || !let->loc.accesses.empty()) {
                 continue;
             }
+            // A pure aggregate built in place -- an element read out of a
+            // tile, whose fields are the tile's stored lanes and its
+            // derived values (Lower/TiledArrays.cpp) -- whose every later
+            // use is a field read: one let per field read, each the
+            // field's own value, in field order at the build's place; the
+            // unread fields' values are never computed, and are pure, so
+            // nothing is lost. Scalar replacement of aggregates (Muchnick
+            // 12.2) on a build, as split_temp is on a merge temp. Split
+            // even when every field is read, since the gain is downstream:
+            // each field's let then sinks on its own into the arms that
+            // alone read it (Opt/Sink runs next), where the whole build
+            // never could -- an edge's two face normals, gathered from the
+            // polygon soup and normalized by the layout, computed on the
+            // two-face path that reads them and nowhere else.
+            if (const Build *built = let->value.as<Build>()) {
+                const Struct_t *bs = let->value.type().as<Struct_t>();
+                if (bs == nullptr || built->values.size() != bs->fields.size() ||
+                    !classify(let->value).sinkable) {
+                    continue;
+                }
+                const std::string &name = let->loc.base;
+                NarrowUses count;
+                count.base = name;
+                static const std::map<std::string, std::string> no_names;
+                count.field_names = &no_names;
+                for (size_t j = i + 1; j < stmts.size(); j++) {
+                    count.mutate(stmts[j]);
+                }
+                if (count.whole_use || count.fields_seen.empty()) {
+                    continue;
+                }
+                std::map<std::string, std::string> names;
+                std::vector<Stmt> split;
+                for (size_t k = 0; k < bs->fields.size(); k++) {
+                    const TypedVar &f = bs->fields[k];
+                    if (count.fields_seen.count(f.name) == 0) {
+                        continue;
+                    }
+                    // A field that is a bare variable needs no let: its
+                    // reads become reads of that variable, as
+                    // propagate_copies would make them -- an alias left
+                    // behind is one more `let a = b` for every later pass to
+                    // see through.
+                    if (const Var *var = built->values[k].as<Var>()) {
+                        names.emplace(f.name, var->name);
+                        continue;
+                    }
+                    const std::string fresh =
+                        name + "$" + f.name + std::to_string(counter++);
+                    names.emplace(f.name, fresh);
+                    split.push_back(
+                        LetStmt::make(WriteLoc(fresh, f.type), built->values[k]));
+                }
+                // The reads move onto the field lets, and the build goes
+                // once nothing reads it (checked, as split_temp checks): left
+                // in place until DCE, it would keep every value it is built
+                // from pinned above the branches -- the cross products and
+                // squared norms the normals are made of -- where the field
+                // lets that read them have gone in (Opt/Sink runs before
+                // DCE). A use some shape kept from the rewrite keeps the
+                // build, and is simply correct.
+                NarrowUses rewrite;
+                rewrite.base = name;
+                rewrite.field_names = &names;
+                bool still_read = false;
+                for (size_t j = i + 1; j < stmts.size(); j++) {
+                    stmts[j] = rewrite.mutate(stmts[j]);
+                    for (const TypedVar &v : gather_free_vars(stmts[j])) {
+                        still_read = still_read || v.name == name;
+                    }
+                }
+                stmts.insert(stmts.begin() + ptrdiff_t(i) + 1, split.begin(),
+                             split.end());
+                if (still_read) {
+                    i += split.size();
+                } else {
+                    stmts.erase(stmts.begin() + ptrdiff_t(i));
+                    i += split.size() - 1;
+                }
+                continue;
+            }
             // A load: a dereference, or an access chain rooted at one or at
             // a reference -- an element read through a tree's storage is
             // `ref.field`, the same chain the code generator's PtrTo walks

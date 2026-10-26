@@ -1,0 +1,17 @@
+type Rec = struct Rec{ lo : f32; mid : f32; heavy : f32; sum : f32 }
+
+func [[export]] pick(x : f32, y : f32, big : bool) -> f32 {
+  let r$heavy0 = sqrt(x * y) in
+  let r$sum1 = x + y in
+  let tag = build<Rec>(y, x, y, x) in
+  if (big) {
+    return (x + r$heavy0) + probe_whole(tag)
+  }
+  return r$sum1
+}
+
+func probe_whole(r : Rec) -> f32 {
+  return r.lo
+}
+
+

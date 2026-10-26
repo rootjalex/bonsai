@@ -1,0 +1,29 @@
+//! flags: -p ssa -b llvm
+
+// The build pattern of Opt/NarrowLoads, all the way to LLVM: a struct built
+// from pure values and read at its fields -- the shape an element read out
+// of a tile has, its derived fields the layout's expressions over the
+// tile's stored lanes -- splits into one let per field read, and the field
+// read by one arm alone then sinks into that arm (Opt/Sink). What to read
+// for: the `sqrt` of `heavy` in the block under the `big` branch, after
+// the branch and beside the print that keeps the arm an arm, and nothing
+// of it on the path that returns `sum`; `mid`, read nowhere, computed
+// nowhere. (The print is there because LLVM folds a branch of pure
+// arithmetic into selects and speculates a square root freely; a call in
+// the arm keeps the control flow, which is what the test is about.)
+
+element Rec {
+    lo : f32;
+    mid : f32;
+    heavy : f32;
+    sum : f32;
+}
+
+func [[export]] pick(x : f32, y : f32, big : bool) -> f32 {
+    r : Rec = {x, x - y, sqrt(x * y), x + y};
+    if big {
+        print(r.heavy);
+        return r.lo + r.heavy;
+    }
+    return r.sum;
+}
