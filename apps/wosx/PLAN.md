@@ -1736,10 +1736,34 @@ gap" above compared with FCPW's (the `vec3f` loads and horizontal sums).
   or dropped once it is decided.
 - The two deferral schedules' variations above (1024 walks, a per-round
   sort on the card-wide queue).
-- The layout-language extension above, if the user wants WoSX's default
-  tree matched; the hybrid switch as a schedule point (the packet section).
-- The scalar-BVH layout and FCPW's scalar arithmetic, for WoSX's default
-  configuration (issue 1).
+- The CPU comparison moved onto the bytes FCPW's CPU reads. The layout
+  extension landed on 2026-10-25 (compiler 75282086: a tile's derived
+  field reads another named group, by index or by address), and apps/rtq's
+  layouts/fcpwb.bonsai and fcpws.bonsai are now FCPW's own arrays wrapped
+  -- its node array, pointer arrays, Triangle and SilhouetteEdge objects
+  and polygon soup -- with the GPU rows in fcpwb_gpu.bonsai and
+  fcpws_gpu.bonsai (apps/rtq/PLAN.md, "Genuine apples-to-apples"). Every
+  fcpwb* schedule here still imports fcpwb_gpu, and layouts/fcpw_stars.
+  bonsai holds the GPU rows for its three trees, so WoSX's CPU is still
+  compared against a leaf that reads stored corners where its own gathers
+  through the soup (apps/rtq measured that layout worth 0.1-0.2x on the
+  closest point and the silhouette on head). To do: the CPU schedules
+  (fcpwb, fcpwb-threads, fcpwb-persistent, the packet ones, cpu/wost_fcpwb)
+  on the CPU-bytes layouts, a CPU form of fcpw_stars.bonsai, and
+  wosx_hook.cpp wrapping FCPW's arrays under WOSX_BINARY_BVH and
+  WOSX_STARS as apps/rtq's drivers do (rtq_bvh::wrap_fcpw_bvh,
+  rtq_snch::wrap_snch); the GPU schedules keep the GPU rows.
+- The walk on stars' silhouette query ignores its `min_r2` where FCPW's
+  traversal stops once a silhouette within the shell's inner radius is
+  found (`squaredMinRadius >= s.r2`, at the leaf and per edge): with a
+  positive minimum radius FCPW does less work and may return a nearer-than-
+  needed edge rather than the nearest, ours always the nearest. apps/rtq
+  passes a minimum radius of zero, so its comparison is unaffected; the
+  walk on stars' is not, and the two sides have to ask the same question
+  before its table is read as a layout or schedule comparison.
+- The hybrid switch as a schedule point (the packet section).
+- FCPW's scalar arithmetic for WoSX's default configuration (issue 1) is
+  now metrics/fcpw_scalar.bonsai in apps/rtq.
 - The extensions, one at a time against WoSX: a source term (Poisson),
   the gradient estimate, a non-zero flux or Robin coefficient on the
   reflecting boundary (the Neumann contribution's boundary sampling

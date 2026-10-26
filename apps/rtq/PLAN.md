@@ -7158,3 +7158,136 @@ inlined (CodeGen_PTX::codegen_math_call; --fast-math would switch only
 sin, cos, exp, log and pow to their approximate forms, as nvcc's
 --use_fast_math does, and compare.sh does not pass it). The SASS counts
 above are the evidence. On the CPU both sides call glibc's.
+
+### Genuine apples-to-apples: the bytes FCPW's CPU reads (2026-10-25, evening)
+
+The user's ruling: the comparison means nothing unless it is the same
+algorithm over the same tree in the same layout on the same schedule, and
+"our rows are FCPW's GPU layout" was already one case where it was not.
+The audit of the rest, and what was done about each:
+
+- The leaf layout (the one above). FCPW's CPU leaf reads `primitives[k]`,
+  a `Triangle*`, the three indices out of the object and the corners out
+  of `soup->positions` by index; our CPU layout held FCPW's GPUTriangle
+  rows, the corners stored. Fixed: layouts/fcpwb.bonsai and fcpws.bonsai
+  are now FCPW's own arrays -- flatTree (SnchNode in its CPU field order,
+  which differs from GPUSnchNode's in the last twelve bytes), the pointer
+  arrays, the Triangle and SilhouetteEdge objects reached by address
+  through a `ptr group`, the positions -- wrapped where they lie by
+  fcpw_bvh.h's wrap_fcpw_bvh and fcpw_snch.h's wrap_snch (nothing copied;
+  the scene outlives the tree; every reference checked to point into the
+  one object vector and every object to index the one soup). The tile
+  stores the pointer and derives the rest: `t = objects[tri]`, `pa =
+  positions[t.i0].p`, `e1 = pa - pb`. That needed the layout language to
+  let a tile's derived field read another named group, by index or by
+  address (commit 75282086: the parser puts a named plain group in the
+  layout's scope as the array of its row struct; Lower/Layouts.cpp's fill
+  binds the read to the group's storage; a derived member may be a step
+  towards the element's fields rather than one of them). The GPU bytes,
+  which FCPW's GPU reads, are fcpwb_gpu.bonsai and fcpws_gpu.bonsai, for
+  the -gpu schedules and -- for now -- apps/wosx (its switch is pending).
+- The edge's two face normals. FCPW's SilhouetteEdge::normal(0/1)
+  recomputes them from the positions at every two-face test (the cross of
+  two corner differences, normalized); the GPU row stores them. Derived in
+  the CPU layout as FCPW computes them -- Eigen's cross, its squared norm
+  `fma(x, x, fma(y, y, z*z))`, and normalized()'s division guarded by the
+  squared norm being positive -- and read only where FCPW reads them. For
+  the reads to sit there, the edge's `intersects` is written as FCPW's two
+  statements (`if one_face { true } ; is_silhouette_edge(...)`) rather
+  than one `||`: a call inside a short circuit stays a call taking the
+  whole edge, which pins every field's value above the test.
+- Eigen's normalized() has a `z > 0` guard (Dot.h), returning a zero vector
+  as it is; the metric's `unit` and the hit normal (`v1.cross(v2)
+  .normalized()`) now carry it, and the hit normal uses squaredNorm's fma
+  order rather than dot's.
+- The wide metric's "proper box" compare, kept in the scalar slab test for
+  a box that is never the inverted empty slot here: dropped.
+- The edge index is loaded per edge and per triangle where FCPW reads
+  pIndex on a hit only (findClosestPoint reads it every time): the same
+  cache line as the indices, one 4-byte load; Opt/Sink will not move a
+  value past a statement holding a call, and the record is under one. Left
+  as the known remainder.
+- Kept by the user's ruling, measured as they are: our silhouette node
+  test's order of conjuncts (cone before the running bound) and our direct
+  entry of the nearer child where FCPW pushes both and pops the nearer.
+
+The compiler, beyond the layout extension. Making the derived fields lazy
+exposed that an element read out of a tile is one `let e = build<Edge>(
+...)` whose fields are computed where it is built, so Opt/NarrowLoads now
+splits a pure build into one let per field read (scalar replacement of
+aggregates on a build, beside the merge-temp case), a field that is a bare
+variable substituted rather than aliased, and the build erased once
+nothing reads it; Opt/ValueClass treats a dereference through a read-only
+pointer -- a layout's storage -- as a value rather than a read of memory,
+so it crosses the stores of inlined temps; Opt/Sink enters a single using
+arm whatever the arm holds (a call inside it is no obstacle to a pure
+value) and sinks the arm again after entering, so a let descends through
+nested branches to its use. With these the two gathers and the two
+normalizations of an edge sit in the two-face arm after the radius test,
+where FCPW's are. Tests narrow-loads-build (opt, backends/llvm,
+correctness/llvm); goldens of some sixty tests moved (lets reordered and
+renamed, builds split, constants folded through split fields, the any-hit
+accept a select), each diff read before blessing.
+
+A compiler bug found on the way, left open: a `let a = b` alias of a
+lane-indexed per-child value inside the children loop (`b$low = _t67129`,
+`_t67129 = build<f32x3x2>(...)[children]`), surviving to the SSA conversion
+and the unroll, made both children's sort keys one SSA value -- the swap
+vanished, the silhouette query's tie pattern changed and it ran 25% slower
+on head. SSA/SSA.cpp's make_instruction renames an instruction when a let
+copies it ("a program's name stays"), and after the unroll's clone_region
+something resolves the two copies' names to one instruction. The split no
+longer leaves such aliases (and Opt/NarrowLoads's propagate_copies never
+did), so no program reaches it today; apps/rtq/scratch/binary/
+alias_probe.bonsai is the start of a reproduction (its alias was
+propagated away, so it does not yet reproduce).
+
+Head, the check before the sweep (repeats 3, the machine quiet, FCPW's
+own arrays): rays 0.67/0.79/0.84 over the binary tree and 0.65/0.77/0.82
+over the cone hierarchy, closest 0.99/1.13 and 0.96/1.10, silhouette
+1.02/1.05; every query agrees to the bit up to ties; the lazy normals
+measure the same as the eager ones on this mesh (0.32/0.64 M queries/s,
+FCPW 0.31/0.61). Against the GPU-rows CPU layout the leaf-heavy queries
+fell by what the layout gave them: closest 1.10/1.21 to 0.99/1.13,
+silhouette 1.14/1.24 to 1.02/1.05, the rays 0.81/0.88/0.86 to
+0.67/0.79/0.84.
+
+Measured (2026-10-25, 19:34-19:53, the lock held, `benchmark.sh
+--schedules fcpwb,fcpws`, five repeats, the least of each; plots/
+rtq-fcpw-scalar-cpu.*; the earlier logs in results/logs/before-2026-10-25-
+cpu-bytes/ and the earlier CSV beside the new one). Bonsai over FCPW's
+scalar build, one pinned thread a side, every cell agreeing to the bit up
+to ties (0 differ in all 85 cells; the GPU-rows table had the same
+agreement):
+
+    mesh       primary  diffuse  ao     near cp  vol cp  near sil  vol sil
+    pavilion    0.60     0.59    0.57    0.79    1.10     0.94      1.05
+    head        0.67     0.85    0.80    0.98    1.13     1.02      1.05
+    zero-day    0.98     0.94    0.94    1.09    1.14     1.03      1.05
+    bmw         0.76     0.91    0.86    1.05    1.08     1.08      1.05
+    crown       0.92     0.95    0.94    1.10    1.10     0.97      0.98
+    ivy         0.89     1.04    1.04    1.12    1.15     1.28      1.36
+    villa       0.73     0.88    0.84    1.06    1.08     0.98      1.02
+    dambreak    0.82     0.93    0.94    1.04    1.01     1.24      1.09
+    sportscar   0.84     0.94    0.95    1.07    1.06     1.04      1.04
+    landscape   0.74     0.62    0.63    1.02    0.97     1.05      1.14
+    ganesha     0.81     0.88    0.88    1.09    1.01     1.03      0.96
+    dragon      0.78     0.81    0.80    1.09    1.01     0.99      1.01
+    geomean     0.79     0.85    0.84    1.04    1.07     1.05      1.06
+    was (GPU rows on the CPU, 16:04)
+                0.81     0.88    0.86    1.10    1.21     1.14      1.24
+
+(lte-orb's primary rays 0.83; FCPW finds no hit on it for the rest, so it
+stays out of the figure as before.) What moved is the leaf-heavy side: the
+closest point and the silhouette query, which the stored corners had
+carried to 1.1-1.24, are now level with FCPW (1.04-1.07), the gather and
+the indirection paid on both sides alike; the rays, whose cost is the
+visit, hardly moved (0.79/0.85/0.84 against 0.81/0.88/0.86) and still
+read as the previous section says, a mask-and-cmov visit against FCPW's
+branchy one, pavilion and landscape the extremes. The lazy normals and
+the two-statement edge test measure the same as the eager form did on
+head (0.32/0.64 M queries/s, FCPW 0.31/0.61), so nothing of the silhouette
+column is the sinking's; it is the layout's. Both tables are now of the
+same algorithm over the same bytes with the same arithmetic; what is left
+between the sides is the visit's code shape and the two orderings the user
+chose to keep, which these numbers can now be read against.
