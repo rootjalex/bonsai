@@ -2629,13 +2629,18 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                 intervals.dump(std::cout, *f);
             }
         }
-        // Whether a gang runs a function: some directive of the schedule
-        // vectorizes a loop of it or of a function it is called from, so
-        // that, once loopify() has put a sorted run on a stack, each lane
-        // orders the run for itself -- a select per value, not a branch
-        // (SSA/SortRecursion.cpp, sort_two and the header's `per_lane`).
-        // Read off the whole schedule, as `vectorizes` below is: the
-        // vectorize directive comes after the sort it bears on.
+        // Whether a lane runs a function: some directive of the schedule
+        // vectorizes a loop of it or of a function it is called from, or
+        // binds such a loop to a GPU's threads, so that, once loopify() has
+        // put a sorted run on a stack, each lane orders the run for itself
+        // -- a select per value, not a branch (SSA/SortRecursion.cpp,
+        // sort_two and the header's `per_lane`). A GPU thread is a lane of
+        // its warp: where the threads of a warp disagree on the order, a
+        // branch runs both arms under masks, and the selects kept the warp
+        // together (measured 2026-10-26 on FCPW's binary tree, 3-5% of the
+        // GPU's rate lost to the branch). Read off the whole schedule, as
+        // `vectorizes` below is: the vectorize or bind directive comes
+        // after the sort it bears on.
         std::map<std::string, std::vector<std::string>> callers;
         for (const auto &[caller, f] : fmap) {
             for (const auto &block : f->blocks) {
@@ -2644,7 +2649,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                 }
             }
         }
-        const auto gang_runs = [&](const std::string &fname) {
+        const auto lane_runs = [&](const std::string &fname) {
             std::set<std::string> seen{fname};
             std::vector<std::string> todo{fname};
             while (!todo.empty()) {
@@ -2653,6 +2658,14 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                 if (const auto ts = transforms.find(f); ts != transforms.end()) {
                     for (const ir::Transform &t : ts->second) {
                         if (std::holds_alternative<ir::Vectorize>(t)) {
+                            return true;
+                        }
+                        if (const auto *b = std::get_if<ir::Bind>(&t);
+                            b != nullptr && !b->lambda.defined() &&
+                            (b->resource == ir::Resource::GPUThread ||
+                             b->resource == ir::Resource::GPUBlock ||
+                             b->resource == ir::Resource::OptixThread ||
+                             b->resource == ir::Resource::RTCore)) {
                             return true;
                         }
                     }
@@ -2671,7 +2684,7 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                 continue;
             }
             sort_recursion(*f->second, fmap, options.target, intervals,
-                           gang_runs(fname));
+                           lane_runs(fname));
             // What the network compared was built by rule; this is where it
             // is looked at (see SSA/Simplify.h).
             simplify(*f->second);

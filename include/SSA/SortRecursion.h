@@ -63,13 +63,15 @@ namespace ssa {
 // the callee's mask parameter says which lanes are on, and the votes are
 // settled here by their majority (settle_votes in SortRecursion.cpp).
 using FuncMap = std::map<std::string, std::shared_ptr<Function>>;
-// `per_lane`: a gang runs `func` -- some directive of the schedule
-// vectorizes a loop of it or of a function it is called from -- and once
-// loopify() has put a run on a stack each lane orders it for itself
-// (QueueRecursion.cpp drops the run's votes), which is a select per value;
-// a run of two is then sorted by the network's selects. Otherwise one
-// visitor orders the run, and a run of two is sorted by a branch between its
-// two orders (sort_two), the form of FCPW's and Embree's scalar traversals.
+// `per_lane`: a lane runs `func` -- some directive of the schedule
+// vectorizes a loop of it or of a function it is called from, or binds such
+// a loop to a GPU's threads, each a lane of its warp -- and once loopify()
+// has put a run on a stack each lane orders it for itself (QueueRecursion.cpp
+// drops the run's votes), which is a select per value; a run of two is then
+// sorted by the network's selects, which keep a warp together where a branch
+// its threads disagree on would run both arms. Otherwise one visitor orders
+// the run, and a run of two is sorted by a branch between its two orders
+// (sort_two), the form of FCPW's and Embree's scalar traversals.
 size_t sort_recursion(Function &func, const FuncMap &funcs,
                       const Target &target,
                       const ConstantIntervals &intervals,
