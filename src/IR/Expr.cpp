@@ -2294,16 +2294,19 @@ Expr TiledArray::make(Expr tiles, uint32_t width, Type element,
     if (count.defined()) {
         count = BinOp::make(BinOp::Mul, count, make_const(count.type(), width));
     }
-    // A derived field is one of the element's, with the element's type.
+    // A derived field that is one of the element's has the element's type;
+    // one that is not is a step on the way to them -- the face object a
+    // stored address names, whose indices the corners are gathered by --
+    // which the later fields read and the element read never sees.
     const Struct_t *fields = element.as<Struct_t>();
     for (const auto &[name, value] : derived) {
+        internal_assert(value.defined() && value.type().defined())
+            << "A tile derives " << name << " as " << value << ", which has no type";
         const auto field = std::find_if(
             fields->fields.begin(), fields->fields.end(),
             [&](const auto &f) { return f.name == name; });
-        internal_assert(field != fields->fields.end())
-            << "A tile derives " << name << ", which is no field of the element "
-            << element;
-        internal_assert(value.defined() && equals(value.type(), field->type))
+        internal_assert(field == fields->fields.end() ||
+                        equals(value.type(), field->type))
             << "A tile derives " << name << " as " << value << " of type "
             << value.type() << ", where the element's field is a " << field->type;
     }
@@ -2320,6 +2323,10 @@ Expr TiledArray::make(Expr tiles, uint32_t width, Type element,
 
 std::string TiledArray::placeholder(const std::string &field) {
     return "_tilefield_" + field;
+}
+
+bool TiledArray::is_placeholder(const std::string &name) {
+    return name.starts_with("_tilefield_");
 }
 
 Expr RefTo::make(Expr place, std::string tree) {

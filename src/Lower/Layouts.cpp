@@ -365,15 +365,55 @@ struct FindFromType : public ir::Visitor {
     }
 };
 
+// The bytes at `address`, an integer holding a row's own address -- what a
+// reference into a ptr group is (ir::Group::Type::Pointer), followed as the
+// pointer it is, nothing of the group's base added: Embree's NodeRef, an
+// address with the kind in its low bits. Read-only, as every layout's
+// storage is.
+ir::Expr bytes_at(ir::Expr address) {
+    internal_assert(address.type().is_int_or_uint() && address.type().bits() == 64)
+        << "A row of a ptr group is at an address, a 64-bit integer, and "
+           "this one is a "
+        << address.type() << ": " << address;
+    return ir::Cast::make(ir::Ptr_t::make(ir::UInt_t::make(8), /*readonly=*/true),
+                          std::move(address), ir::Cast::Mode::Reinterpret);
+}
+
+// The row of type `row_t` at `bytes`: element zero of an array of such rows
+// beginning there -- the same spelling a row of a group of rows has,
+// `rows[i]`, so that its fields are read the same way. An array is a
+// reference to its elements, so the address is reinterpreted as the array,
+// not dereferenced (which would read a handle out of the bytes); and
+// `&rows[0]` is the address itself (address_of_row), which is what a
+// prefetch of the reference fetches.
+ir::Expr row_at(ir::Expr bytes, const ir::Type &row_t) {
+    return ir::Extract::make(
+        ir::Cast::make(ir::Array_t::make(row_t, ir::Expr(), /*readonly=*/true),
+                       std::move(bytes), ir::Cast::Mode::Reinterpret),
+        ir::UIntImm::make(ir::UInt_t::make(32), 0));
+}
+
+// A layout's term with its names bound: each variable to what the frames
+// hold under it -- the row's fields read so far, the groups declared so far
+// under their names, `this` -- and each read of a named group's row
+// (`positions[i]`, `objects[tri]`) to that group's storage. The placeholders
+// of a tile's members (ir::TiledArray::placeholder) are left as they are:
+// they stand for lanes the read's expansion supplies (Lower/TiledArrays.cpp),
+// not for anything the frames hold.
 ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
-              const ir::Expr &expr) {
+              const LayoutTypeMap &ltmap, const ir::Expr &expr) {
     struct Rewrite : public ir::Mutator {
         const ir::MapStack<std::string, ir::Expr> &frames;
+        const LayoutTypeMap &ltmap;
 
-        Rewrite(const ir::MapStack<std::string, ir::Expr> &frames)
-            : frames(frames) {}
+        Rewrite(const ir::MapStack<std::string, ir::Expr> &frames,
+                const LayoutTypeMap &ltmap)
+            : frames(frames), ltmap(ltmap) {}
 
         ir::Expr visit(const ir::Var *var) override {
+            if (ir::TiledArray::is_placeholder(var->name)) {
+                return var;
+            }
             if (var->name == "range" && var->type.is<ir::Function_t>()) {
                 const ir::Function_t *func = var->type.as<ir::Function_t>();
                 internal_assert(func->ret_type.is<ir::Array_t>());
@@ -390,6 +430,30 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
             internal_assert(expr.has_value())
                 << "Materialization fill cannot find: " << var->name;
             return *expr;
+        }
+
+        // A row of a named group, read by a term: `positions[i]` is row `i`
+        // of the group's rows, which the frames hold under the group's name
+        // (the Group case of field_in_layout binds them), and the default
+        // rewrite gives; `objects[tri]` into a ptr group is the row at the
+        // address `tri` holds, as a lookup into one reads it (the Lookup
+        // case), the group's base taking no part. A tile deriving a
+        // triangle's corners from the vertices its stored indices name
+        // reads this way -- FCPW's CPU leaf, which gathers through an
+        // indexed polygon soup (apps/rtq/schedules/layouts/fcpwb.bonsai).
+        ir::Expr visit(const ir::Extract *node) override {
+            if (const ir::Var *var = node->vec.as<ir::Var>()) {
+                const auto named = ltmap.groups.find(var->name);
+                if (named != ltmap.groups.cend() &&
+                    named->second.type == ir::Group::Type::Pointer) {
+                    const auto row_t =
+                        ltmap.layout_to_type.find(named->second.inner);
+                    internal_assert(row_t != ltmap.layout_to_type.cend())
+                        << "Unseen rows of ptr group " << var->name;
+                    return row_at(bytes_at(mutate(node->idx)), row_t->second);
+                }
+            }
+            return ir::Mutator::visit(node);
         }
 
         // A component of a vector read through another row, `this[left]
@@ -424,7 +488,7 @@ ir::Expr fill(const ir::MapStack<std::string, ir::Expr> &frames,
             return read;
         }
     };
-    return Rewrite(frames).mutate(expr);
+    return Rewrite(frames, ltmap).mutate(expr);
 }
 
 // The struct one tile of a group of elements is stored as: every stored field
@@ -789,38 +853,23 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
             << "Group " << lookup->group_name
             << " is not in scope where it is looked up. A group has to be "
                "declared before the arm that names it.";
-        ir::Expr index = fill(frames, lookup->index);
-        // A pointer group's row is at the address the index is: the
-        // reference's bits followed as the pointer they are (ir::Group::
-        // Type::Pointer), nothing of the group's base added -- Embree's
-        // NodeRef, which is an address with the kind in its low bits.
-        // Read-only, as every layout's storage is.
+        ir::Expr index = fill(frames, ltmap, lookup->index);
+        // A pointer group's row is at the address the index is (bytes_at);
+        // an indirect group's is indexed from the group's base.
         const bool by_address =
             named->second.type == ir::Group::Type::Pointer;
         ir::Expr address;
         if (by_address) {
-            internal_assert(index.type().is_int_or_uint() &&
-                            index.type().bits() == 64)
-                << "A lookup into ptr group " << lookup->group_name
-                << " is by address, a 64-bit integer, and this one is a "
-                << index.type() << ": " << lookup->index;
-            address = ir::Cast::make(
-                ir::Ptr_t::make(ir::UInt_t::make(8), /*readonly=*/true),
-                std::move(index), ir::Cast::Mode::Reinterpret);
+            address = bytes_at(std::move(index));
         }
         ir::Expr row = by_address ? ir::Expr()
                                   : ir::Extract::make(*rows, std::move(index));
         if (by_address && !lookup->shape.defined()) {
-            // The row as the group's own rows are shaped: element zero of
-            // an array of them at the address (as below for a shape).
+            // The row as the group's own rows are shaped.
             const auto row_t = ltmap.layout_to_type.find(named->second.inner);
             internal_assert(row_t != ltmap.layout_to_type.cend())
                 << "Unseen rows of ptr group " << lookup->group_name;
-            row = ir::Extract::make(
-                ir::Cast::make(ir::Array_t::make(row_t->second, ir::Expr(),
-                                                 /*readonly=*/true),
-                               address, ir::Cast::Mode::Reinterpret),
-                ir::UIntImm::make(ir::UInt_t::make(32), 0));
+            row = row_at(address, row_t->second);
         }
         // A row of a group of bytes, shaped as the arm says: the bytes at
         // the offset, read as the shape's struct through its address
@@ -832,20 +881,8 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
             internal_assert(shaped != ltmap.layout_to_type.cend())
                 << "Unseen shape of a lookup into " << lookup->group_name
                 << ": " << lookup->shape;
-            // The row is element zero of an array of the shape that begins
-            // at the offset -- the same spelling a row of a group of rows
-            // has, `rows[i]`, so that its fields are read the same way (an
-            // array is a reference to its elements, so the address is
-            // reinterpreted as the array, not dereferenced); and `&rows[0]`
-            // is the address itself (PtrTo::make), which is what a prefetch
-            // of the reference fetches.
-            row = ir::Extract::make(
-                ir::Cast::make(ir::Array_t::make(shaped->second, ir::Expr(),
-                                                 /*readonly=*/true),
-                               by_address ? address
-                                          : ir::PtrTo::make(std::move(row)),
-                               ir::Cast::Mode::Reinterpret),
-                ir::UIntImm::make(ir::UInt_t::make(32), 0));
+            row = row_at(by_address ? address : ir::PtrTo::make(std::move(row)),
+                         shaped->second);
             if (field == kRowOfArm) {
                 // The arm's storage: the first tile of a run declared in the
                 // shape, when the shape has one, and otherwise the row.
@@ -939,6 +976,18 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
                             const ir::Group *tile = ir::tile_of(node->inner);
                             internal_assert(tile != nullptr);
                             TileTerms terms = tile_terms(*tile);
+                            // A derived field or the `where` may read the
+                            // groups declared before this one -- a corner
+                            // gathered from a group of vertices by a stored
+                            // index -- so each is bound here, where those
+                            // groups are in scope; the tile's own members
+                            // stay the placeholders the read supplies.
+                            for (auto &[_, value] : terms.derived) {
+                                value = fill(frames, ltmap, value);
+                            }
+                            if (terms.valid.defined()) {
+                                terms.valid = fill(frames, ltmap, terms.valid);
+                            }
                             rows = ir::TiledArray::make(
                                 std::move(rows), ir::tile_width(*tile),
                                 stored_type(node->element, ltmap.field_refs),
@@ -1027,7 +1076,7 @@ ir::Expr field_in_layout(const ir::Expr &base, const ir::Layout &layout,
                     frames.push_frame();
                     frames.add_to_frame("this", group);
                 }
-                ir::Expr mat = fill(frames, value);
+                ir::Expr mat = fill(frames, ltmap, value);
                 if (group.defined()) {
                     frames.pop_frame();
                 }

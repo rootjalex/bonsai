@@ -1,0 +1,103 @@
+//! flags: -p ssa
+
+// A tile whose derived fields read other groups of the layout: an indexed
+// mesh. The leaf's tiles store one thing, the address of a face object
+// (`face : u64`); the face is the row of a `ptr group` at that address
+// (`f = faces[face]`), three vertex indices; and each corner is the row of
+// the vertex group the index names (`p0 = vertices[f.i0].p`). This is how
+// FCPW's CPU leaf reads a triangle -- a pointer out of its reference array,
+// the indices out of the Triangle object, the corners out of the polygon
+// soup by index (apps/rtq/schedules/layouts/fcpwb.bonsai) -- and what the
+// comparison against it on the CPU has to traverse, byte for byte.
+//
+// What to read for. The parser types `faces[face]` as the row struct of
+// `faces` and `vertices[i].p` as its `p`, so the tile provides the element's
+// three vertices by name and type; the lowering (Lower/Layouts.cpp, fill)
+// binds `vertices` to the group's rows, indexed, and `faces[face]` to the
+// row at the address, as a lookup into a ptr group is read (`Variant from
+// faces[...]`); and the read of a triangle at the leaf (Lower/TiledArrays.
+// cpp) becomes the address loaded from the tile, the three indices loaded
+// through it, and the three corners gathered from the vertices -- no copy
+// of a corner anywhere in the tile.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[export]] trace(r : Ray) =
+    argmin(|t : Triangle| distmin(r, t),
+           filter(|t : Triangle| intersects(r, t), tris));
+
+func entry(r : Ray, b : AABB) -> Float {
+    interval = intersectsp_ray_aabb(r, b);
+    if interval {
+        extract = *interval;
+        return extract.low;
+    }
+    return inf;
+}
+
+schedule {
+    tree[[Triangle]] BVH4 =
+    | Interior(children : array[BVH4, 4], lo hi : vector[vec3f, 4])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH4;
+
+    layout tris {
+        // The vertices: twelve bytes each.
+        vCount : u32;
+        indirect group vertices[vCount] {
+            p : vec3f;
+        };
+        // The faces, sixteen bytes each, wherever the host put them: a tile
+        // holds a face's address, not its index.
+        fCount : u32;
+        ptr group faces[fCount] {
+            i0 : i32;
+            i1 : i32;
+            i2 : i32;
+            tag : i32;
+        };
+        // The leaves' triangles: one tile a triangle, the address of its face.
+        pCount : u32;
+        indirect group prims[pCount] {
+            group[1] {
+                face : u64;
+                f = faces[face];
+                p0 = vertices[f.i0].p;
+                p1 = vertices[f.i1].p;
+                p2 = vertices[f.i2].p;
+            };
+        };
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 4];
+            lower_x : vector[f32, 4];
+            upper_x : vector[f32, 4];
+            lower_y : vector[f32, 4];
+            upper_y : vector[f32, 4];
+            lower_z : vector[f32, 4];
+            upper_z : vector[f32, 4];
+            lo = vector[vec3f, 4]{lower_x, lower_y, lower_z};
+            hi = vector[vec3f, 4]{upper_x, upper_y, upper_z};
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, ref >> 4, kind - 8u); };
+            };
+        };
+    };
+
+    trace.sort(tris.Interior,
+               |i : u32, r : Ray, lo : vector[vec3f, 4], hi : vector[vec3f, 4]|
+               entry(r, AABB{lo[i], hi[i]}))
+         .loopify(64);
+}

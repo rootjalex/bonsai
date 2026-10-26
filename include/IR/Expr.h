@@ -1081,7 +1081,13 @@ struct StoredElement : ExprNode<StoredElement> {
 // so the layout stores the vertices and derives the edges (`e1 = pa - pb`).
 // `derived` holds those fields, each a value over the tile's stored fields
 // named as variables of the element's types, which the element read
-// substitutes the lane of each stored field into.
+// substitutes the lane of each stored field into. A derived member may also
+// be a step towards the element's fields rather than one of them, read by
+// the members after it -- the face object a stored address points at, out
+// of which the corners' indices come -- and a value may read the layout's
+// other groups, a corner gathered from a group of vertices by its index
+// (FCPW's CPU leaf; the layout's lowering binds those reads to the groups'
+// storage, Lower/Layouts.cpp).
 //
 // Nor need every lane of a tile be an element: Embree pads the last block
 // of a leaf with slots whose ids are -1, and which lanes hold elements is
@@ -1110,6 +1116,8 @@ struct TiledArray : ExprNode<TiledArray> {
     // name no program can write, so that no pass between the layout's
     // lowering and the read's expansion takes it for a variable of its own.
     static std::string placeholder(const std::string &field);
+    // Whether `name` is one of those variables.
+    static bool is_placeholder(const std::string &name);
 
     static const IRExprEnum node_type = IRExprEnum::TiledArray;
 };
