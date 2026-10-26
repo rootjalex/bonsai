@@ -336,14 +336,34 @@ for sc in $SCENES; do
     continue
   fi
   # pbrt: REPEATS timed renders (the least), one to a full-float image for the
-  # comparison, and one under --stats for its kernel profile.
+  # comparison, and one under --stats for its kernel profile. A scene that
+  # `pbrt --gpu` cannot render still gets its row and its cells (10-25/26:
+  # it segfaults inside the driver's acceleration-structure build, called
+  # from pbrt's OptiXAggregate::buildOptixBVH -- on the hair scenes for the
+  # bilinear patches it turns curves into (buildBVHForBLPs), and on
+  # zero-day's two frames for their 65 885 triangle meshes
+  # (buildBVHForTriangles); the run used to end there with the scenes after
+  # it unmeasured). The reference image is then pbrt's wavefront integrator on the CPU
+  # (`pbrt --wavefront`: the same integrator, the CPU's intersection),
+  # rendered once and untimed: the row's side says so, its wall, kernel and
+  # speedup are `-`, as is every speedup of the scene, and the comparison
+  # of the images is the same.
   REDONE=0; KEPT_DISTURBED=0
   pbrt_secs=""
+  pbrt_side="pbrt --gpu"; pbrt_ref=("$PBRT" --gpu); pbrt_gpu_ok=1
   for _ in $(seq "$REPEATS"); do
-    timed_run "(cd '$dir' && '$PBRT' --gpu --spp '$SPP' --outfile '$cell.pbrt.exr' '$name.pbrt' > '$cell.pbrt.log' 2>&1)"
+    if ! timed_run "(cd '$dir' && '$PBRT' --gpu --spp '$SPP' --outfile '$cell.pbrt.exr' '$name.pbrt' > '$cell.pbrt.log' 2>&1)"; then
+      echo "  pbrt --gpu failed on $name (see $cell.pbrt.log); the reference image is pbrt --wavefront on the CPU, untimed" >&2
+      pbrt_side="pbrt --wavefront (cpu)"; pbrt_ref=("$PBRT" --wavefront); pbrt_gpu_ok=0
+      pbrt_secs=""
+      break
+    fi
     pbrt_secs="$pbrt_secs $(pbrt_seconds_of "$cell.pbrt.exr")"
   done
   pbrt_wall=$(echo $pbrt_secs | tr ' ' '\n' | min)
+  # compare_gbuffer.py is told pbrt's time only when there is one.
+  pbrt_secs_arg=()
+  if [[ -n "$pbrt_wall" ]]; then pbrt_secs_arg=(--pbrt-seconds "$pbrt_wall"); fi
   idle_check
   # pbrt's radiance as full floats for the comparison: a PFM straight from an
   # `rgb` film, and from a `gbuffer` film -- which writes EXR and nothing
@@ -366,18 +386,32 @@ for sc in $SCENES; do
            { print }' "$1"
     fi
   }
+  # (The image files first removed: a cell redone after a failure must not
+  # be compared against the image of an earlier run.)
+  rm -f "$cell.pbrt-radiance.exr" "$cell.pbrt-radiance.pfm"
   if [[ "$film" == "gbuffer" ]]; then
-    (cd "$dir" && full_floats "$name.pbrt" | "$PBRT" --gpu --spp "$SPP" --outfile "$cell.pbrt-radiance.exr" >> "$cell.pbrt.log" 2>&1)
-    "$IMGTOOL" convert --channels R,G,B --outfile "$cell.pbrt-radiance.pfm" "$cell.pbrt-radiance.exr" > /dev/null
+    (cd "$dir" && full_floats "$name.pbrt" | "${pbrt_ref[@]}" --spp "$SPP" --outfile "$cell.pbrt-radiance.exr" >> "$cell.pbrt.log" 2>&1) || true
+    if [[ -f "$cell.pbrt-radiance.exr" ]]; then
+      "$IMGTOOL" convert --channels R,G,B --outfile "$cell.pbrt-radiance.pfm" "$cell.pbrt-radiance.exr" > /dev/null
+    fi
   else
-    (cd "$dir" && full_floats "$name.pbrt" | "$PBRT" --gpu --spp "$SPP" --outfile "$cell.pbrt-radiance.pfm" >> "$cell.pbrt.log" 2>&1)
+    (cd "$dir" && full_floats "$name.pbrt" | "${pbrt_ref[@]}" --spp "$SPP" --outfile "$cell.pbrt-radiance.pfm" >> "$cell.pbrt.log" 2>&1) || true
   fi
-  profile_run "$cell.pbrt.stats" \
-    "(cd '$dir' && '$PBRT' --gpu --stats --spp '$SPP' --outfile '$cell.pbrt-stats.exr' '$name.pbrt' > '$cell.pbrt.stats.try' 2>&1)" \
-    "grep 'Total rendering time' | awk '{print \$4}'"
-  pbrt_kernel="$PROFILE"
-  python3 $PREFIX/to_png.py "$cell.pbrt-radiance.pfm" "$cell.pbrt.png" > /dev/null
-  printf '%s\t%s\tpbrt --gpu\t%s\t%s\t1.00x\t-\t-\t%s\t%s\t%s\n' "$name" "$SPP" "$pbrt_wall" "$pbrt_kernel" "$(note_of)" "$cell.pbrt.png" "$sc" | tee -a "$TABLE"
+  pbrt_kernel=""
+  if [[ "$pbrt_gpu_ok" -eq 1 ]]; then
+    profile_run "$cell.pbrt.stats" \
+      "(cd '$dir' && '$PBRT' --gpu --stats --spp '$SPP' --outfile '$cell.pbrt-stats.exr' '$name.pbrt' > '$cell.pbrt.stats.try' 2>&1)" \
+      "grep 'Total rendering time' | awk '{print \$4}'"
+    pbrt_kernel="$PROFILE"
+  fi
+  if [[ -f "$cell.pbrt-radiance.pfm" ]]; then
+    python3 $PREFIX/to_png.py "$cell.pbrt-radiance.pfm" "$cell.pbrt.png" > /dev/null
+  else
+    echo "  pbrt wrote no reference image for $name (see $cell.pbrt.log); the scene's cells have no verdict" >&2
+  fi
+  pbrt_speedup="-"
+  if [[ -n "$pbrt_wall" ]]; then pbrt_speedup="1.00x"; fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t-\t-\t%s\t%s\t%s\n' "$name" "$SPP" "$pbrt_side" "${pbrt_wall:--}" "${pbrt_kernel:--}" "$pbrt_speedup" "$(note_of)" "$cell.pbrt.png" "$sc" | tee -a "$TABLE"
   # Ours: each schedule as one process rendering REPEATS times, the least of
   # them (the first is the warm-up), and once more with the kernel profile
   # on, which is of the last render.
@@ -396,11 +430,12 @@ for sc in $SCENES; do
     # (`|| true`: a FAILED verdict is an exit status, and a row of the table
     # rather than the end of the run.)
     cmp=$(python3 $PREFIX/compare_gbuffer.py --radiance-only --radiance "$cell.pbrt-radiance.pfm" "$cell.$s-radiance.pfm" \
-          --pbrt-seconds "$pbrt_wall" --bonsai-seconds "${wall:-1}" --repeats "$REPEATS" 2>&1 | tee "$cell.$s.compare" || true)
+          "${pbrt_secs_arg[@]}" --bonsai-seconds "${wall:-1}" --repeats "$REPEATS" 2>&1 | tee "$cell.$s.compare" || true)
     agree=$(echo "$cmp" | sed -n 's/.*agree to 1e-03 relative (\([0-9.]*%\)).*/\1/p' | head -1)
     # The verdict line, `ok: ...` or `FAILED: ...` (`|| true`: a grep that
     # matches nothing is an exit status, and must not end the run).
     verdict=$(echo "$cmp" | grep -E '^ok|^FAILED|mismatch|differ' | head -1 | cut -c1-200 || true)
+    if [[ ! -f "$cell.pbrt-radiance.pfm" ]]; then verdict="no reference image"; fi
     # The user's rule of 2026-10-18: a scene whose two pbrt renderers -- the
     # CPU integrator and the GPU wavefront the reference is -- disagree with
     # each other more than ours disagrees with the reference is rendered
@@ -415,7 +450,7 @@ for sc in $SCENES; do
     if [[ "$verdict" == FAILED* ]]; then
       spread="$cell.pbrt-cpu-radiance.pfm"
       if [[ ! -f "$spread" ]]; then
-        echo "  $s differs from pbrt --gpu on $name at $SPP spp; rendering pbrt's CPU integrator for the spread" >&2
+        echo "  $s differs from $pbrt_side on $name at $SPP spp; rendering pbrt's CPU integrator for the spread" >&2
         as_volpath() {
           sed 's/^\([[:space:]]*Integrator[[:space:]]*\)"[a-z]*"/\1"volpath"/'
         }
@@ -431,7 +466,7 @@ for sc in $SCENES; do
       if [[ -f "$spread" ]]; then
         cmp=$(python3 $PREFIX/compare_gbuffer.py --radiance-only --radiance "$cell.pbrt-radiance.pfm" "$cell.$s-radiance.pfm" \
               --pbrt-spread "$spread" \
-              --pbrt-seconds "$pbrt_wall" --bonsai-seconds "${wall:-1}" --repeats "$REPEATS" 2>&1 | tee "$cell.$s.compare" || true)
+              "${pbrt_secs_arg[@]}" --bonsai-seconds "${wall:-1}" --repeats "$REPEATS" 2>&1 | tee "$cell.$s.compare" || true)
         agree=$(echo "$cmp" | sed -n 's/.*agree to 1e-03 relative (\([0-9.]*%\)).*/\1/p' | head -1)
         verdict=$(echo "$cmp" | grep -E '^ok|^FAILED|mismatch|differ' | head -1 | cut -c1-200 || true)
       else
@@ -443,7 +478,7 @@ for sc in $SCENES; do
     if [[ -f "$cell.$s-radiance.pfm" ]]; then
       python3 $PREFIX/to_png.py "$cell.$s-radiance.pfm" "$cell.$s.png" > /dev/null
     fi
-    speedup=$(awk -v p="$pbrt_wall" -v o="${wall:-0}" 'BEGIN{ if (o > 0) printf "%.2fx", p/o; else print "-" }')
+    speedup=$(awk -v p="${pbrt_wall:-0}" -v o="${wall:-0}" 'BEGIN{ if (o > 0 && p > 0) printf "%.2fx", p/o; else print "-" }')
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$SPP" "$s" "${wall:--}" "${kernel:--}" "$speedup" "${agree:-?}" "${verdict:-?}" "$(note_of)" "$cell.$s.png" "$sc" | tee -a "$TABLE"
   done
 done
