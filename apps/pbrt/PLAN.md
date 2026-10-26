@@ -16950,3 +16950,291 @@ been rendered against `pbrt --gpu` yet, and the hair set in particular
 renderer's feature claim. The scene_dump change moves the conversion
 stamp, so every scene in scenes/converted is reconverted on its next use
 (37 GB over the heatmap's list, kroken the slowest at about four minutes).
+
+## The gaps the scene set exercises, built: the integrator override, the orthographic and the realistic camera (10-24 evening, 10-25)
+
+The user: "start working on these features in order of simplicity; make
+sure scenes including them beat PBRT's renderer across the spps". In
+that order:
+
+**1. The integrator override (scene_dump).** Under `--gpu` a scene whose
+integrator this renderer lacks (`bdpt`, `sppm`) is converted as `volpath`
+with the warning pbrt's WavefrontPathIntegrator prints ("Ignoring
+specified integrator ... always uses a volpath integrator"), its
+`maxdepth`, `regularize` and `lightsampler` read off the directive as
+pbrt reads them; without `--gpu` it is refused as before, since pbrt's
+CPU would run the scene's own integrator. pavilion-night and
+contemporary-bathroom convert.
+
+**2. The orthographic camera.** `camera.bonsai`'s element is now
+`Camera` with a `kind` (0 perspective, 1 orthographic, 2 realistic);
+scene_dump builds `camera_from_raster` from `Orthographic(0, 1)` for the
+second, takes dxCamera/dyCamera as pbrt's OrthographicCamera does
+(`cameraFromRaster(Vector3f(1,0,0))`), and the two generate functions are
+pbrt's, both branches, lens included. probes/alpha_gradient_d1 converts.
+
+**3. The realistic camera.** The lens system as data: cameras.h is
+included in scene_dump with `private` opened (as lightsamplers.h is),
+and `elementInterfaces` (focused), `exitPupilBounds` (64) and
+`physicalExtent` are read off the RealisticCamera pbrt built -- the
+64 x 1M-ray pupil search and FocusThickLens run in pbrt's own code at
+camera creation. The renderer carries them as two extern arrays
+(`camera_lens`, `camera_pupil`, vec4f each) and `trace_lenses_from_film`,
+`sample_exit_pupil`, `generate_realistic_ray` are pbrt's operation for
+operation (IntersectSphericalElement through `quadratic_f`, Refract
+through `refract_`); the ray's weight (cos^4 / (pdf r^2)) multiplies the
+path's radiance before the sensor, as the wavefront's `cameraRayWeight`
+does; the differential version is CameraBase's finite differences. An
+`aperture` shape or image is refused. sanmiguel-realistic-courtyard
+converts: 13 interfaces, rear element at 14.3 mm, film 28.8 x 19.8 mm.
+Compiler fix on the way: `(a < 0) != (b < 0)` on booleans had no LLVM
+lowering (CodeGen_LLVM.cpp, `Neq` beside `Eq`; test
+tests/bonsai/correctness/llvm/bool-neq; committed by bonsai-ac in
+c7fdce07 with their backend work, credited).
+
+**The one thing the camera needs that the compiler has not got: a
+conditional deferred call.** pbrt's camera kernel pushes a ray only when
+the camera gave one; for a vignetted sample the film still adds zero at
+the filter weight. Written as `if camera_ray_valid { integrator_li(...) }`
+the SSA deferral fails (SSA.cpp:699, "Var @N not in current block, and
+current block is entry!", @N a `gep(rays_..._slots, rays_rest)`): the
+continuation after the deferred call gains a second, direct predecessor
+(the else edge), and the slot handles made at the push are not reachable
+from it. Bisected on the CPU wavefront-volpath schedule (80 s a compile):
+scalars extracted before the call still fail, the same program with the
+call unconditional compiles. So the call is unconditional and a vignetted
+sample's path is traced and weighed zero (its visible surface discarded,
+as pbrt records none): the same image, at the cost of the path. **The
+cost is real on this scene:** pbrt --gpu at 16 spp reports 19,844,697
+camera rays for 1600 x 1100 x 16 = 28,160,000 samples, so 29.5% of the
+samples are vignetted (the pupil bound is a box round a disc, and the
+wide 22 mm lens at f/2.5 vignettes at the edges), and this renderer
+traces 1.42x pbrt's paths on it. Beating pbrt there needs the conditional
+deferral: the continuation's slot stores hoisted to where the captured
+values are defined (the dominator of the `if`), the rest function run
+for every entry of the band whether or not it pushed -- a Defer.cpp
+change, and a semantics question (what runs the continuation of an entry
+that was never pushed) for the user, with bonsai-ac's own Defer.cpp
+extension in flight.
+
+**Not yet measured.** The four scenes' gpu_compare against pbrt --gpu at
+16/64/128/256 spp did not run: the first attempt died at its build step
+(an edit of scene_io.h under it, my fault), the second was killed when it
+started under bonsai-ac's --stars tables. It runs when the machine is
+free; until then the three cameras are verified only to compile (scalar,
+wavefront-volpath) and convert, and no image of theirs has been checked
+against pbrt's.
+
+## The conditional deferred call, built: pbrt's camera kernel as written (10-25)
+
+The user's ruling on the paragraph above: no dummy path; the compiler
+takes pbrt's shape. The semantics (the user, 10-25): a deferred call
+stores its entry and ends the parallel iteration *only when the call is
+made*; an iteration whose test fails runs the code after the call where
+it stands, at once, as if nothing were scheduled. Directly in a parfor a
+deferral is a store plus a yield; a function holding a conditional
+deferral that stays out of line reports whether it deferred (an
+`optional[ret]`, or a bool for void) and the yield propagates up to the
+parfor. Nothing about an unconditional deferral changes.
+
+**What failed, exactly.** `region_from(k0_entry)` gathered the owner's
+continuation -- the call's cont block, then the merge after the `if`,
+then the film write -- and the pass *moved* it into the record pass
+(`k0_entry->preds = {run}`), while the else edge still jumped into the
+merge from the producer. The merge's values (the slot handles made at the
+push) were then wanted from a block whose predecessor chain reaches the
+producer's entry: SSA.cpp:699. The precondition checked only that the
+cont block had one predecessor; the merge inside the region was never
+looked at.
+
+**What was built** (src/SSA/Defer.cpp, `k0_rejoins`). When a block of the
+continuation past its entry has a predecessor outside it, the
+continuation is *cloned* into the record pass (`clone_region`, suffix
+`!rest`) and the original stays for the path that skipped the call; the
+blocks between the call and the merge, reachable from the call alone, go
+dead in the producer and `remove_unreachable_blocks` takes them. The
+`<q>_ran` byte, already allocated when not every iteration reaches the
+call, gates the pass as before. One more bug under it: `clone_region`
+keeps the names of block arguments that carry outside values, so the copy
+and the original defined an argument of one name in one function, and the
+record's SoA split (SSA/InducedStorage.cpp, which follows a handle by the
+name the jumps pass it under) threaded the pass's handles into the
+producer's merge -- the second SSA.cpp:699, on `@4070`. The copy's block
+arguments now take fresh names (edit_argument, block by block: every use
+inside a block is of the block's own argument). Tests:
+correctness/llvm/defer-conditional-rejoin (the result),
+ssa/defer-conditional-rejoin (the shape: `!merge_3` inline and
+`!merge_3!rest` in the pass, `q_ran` dispatched on),
+correctness/llvm/defer-spawn-conditional (a spawn under a test: the code
+after it runs in the producer regardless, the reducer is read in the
+pass), correctness/llvm/defer-conditional-in-chain (the result when the
+chain returns without deferring; the inline shape for that case is the
+to-do below). render.bonsai is back to `if camera_ray_valid {
+integrator_li(...) }`, and wavefront-volpath compiles it.
+
+**Spawn needed nothing.** A deferred spawned call pushes and jumps to its
+own continuation (Defer.cpp, "the push is the spawn, taken up"); nothing
+after it goes to the queue, so a test around it costs nothing -- all four
+spawns in render.bonsai already sit under one. On the user's question
+whether `spawn shadow_contribution(..); return;` is redundant since a
+return joins (docs/parallel-semantics.md, section 1): in the program's
+semantics it is -- `K` is empty and the return joins -- but section 4 lets
+a deferral *move the join later, never earlier*, to after the drain, and
+`spawn` is what tells the schedule that the call reports only through its
+reducer and may be pushed past the function's return without capturing
+the caller's rest (a plain deferred call's callers must do nothing after
+the call but return). Whether that license should be the schedule's word
+rather than the program's is the user's to decide.
+
+**To do** -- each a test in the suite that fails on purpose until it is
+built (the user, 10-25: the suite is not green while these stand).
+(1) The chain reporting whether it deferred (the bool / optional return),
+so that a test *inside* the chain -- `li` returning without having pushed
+-- runs the owner's continuation at once rather than in the pass; today
+the pass runs it for every slot, the same result
+(ssa/defer-conditional-in-chain, red). (2) An explicit `Defer <entry>
+<queue>` terminator in the SSA for the push that ends an iteration, which
+`lower_pushes` turns into the store and the yield; today the push is an
+instruction followed by a `Return` (ssa/defer-terminator, red). (3) The
+GPU rest kernel binding every induced slot its continuation writes, not
+only those it reads (CodeGen_LLVM.cpp:1756, seen with a store to
+`visible.set` after the call under gpu-optix); the small form,
+gpu/defer-store-after-call, passes, so the renderer's shape is not yet
+reproduced in a test.
+
+**Measured (10-25, 14:21-14:53, gpu_compare, gpu-optix against pbrt --gpu,
+unlocked clock).** The orthographic probe: 3.14x / 1.64x / 1.62x / 1.61x
+at 16 / 64 / 128 / 256 spp, the image matching pbrt's at every count. The
+realistic camera, sanmiguel-realistic-courtyard: 1.86x / 1.45x / 1.41x /
+1.45x, matching at every count -- with pbrt's shape, `if (cameraRay)`, and
+no path traced for a vignetted sample. pavilion-night (bdpt as volpath):
+2.08x / 1.75x / 1.63x / 1.61x but the image 0.83x pbrt's at every count,
+where pbrt's two renderers agree to 1.02x -- a real defect, found by
+region: everything lit by the sky and the two 3500 K sphere lights agrees
+to 1%, and the candle lantern (a 2500 K blackbody at scale 25000, a mesh)
+and the brightest pixels are 0.52-0.6x. Not the spectrum: the blackbody,
+its normalization and the photometric scale are pbrt's own functions on
+both sides. **The film's clamp.** pbrt's RGBFilm::AddSample clamps the
+*sensor* RGB -- XYZ for the cie1931 sensor, imaging ratio included -- to
+`maxcomponentvalue` and takes it to the output space only at GetPixelRGB;
+this renderer applied the output matrix first and clamped the sRGB, so a
+saturated orange sample whose XYZ sat under 50 but whose sRGB red stood
+above it was capped where pbrt's was not. Fixed (colour.bonsai
+`sensor_to_output_rgb`, the film block of `render`); every earlier scene
+passed because none drove a saturated sample past the clamp.
+contemporary-bathroom (sppm as volpath) never ran: scene_dump refused it,
+"a shape names an area light the parser did not record" -- pbrt makes an
+area light per *shape* (`scene->AddAreaLight` in BasicSceneBuilder::Shape;
+the shape's `lightIndex` counts those) where the converter recorded one
+per directive, so the bathroom's one directive over four filament meshes
+indexed past the end. Fixed: `area_lights` is filled per Shape while a
+directive is set, the directive carried on the attribute stack as pbrt's
+graphicsState carries it. Both fixes await the machine for a rerun of the
+two scenes and a regression check on three reference scenes.
+
+**The third compiler fix (10-25, 6da5a6f7).** With the camera call under
+a test, the deferral keeps a byte per sample slot (`rays_ran`) and clears
+it as the band starts, a `fill_bytes` of the record -- which under the
+OptiX schedule lives in the queue's device memory. The intrinsic lowered
+to a host memset of the device address and the renderer died after
+"lights and film" on every scene (SIGSEGV in `render`). A `fill_bytes` of
+a device-resident array now crosses as `cuMemsetD8Async` on the stream
+(runtime `bonsai_cuda_fill_bytes_async`), after the word stores held back
+before it; gpu/defer-conditional-rejoin covers it.
+
+**The second compiler fix the OptiX schedule needed (10-25, 0d33f9e5).**
+With the film write inline beside the deferred path, the record's handles
+(path_lambda's slot, the camera ray's) cross the merge after `if
+(cameraRay)` as block arguments, and `render.specialize(p_blk, sampler)`
+copies that body once per sampler. The record's SoA split
+(SSA/InducedStorage.cpp) followed a handle through a jump by recording
+"this argument's name stands for the same parts" and rewriting that
+name's uses over the whole function -- and the variants' blocks carry
+the enclosing scope's values under one name, so the Independent variant's
+film write was rewritten to the PMJ02BN variant's slot addresses, off a
+loop index no path of its own reaches (SSA.cpp:699 again, on `@17013`).
+The split now splits the block argument as it splits a callee's
+parameter: the argument renamed to a name of its own, one new argument
+per leaf, every jump into the block appending its own parts (a part the
+jump's block cannot reach, materialized on a path that never read that
+leaf, goes as undefined; the arguments go with an unread leaf). Five
+golden dumps changed in the expected way, the leaf addresses now named
+as the arguments they are. A first attempt renamed every cloned region's
+block arguments in `clone_region` instead; that broke the threading
+convention a later `reach` relies on (an argument carrying an outside
+value keeps its name) and failed six tests, so it was withdrawn.
+
+**Round two measured (10-25, 16:52-17:16, gpu_compare, gpu-optix against
+pbrt --gpu, unlocked clock; both fixes in).** pavilion-night (bdpt as
+volpath): 2.09x / 1.74x / 1.63x / 1.61x at 16 / 64 / 128 / 256 spp, the
+image matching pbrt's at every count (at 16 within pbrt's own
+disagreement, its lit-pixel gap 2458 where pbrt's two renderers differ by
+5005; outright at 64 and up) -- the film's clamp order was the whole
+0.83x. contemporary-bathroom (sppm as volpath), rendered for the first
+time: 2.13x / 1.82x / 1.80x / 1.79x, matching at every count. Then the
+regression check the user asked for ("not worse"): killeroo-simple, book
+and sanmiguel-courtyard at 16 / 128 spp under today's compiler and the
+restructured camera, against the two earlier runs of the committed
+renderer, heatmap7 (10-19, compiler ea1717c2) and explore (10-24,
+compiler c9d0b824):
+
+    scene, spp              today    heatmap7   explore
+    killeroo-simple  16     3.21x    3.23x      2.91x
+    killeroo-simple  128    1.65x    1.68x      1.53x
+    book             16     2.34x    2.42x      2.14x
+    book             128    1.86x    1.86x      1.64x
+    courtyard        16     2.02x    2.04x      1.88x
+    courtyard        128    1.47x    1.48x      1.38x
+
+The kernel milliseconds agree with heatmap7's within 1% in every cell
+(27.6 / 221.9, 83.8 / 670.0, 108.3 / 865.6 against 27.5 / 219.7, 83.9 /
+667.6, 107.9 / 865.3).
+
+**The same-session A/B (10-25, 17:38-17:48).** Two runs of one compiler
+had differed by 10% on wall time before (heatmap7 against explore), so
+the two earlier tables alone could not say whether today's tree is
+faster or the clock was. The baseline: the tree at fb89d8fd -- c9d0b824's
+compiler, the last compiler commit before 10-25, and the committed
+renderer, the tree that measured explore -- built into the worktree
+apps/pbrt/scratch/wt-464b4955 and run from inside it by the same
+gpu_compare.sh (its own converter, its own conversions), right after
+today's run. It reproduces explore to the digit: 2.92x / 1.48x, 2.12x /
+1.64x, 1.87x / 1.38x; wall 0.0377 / 0.277, 0.109 / 0.811, 0.129 / 0.969 s.
+Today's tree: 0.0343 / 0.248, 0.098 / 0.715, 0.119 / 0.910 s -- faster in
+every cell, by 6-10%, with the kernel milliseconds equal within 1% (27.9
+against 27.6, 671.6 against 670.0, 867.8 against 865.6). So the 10%
+between heatmap7 and explore was not the clock: it was the compiler, lost
+on the host side between ea1717c2 (10-19) and c9d0b824 (10-24) and
+recovered by today's tree, whose kernels do the same work. Which commit
+lost it and which recovered it is not known; the renderer's shape changed
+too (the camera call under a test, the film write cloned into the pass).
+Nothing is worse. The baseline's table is kept as
+gpu-compare-out-regress/baseline-fb89d8fd.table.tsv.
+
+**The commit before mine did not run.** The first baseline tried was
+464b4955, the commit before a0248ada: the committed renderer under it dies
+with SIGSEGV after "lights and film" on killeroo-simple, book and
+sanmiguel-courtyard alike -- the symptom 6da5a6f7 fixed. Bisected over the
+three compiler commits between c9d0b824 and 464b4955 (a side worktree,
+one build and one render of killeroo-simple each): 55c7be9b (the defer
+classification) runs; c7fdce07 (the block loop's shared storage and
+thread phases, CodeGen_GPU_Host.cpp among its files) crashes, in
+`__memset_avx512_unaligned_erms` called from the generated `render` -- a
+host memset of a device address, which is what a `fill_bytes` of a
+device-resident array lowered to before 6da5a6f7. So the committed
+gpu-optix renderer was broken from 01:35 to 14:29 today and nobody ran it
+in between; HEAD runs because of 6da5a6f7, which made the crossing right
+for any such array rather than for the one the camera's test introduced.
+Reported to bonsai-ac, who will read c7fdce07 for which array it moved to
+the device without moving its fill.
+
+**To do, added:** (4) the spawn-join semantics the user ruled on (10-25):
+a spawn is joined by an explicit `join;` or by the end of the enclosing
+parfor body, never by a function's return, so that the program alone says
+where the join is and a schedule only places the call. docs/parallel-
+semantics.md sections 1 and 4, the parser's `refuse_reducer_read` made
+interprocedural as a check over the parsed program (forward references
+resolve through pre-read headers, so the parser cannot know a callee's
+outstanding spawns while parsing the call), one `join;` in render.bonsai
+before the film write, the spawn tests re-read; Defer.cpp's behaviour
+unchanged, its comments no longer saying the join "moves".
