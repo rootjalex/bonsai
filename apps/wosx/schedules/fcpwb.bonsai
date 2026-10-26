@@ -1,5 +1,9 @@
-// WoSX's default tree: FCPW's scalar binary BVH in FCPW's bytes
-// (layouts/fcpwb.bonsai), the walk a loop, the closest-point traversal on
+// WoSX's default tree: FCPW's scalar binary BVH in FCPW's GPU bytes
+// (apps/rtq/schedules/layouts/fcpwb_gpu.bonsai: the triangles as GPUTriangle
+// rows, the corners stored, where FCPW's CPU gathers them through its
+// polygon soup -- the leaf-layout bias apps/rtq/PLAN.md describes; the CPU
+// bytes are layouts/fcpwb.bonsai there, and this driver's switch to them is
+// pending), the walk a loop, the closest-point traversal on
 // a stack of FCPW's depth with the two children tested at their parent and
 // the nearer entered first -- the children's boxes read from the children's
 // rows, as the layout says -- and the leaf's Voronoi arms skipped where the
@@ -26,7 +30,7 @@
 // two tests were a loop of two over the pair of boxes the layout presents,
 // each iteration picking its lane -- the sixty instructions over FCPW's
 // visit that PLAN.md's "The binary CPU walk's gap" found (2026-10-24).
-import apps/rtq/schedules/layouts/fcpwb;
+import apps/rtq/schedules/layouts/fcpwb_gpu;
 
 schedule {
     walk.loopify();

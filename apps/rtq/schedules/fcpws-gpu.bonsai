@@ -2,8 +2,10 @@
 // snch.bonsai's four batches as FCPW's compute shaders run them (fcpw/gpu/
 // bvh.cs.slang: rayIntersection, closestPoint, closestSilhouettePoint --
 // one thread a query, groups of 256), each thread's traversal bvh.slang's
-// over the same rows (layouts/fcpws.bonsai: GPUSnchNode, GPUTriangle and
-// GPUEdge rows, the tree FCPW puts on a GPU for a mesh with silhouettes).
+// over the same rows (layouts/fcpws_gpu.bonsai: GPUSnchNode, GPUTriangle
+// and GPUEdge rows, the tree FCPW puts on a GPU for a mesh with
+// silhouettes; layouts/fcpws.bonsai is the tree in the bytes FCPW's CPU
+// reads).
 // The reference is FCPW's GPUScene, run by the driver built with RTQ_GPU
 // and RTQ_FCPW_SNCH (compare.sh, for the schedule's name), its shaders over
 // the same tree, the clock around the dispatch and the wait on both sides.
@@ -17,7 +19,7 @@
 // distance alone, as the CPU traversal does. Each batch's loop is split by
 // 256 and bound to the GPU's blocks and threads: one launch, one query a
 // thread, the tail block guarded.
-import apps/rtq/schedules/layouts/fcpws;
+import apps/rtq/schedules/layouts/fcpws_gpu;
 
 schedule {
     closest.sort(triangles.Interior,

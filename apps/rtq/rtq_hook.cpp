@@ -52,13 +52,15 @@
 // with RTQ_FCPW_BINARY beside it (compare.sh does so for the fcpwb
 // schedule), FCPW is built scalar instead -- FCPW_USE_ENOKI off, the build
 // WoSX ships and the tree the walks of apps/wosx traverse -- its binary BVH
-// copied into the layout of schedules/layouts/fcpwb.bonsai, and the same
-// three queries compared on it. With RTQ_FCPW_SNCH (the fcpws schedule),
-// FCPW's silhouettes are computed first and the scalar build makes its
-// normal cone hierarchy -- SnchNode, a box and a cone of normals, each leaf
-// its triangles and its silhouette edges -- copied into the two layouts of
-// schedules/layouts/fcpws.bonsai (snch.bonsai's program), and a fourth
-// query is compared on it, FCPW's closest silhouette point
+// read through the layout of schedules/layouts/fcpwb.bonsai (FCPW's own
+// arrays, wrapped; on the GPU copied into fcpwb_gpu.bonsai's rows), and the
+// same three queries compared on it. With RTQ_FCPW_SNCH (the fcpws
+// schedule), FCPW's silhouettes are computed first and the scalar build
+// makes its normal cone hierarchy -- SnchNode, a box and a cone of normals,
+// each leaf its triangles and its silhouette edges -- read through the two
+// layouts of schedules/layouts/fcpws.bonsai (snch.bonsai's program; on the
+// GPU fcpws_gpu.bonsai's rows), and a fourth query is compared on it,
+// FCPW's closest silhouette point
 // (findClosestSilhouettePoint) over spheres of a tenth of the diagonal
 // about the two point sets: the trees and the queries of apps/wosx's walk
 // on stars, isolated.
@@ -66,9 +68,17 @@
 #include "rtq.h"
 
 // The mesh and its reader, and the copy of FCPW's tree into the layout, are
-// shared with apps/wosx's driver (mesh.h, fcpw_tree.h, fcpw_bvh.h).
+// shared with apps/wosx's driver (mesh.h, fcpw_tree.h, fcpw_bvh.h). On the
+// CPU the scalar trees are not copied at all: the layouts (schedules/
+// layouts/fcpwb.bonsai, fcpws.bonsai) are the bytes FCPW's CPU reads, and
+// the driver wraps FCPW's own arrays (RTQ_FCPW_CPU_BYTES, for fcpw_bvh.h's
+// section); on the GPU (RTQ_GPU) they are copied into FCPW's GPU rows, the
+// bytes FCPW's GPU reads (layouts/fcpwb_gpu.bonsai, fcpws_gpu.bonsai).
 #include "apps/rtq/mesh.h"
 #ifdef RTQ_FCPW
+#ifndef RTQ_GPU
+#define RTQ_FCPW_CPU_BYTES
+#endif
 #if defined(RTQ_FCPW_SNCH)
 #include "apps/rtq/fcpw_snch.h"
 #elif defined(RTQ_FCPW_BINARY)
@@ -867,10 +877,91 @@ void make_reference(Reference &ref, const Mesh &mesh, bool stats) {
 
 void release_reference(Reference &) {}
 
-#if defined(RTQ_FCPW_SNCH)
+#if defined(RTQ_FCPW_SNCH) && defined(RTQ_FCPW_CPU_BYTES)
 // FCPW's normal cone hierarchy in the two layouts of layouts/fcpws.bonsai,
-// the triangles' (`_tree_layout5`, the exports' `triangles`: `_tree_layout6`
-// a triangle row, `_tree_layout7` a node row) and the silhouette edges'
+// the bytes FCPW's CPU reads: the triangles' layout (`_tree_layout7`, the
+// exports' `triangles`: `_tree_layout8` a Triangle object, `_tree_layout9`
+// a reference, `_tree_layout10` a node row) and the silhouette edges'
+// (`_tree_layout0`, `silhouette_all`'s `silhouettes`: `_tree_layout2` a
+// SilhouetteEdge object, `_tree_layout3` a reference, `_tree_layout4` the
+// same node row; `_tree_layout1` a position, both layouts'). Nothing is
+// copied: both layouts point at FCPW's own arrays, wrapped by fcpw_snch.h
+// (wrap_snch) and checked against FCPW's types.
+using SnchNodeRow = _tree_layout10;
+using SnchObjectRow = _tree_layout8;
+using SnchPrimRow = _tree_layout9;
+using SilhouetteNodeRow = _tree_layout4;
+using SnchEdgeObjectRow = _tree_layout2;
+using SnchEdgeRefRow = _tree_layout3;
+using SnchPositionRow = _tree_layout1;
+static_assert(rtq_snch::rows_are_fcpws_cpu<SnchNodeRow, SnchObjectRow, SnchPrimRow,
+                                           SnchEdgeObjectRow, SnchEdgeRefRow, SnchPositionRow>());
+static_assert(sizeof(SilhouetteNodeRow) == sizeof(SnchNodeRow) &&
+                  offsetof(SilhouetteNodeRow, silhouetteOffset) ==
+                      offsetof(SnchNodeRow, silhouetteOffset) &&
+                  offsetof(SilhouetteNodeRow, nSilhouettes) == offsetof(SnchNodeRow, nSilhouettes),
+              "the two layouts read the same node row");
+
+struct Tree {
+    _tree_layout7 layout{};
+    _tree_layout0 silhouettes{};
+    rtq_snch::Wrapped w;
+    Tree() = default;
+    Tree(const Tree &) = delete;
+    Tree &operator=(const Tree &) = delete;
+    Tree(Tree &&other) noexcept { *this = std::move(other); }
+    Tree &operator=(Tree &&other) noexcept {
+        w = other.w;
+        point();
+        return *this;
+    }
+    // The layouts' pointers, at the buffers where they sit now: the node
+    // rows and the positions shared by both.
+    void point() {
+        layout.vCount = uint32_t(w.position_count);
+        layout.group0_positions = &w.positions;
+        layout.oCount = uint32_t(w.object_count);
+        layout.group1_objects = &w.objects;
+        layout.pCount = uint32_t(w.counts.triangles);
+        layout.group2_prims = &w.prims;
+        layout.nNodes = uint32_t(w.counts.nodes);
+        layout.group3_index = &w.nodes;
+        silhouettes.evCount = uint32_t(w.position_count);
+        silhouettes.group0_epositions = &w.positions;
+        silhouettes.eoCount = uint32_t(w.edge_object_count);
+        silhouettes.group1_edge_objects = &w.edge_objects;
+        silhouettes.eCount = uint32_t(w.counts.edges);
+        silhouettes.group2_edges = &w.edge_refs;
+        silhouettes.sNodes = uint32_t(w.counts.nodes);
+        silhouettes.group3_snode = &w.nodes;
+    }
+};
+
+Tree build_tree(Reference &ref, const Mesh &) {
+    Tree tree;
+    tree.w = rtq_snch::wrap_snch(ref.scene, "the");
+    tree.point();
+    return tree;
+}
+
+void describe_tree(const Tree &tree) {
+    const rtq_snch::Counts &c = tree.w.counts;
+    std::cout << "tree: FCPW's normal cone hierarchy, its own memory wrapped: " << c.nodes
+              << " binary nodes with cones (" << c.nodes * sizeof(SnchNodeRow) << " bytes), "
+              << c.leaves << " of them leaves of at most " << c.max_leaf_triangles
+              << " triangles and " << c.max_leaf_edges << " edges, " << c.triangles
+              << " triangle references to " << tree.w.object_count << " Triangle objects ("
+              << tree.w.object_count * sizeof(SnchObjectRow) << " bytes), " << c.edges
+              << " silhouette edge references to " << tree.w.edge_object_count
+              << " SilhouetteEdge objects (" << tree.w.edge_object_count * sizeof(SnchEdgeObjectRow)
+              << " bytes), over " << tree.w.position_count << " positions ("
+              << tree.w.position_count * sizeof(SnchPositionRow) << " bytes)\n";
+}
+#elif defined(RTQ_FCPW_SNCH)
+// FCPW's normal cone hierarchy in the two layouts of layouts/fcpws_gpu.
+// bonsai, FCPW's GPU bytes, for the GPU comparison: the triangles'
+// (`_tree_layout5`, the exports' `triangles`: `_tree_layout6` a triangle
+// row, `_tree_layout7` a node row) and the silhouette edges'
 // (`_tree_layout0`, `silhouette_all`'s `silhouettes`: `_tree_layout1` an
 // edge row, `_tree_layout2` the same node row), both pointing at one
 // allocation of node rows; the rows written by fcpw_snch.h, shared with
@@ -934,12 +1025,17 @@ void describe_tree(const Tree &tree) {
               << tree.counts.edges * sizeof(SnchEdgeRow) << " bytes)\n";
 }
 #elif defined(RTQ_FCPW_BINARY)
-// FCPW's binary tree in the layout -- its node rows copied byte for byte,
-// its triangles written as FCPW's own GPU rows -- is fcpw_bvh.h's, shared
-// with apps/wosx's driver.
+// FCPW's binary tree in the layout is fcpw_bvh.h's, shared with apps/wosx's
+// driver: on the CPU FCPW's own arrays wrapped (RTQ_FCPW_CPU_BYTES), on the
+// GPU its node rows copied byte for byte and its triangles written as its
+// own GPU rows.
 using Tree = rtq_bvh::Tree;
 
+#ifdef RTQ_FCPW_CPU_BYTES
+Tree build_tree(Reference &ref, const Mesh &) { return rtq_bvh::wrap_fcpw_bvh(ref.scene); }
+#else
 Tree build_tree(Reference &ref, const Mesh &) { return rtq_bvh::copy_fcpw_bvh(ref.scene); }
+#endif
 
 void describe_tree(const Tree &tree) { rtq_bvh::describe(tree); }
 #else

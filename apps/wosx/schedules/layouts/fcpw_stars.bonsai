@@ -3,8 +3,11 @@
 // BVHs; the trees FCPW puts on a GPU).
 //
 // The absorbing boundary's triangles are the walk on spheres' tree
-// (layouts/fcpwb.bonsai says what the rows are): FCPW's BvhNode rows and
-// its GPUTriangle rows. The reflecting boundary is one FCPW tree with
+// (apps/rtq/schedules/layouts/fcpwb_gpu.bonsai says what the rows are):
+// FCPW's BvhNode rows and its GPUTriangle rows -- FCPW's GPU bytes, on the
+// CPU too for now; apps/rtq's fcpwb.bonsai and fcpws.bonsai are these trees
+// in the bytes FCPW's CPU reads, and this layout's switch to them is
+// pending. The reflecting boundary is one FCPW tree with
 // normal cones, fcpw::Bvh<3, SnchNode<3>, Triangle, SilhouetteEdge> --
 // each node a box, a cone (axis, half angle, radius) and two reference
 // ranges, the leaf's triangles and the leaf's silhouette edges, which FCPW
@@ -25,8 +28,8 @@
 // cone test for the silhouette query and the box test alone for the rays
 // (metrics/fcpw_scalar.bonsai). The GPU rows' counts and offsets are
 // unsigned words, read here as the signed words the CPU node has, the same
-// bits. apps/rtq/schedules/layouts/fcpws.bonsai is the reflecting pair
-// alone, under apps/rtq's names, for its own comparison on this tree.
+// bits. apps/rtq/schedules/layouts/fcpws_gpu.bonsai is the reflecting pair
+// alone, under apps/rtq's names, for its own GPU comparison on this tree.
 schedule {
     tree[[Triangle]] ABVH2 =
     | Interior(children : array[ABVH2, 2], lo hi : vector[vec3f, 2])

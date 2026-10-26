@@ -97,7 +97,11 @@ silhouette point over the tree's silhouette edges (`schedules/fcpws.bonsai`
 over `schedules/layouts/fcpws.bonsai`, the program `snch.bonsai`, the
 driver built with `RTQ_FCPW_SNCH`: FCPW's silhouettes computed first, with
 the convex edges left out as WoSX's reflecting boundary handler leaves
-them out, then the build). The silhouette rows (`near silhouette`, `volume
+them out, then the build). On the CPU both layouts are the bytes FCPW's
+own CPU traverses -- its node arrays, its primitive and silhouette pointer
+arrays, its Triangle and SilhouetteEdge objects and its polygon soup's
+positions, wrapped where they lie, not copied -- so that a leaf gathers a
+triangle's corners through the object's indices as FCPW's leaf does. The silhouette rows (`near silhouette`, `volume
 silhouette`) ask, about each point of the two point sets, for the closest
 silhouette edge within a tenth of the diagonal, with no minimum radius so
 that both sides search to the exact closest, WoSX's precision and its
@@ -382,25 +386,49 @@ driver, the two sides' kernels told apart by symbol).
   calls: `findClosestPoint`, and `intersect` for the rays.
 - `schedules/layouts/fcpwb.bonsai`, `schedules/fcpwb.bonsai`: FCPW's
   scalar binary BVH -- WoSX's default tree, FCPW_USE_ENOKI off, the one
-  tree FCPW puts on a GPU -- in FCPW's bytes (32-byte node rows, each its
-  own box; the triangles as FCPW's GPU rows, GPUTriangle, a tile of one
-  with the program's edges derived), the node declared bounding its
-  children with the layout reading the children's boxes out of the
-  children's own rows, so that a visit reads what FCPW's visit reads; and
-  the three queries run as FCPW's scalar traversals run them: both
-  children tested at the parent and written out (`unroll`), the nearer
-  entered first by the box distance (the closest point's far-corner rule
-  where both children hold the point), a stack of sixty-four, the leaf's
-  Voronoi exits. Imported by apps/wosx's `fcpwb*` schedules too.
+  tree FCPW puts on a GPU -- in the bytes FCPW's CPU reads, nothing
+  copied: FCPW's own node array (32-byte BvhNode rows, each its own box),
+  its primitive pointer array, its Triangle objects (32 bytes, the three
+  vertex indices) and its polygon soup's positions, each wrapped where it
+  lies (`fcpw_bvh.h`, `wrap_fcpw_bvh`), the leaf's tile storing the
+  pointer and deriving the corners through the object's indices as FCPW's
+  leaf gathers them (`t = objects[tri]`, `pa = positions[t.i0].p`: a tile's
+  derived field reading the layout's other groups, by index or at an
+  address); the node declared bounding its children with the layout
+  reading the children's boxes out of the children's own rows, so that a
+  visit reads what FCPW's visit reads; and the three queries run as FCPW's
+  scalar traversals run them: both children tested at the parent and
+  written out (`unroll`), the nearer entered first by the box distance
+  (the closest point's far-corner rule where both children hold the
+  point), a stack of sixty-four, the leaf's Voronoi exits.
+- `schedules/layouts/fcpwb_gpu.bonsai`: the same tree in FCPW's GPU bytes
+  -- the node rows as above, the triangles as FCPW's GPUTriangle rows (the
+  corners stored, a tile of one with the program's edges derived), which
+  is what FCPW's GPU reads; the tree `fcpwb-gpu` traverses, copied in by
+  `fcpw_bvh.h`'s `copy_fcpw_bvh`. Imported by apps/wosx's `fcpwb*`
+  schedules too, on the CPU as well for now (the leaf-layout bias
+  PLAN.md's "The machine code behind the table" describes, which the CPU
+  layout above removes for apps/rtq; apps/wosx's switch is pending).
 - `schedules/layouts/fcpws.bonsai`, `schedules/fcpws.bonsai`: FCPW's
-  normal cone hierarchy in FCPW's bytes (GPUSnchNode rows of sixty bytes:
-  the box, the cone, the leaf's triangle and silhouette ranges; GPUEdge
-  rows of fifty-six), as two trees over the one node array -- the
-  triangles the rays and points query, the silhouette edges the
-  silhouette query searches, the driver handing the same node rows to
-  both -- with ConeBox the bounding element; and the four queries run as
-  FCPW's traversals run them, the silhouette query's children tested by
-  cone and box at the parent and ordered by the box distance alone.
+  normal cone hierarchy in the bytes FCPW's CPU reads -- its SnchNode rows
+  of sixty bytes (the box, the cone, the leaf's triangle and silhouette
+  ranges in FCPW's CPU order), its triangle references and objects as
+  above, its silhouette edge references and SilhouetteEdge objects (40
+  bytes, four vertex indices, the ends and the two opposite corners) and
+  its positions, wrapped (`fcpw_snch.h`, `wrap_snch`) -- as two trees over
+  the one node array: the triangles the rays and points query, the
+  silhouette edges the silhouette query searches, the driver handing the
+  same node rows to both, with ConeBox the bounding element; the edge
+  tile derives its ends from the positions and its two face normals as
+  FCPW's CPU recomputes them at every test (Eigen's cross and guarded
+  normalize), read only where the edge has two faces; and the four
+  queries run as FCPW's traversals run them, the silhouette query's
+  children tested by cone and box at the parent and ordered by the box
+  distance alone.
+- `schedules/layouts/fcpws_gpu.bonsai`: the same two trees in FCPW's GPU
+  bytes (GPUSnchNode rows, GPUTriangle rows, GPUEdge rows of fifty-six
+  with the normals stored), what FCPW's GPU reads; the tree `fcpws-gpu`
+  traverses, written in by `fcpw_snch.h`'s `copy_snch`.
 - `queries.bonsai`: the three queries themselves (`trace`, `occluded`,
   `closest`), which rtq.bonsai imports and exports batches of; a file of
   their own so that apps/wosx can ask `closest` without the batches.

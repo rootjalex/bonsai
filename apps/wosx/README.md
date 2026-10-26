@@ -393,13 +393,19 @@ in question (PLAN.md, the persistent schedule).
   run it with `--schedule fcpw4w16,fcpw4w16-packet`.
   `schedules/fcpw4w16-packet-points.bonsai`: the same packet over the
   sample points instead, each lane's walks a loop inside.
-- `apps/rtq/schedules/layouts/fcpwb.bonsai` (apps/rtq's, imported here):
-  WoSX's default tree, FCPW's scalar
-  binary BVH (FCPW_USE_ENOKI off; the one tree FCPW puts on a GPU), in
-  FCPW's bytes: its 32-byte node rows, and its triangles as FCPW's own
-  GPU rows (GPUTriangle: three corners and an index, 40 bytes, a tile of
-  one element each with the program's edges derived), written by the
-  driver (`apps/rtq/fcpw_bvh.h`) as FCPW's GPU transfer writes them. The node is
+- `apps/rtq/schedules/layouts/fcpwb_gpu.bonsai` (apps/rtq's, imported
+  here by every `fcpwb*` schedule, the CPU ones included for now): WoSX's
+  default tree, FCPW's scalar binary BVH (FCPW_USE_ENOKI off; the one tree
+  FCPW puts on a GPU), in FCPW's GPU bytes: its 32-byte node rows, and its
+  triangles as FCPW's own GPU rows (GPUTriangle: three corners and an
+  index, 40 bytes, a tile of one element each with the program's edges
+  derived), written by the driver (`apps/rtq/fcpw_bvh.h`) as FCPW's GPU
+  transfer writes them. On the CPU that is a gather and an indirection
+  fewer a triangle than WoSX's own leaf pays, which reads the corners
+  through FCPW's Triangle objects and polygon soup; apps/rtq's
+  `layouts/fcpwb.bonsai` is the tree in those bytes, FCPW's own arrays
+  wrapped, and switching this driver's CPU comparison to it is pending
+  (apps/rtq/PLAN.md, 2026-10-25). The node is
   declared bounding its children, as FCPW traverses it, and the layout
   reads the children's boxes out of the children's own rows
   (`this[left].low.x`...), so the parent holds them logically while its

@@ -1,5 +1,6 @@
-// FCPW's binary BVH -- the tree of layouts/fcpwb.bonsai -- in another
-// layout of its interior nodes, kept as a variant to measure against that
+// FCPW's binary BVH -- the tree of apps/rtq/schedules/layouts/fcpwb_gpu.
+// bonsai -- in another layout of its interior nodes, kept as a variant to
+// measure against that
 // one: each interior node's row holds its two children's boxes and rows,
 // so that a visit reads one row where FCPW's layout reads the node's and
 // its two children's (three rows of 32 bytes). The same tree -- FCPW's
@@ -21,7 +22,7 @@ schedule {
     triangles : BVH2;
 
     layout triangles {
-        // FCPW: GPUTriangle, one row a triangle, as layouts/fcpwb.bonsai.
+        // FCPW: GPUTriangle, one row a triangle, as fcpwb_gpu.bonsai.
         pCount : u32;
         indirect group prims[pCount] {
             group[1] {

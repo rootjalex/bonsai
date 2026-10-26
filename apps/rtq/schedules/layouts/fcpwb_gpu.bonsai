@@ -1,0 +1,96 @@
+// FCPW's scalar BVH -- the tree WoSX builds by default, FCPW's CMake
+// leaving FCPW_USE_ENOKI off, and the one tree FCPW puts on a GPU -- as a
+// tree declaration and the layout that is its bytes: fcpw::Bvh<3,
+// BvhNode<3>, Triangle> (deps/fcpw/include/fcpw/aggregates/bvh.h; on the
+// GPU fcpw/gpu/bvh.slang's Bvh<BvhNode, Triangle, NoSilhouette> over the
+// same rows). A node is its own box (BoundingBox<3>: pMin, pMax, two
+// Vector3f of 12 bytes), one int that is the second child's offset for an
+// interior node and the first reference's index for a leaf (a union), and
+// the leaf's reference count, zero for an interior node: 32 bytes
+// (GPUBvhNode on the GPU, the same bytes), a binary tree whose left child
+// is the next row and whose leaves reference FCPW's primitives in the
+// order its build left them (Bvh::primitives).
+//
+// The triangles are FCPW's GPU rows: GPUTriangle (fcpw/gpu/
+// bvh_interop_structures.h, what extractTriangles copies to the GPU), the
+// three corners and the primitive index, 40 bytes a row, in the order of
+// FCPW's primitive array, which a leaf's offset indexes; the program's
+// element fields -- a corner, two edges, two ids, apps/rtq's Triangle --
+// are derived from the row's as apps/rtq/schedules/layouts/fcpw4w16.bonsai
+// derives them from FCPW's packets (`e1 = pa - pb` is `-(pb - pa)` to the
+// bit, FCPW's `ab` negated; `e2 = pc - pa` its `ac`), a tile of one
+// element each. FCPW's CPU build reads the corners through the triangle's
+// indices into the polygon soup (fcpwb.bonsai reads them that way); the
+// GPU build and this layout hold them in the row.
+//
+// FCPW's traversal tests both children's boxes at the parent, lowers the
+// radius to each box's far corner, and enters the nearer first (bvh.inl,
+// processSubtreeForClosestPoint; bvh.slang, findClosestPoint). In the tree
+// language that is a node bounding its children (`with AABB(lo, hi) on
+// children`, as the four-wide tree is declared), and the layout provides
+// the children's boxes by reading them out of the children's own rows:
+// `this[left].low` is the group's row at index `left`, its stored field --
+// the parent *logically* holds its children's boxes while its bytes stay
+// FCPW's, the device the PLDI 2026 paper's closest-point benchmark used for
+// this tree (apps/queries/cp/cp.bonsai on the branch ajr/pldi-benchmarks),
+// the two-lane vectors built by component. What a visit reads is then what
+// FCPW's reads: the node's row and its two children's rows.
+//
+// This is the tree as FCPW's GPU reads it, for the GPU comparison
+// (schedules/fcpwb-gpu.bonsai); fcpwb.bonsai is the same tree in the bytes
+// FCPW's CPU reads -- its Triangle objects and polygon soup, the corners
+// gathered by index at the leaf -- for the CPU comparison (schedules/
+// fcpwb.bonsai). Imported by apps/rtq's fcpwb-gpu.bonsai and by apps/wosx's
+// fcpwb* schedules (the walk on spheres against WoSX on its default tree;
+// its CPU schedules too for now, the switch to fcpwb.bonsai pending); the
+// drivers copy FCPW's tree in with apps/rtq/fcpw_bvh.h (copy_fcpw_bvh).
+schedule {
+    tree[[Triangle]] BVH2 =
+    | Interior(children : array[BVH2, 2], lo hi : vector[vec3f, 2])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+    triangles : BVH2;
+
+    layout triangles {
+        // FCPW: GPUTriangle, one row a triangle.
+        pCount : u32;
+        indirect group prims[pCount] {
+            group[1] {
+                pa : vec3f;
+                pb : vec3f;
+                pc : vec3f;
+                primitiveIndex : u32;
+                v0 = pa;
+                e1 = pa - pb;
+                e2 = pc - pa;
+                geomID = 0u;
+                primID = primitiveIndex;
+            };
+        };
+        // FCPW: BvhNode / GPUBvhNode.
+        nNodes : u32;
+        group[nNodes] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            offset : i32;
+            nReferences : i32;
+            switch nReferences {
+                0 => Interior {
+                    left = index + 1u;
+                    right = index + cast[[u32]](offset);
+                    children = vector[u32, 2]{left, right};
+                    // The children's boxes, read from the children's rows.
+                    lo = vector[vec3f, 2]{vector[f32, 2]{this[left].low.x, this[right].low.x},
+                                          vector[f32, 2]{this[left].low.y, this[right].low.y},
+                                          vector[f32, 2]{this[left].low.z, this[right].low.z}};
+                    hi = vector[vec3f, 2]{vector[f32, 2]{this[left].high.x, this[right].high.x},
+                                          vector[f32, 2]{this[left].high.y, this[right].high.y},
+                                          vector[f32, 2]{this[left].high.z, this[right].high.z}};
+                };
+                _ => Leaf {
+                    data = range(prims, cast[[u32]](offset), cast[[u32]](nReferences));
+                };
+            };
+        };
+    };
+}

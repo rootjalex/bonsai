@@ -90,8 +90,10 @@
 
 // The tree the schedule declared: FCPW's vectorized Mbvh in apps/rtq's
 // layouts (the default); FCPW's scalar binary BVH -- WoSX's default,
-// FCPW_USE_ENOKI off -- in apps/rtq/schedules/layouts/fcpwb.bonsai when
-// built with WOSX_BINARY_BVH (compare.sh, for the schedules named fcpwb*);
+// FCPW_USE_ENOKI off -- in apps/rtq/schedules/layouts/fcpwb_gpu.bonsai (its
+// GPU bytes, on the CPU too for now; apps/rtq's fcpwb.bonsai is its CPU
+// bytes, the switch pending) when built with WOSX_BINARY_BVH (compare.sh,
+// for the schedules named fcpwb*);
 // or the same binary tree with each node holding its children's boxes, as
 // FCPW's traversal reads it, in layouts/fcpwb2.bonsai when built with
 // WOSX_BINARY_BVH2 (the schedules named fcpwb2*, the GPU comparison's). The

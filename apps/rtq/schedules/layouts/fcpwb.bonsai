@@ -1,45 +1,50 @@
-// FCPW's scalar BVH -- the tree WoSX builds by default, FCPW's CMake
-// leaving FCPW_USE_ENOKI off, and the one tree FCPW puts on a GPU -- as a
-// tree declaration and the layout that is its bytes: fcpw::Bvh<3,
-// BvhNode<3>, Triangle> (deps/fcpw/include/fcpw/aggregates/bvh.h; on the
-// GPU fcpw/gpu/bvh.slang's Bvh<BvhNode, Triangle, NoSilhouette> over the
-// same rows). A node is its own box (BoundingBox<3>: pMin, pMax, two
-// Vector3f of 12 bytes), one int that is the second child's offset for an
-// interior node and the first reference's index for a leaf (a union), and
-// the leaf's reference count, zero for an interior node: 32 bytes
-// (GPUBvhNode on the GPU, the same bytes), a binary tree whose left child
-// is the next row and whose leaves reference FCPW's primitives in the
-// order its build left them (Bvh::primitives).
+// FCPW's scalar BVH as its CPU reads it: the bytes fcpw::Bvh<3, BvhNode<3>,
+// Triangle> traverses, byte for byte, and no others -- the node array
+// (flatTree, 32-byte BvhNode rows: the box, the second child's offset or
+// the first reference's index, the reference count), the array of
+// primitive pointers its leaves index (Bvh::primitives, a Triangle* per
+// reference, in the order the build left them), the Triangle objects those
+// pointers address (32 bytes: the vtable pointer, the three vertex indices,
+// the primitive index, the soup pointer; fcpw/geometry/triangles.h), and
+// the polygon soup's positions (12-byte Vector3f) the indices select. The
+// driver hands the program FCPW's own memory, wrapped, not a copy
+// (apps/rtq/fcpw_bvh.h, built without RTQ_GPU).
 //
-// The triangles are FCPW's GPU rows: GPUTriangle (fcpw/gpu/
-// bvh_interop_structures.h, what extractTriangles copies to the GPU), the
-// three corners and the primitive index, 40 bytes a row, in the order of
-// FCPW's primitive array, which a leaf's offset indexes; the program's
-// element fields -- a corner, two edges, two ids, apps/rtq's Triangle --
-// are derived from the row's as apps/rtq/schedules/layouts/fcpw4w16.bonsai
-// derives them from FCPW's packets (`e1 = pa - pb` is `-(pb - pa)` to the
-// bit, FCPW's `ab` negated; `e2 = pc - pa` its `ac`), a tile of one
-// element each. FCPW's CPU build reads the corners through the triangle's
-// indices into the polygon soup; the GPU build and this layout hold them
-// in the row.
+// A leaf's triangle is read as FCPW's leaf reads it (Triangle::intersect,
+// Triangle::findClosestPoint): the pointer out of the reference array, the
+// three indices out of the object at that address, the three corners
+// gathered from the positions by index (`soup->positions[indices[k]]`),
+// and the program's edges made from the corners -- `e1 = pa - pb` is FCPW's
+// `ab = pb - pa` negated, to the bit; `e2 = pc - pa` its `ac`. The tile
+// stores the pointer and derives everything else, so nothing of a corner is
+// copied anywhere: what the leaf loads is what FCPW's leaf loads. The
+// derived members chain -- `t = objects[tri]` is the row of the `ptr group`
+// at the address, `pa = positions[t.i0].p` a row of the position group by
+// the index out of it -- and the compiler binds each read to that group's
+// storage (Lower/Layouts.cpp; tests/bonsai/ssa/layout-tile-group-reads.
+// bonsai).
 //
-// FCPW's traversal tests both children's boxes at the parent, lowers the
-// radius to each box's far corner, and enters the nearer first (bvh.inl,
-// processSubtreeForClosestPoint; bvh.slang, findClosestPoint). In the tree
-// language that is a node bounding its children (`with AABB(lo, hi) on
-// children`, as the four-wide tree is declared), and the layout provides
-// the children's boxes by reading them out of the children's own rows:
-// `this[left].low` is the group's row at index `left`, its stored field --
-// the parent *logically* holds its children's boxes while its bytes stay
-// FCPW's, the device the PLDI 2026 paper's closest-point benchmark used for
-// this tree (apps/queries/cp/cp.bonsai on the branch ajr/pldi-benchmarks),
-// the two-lane vectors built by component. What a visit reads is then what
-// FCPW's reads: the node's row and its two children's rows.
+// fcpwb_gpu.bonsai is the same tree in FCPW's GPU bytes -- GPUTriangle rows,
+// the corners stored -- which is what FCPW's GPU reads and so what the GPU
+// comparison traverses. Until 2026-10-25 the CPU comparison traversed those
+// rows too, an indirection and a gather fewer a triangle than FCPW's CPU
+// pays, which favoured every leaf (PLAN.md, "The machine code behind the
+// table").
 //
-// Imported by the schedules over this tree in apps/rtq (schedules/fcpwb*.
-// bonsai, the three queries against FCPW's scalar build and its GPU) and in
-// apps/wosx (its fcpwb* schedules, the walk on spheres against WoSX on its
-// default tree); the drivers copy FCPW's tree in with apps/rtq/fcpw_bvh.h.
+// The traversal tests both children's boxes at the parent and enters the
+// nearer first (bvh.inl, processSubtreeForClosestPoint, processSubtreeFor
+// Intersection): the node bounds its children, and the layout provides the
+// children's boxes by reading them out of the children's own rows
+// (`this[left].low`), the parent *logically* holding its children's boxes
+// while its bytes stay FCPW's -- the device of the PLDI 2026 paper's
+// closest-point benchmark (apps/queries/cp/cp.bonsai on the branch
+// ajr/pldi-benchmarks), the two-lane vectors built by component. What a
+// visit reads is then what FCPW's reads: the node's row and its two
+// children's rows.
+//
+// Imported by the CPU schedules over this tree in apps/rtq (schedules/
+// fcpwb.bonsai, the three queries against FCPW's scalar build); the GPU
+// schedules import fcpwb_gpu.bonsai.
 schedule {
     tree[[Triangle]] BVH2 =
     | Interior(children : array[BVH2, 2], lo hi : vector[vec3f, 2])
@@ -48,22 +53,40 @@ schedule {
     triangles : BVH2;
 
     layout triangles {
-        // FCPW: GPUTriangle, one row a triangle.
+        // FCPW: PolygonSoup::positions, the vertices, 12 bytes each.
+        vCount : u32;
+        indirect group positions[vCount] {
+            p : vec3f;
+        };
+        // FCPW: the Triangle objects (SceneData::triangleObjects), 32 bytes
+        // each, reached by the address a reference holds.
+        oCount : u32;
+        ptr group objects[oCount] {
+            vptr : u64;
+            i0 : i32;
+            i1 : i32;
+            i2 : i32;
+            pIndex : i32;
+            soup : u64;
+        };
+        // FCPW: Bvh::primitives, a Triangle* per reference; a leaf's range
+        // is over these, and each is the triangle at the address.
         pCount : u32;
         indirect group prims[pCount] {
             group[1] {
-                pa : vec3f;
-                pb : vec3f;
-                pc : vec3f;
-                primitiveIndex : u32;
+                tri : u64;
+                t = objects[tri];
+                pa = positions[t.i0].p;
+                pb = positions[t.i1].p;
+                pc = positions[t.i2].p;
                 v0 = pa;
                 e1 = pa - pb;
                 e2 = pc - pa;
                 geomID = 0u;
-                primID = primitiveIndex;
+                primID = cast[[u32]](t.pIndex);
             };
         };
-        // FCPW: BvhNode / GPUBvhNode.
+        // FCPW: BvhNode<3>.
         nNodes : u32;
         group[nNodes] index : u32 {
             low : vec3f;

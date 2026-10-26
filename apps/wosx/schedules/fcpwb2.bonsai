@@ -7,7 +7,7 @@
 // here, in FCPW's CPU order (fcpwb.bonsai says the rule: d2Min, the far
 // corners where both children contain the point, the left child on a tie).
 // Nothing is vectorized: FCPW's scalar traversal tests one box and one
-// triangle at a time, and so does this. Beside layouts/fcpwb.bonsai's
+// triangle at a time, and so does this. Beside apps/rtq's fcpwb_gpu layout's
 // schedule (fcpwb.bonsai) this measures what the layout is worth on the
 // binary tree; the GPU schedule over this layout (fcpwb2-gpu.bonsai) takes
 // its traversal from kernel/fcpwb2.bonsai, the GPU kernel's order.

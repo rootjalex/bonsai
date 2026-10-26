@@ -21,7 +21,7 @@ set -euo pipefail
 # lanes; fcpw4w16-packet-points, the points) are run the single-threaded
 # way. A schedule named fcpwb* runs over WoSX's default tree instead --
 # FCPW's scalar binary BVH, FCPW_USE_ENOKI off, the layout in
-# apps/rtq/schedules/layouts/fcpwb.bonsai -- and the driver is built to have
+# apps/rtq/schedules/layouts/fcpwb_gpu.bonsai -- and the driver is built to have
 # FCPW build that tree for WoSX's side too (WOSX_BINARY_BVH). A schedule named
 # fcpwb2* runs over the same binary tree declared as FCPW traverses it,
 # each node holding its children's boxes (schedules/layouts/fcpwb2.bonsai,
@@ -180,7 +180,7 @@ build_schedule() {
   # The tree the schedule's name says: fcpw<branching>w<width> is FCPW's
   # vectorized Mbvh at that branching and width (apps/rtq's layouts), fcpwb
   # FCPW's scalar binary BVH -- WoSX's default, FCPW_USE_ENOKI off
-  # (apps/rtq/schedules/layouts/fcpwb.bonsai, the driver's WOSX_BINARY_BVH),
+  # (apps/rtq/schedules/layouts/fcpwb_gpu.bonsai, the driver's WOSX_BINARY_BVH),
   # fcpwb2 the same binary tree with each node holding its children's boxes
   # (layouts/fcpwb2.bonsai, WOSX_BINARY_BVH2). The suffixes say how it is
   # run: -threads, -persistent and -packet* as above, -gpu* on the GPU. The

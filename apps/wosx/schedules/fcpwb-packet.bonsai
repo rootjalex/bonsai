@@ -1,12 +1,13 @@
 // The packet schedule over WoSX's default tree: FCPW's scalar binary BVH
-// in FCPW's bytes (layouts/fcpwb.bonsai), a point's walks split by 32 and
+// in FCPW's GPU bytes (apps/rtq/schedules/layouts/fcpwb_gpu.bonsai, as
+// fcpwb.bonsai says), a point's walks split by 32 and
 // vectorized, then the closest-point traversal sorted and put on a stack --
 // one node for the gang, the two children ordered by the majority of the
 // lanes' keys -- FCPW's CPU rule, as fcpwb.bonsai writes it (the boxes read
 // from the children's rows, as the layout says) -- each child entered by
 // the lanes whose query reaches its box, one stack of nodes, per-lane
 // bounds and masks. Single-threaded, pinned, as fcpwb is run.
-import apps/rtq/schedules/layouts/fcpwb;
+import apps/rtq/schedules/layouts/fcpwb_gpu;
 
 schedule {
     walk.loopify();

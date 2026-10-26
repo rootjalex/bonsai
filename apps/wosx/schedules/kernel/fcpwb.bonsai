@@ -1,5 +1,6 @@
 // The traversal of WoSX's GPU kernel on its default tree: FCPW's binary BVH
-// in FCPW's bytes (layouts/fcpwb.bonsai), the walk a loop, the closest-point
+// in FCPW's GPU bytes (apps/rtq/schedules/layouts/fcpwb_gpu.bonsai, the rows
+// FCPW's own GPU reads), the walk a loop, the closest-point
 // traversal on a stack of FCPW's depth with the two children tested at their
 // parent and the nearer entered first, the leaf's Voronoi arms skipped where
 // the point is not in them. The key is the child's squared distance to its
@@ -12,7 +13,7 @@
 // (`unroll`), as bvh.slang writes them -- the two boxes tested one after
 // the other, then the swap -- not left a loop of two (fcpwb.bonsai says
 // what the loop cost).
-import apps/rtq/schedules/layouts/fcpwb;
+import apps/rtq/schedules/layouts/fcpwb_gpu;
 
 schedule {
     walk.loopify();

@@ -2,8 +2,9 @@
 // batches as FCPW's compute shaders run them (fcpw/gpu/bvh.cs.slang:
 // rayIntersection, closestPoint -- one thread a query, groups of 256,
 // FCPW's nThreadsPerGroup, as many groups as the batch needs), each
-// thread's traversal bvh.slang's over the same rows (layouts/fcpwb.bonsai:
-// the one tree FCPW puts on a GPU, GPUBvhNode and GPUTriangle rows). The
+// thread's traversal bvh.slang's over the same rows (layouts/fcpwb_gpu.
+// bonsai: the one tree FCPW puts on a GPU, GPUBvhNode and GPUTriangle rows;
+// layouts/fcpwb.bonsai is the tree in the bytes FCPW's CPU reads). The
 // reference is FCPW's GPUScene, run by the driver built with RTQ_GPU
 // (compare.sh does so for the schedules named *-gpu): its shaders over the
 // same tree, the queries uploaded before the clock and the answers read
@@ -20,7 +21,7 @@
 // Voronoi exits. Each batch's loop is split by 256 and bound to the GPU's
 // blocks and threads: one launch, one query a thread, the tail block
 // guarded.
-import apps/rtq/schedules/layouts/fcpwb;
+import apps/rtq/schedules/layouts/fcpwb_gpu;
 
 schedule {
     closest.sort(triangles.Interior,

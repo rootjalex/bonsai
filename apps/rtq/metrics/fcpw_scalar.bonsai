@@ -45,11 +45,13 @@ element FInterval {
 // and far slab distances per axis as min and max of the two, the entry
 // distance the largest of the three nears and zero (FCPW's ray begins at
 // zero), the exit the least of the three fars and tMax, and a hit where
-// entry <= exit. The scalar node's box is its own and never the inverted
-// empty slot of the wide node, but the mark costs one compare and is kept
-// so that the two metrics answer the same question of the same box.
+// entry <= exit (`tNearMax > tFarMin` is the miss). The scalar node's box
+// is its own and never the inverted empty slot of the wide node, so there
+// is no mark to test, and none is tested: metrics/fcpw.bonsai's `proper`
+// compare is the wide tree's, and the scalar reference pays no such compare
+// (it was kept here until 2026-10-25, one compare and a mask operation a
+// visit the reference did not do).
 func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
-    proper = b.low.x <= b.high.x;
     rinvD = vec3f{1.0, 1.0, 1.0} / r.d;
     t0 = (b.low - r.o) * rinvD;
     t1 = (b.high - r.o) * rinvD;
@@ -57,7 +59,7 @@ func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
     tFar = max(t0, t1);
     tMin = max(0.0, max(max(tNear.x, tNear.y), tNear.z));
     tMax = min(r.tfar, min(min(tFar.x, tFar.y), tFar.z));
-    if tMin <= tMax && proper {
+    if tMin <= tMax {
         return FInterval{tMin, tMax};
     }
     return {};
@@ -256,9 +258,10 @@ func distmin(s : Sphere, tri : Triangle) -> Float {
 
 // FCPW: what Scene::intersect leaves in its Interaction for the nearest hit
 // -- `d` the distance, `p` the hit point (`pa + v1 v + v2 w`), `n` the unit
-// normal (Eigen's `normalized()`, a true division by the norm), `uv` the
-// pair `(1 - v - w, v)`, and `primitiveIndex`. Made once per ray here, for
-// the triangle the argmin settled on, by the same test run once more.
+// normal (`v1.cross(v2).normalized()`: Eigen's `normalized()`, a true
+// division by the norm, guarded as `unit` says), `uv` the pair
+// `(1 - v - w, v)`, and `primitiveIndex`. Made once per ray here, for the
+// triangle the argmin settled on, by the same test run once more.
 element Hit {
     primID : u32;
     d : Float;
@@ -274,8 +277,7 @@ func hit_record(r : Ray, tri : Triangle) -> Hit {
         v1 = -tri.e1;
         v2 = tri.e2;
         p = tri.v0 + v1 * e.u + v2 * e.v;
-        ng = cross(v1, v2);
-        n = ng / sqrt(dot_eigen(ng, ng));
+        n = unit(cross(v1, v2));
         return Hit{tri.primID, e.t, p, n, 1.0 - e.u - e.v, e.u};
     }
     return no_hit();
@@ -336,9 +338,18 @@ func half_pi() -> Float = 1.5707963267948966;
 func flt_epsilon() -> Float = 1.1920928955078125e-07;
 func in_range(v : Float, lo : Float, hi : Float) -> bool = v >= lo && v <= hi;
 // Eigen's `norm()` and `normalized()`: the square root of its squared norm,
-// and a division of each component by it.
+// and a division of each component by it -- guarded, in `normalized()`
+// (Eigen/src/Core/Dot.h), by the squared norm being positive: a zero vector
+// is returned as it is, not divided into NaNs, and the test is paid on
+// every normalization.
 func vlen(v : vec3f) -> Float = sqrt(sqnorm_eigen(v));
-func unit(v : vec3f) -> vec3f = v / vlen(v);
+func unit(v : vec3f) -> vec3f {
+    z = sqnorm_eigen(v);
+    if z > 0.0 {
+        return v / sqrt(z);
+    }
+    return v;
+}
 func abs3(v : vec3f) -> vec3f = vec3f{abs(v.x), abs(v.y), abs(v.z)};
 
 // FCPW: computeOrthonormalBasis (Duff et al., "Building an Orthonormal
@@ -474,7 +485,21 @@ func intersects(q : SilhouetteQuery, e : Edge) -> bool {
     if sp.d * sp.d > q.r2 {
         return false;
     }
-    return e.one_face != 0u || is_silhouette_edge(e, q.c - sp.p, sp.d, q.flip, q.precision);
+    // FCPW: `isSilhouette = !hasFace(0) || !hasFace(1); if (!isSilhouette)
+    // { n0 = normal(0); n1 = normal(1); ... isSilhouetteEdge(...) }` -- the
+    // one-face case decided first, the normals read only in the other.
+    // Written as the two statements FCPW writes rather than one `||`, so
+    // that the test is a call the inliner copies in: inside a short-circuit
+    // it would stay a call taking the whole edge, and the normals -- which
+    // the CPU layout derives from the soup at every read (schedules/
+    // layouts/fcpws.bonsai) -- would be computed for that argument before
+    // this test, where FCPW computes them in the two-face case alone.
+    // Inlined, the reads of `e.n0` and `e.n1` sit in that case and their
+    // derivations sink to them (Opt/NarrowLoads, Opt/Sink).
+    if e.one_face != 0u {
+        return true;
+    }
+    return is_silhouette_edge(e, q.c - sp.p, sp.d, q.flip, q.precision);
 }
 
 func distmin(q : SilhouetteQuery, e : Edge) -> Float {

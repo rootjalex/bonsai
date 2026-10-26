@@ -1,0 +1,151 @@
+// FCPW's normal cone hierarchy (SNCH) in FCPW's bytes, as two trees over one
+// node array: fcpw::Bvh<3, SnchNode<3>, Triangle, SilhouetteEdge>, the tree
+// FCPW builds once silhouettes are computed (Scene::computeSilhouettes, then
+// Scene::build with FCPW_USE_ENOKI off: the build WoSX ships for a
+// reflecting boundary, and the one tree FCPW puts on a GPU for it). Each
+// node is a box, a cone (axis, half angle, radius) and two reference
+// ranges, the leaf's triangles and the leaf's silhouette edges, which FCPW
+// transfers to a GPU as GPUSnchNode rows of sixty bytes (fcpw/gpu/
+// bvh_interop_structures.h, extractSnchNodes) beside GPUTriangle rows
+// (layouts/fcpwb_gpu.bonsai says what those are) and GPUEdge rows -- two
+// corners, two adjacent unit normals, the index, whether the edge has one
+// adjacent face: fifty-six bytes, extractSilhouetteEdges. The program's two
+// sets, the triangles the rays and points query and the silhouette edges
+// the silhouette query searches, are two trees over the one node array:
+// the driver (apps/rtq/fcpw_snch.h, copy_snch) hands the same node rows to
+// both layouts, each reading the leaf's range that is its own. This is the
+// tree as FCPW's GPU reads it, for the GPU comparison (schedules/fcpws-gpu.
+// bonsai); layouts/fcpws.bonsai is the same tree in the bytes FCPW's CPU
+// reads, for the CPU comparison.
+//
+// The node's cone is the children's to test, as the box is: the parent
+// holds its children's boxes and cones logically, read out of the
+// children's own rows (fcpwb.bonsai says why), and the tree's bounding
+// element is ConeBox, whose metrics do FCPW's cone test for the silhouette
+// query and the box test alone for the rays and the points
+// (metrics/fcpw_scalar.bonsai). The GPU rows' counts and offsets are
+// unsigned words, read here as the signed words the CPU node has, the same
+// bits. apps/wosx/schedules/layouts/fcpw_stars.bonsai is this twice over
+// with the walk on stars' names beside its absorbing tree.
+schedule {
+    tree[[Triangle]] SNCH =
+    | Interior(children : array[SNCH, 2], lo hi axis : vector[vec3f, 2],
+               half_angle radius : vector[f32, 2])
+        with ConeBox(lo, hi, axis, half_angle, radius) on children
+    | Leaf(data : array[Triangle]) with data = data;
+    triangles : SNCH;
+
+    layout triangles {
+        // FCPW: GPUTriangle, one row a triangle.
+        pCount : u32;
+        indirect group prims[pCount] {
+            group[1] {
+                pa : vec3f;
+                pb : vec3f;
+                pc : vec3f;
+                primitiveIndex : u32;
+                v0 = pa;
+                e1 = pa - pb;
+                e2 = pc - pa;
+                geomID = 0u;
+                primID = primitiveIndex;
+            };
+        };
+        // FCPW: SnchNode / GPUSnchNode.
+        nNodes : u32;
+        group[nNodes] index : u32 {
+            low : vec3f;
+            high : vec3f;
+            cone_axis : vec3f;
+            cone_half_angle : f32;
+            cone_radius : f32;
+            nPrimitives : i32;
+            offset : i32;
+            nSilhouettes : i32;
+            silhouetteOffset : i32;
+            switch nPrimitives {
+                0 => Interior {
+                    left = index + 1u;
+                    right = index + cast[[u32]](offset);
+                    children = vector[u32, 2]{left, right};
+                    lo = vector[vec3f, 2]{vector[f32, 2]{this[left].low.x, this[right].low.x},
+                                          vector[f32, 2]{this[left].low.y, this[right].low.y},
+                                          vector[f32, 2]{this[left].low.z, this[right].low.z}};
+                    hi = vector[vec3f, 2]{vector[f32, 2]{this[left].high.x, this[right].high.x},
+                                          vector[f32, 2]{this[left].high.y, this[right].high.y},
+                                          vector[f32, 2]{this[left].high.z, this[right].high.z}};
+                    axis = vector[vec3f, 2]{vector[f32, 2]{this[left].cone_axis.x, this[right].cone_axis.x},
+                                            vector[f32, 2]{this[left].cone_axis.y, this[right].cone_axis.y},
+                                            vector[f32, 2]{this[left].cone_axis.z, this[right].cone_axis.z}};
+                    half_angle = vector[f32, 2]{this[left].cone_half_angle, this[right].cone_half_angle};
+                    radius = vector[f32, 2]{this[left].cone_radius, this[right].cone_radius};
+                };
+                _ => Leaf {
+                    data = range(prims, cast[[u32]](offset), cast[[u32]](nPrimitives));
+                };
+            };
+        };
+    };
+
+    // The silhouette edges over the same nodes.
+    tree[[Edge]] SNCHE =
+    | Interior(children : array[SNCHE, 2], lo hi axis : vector[vec3f, 2],
+               half_angle radius : vector[f32, 2])
+        with ConeBox(lo, hi, axis, half_angle, radius) on children
+    | Leaf(data : array[Edge]) with data = data;
+    silhouettes : SNCHE;
+
+    layout silhouettes {
+        // FCPW: GPUEdge, one row an edge.
+        eCount : u32;
+        indirect group edges[eCount] {
+            group[1] {
+                a : vec3f;
+                b : vec3f;
+                na : vec3f;
+                nb : vec3f;
+                edgeIndex : u32;
+                hasOneAdjacentFace : u32;
+                pa = a;
+                pb = b;
+                n0 = na;
+                n1 = nb;
+                index = edgeIndex;
+                one_face = hasOneAdjacentFace;
+            };
+        };
+        sNodes : u32;
+        group[sNodes] snode : u32 {
+            low : vec3f;
+            high : vec3f;
+            cone_axis : vec3f;
+            cone_half_angle : f32;
+            cone_radius : f32;
+            nPrimitives : i32;
+            offset : i32;
+            nSilhouettes : i32;
+            silhouetteOffset : i32;
+            switch nPrimitives {
+                0 => Interior {
+                    left = snode + 1u;
+                    right = snode + cast[[u32]](offset);
+                    children = vector[u32, 2]{left, right};
+                    lo = vector[vec3f, 2]{vector[f32, 2]{this[left].low.x, this[right].low.x},
+                                          vector[f32, 2]{this[left].low.y, this[right].low.y},
+                                          vector[f32, 2]{this[left].low.z, this[right].low.z}};
+                    hi = vector[vec3f, 2]{vector[f32, 2]{this[left].high.x, this[right].high.x},
+                                          vector[f32, 2]{this[left].high.y, this[right].high.y},
+                                          vector[f32, 2]{this[left].high.z, this[right].high.z}};
+                    axis = vector[vec3f, 2]{vector[f32, 2]{this[left].cone_axis.x, this[right].cone_axis.x},
+                                            vector[f32, 2]{this[left].cone_axis.y, this[right].cone_axis.y},
+                                            vector[f32, 2]{this[left].cone_axis.z, this[right].cone_axis.z}};
+                    half_angle = vector[f32, 2]{this[left].cone_half_angle, this[right].cone_half_angle};
+                    radius = vector[f32, 2]{this[left].cone_radius, this[right].cone_radius};
+                };
+                _ => Leaf {
+                    data = range(edges, cast[[u32]](silhouetteOffset), cast[[u32]](nSilhouettes));
+                };
+            };
+        };
+    };
+}

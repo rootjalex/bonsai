@@ -255,4 +255,170 @@ inline Counts copy_snch(fcpw::Scene<3> &scene, Rows &nodes, Rows &triangles, Row
     return counts;
 }
 
+//===----------------------------------------------------------------------===//
+// The tree in the bytes FCPW's CPU reads
+//===----------------------------------------------------------------------===//
+//
+// For the CPU comparison (rtq_hook.cpp built with RTQ_FCPW_SNCH and without
+// RTQ_GPU; apps/rtq/schedules/layouts/fcpws.bonsai): nothing copied. FCPW's
+// own node array (SnchNode rows, in FCPW's CPU field order), its primitive
+// pointer array and Triangle objects, its silhouette reference array
+// (Bvh::silhouetteRefs) and SilhouetteEdge objects, and its polygon soup's
+// positions, each wrapped as a buffer where it lies, so that the program's
+// leaves read a triangle and an edge as FCPW's do: the pointer, the indices
+// through it, the corners and the ends gathered by index, the edge's two
+// face normals recomputed from the positions. The scene has to outlive the
+// tree. The row structs are the generated header's for that layout, named
+// by the driver; checked here against FCPW's own types.
+
+template <typename NodeRow, typename ObjectRow, typename PrimRow, typename EdgeObjectRow,
+          typename EdgeRefRow, typename PositionRow>
+constexpr bool rows_are_fcpws_cpu() {
+    static_assert(sizeof(NodeRow) == sizeof(SnchNode) && sizeof(NodeRow) == 60,
+                  "a node row is FCPW's SnchNode<3>: 60 bytes");
+    static_assert(offsetof(NodeRow, low) == offsetof(SnchNode, box) &&
+                      offsetof(NodeRow, high) == offsetof(SnchNode, box) + 12 &&
+                      offsetof(NodeRow, cone_axis) == offsetof(SnchNode, cone) &&
+                      offsetof(NodeRow, cone_half_angle) == offsetof(SnchNode, cone) + 12 &&
+                      offsetof(NodeRow, cone_radius) == offsetof(SnchNode, cone) + 16 &&
+                      offsetof(NodeRow, offset) == offsetof(SnchNode, secondChildOffset) &&
+                      offsetof(NodeRow, silhouetteOffset) ==
+                          offsetof(SnchNode, silhouetteReferenceOffset) &&
+                      offsetof(NodeRow, nReferences) == offsetof(SnchNode, nReferences) &&
+                      offsetof(NodeRow, nSilhouettes) == offsetof(SnchNode, nSilhouetteReferences),
+                  "the box, the cone, the offsets and the counts sit where FCPW's SnchNode puts them");
+    static_assert(sizeof(ObjectRow) == sizeof(fcpw::Triangle) && sizeof(ObjectRow) == 32,
+                  "an object row is FCPW's Triangle: 32 bytes");
+    static_assert(offsetof(ObjectRow, i0) == offsetof(fcpw::Triangle, indices) &&
+                      offsetof(ObjectRow, i1) == offsetof(fcpw::Triangle, indices) + 4 &&
+                      offsetof(ObjectRow, i2) == offsetof(fcpw::Triangle, indices) + 8 &&
+                      offsetof(ObjectRow, pIndex) == offsetof(fcpw::Triangle, pIndex) &&
+                      offsetof(ObjectRow, soup) == offsetof(fcpw::Triangle, soup),
+                  "the indices, the index and the soup sit where FCPW's Triangle puts them");
+    static_assert(sizeof(PrimRow) == sizeof(fcpw::Triangle *), "a reference row is one pointer");
+    static_assert(sizeof(EdgeObjectRow) == sizeof(fcpw::SilhouetteEdge) && sizeof(EdgeObjectRow) == 40,
+                  "an edge object row is FCPW's SilhouetteEdge: 40 bytes");
+    static_assert(offsetof(EdgeObjectRow, i0) == offsetof(fcpw::SilhouetteEdge, indices) &&
+                      offsetof(EdgeObjectRow, i3) == offsetof(fcpw::SilhouetteEdge, indices) + 12 &&
+                      offsetof(EdgeObjectRow, pIndex) == offsetof(fcpw::SilhouetteEdge, pIndex) &&
+                      offsetof(EdgeObjectRow, soup) == offsetof(fcpw::SilhouetteEdge, soup),
+                  "the indices, the index and the soup sit where FCPW's SilhouetteEdge puts them");
+    static_assert(sizeof(EdgeRefRow) == sizeof(fcpw::SilhouetteEdge *),
+                  "an edge reference row is one pointer");
+    static_assert(sizeof(PositionRow) == sizeof(fcpw::Vector3) && sizeof(PositionRow) == 12,
+                  "a position row is FCPW's Vector3: three floats");
+    return true;
+}
+
+// A buffer over memory the program only reads: the layout's storage is
+// read-only to it, and FCPW's is const here.
+template <typename T>
+inline bonsai_buffer wrap_const(const std::vector<T> &v) {
+    return bonsai_buffer_wrap(const_cast<void *>(static_cast<const void *>(v.data())),
+                              uint64_t(v.size()) * sizeof(T));
+}
+
+// The buffers over FCPW's own arrays, and their counts, for the driver to
+// point its two layouts at: the nodes (both layouts), the triangle
+// references and objects (the triangles' layout), the edge references and
+// objects (the silhouettes' layout), and the positions (both).
+struct Wrapped {
+    bonsai_buffer nodes{}, prims{}, objects{}, edge_refs{}, edge_objects{}, positions{};
+    uint64_t object_count = 0, edge_object_count = 0, position_count = 0;
+    Counts counts;
+};
+
+// The normal cone hierarchy of a built FCPW scene (silhouettes computed, the
+// scalar build), FCPW's arrays wrapped and checked: every reference points
+// into the one vector of objects of its kind, and every object indexes the
+// one soup's positions, so that what the program follows is what the
+// layout declares.
+inline Wrapped wrap_snch(fcpw::Scene<3> &scene, const char *which) {
+    const auto *bvh = dynamic_cast<const SnchBvh *>(scene.getSceneData()->aggregate.get());
+    if (bvh == nullptr) {
+        std::cerr << "FCPW's " << which
+                  << " scene did not build the normal cone hierarchy this driver was compiled "
+                     "for (Bvh<3, SnchNode<3>, Triangle, SilhouetteEdge>: computeSilhouettes, then "
+                     "the scalar build)\n";
+        std::exit(1);
+    }
+    const auto &data = *scene.getSceneData();
+    if (data.triangleObjects.size() != 1 || data.silhouetteEdgeObjects.size() != 1 ||
+        data.soups.size() != 1) {
+        std::cerr << "FCPW's " << which << " scene holds " << data.triangleObjects.size()
+                  << " triangle object vectors, " << data.silhouetteEdgeObjects.size()
+                  << " silhouette edge object vectors and " << data.soups.size()
+                  << " soups; the driver gives it one of each\n";
+        std::exit(1);
+    }
+    const std::vector<SnchNode> &rows = Peek::tree(*bvh);
+    const std::vector<fcpw::Triangle *> &prims = scene_triangles(scene, which);
+    const std::vector<fcpw::SilhouetteEdge *> &silhouettes = Peek::silhouettes(*bvh);
+    const std::vector<fcpw::Triangle> &objects = *data.triangleObjects[0];
+    const std::vector<fcpw::SilhouetteEdge> &edge_objects = *data.silhouetteEdgeObjects[0];
+    const std::vector<fcpw::Vector3> &positions = data.soups[0].positions;
+    Wrapped w;
+    for (const SnchNode &node : rows) {
+        if (node.nReferences > 0) {
+            if (uint64_t(node.referenceOffset) + uint64_t(node.nReferences) > prims.size() ||
+                uint64_t(node.silhouetteReferenceOffset) + uint64_t(node.nSilhouetteReferences) >
+                    silhouettes.size()) {
+                std::cerr << "a leaf of FCPW's normal cone hierarchy references past its "
+                             "primitives or silhouettes\n";
+                std::exit(1);
+            }
+            w.counts.leaves++;
+            w.counts.max_leaf_triangles =
+                std::max<uint64_t>(w.counts.max_leaf_triangles, uint64_t(node.nReferences));
+            w.counts.max_leaf_edges =
+                std::max<uint64_t>(w.counts.max_leaf_edges, uint64_t(node.nSilhouetteReferences));
+        }
+    }
+    for (const fcpw::Triangle *t : prims) {
+        if (t < objects.data() || t >= objects.data() + objects.size() || t->soup != &data.soups[0]) {
+            std::cerr << "a reference of FCPW's normal cone hierarchy points outside its triangle "
+                         "objects, or to another soup\n";
+            std::exit(1);
+        }
+        for (int k = 0; k < 3; k++) {
+            if (t->indices[k] < 0 || size_t(t->indices[k]) >= positions.size()) {
+                std::cerr << "a triangle of FCPW's normal cone hierarchy indexes past the soup's "
+                             "positions\n";
+                std::exit(1);
+            }
+        }
+    }
+    for (const fcpw::SilhouetteEdge *e : silhouettes) {
+        if (e < edge_objects.data() || e >= edge_objects.data() + edge_objects.size() ||
+            e->soup != &data.soups[0]) {
+            std::cerr << "a silhouette reference of FCPW's normal cone hierarchy points outside "
+                         "its edge objects, or to another soup\n";
+            std::exit(1);
+        }
+        // The ends are always there; the opposite corners are -1 where the
+        // edge has one face, and the layout reads them only where it has two.
+        for (int k = 0; k < 4; k++) {
+            const bool absent = (k == 0 || k == 3) && e->indices[k] == -1;
+            if (!absent && (e->indices[k] < 0 || size_t(e->indices[k]) >= positions.size())) {
+                std::cerr << "a silhouette edge of FCPW's normal cone hierarchy indexes past the "
+                             "soup's positions\n";
+                std::exit(1);
+            }
+        }
+    }
+    w.counts.nodes = rows.size();
+    w.counts.triangles = prims.size();
+    w.counts.edges = silhouettes.size();
+    w.object_count = objects.size();
+    w.edge_object_count = edge_objects.size();
+    w.position_count = positions.size();
+    w.nodes = wrap_const(rows);
+    w.prims = wrap_const(prims);
+    w.objects = wrap_const(objects);
+    w.edge_refs = wrap_const(silhouettes);
+    w.edge_objects = wrap_const(edge_objects);
+    w.positions = wrap_const(positions);
+    return w;
+}
+
 } // namespace rtq_snch
