@@ -17726,6 +17726,85 @@ that way, and the tree lowering producing (holder, primitive index) as
 the reference and computing the element from it. To build after (a),
 when the user says go.
 
+**Built (10-26 afternoon, the user: "use this and make sure our codegen
+strictly improves on the GPU and does not change on the CPU"; worktree
+wt-mq, to land as one commit).** The layout language gains a group indexed
+by (holder, ordinal): `group tris (h : Mesh, k : u32) { mesh = h.mesh; tri
+= k; };` -- named, every member computed (`name = expr`), no size, no
+bytes; ir::Group::holder_name/holder_t and Group::make_of_holder, the
+parser's GROUP case (the pair in parentheses after the name, the holder
+an element or variant by name -- element_type_of -- the two names scoped
+to the body, so two such groups may both say `h`), the printer, the
+layout comparison (Equality.cpp), Layout::count() (no rows). In the
+lowering (Lower/Layouts.cpp) the group is registered in
+LayoutTypeMap::of_holder and makes no array and no field; a stored-element
+read through a field the schedule bound to it (`Mesh.tris : OptixTree
+from mesh_tris`, LowerMatches::visit(StoredElement)) checks the holder's
+type is the element the field is read off, substitutes that element's
+value for `h` and the read's index for `k` into the members, and builds
+the element in its own field order -- `Triangle{e0.mesh, idx}`, no load.
+trees/optix.bonsai: `mesh_tris` for `Mesh.tris` and `placed_tris` for
+`Placed.tris`, and no `tris`/`tCount` array; trees/bvh.bonsai untouched.
+render_hook.cpp: `kTrisStored = requires(_tree_layout0 t) { t.tris; }`
+decides whether the rows are uploaded and whether a mesh input's `base` is
+its run's start or 0 (the primitive index is then the triangle's index in
+the mesh, as pbrt's); the `Primitive_Mesh` row keeps its `tris` word
+(unread by the hit chain now; a later cleanup). Lower/Trees.cpp is
+untouched: `idx = base + prim` with `base = 0` is the ordinal, and the
+`_RTHit` record's `idx` and `top` are the pair already. Found and fixed
+on the way, at its root: SSA/Convert.cpp's lazy select (`ite(own, a, b)`,
+the lazy select Trees.cpp makes of one own arm and one held arm) set the
+arm's value before the call the arm made -- `block->make_instruction(..,
+get_value(..))` reads the receiver before the argument splits the block
+at the call -- so `@14 is not bound in __anyhit__trace` for a mapped arm
+whose lambda calls (`triangle_of(t)`); the renderer never hit it (three
+held arms, the match). Tests: backends/ptx/rtcore-holder-reference (the
+closest-hit program reads the record, the primitive index, `prims[top]`,
+the Mesh row and then the mesh's index and position arrays: no triangle
+row; golden pinned at sm_90 as the directory pins) and
+correctness/gpu/rtcore-holder-reference with its driver (two meshes and a
+standalone triangle, the mesh inputs based at 0 with the mesh primitive as
+holder and no row uploaded; five rays report the corner and the mesh,
+right). Suite 1890 green. The renderer's gpu-optix schedule compiles
+(6 m 31 s), its render.o 73 151 712 bytes against 73 176 024 with the
+rows. The GPU and CPU measurements follow below.
+
+**GPU: strictly better, the same images (10-26, 13:49-14:21).** The same
+compiler (the worktree's) on three scenes at 16 spp, gpu-optix against
+pbrt --gpu through gpu_compare.sh, first with the rows (the shared
+checkout's trees/optix.bonsai and render_hook.cpp,
+gpu-compare-out-holder-base) and then with the pair reference (the
+worktree's two files copied over for the run, gpu-compare-out-holder);
+each number the least of three renders, the kernel time of the fastest.
+
+    scene             rows        pair reference    pbrt --gpu (the two runs)
+    killeroo-simple    27.72 ms    27.67 ms  (-0.2%)   49.55 / 49.43
+    pavilion-day      120.00 ms   118.53 ms  (-1.2%)  178.23 / 179.06
+    kroken camera-1   734.98 ms   729.22 ms  (-0.8%) 1783.28 / 1726.73
+
+Every image the same verdict and agreement as with the rows (killeroo
+65.6% of lit pixels within 1e-3, ok; pavilion 25.0%, ok within pbrt's own
+disagreement; kroken 1.3%, ok). The kernel time is lower on all three,
+by little: at 16 spp the hit chain is not where the time goes, and the
+other loads of the chain (prims[top], the Mesh row, the mesh's index and
+positions) stay -- part (a) takes the next two. What goes outright is the
+storage: kroken's rows were one per triangle of every triangle mesh, the
+scene's own 192 meshes (2 624 066 triangles) and its ten objects' 55
+meshes (285 278 345 triangles) alike, 287 902 411 x 8 bytes = 2.30 GB of
+device memory, now none; the generated render.o is 24 KB smaller.
+
+**CPU: unchanged, byte for byte.** The scalar and the wavefront-volpath
+schedules (which import trees/bvh.bonsai, untouched) compiled from the
+shared checkout's render.bonsai by the compiler at HEAD (30059901, the
+shared build brought up to date) and by the worktree's (HEAD plus the
+change): render.o and render.h identical for both (scalar 1 581 896
+bytes, wavefront-volpath 1 880 480). Landed as 652de2e4 on ajr/ssa, with
+the suite at 1890 green. Left for later: the `Primitive_Mesh` row's
+`tris` word, unread by the hit chain now, and part (a) -- the arm and the
+mesh row into the hit-group record -- which takes the chain from four
+dependent loads (record, prims[top], the Mesh row, the mesh's arrays) to
+pbrt's.
+
 **The composition built (10-26, landed as 190ffe86; apps/pbrt's gpu-optix
 schedule compiles and its render.o is byte for byte 99c5de0d's).** A
 deferral whose owner's call is an earlier deferral's
