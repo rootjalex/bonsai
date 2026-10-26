@@ -1,0 +1,56 @@
+//! flags: -p ssa --dump-ssa-postschedule
+
+// The chain's answer stays on the owner's side of the deferral (tests/
+// bonsai/correctness/llvm/defer-answer-owner-side runs this program): the
+// renderer's shape, where `camera` makes the first push and cannot return
+// without it, `step` draws and hands the path to `route`, which pushes the
+// next step or ends the path, and the stage cuts `step` at its draw on the
+// same queue. What to read for: `camera`, `step` and `route` return nothing
+// (no `-> bool`, no `ret (bool)`), the owner's call of `camera` ends its
+// iteration (`q!end`, a yield) with no `callc` and no `q!deferred`
+// dispatch, the record keeps no `ran` byte for this queue, the two
+// deferrals are `defer _queue_q @e` with no answer, and the cut `step!after`
+// is a function on the drain returning nothing. Until 10-25 `route`'s
+// path-ending return made the whole chain report and the stage refused
+// `step` for returning bool.
+import stdlib/numerics;
+
+func draw(x : Float, acc : reduce(+) Float) -> void {
+    acc += x * 0.25;
+    return;
+}
+
+func route(x : Float, n : i32, acc : reduce(+) Float) -> void {
+    if n > 0 {
+        step(x * 0.5, n - 1, acc);
+    }
+    return;
+}
+
+func step(x : Float, n : i32, acc : reduce(+) Float) -> void {
+    draw(x, acc);
+    acc += x;
+    route(x, n, acc);
+    return;
+}
+
+func camera(x : Float, acc : reduce(+) Float) -> void {
+    step(x, 3, acc);
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        acc : reduce(+) Float = 0.0;
+        camera(values[i], acc);
+        out[i] = acc;
+    }
+    return;
+}
+
+schedule {
+    q = run.queue(root);
+    camera.defer(step, q);
+    route.defer(step, q);
+    step.stage(draw, q, s);
+}

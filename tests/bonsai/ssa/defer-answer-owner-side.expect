@@ -1,0 +1,280 @@
+; === ssa postschedule ===
+; --- camera ---
+func camera(x : f32, acc : (f32*), _queue_q : (Queue_q*), _slot_q : i32): 
+  @0 = make_struct<Entry_q>(x, (i32)3, _slot_q)
+  defer _queue_q @0
+
+; --- draw ---
+func draw(x : f32, acc : (f32*)): 
+  @0 = mul(x, (f32)0.25)
+  acc.add acc @0
+  ret
+
+; --- route ---
+func route(x : f32, n : i32, acc : (f32*), _queue_q : (Queue_q*), _slot_q : i32): 
+  @0 = lt((i32)0, n)
+  dispatch @0 [!merge_1(), !then_0(x, n, acc, _slot_q, _queue_q)]
+
+!then_0(x : f32, n : i32, acc : (f32*), _slot_q : i32, _queue_q : (Queue_q*)): // preds: route
+  @1 = mul(x, (f32)0.5)
+  @2 = sub(n, (i32)1)
+  @3 = make_struct<Entry_q>(@1, @2, _slot_q)
+  defer _queue_q @3
+
+!merge_1(): // preds: route
+  ret
+
+; --- run ---
+; storage q.acc : f32 as q_acc_slots
+func run(values : f32[8], out : f32[8]): 
+  q_acc_slots = alloca<f32[8]> scratch()
+  q_x_0 = alloca<f32[8]> scratch()
+  q_n_0 = alloca<i32[8]> scratch()
+  q__slot_0 = alloca<i32[8]> scratch()
+  q_x_1 = alloca<f32[8]> scratch()
+  q_n_1 = alloca<i32[8]> scratch()
+  q__slot_1 = alloca<i32[8]> scratch()
+  q_queue = alloca<Queue_q[2]> scratch()
+  @4 = make_struct<Queue_q>((u32)0, q_x_0, q_n_0, q__slot_0)
+  @5 = gep(q_queue, (u32)0)
+  store @5 @4
+  @6 = make_struct<Queue_q>((u32)0, q_x_1, q_n_1, q__slot_1)
+  @7 = gep(q_queue, (u32)1)
+  store @7 @6
+  parfor i (i32)0:(i32)8:(i32)1 !par_body_0(values, out, q_acc_slots, q_queue) q!drain(q_queue, q_acc_slots, out)
+
+!par_body_0(i : i32, values : f32[8], out : f32[8], q_acc_slots : f32[8], q_queue : Queue_q[2]): // preds: run
+  @3 = gep(q_acc_slots, i)
+  store @3 (f32)0
+  @0 = extract_idx(values, i)
+  @8 = gep(q_queue, (u32)0)
+  call camera(@0, @3, @8, i) q!end()
+
+!par_cont_1(): // preds: q_rest!exit
+  ret
+
+!camera_call_cont_2(acc : (f32*), out : f32[8], i : i32): // preds: q_rest!run
+  @1 = load(acc)
+  @2 = gep(out, i)
+  store @2 @1
+  yield
+
+q!end(): // preds: !par_body_0
+  yield
+
+q!drain(q_queue : Queue_q[2], q_acc_slots : f32[8], out : f32[8]): // preds: run
+  jmp q!round((u32)0, q_queue, q_acc_slots, out)
+
+q!run(q : u32, @10 : u32, q_queue : Queue_q[2], q_acc_slots : f32[8], @15 : (Queue_q*)): // preds: q!batch
+  @17 = gep(q_queue, @10)
+  @18 = field.ptr(@17, (u32)1)
+  @19 = load(@18)
+  @20 = extract_idx(@19, q)
+  @21 = field.ptr(@17, (u32)2)
+  @22 = load(@21)
+  @23 = extract_idx(@22, q)
+  @24 = field.ptr(@17, (u32)3)
+  @25 = load(@24)
+  @26 = extract_idx(@25, q)
+  @27 = gep(q_acc_slots, @26)
+  call step!after(@20, @27, @23, @15, @26) q!ran()
+
+q!ran(): // preds: q!run
+  yield
+
+q!exit(q_acc_slots : f32[8], out : f32[8]): // preds: q!round
+  jmp q_rest(q_acc_slots, out)
+
+q!round(q!round : u32, q_queue : Queue_q[2], q_acc_slots : f32[8], out : f32[8]): // preds: q!drain, q!next
+  @10 = bwand(q!round, (u32)1)
+  @11 = extract_idx(q_queue, @10)
+  @12 = load_field(@11, (u32)0)
+  @13 = eq(@12, (u32)0)
+  dispatch @13 [q!batch!s(q!round, q_queue, @10, @12, q_acc_slots, out), q!exit(q_acc_slots, out)]
+
+q!batch(q!round : u32, q_queue : Queue_q[2], @10 : u32, @12 : u32, q_acc_slots : f32[8], out : f32[8]): // preds: q!batch!s
+  @14 = xor(@10, (u32)1)
+  @15 = gep(q_queue, @14)
+  @16 = field.ptr(@15, (u32)0)
+  parfor q (u32)0:@12:(u32)1 q!run(@10, q_queue, q_acc_slots, @15) q!next(q!round, q_queue, q_acc_slots, out)
+
+q!next(q!round : u32, q_queue : Queue_q[2], q_acc_slots : f32[8], out : f32[8]): // preds: q!batch
+  @9 = add(q!round, (u32)1)
+  jmp q!round(@9, q_queue, q_acc_slots, out)
+
+q_rest(q_acc_slots : f32[8], out : f32[8]): // preds: q!exit
+  parfor q_rest (i32)0:(i32)8:(i32)1 q_rest!run(q_acc_slots, out) q_rest!exit()
+
+q_rest!run(q_rest : i32, q_acc_slots : f32[8], out : f32[8]): // preds: q_rest
+  @28 = gep(q_acc_slots, q_rest)
+  jmp !camera_call_cont_2(@28, out, q_rest)
+
+q_rest!exit(): // preds: q_rest
+  jmp !par_cont_1()
+
+q!batch!s(q!round : u32, q_queue : Queue_q[2], @10 : u32, @12 : u32, q_acc_slots : f32[8], out : f32[8]): // preds: q!round
+  @29 = xor(@10, (u32)1)
+  @30 = gep(q_queue, @29)
+  @31 = field.ptr(@30, (u32)0)
+  store @31 (u32)0
+  parfor s (u32)0:@12:(u32)1 q!run!s(@10, q_queue, q_acc_slots, @30) q!batch(q!round, q_queue, @10, @12, q_acc_slots, out)
+
+q!ran!s(): // preds: q!run!s
+  yield
+
+q!run!s(s : u32, @10 : u32, q_queue : Queue_q[2], q_acc_slots : f32[8], @30 : (Queue_q*)): // preds: q!batch!s
+  @32 = gep(q_queue, @10)
+  @33 = field.ptr(@32, (u32)1)
+  @34 = load(@33)
+  @35 = extract_idx(@34, s)
+  @36 = field.ptr(@32, (u32)2)
+  @37 = load(@36)
+  @38 = extract_idx(@37, s)
+  @39 = field.ptr(@32, (u32)3)
+  @40 = load(@39)
+  @41 = extract_idx(@40, s)
+  @42 = gep(q_acc_slots, @41)
+  call step(@35, @38, @42, @30, @41) q!ran!s()
+
+; --- step ---
+func step(x : f32, n : i32, acc : (f32*), _queue_q : (Queue_q*), _slot_q : i32): 
+  call draw(x, acc) !draw_call_cont_0!stage(x, acc, n, _queue_q, _slot_q)
+
+!draw_call_cont_0!stage(x : f32, acc : (f32*), n : i32, _queue_q : (Queue_q*), _slot_q : i32): // preds: step
+  ret
+
+; --- step!after ---
+func step!after(x : f32, acc : (f32*), n : i32, _queue_q : (Queue_q*), _slot_q : i32): 
+  acc.add acc x
+  call route(x, n, acc, _queue_q, _slot_q) !route_call_cont_1!after()
+
+!route_call_cont_1!after(): // preds: step!after
+  ret
+
+type Entry_q = struct Entry_q{ x : f32; n : i32; _slot : i32 }
+type Float = f32
+type Half = f16
+type Queue_q = struct Queue_q{ count : u32; x : f32[]; n : i32[]; _slot : i32[] }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func camera(x : f32, acc : mut (f32*), _queue_q : mut (Queue_q*), _slot_q : i32) -> void {
+  let @0 = build<Entry_q>(x, 3, _slot_q) in
+  let @3 = atomic_add((&(*_queue_q).count), 1u) in
+  let @5 = (*_queue_q).x in
+  @5[@3] = x
+  let @8 = (*_queue_q).n in
+  @8[@3] = 3
+  let @11 = (*_queue_q)._slot in
+  @11[@3] = _slot_q
+  return
+}
+
+func draw(x : f32, acc : mut (f32*)) -> void {
+  let @0 = x * 0.25f in
+  acc += @0
+  return
+}
+
+func route(x : f32, n : i32, acc : mut (f32*), _queue_q : mut (Queue_q*), _slot_q : i32) -> void {
+  let @0 = 0 < n in
+  if (@0) {
+    let @1 = x * 0.5f in
+    let @2 = n - 1 in
+    let @3 = build<Entry_q>(@1, @2, _slot_q) in
+    let @6 = atomic_add((&(*_queue_q).count), 1u) in
+    let @8 = (*_queue_q).x in
+    @8[@6] = @1
+    let @11 = (*_queue_q).n in
+    @11[@6] = @2
+    let @14 = (*_queue_q)._slot in
+    @14[@6] = _slot_q
+    return
+  } else {
+    return
+  }
+}
+
+func run(values : f32[8], out : mut f32[8]) -> void {
+  q!round : mut u32
+  q_acc_slots : mut f32[8]
+  q_x_0 : mut f32[8]
+  q_n_0 : mut i32[8]
+  q__slot_0 : mut i32[8]
+  q_x_1 : mut f32[8]
+  q_n_1 : mut i32[8]
+  q__slot_1 : mut i32[8]
+  q_queue : mut Queue_q[2]
+  let @4 = build<Queue_q>(0u, q_x_0, q_n_0, q__slot_0) in
+  q_queue[0u] = @4
+  let @6 = build<Queue_q>(0u, q_x_1, q_n_1, q__slot_1) in
+  q_queue[1u] = @6
+  parfor i in [0:8:1] {
+    q_acc_slots[i] = 0f
+    let @0 = values[i] in
+    camera(@0, (&q_acc_slots[i]), (&q_queue[0u]), i)
+    continue
+  }
+  q!round = 0u
+  while (!(q_queue[(*q!round) & 1u].count == 0u)) {
+    let @10 = (*q!round) & 1u in
+    let @12 = q_queue[(*q!round) & 1u].count in
+    let @29 = @10 ^ 1u in
+    q_queue[@29].count = 0u
+    parfor s in [0u:@12:1u] {
+      let @30 = (&q_queue[@29]) in
+      let @34 = q_queue[@10].x in
+      let @35 = @34[s] in
+      let @37 = q_queue[@10].n in
+      let @38 = @37[s] in
+      let @40 = q_queue[@10]._slot in
+      let @41 = @40[s] in
+      step(@35, @38, (&q_acc_slots[@41]), @30, @41)
+      continue
+    }
+    let @14 = @10 ^ 1u in
+    parfor q in [0u:@12:1u] {
+      let @15 = (&q_queue[@14]) in
+      let @19 = q_queue[@10].x in
+      let @20 = @19[q] in
+      let @22 = q_queue[@10].n in
+      let @23 = @22[q] in
+      let @25 = q_queue[@10]._slot in
+      let @26 = @25[q] in
+      step!after(@20, (&q_acc_slots[@26]), @23, @15, @26)
+      continue
+    }
+    let @9 = (*q!round) + 1u in
+    q!round = @9
+  }
+  parfor q_rest in [0:8:1] {
+    let acc = (&q_acc_slots[q_rest]) in
+    let i = q_rest in
+    let @1 = (*acc) in
+    out[i] = @1
+    continue
+  }
+  return
+}
+
+func step(x : f32, n : i32, acc : mut (f32*), _queue_q : mut (Queue_q*), _slot_q : i32) -> void {
+  draw(x, acc)
+  return
+}
+
+func step!after(x : f32, acc : mut (f32*), n : i32, _queue_q : mut (Queue_q*), _slot_q : i32) -> void {
+  acc += x
+  route(x, n, acc, _queue_q, _slot_q)
+  return
+}
+
+
+schedule {
+    q = run.queue(root);
+    camera.defer(step, q)
+    route.defer(step, q)
+    step.stage(draw, q, s)
+
+}

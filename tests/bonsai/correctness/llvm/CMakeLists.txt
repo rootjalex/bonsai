@@ -98,6 +98,8 @@ add_bonsai_tests(
     defer-conditional-in-chain-value.bonsai
     defer-conditional-in-chain-deep.bonsai
     defer-conditional-in-chain-middle.bonsai
+    defer-two-queues-one-chain.bonsai
+    defer-answer-owner-side.bonsai
     defer-drain-order.bonsai
     defer-mutual-producers.bonsai
     defer-nested-producer.bonsai

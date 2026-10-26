@@ -1,0 +1,67 @@
+//! flags: -p ssa -b llvm -e
+
+// Two deferrals through one function, every path of which defers: `step`
+// defers onto queue `a` when wet and onto queue `b` otherwise, so it has no
+// regular return and the owner's continuation, `out[i] = out[i] + acc + w`,
+// is never run where it stands -- it runs exactly once per slot, in the one
+// pass over the record after both drains (the user, 10-25: the second defer
+// understands the function is already a handler). The continuation adds
+// into `out` rather than storing, so that a slot whose continuation runs
+// twice -- or once with the reducer incomplete -- comes out wrong instead of
+// being hidden by an idempotent store. Each deferred call is in tail
+// position, `work(..); return;`, so neither deferral carries a continuation
+// of `step`'s own. Today this composes because the first directive reads
+// the second off the schedule (QueueSpec::deferred_elsewhere: a call to
+// `work_b` counts as a push, so the chain does not report); the shape must
+// survive that shortcut's removal (defer-two-queues-and-a-return, the case
+// with a plain return besides, is where the composition is still missing).
+//
+// out starts at 100. Even i (values 1, 3, 5, 7) are wet: acc = v/2. Odd i
+// (values 2, 4, 6, 8) are dry: acc = 2v. out[i] = 100 + acc + (v + 1):
+// 102.5, 107, 105.5, 113, 108.5, 119, 111.5, 125.
+import stdlib/numerics;
+
+func work_a(x : Float, acc : reduce(+) Float) -> void {
+    acc += x * 0.5;
+    return;
+}
+
+func work_b(x : Float, acc : reduce(+) Float) -> void {
+    acc += x * 2.0;
+    return;
+}
+
+func step(x : Float, wet : bool, acc : reduce(+) Float) -> void {
+    if wet {
+        work_a(x, acc);
+        return;
+    }
+    work_b(x, acc);
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        acc : reduce(+) Float = 0.0;
+        w = values[i] + 1.0;
+        step(values[i], (i % 2) == 0, acc);
+        out[i] = out[i] + acc + w;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+    out : mut array[Float, 8] = {100.0, 100.0, 100.0, 100.0,
+                                 100.0, 100.0, 100.0, 100.0};
+    run(values, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    a = run.queue(root);
+    step.defer(work_a, a);
+    b = run.queue(root);
+    step.defer(work_b, b);
+}

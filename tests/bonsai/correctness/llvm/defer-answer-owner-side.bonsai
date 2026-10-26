@@ -1,0 +1,67 @@
+//! flags: -p ssa -b llvm -e
+
+// The chain's answer stays on the owner's side of the deferral. The
+// renderer's shape: `camera` always calls `step`, and that call is the
+// first push; `step` draws, adds, and hands the path to `route`, which
+// pushes the next step or ends the path; and `step` is cut by a stage at
+// its draw on the same queue (the sample draws staged ahead of the trace).
+// Only `camera` can return to the owner, and it cannot without deferring,
+// so nothing reports: `camera`, `step` and `route` return nothing and the
+// owner's call ends its iteration. Until 10-25 `route`'s path-ending return
+// counted as a return to the owner, every function of the chain was made to
+// return the bool answer, and the stage refused `step` (`a function on a
+// drained chain returns nothing`) -- which refused apps/pbrt's gpu-optix
+// schedule at vol_path_step.stage(vol_ray_samples, rays, samples).
+//
+// Each x is drawn and added at four steps, x, x/2, x/4, x/8: acc = 0.25 *
+// 1.875x + 1.875x = 2.34375x: 2.34375, 4.6875, 7.03125, 9.375, 11.71875,
+// 14.0625, 16.40625, 18.75.
+import stdlib/numerics;
+
+func draw(x : Float, acc : reduce(+) Float) -> void {
+    acc += x * 0.25;
+    return;
+}
+
+func route(x : Float, n : i32, acc : reduce(+) Float) -> void {
+    if n > 0 {
+        step(x * 0.5, n - 1, acc);
+    }
+    return;
+}
+
+func step(x : Float, n : i32, acc : reduce(+) Float) -> void {
+    draw(x, acc);
+    acc += x;
+    route(x, n, acc);
+    return;
+}
+
+func camera(x : Float, acc : reduce(+) Float) -> void {
+    step(x, 3, acc);
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        acc : reduce(+) Float = 0.0;
+        camera(values[i], acc);
+        out[i] = acc;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    q = run.queue(root);
+    camera.defer(step, q);
+    route.defer(step, q);
+    step.stage(draw, q, s);
+}

@@ -1463,8 +1463,55 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // dispatches on the answer: the deferral ends the iteration only when
     // the call is made, and an iteration whose chain returned without
     // deferring runs its continuation where it stands (the user, 10-25).
+    //
+    // Only the owner's side of the chain can return to the owner: the
+    // functions on a call path from the owner's call that crosses no
+    // deferred call -- the camera function that makes the first push, a
+    // recursion's step when the owner runs the first step itself. What lies
+    // below a deferred call runs from the drain alone -- the callee and the
+    // other pushers' functions under it, a recursion's later steps -- and a
+    // return there ends an entry's path, not the owner's call: it answers
+    // nothing and goes on returning nothing (the renderer, 10-25: the trace
+    // kernel's step is cut by a stage on its own queue, which takes a
+    // function that returns nothing). With the owner's own first push
+    // (initial_push) the owner's call is the push, and nothing is on its
+    // side.
+    set<string> owner_side;
+    if (!queue.initial_push) {
+        vector<string> work;
+        for (const auto &[h, calls] : calls_into) {
+            for (const CallSite &cs : calls) {
+                if (cs.caller == queue.owner) {
+                    work.push_back(h);
+                    break;
+                }
+            }
+        }
+        while (!work.empty()) {
+            const string g = work.back();
+            work.pop_back();
+            if (!owner_side.insert(g).second) {
+                continue;
+            }
+            for (const auto &[h, calls] : calls_into) {
+                if (pushers.contains(g) && h == callee_name) {
+                    continue; // the deferred call: a push, and the drain runs h
+                }
+                for (const CallSite &cs : calls) {
+                    if (cs.caller == g) {
+                        work.push_back(h);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    set<const Function *> owner_side_functions;
+    for (const string &g : owner_side) {
+        owner_side_functions.insert(funcs.at(g).get());
+    }
     bool chain_conditional = false;
-    for (const string &g : chain) {
+    for (const string &g : owner_side) {
         if (spawned || chain_conditional) {
             break;
         }
@@ -4581,8 +4628,10 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
         if (!spawned) {
             // Nothing comes back up a chain -- or, when the chain reports
-            // whether it deferred, the answer does.
-            gf.ret_type = reports ? answer_t : Void_t::make();
+            // whether it deferred, the answer does, on the owner's side of
+            // the deferral; what the drain alone runs returns nothing.
+            gf.ret_type =
+                reports && owner_side.contains(g) ? answer_t : Void_t::make();
         }
     }
 
@@ -4613,10 +4662,14 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             if (spawned) {
                 continue; // the queue goes down; the value comes up as it did
             }
-            if (reports) {
+            if (reports && owner_side.contains(cs.caller)) {
                 // The answer comes back up: the continuation's first
                 // argument, which carried the value, carries it now -- or is
                 // made, where the call returned nothing -- and is returned.
+                internal_assert(owner_side.contains(callee))
+                    << what << ": " << cs.caller << ", on the owner's side of "
+                    << "the deferral, calls " << callee << ", which the drain "
+                    << "alone runs";
                 shared_ptr<Value> answer;
                 if (!call.drop) {
                     const string carried = cont->args.front().name;
@@ -4670,7 +4723,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 << g << " returns " << (ret->value ? "a value" : "nothing")
                 << " in " << block->name << " but is declared to return "
                 << ret_type;
-            if (reports) {
+            if (reports && owner_side.contains(g)) {
                 // Deferred nothing on this path. The owner's own call takes
                 // the value out of the answer and runs its rest at once; but
                 // the same return ends a path the drain runs -- a recursion
@@ -4723,7 +4776,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 if (ends) {
                     Terminator::Defer defer{q, reach(at, entry),
                                             /*yields=*/fn.get() == O.get()};
-                    if (reports) {
+                    if (reports && owner_side_functions.contains(fn.get())) {
                         defer.answer = answer_deferred(at);
                     }
                     at->terminator.data = std::move(defer);

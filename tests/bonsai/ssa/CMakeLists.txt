@@ -6,6 +6,8 @@ add_bonsai_tests(
     defer-conditional-in-chain.bonsai
     defer-conditional-in-chain-value.bonsai
     defer-conditional-in-chain-deep.bonsai
+    defer-two-queues-one-chain.bonsai
+    defer-answer-owner-side.bonsai
     defer-terminator.bonsai
     demote-atomics-callee.bonsai
     demote-atomics-spawn-inline.bonsai

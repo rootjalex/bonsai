@@ -1,0 +1,52 @@
+//! flags: -p ssa --dump-ssa-postschedule
+
+// Two deferrals through one function, every path of which defers (the user,
+// 10-25): the program of correctness/llvm/defer-two-queues-one-chain, where
+// `step` defers onto `a` when wet and onto `b` otherwise, each call in tail
+// position. What to read for: `step` takes both queues and both slots and
+// returns nothing; each of its paths ends in a `defer` with no answer; the
+// owner's call ends its iteration (`b!end`, a yield) with no `callc` and no
+// dispatch, since no path can return to the owner without deferring; the
+// record keeps no `ran` byte; `b`'s drain is chained after `a`'s and before
+// the one pass over the record, `a_rest`, which runs the owner's
+// continuation for every slot once, after both drains. Today this shape
+// comes of the first directive reading the second off the schedule
+// (QueueSpec::deferred_elsewhere); it is the shape to keep when the second
+// directive composes with the first on its own.
+import stdlib/numerics;
+
+func work_a(x : Float, acc : reduce(+) Float) -> void {
+    acc += x * 0.5;
+    return;
+}
+
+func work_b(x : Float, acc : reduce(+) Float) -> void {
+    acc += x * 2.0;
+    return;
+}
+
+func step(x : Float, wet : bool, acc : reduce(+) Float) -> void {
+    if wet {
+        work_a(x, acc);
+        return;
+    }
+    work_b(x, acc);
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        acc : reduce(+) Float = 0.0;
+        w = values[i] + 1.0;
+        step(values[i], (i % 2) == 0, acc);
+        out[i] = out[i] + acc + w;
+    }
+    return;
+}
+
+schedule {
+    a = run.queue(root);
+    step.defer(work_a, a);
+    b = run.queue(root);
+    step.defer(work_b, b);
+}
