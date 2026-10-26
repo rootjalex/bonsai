@@ -242,8 +242,18 @@ before it.
   they are and read by NanoVDB's own accessor (below). `--gpu` converts
   the scene as `pbrt --gpu` builds it where that differs from pbrt's CPU:
   a PLY's quads become two triangles each (pbrt's OptiX aggregate splits
-  them so the hardware traces them; its CPU keeps bilinear patches), which
-  `gpu_compare.sh` passes, since `pbrt --gpu` is its reference.
+  them so the hardware traces them; its CPU keeps bilinear patches), and a
+  scene whose integrator this renderer lacks (`bdpt`, `sppm`) is converted
+  as `volpath`, with the warning pbrt's wavefront prints, since that is
+  what `pbrt --gpu` renders it with (without `--gpu` such a scene is
+  refused: pbrt's CPU would run the scene's own integrator, and two
+  integrators compared measure the integrators). `gpu_compare.sh` passes
+  `--gpu`, since `pbrt --gpu` is its reference. The cameras are pbrt's
+  `perspective`, `orthographic` and `realistic` (the lens system, read off
+  the camera pbrt built: its focused interfaces and its 64 exit pupil
+  bounds; an `aperture` image or shape is not supported yet), the films
+  `rgb` and `gbuffer`; anything else pbrt has and this renderer lacks is
+  refused by name rather than rendered as something else.
 - `build_nanovdb_shim.sh <outdir> [sm_NN]`: builds `nanovdb_shim.cpp`, the
   implementation of the renderer's two foreign functions over NanoVDB
   (`docs/foreign-functions.md`), to host bitcode and, given a GPU

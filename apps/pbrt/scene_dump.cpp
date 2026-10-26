@@ -49,8 +49,23 @@
 #include <pbrt/base/material.h>
 #include <pbrt/bssrdf.h>
 #include <pbrt/bxdfs.h>
-#include <pbrt/cameras.h>
+// cameras.h with member access opened up, as lightsamplers.h above: the
+// realistic camera's lens elements, its exit pupil bounds and its physical
+// film extent are private with no accessor, and they are what the renderer
+// needs to trace the lens system PBRT focused and bounded. Its own
+// dependencies are included normally first, so only cameras.h sees the
+// macro.
+#include <pbrt/base/camera.h>
+#include <pbrt/base/film.h>
 #include <pbrt/film.h>
+#include <pbrt/interaction.h>
+#include <pbrt/ray.h>
+#include <pbrt/samplers.h>
+#include <pbrt/util/image.h>
+#include <pbrt/util/scattering.h>
+#define private public
+#include <pbrt/cameras.h>
+#undef private
 #include <pbrt/cpu/aggregates.h>
 #include <pbrt/cpu/integrators.h>
 #include <pbrt/cpu/primitive.h>
@@ -325,6 +340,7 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     void AttributeBegin(pbrt::FileLoc loc) override {
         ctm_stack.push_back(ctm);
         medium_stack.push_back(current_outside_medium);
+        area_light_stack.push_back(current_area_light);
         pbrt::BasicSceneBuilder::AttributeBegin(loc);
     }
     void AttributeEnd(pbrt::FileLoc loc) override {
@@ -335,6 +351,10 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
         if (!medium_stack.empty()) {
             current_outside_medium = medium_stack.back();
             medium_stack.pop_back();
+        }
+        if (!area_light_stack.empty()) {
+            current_area_light = area_light_stack.back();
+            area_light_stack.pop_back();
         }
         pbrt::BasicSceneBuilder::AttributeEnd(loc);
     }
@@ -490,8 +510,26 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
             v.bools.assign(p->bools.begin(), p->bools.end());
             info.params.emplace(p->name, std::move(v));
         }
-        area_lights.push_back(std::move(info));
+        // PBRT: the directive only sets the graphics state's area light; the
+        // light itself is made per *shape* -- `scene->AddAreaLight(...)` in
+        // BasicSceneBuilder::Shape for every Shape while one is set, and the
+        // shape's `lightIndex` counts those. So `area_lights` is filled in
+        // Shape below, one entry per emitting shape in PBRT's order, and this
+        // only remembers the current directive (restored with the attribute
+        // stack, as PBRT's graphicsState is). Recording one per directive
+        // here used to leave a directive over several shapes -- the
+        // bathroom's four filaments -- with indices past the end ("a shape
+        // names an area light the parser did not record").
+        current_area_light = std::move(info);
         pbrt::BasicSceneBuilder::AreaLightSource(name, std::move(params), loc);
+    }
+
+    void Shape(const std::string &name, pbrt::ParsedParameterVector params,
+               pbrt::FileLoc loc) override {
+        if (current_area_light.has_value()) {
+            area_lights.push_back(*current_area_light);
+        }
+        pbrt::BasicSceneBuilder::Shape(name, std::move(params), loc);
     }
 
     std::string camera_name;
@@ -522,7 +560,12 @@ class CapturingBuilder : public pbrt::BasicSceneBuilder {
     std::string filter_name = "gaussian";
     pbrt::ParameterDictionary filter_params;
     std::vector<MaterialInfo> materials;
+    // One per emitting shape, in PBRT's `lightIndex` order (Shape above).
     std::vector<MaterialInfo> area_lights;
+    // The area light the graphics state carries (PBRT's areaLightName and
+    // areaLightParams), and its copies saved by AttributeBegin.
+    std::optional<MaterialInfo> current_area_light;
+    std::vector<std::optional<MaterialInfo>> area_light_stack;
     // `MakeNamedMaterial`, which is the same thing as `Material` written down
     // for later: a shape reaches one through `NamedMaterial` and PBRT records
     // it on the shape by *name* rather than by index.
@@ -3746,12 +3789,15 @@ void print_shading() {
     }
 }
 
-// PBRT: ProjectiveCamera's constructor and PerspectiveCamera::Create, in
-// PBRT's own Transform arithmetic rather than an equivalent of it. The
-// renderer applies these two matrices and nothing else, so they are the whole
-// of what the camera means to it.
+// PBRT: ProjectiveCamera's constructor and PerspectiveCamera::Create (or
+// OrthographicCamera::Create), in PBRT's own Transform arithmetic rather than
+// an equivalent of it. The renderer applies these two matrices and nothing
+// else, so they are the whole of what the camera means to it. The two cameras
+// share everything but the projection: `Perspective(fov, 1e-2, 1000)` for the
+// one, `Orthographic(0, 1)` for the other.
 pbrt::Transform camera_from_raster(const pbrt::ParameterDictionary &params,
-                                   int x_resolution, int y_resolution) {
+                                   int x_resolution, int y_resolution,
+                                   bool orthographic) {
     const pbrt::Float frame = params.GetOneFloat(
         "frameaspectratio", pbrt::Float(x_resolution) / pbrt::Float(y_resolution));
     pbrt::Bounds2f screen;
@@ -3779,7 +3825,8 @@ pbrt::Transform camera_from_raster(const pbrt::ParameterDictionary &params,
 
     const pbrt::Float fov = params.GetOneFloat("fov", 90.);
     const pbrt::Transform screen_from_camera =
-        pbrt::Perspective(fov, 1e-2f, 1000.f);
+        orthographic ? pbrt::Orthographic(0, 1)
+                     : pbrt::Perspective(fov, 1e-2f, 1000.f);
 
     const pbrt::Transform ndc_from_screen =
         pbrt::Scale(1 / (screen.pMax.x - screen.pMin.x),
@@ -4312,8 +4359,14 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     }
 
 
-    if (builder.camera_name != "perspective") {
-        fail("only the perspective camera is supported, scene asks for \"" +
+    // PBRT has four cameras; three are here: the two projective ones and the
+    // realistic camera, a lens system traced from the film (`spherical` is
+    // not yet).
+    const bool orthographic = builder.camera_name == "orthographic";
+    const bool realistic = builder.camera_name == "realistic";
+    if (builder.camera_name != "perspective" && !orthographic && !realistic) {
+        fail("this renderer has the `perspective`, `orthographic` and "
+             "`realistic` cameras, and the scene asks for \"" +
              builder.camera_name + "\"");
     }
 
@@ -5046,16 +5099,87 @@ void load(const char *filename, bonsai_scene::Scene &out) {
         out.integrator = bonsai_scene::IntegratorTag::Path;
     } else if (builder.integrator_name == "volpath") {
         out.integrator = bonsai_scene::IntegratorTag::VolPath;
+    } else if (g_gpu) {
+        // PBRT: WavefrontPathIntegrator's constructor, which `pbrt --gpu` and
+        // `pbrt --wavefront` build whatever the scene says -- "Ignoring
+        // specified integrator: the wavefront integrator always uses a
+        // volpath integrator", a warning, and the scene's `maxdepth`,
+        // `regularize` and `lightsampler` are read off the directive as they
+        // stand. Under `--gpu` this conversion is for a comparison against
+        // that renderer, so it follows it: pavilion-night (`bdpt`) and
+        // contemporary-bathroom (`sppm`) render on both sides as volpath,
+        // and are compared on equal terms. Without `--gpu` the refusal below
+        // stands: pbrt's CPU side would run the scene's own integrator, and
+        // two integrators compared measure the integrators.
+        fprintf(stderr,
+                "scene_dump: ignoring the specified integrator `%s`, as pbrt's "
+                "wavefront does: rendered as `volpath` on both sides\n",
+                builder.integrator_name.c_str());
+        out.integrator = bonsai_scene::IntegratorTag::VolPath;
     } else {
         fail("this renderer implements `randomwalk`, `simplepath`, `path` and "
              "`volpath`, and the scene asks for `" + builder.integrator_name +
-             "`");
+             "` (under --gpu, as under pbrt --gpu, it would be rendered as "
+             "`volpath`)");
     }
     out.regularize = builder.integrator_regularize ? 1u : 0u;
 
+    out.camera_kind = realistic ? 2u : orthographic ? 1u : 0u;
+    // For the realistic camera this matrix (and d_camera below) go unused:
+    // PBRT's RealisticCamera has no raster transform, its film point comes
+    // from the physical extent. Written all the same so the format is one.
     write_matrix(matrices,
                  camera_from_raster(builder.camera_params, x_resolution,
-                                    y_resolution));
+                                    y_resolution, orthographic));
+    if (realistic) {
+        // PBRT: RealisticCamera::Create and its constructor, which read the
+        // lens file, scale it to metres, clamp the aperture, focus the last
+        // element's thickness (FocusThickLens) and bound the exit pupil for
+        // 64 film radii with a million rays each. All of that has already
+        // run, in PBRT's own code, when the scene's camera was built; the
+        // results are read off it (cameras.h is included with `private`
+        // opened, at the top of this file).
+        if (!builder.camera_params.GetOneString("aperture", "").empty()) {
+            fail("a realistic camera with an `aperture` (a shape or an image "
+                 "over the stop) is not supported yet");
+        }
+        const pbrt::RealisticCamera *rc =
+            scene.GetCamera().CastOrNullptr<pbrt::RealisticCamera>();
+        if (rc == nullptr) {
+            fail("the scene's camera is not PBRT's RealisticCamera");
+        }
+        out.physical_extent[0] = float(rc->physicalExtent.pMin.x);
+        out.physical_extent[1] = float(rc->physicalExtent.pMin.y);
+        out.physical_extent[2] = float(rc->physicalExtent.pMax.x);
+        out.physical_extent[3] = float(rc->physicalExtent.pMax.y);
+        out.film_diagonal = float(scene.GetCamera().GetFilm().Diagonal());
+        out.lens_rear_z = float(rc->elementInterfaces.back().thickness);
+        for (const auto &e : rc->elementInterfaces) {
+            out.lens_elements.push_back(float(e.curvatureRadius));
+            out.lens_elements.push_back(float(e.thickness));
+            out.lens_elements.push_back(float(e.eta));
+            out.lens_elements.push_back(float(e.apertureRadius));
+        }
+        for (const pbrt::Bounds2f &b : rc->exitPupilBounds) {
+            if (b.IsDegenerate()) {
+                for (int k = 0; k < 4; k++) {
+                    out.exit_pupil_bounds.push_back(0.f);
+                }
+            } else {
+                out.exit_pupil_bounds.push_back(float(b.pMin.x));
+                out.exit_pupil_bounds.push_back(float(b.pMin.y));
+                out.exit_pupil_bounds.push_back(float(b.pMax.x));
+                out.exit_pupil_bounds.push_back(float(b.pMax.y));
+            }
+        }
+        printf("scene_dump: realistic camera, %zu lens interfaces, rear "
+               "element at z %.6g m, film %.4g x %.4g m, %zu exit pupil "
+               "bounds\n",
+               rc->elementInterfaces.size(), double(out.lens_rear_z),
+               double(out.physical_extent[2] - out.physical_extent[0]),
+               double(out.physical_extent[3] - out.physical_extent[1]),
+               rc->exitPupilBounds.size());
+    }
     // PBRT renders in a space of its own choosing -- by default the world
     // translated to the camera's origin -- and the camera transform is what
     // knows which. Asking it, rather than assuming world space, is what keeps
@@ -5149,14 +5273,21 @@ void load(const char *filename, bonsai_scene::Scene &out) {
     }
 
     // PBRT: PerspectiveCamera's constructor, which derives dxCamera and
-    // dyCamera from the same cameraFromRaster written above.
+    // dyCamera from the same cameraFromRaster written above -- as the
+    // difference of two transformed points; OrthographicCamera's transforms
+    // the unit vectors instead. The same numbers for an affine transform, up
+    // to the last bit, so each camera's own form is kept.
     {
         const pbrt::Transform cfr =
             camera_from_raster(builder.camera_params, x_resolution,
-                               y_resolution);
+                               y_resolution, orthographic);
         const pbrt::Point3f p0 = cfr(pbrt::Point3f(0, 0, 0));
-        const pbrt::Vector3f dx = cfr(pbrt::Point3f(1, 0, 0)) - p0;
-        const pbrt::Vector3f dy = cfr(pbrt::Point3f(0, 1, 0)) - p0;
+        const pbrt::Vector3f dx = orthographic
+                                      ? cfr(pbrt::Vector3f(1, 0, 0))
+                                      : cfr(pbrt::Point3f(1, 0, 0)) - p0;
+        const pbrt::Vector3f dy = orthographic
+                                      ? cfr(pbrt::Vector3f(0, 1, 0))
+                                      : cfr(pbrt::Point3f(0, 1, 0)) - p0;
         out.d_camera[0] = float(dx.x);
         out.d_camera[1] = float(dx.y);
         out.d_camera[2] = float(dx.z);

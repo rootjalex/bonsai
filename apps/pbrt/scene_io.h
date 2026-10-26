@@ -1093,6 +1093,27 @@ struct Scene {
     // ones are not.
     float lens_radius = 0.f;
     float focal_distance = 1e6f;
+    // Which of PBRT's cameras: 0 the perspective camera, 1 the orthographic
+    // (every ray from its film point along +z; the matrices above are built
+    // from `Orthographic(0, 1)` instead of `Perspective(fov, ..)`), 2 the
+    // realistic camera (a lens system traced from the film; the fields below,
+    // and `camera_from_raster` and `d_camera` above go unused).
+    uint32_t camera_kind = 0;
+    // PBRT: RealisticCamera's `physicalExtent` (metres on the film, min x,
+    // min y, max x, max y), the film's `Diagonal()` (metres) and the rear
+    // lens element's z, `LensRearZ()`; `elementInterfaces`, four floats each
+    // (curvature radius, thickness, eta, aperture radius; a radius of zero is
+    // the aperture stop) with the focusing already applied to the last
+    // thickness; and `exitPupilBounds`, PBRT's 64 bounds of the exit pupil by
+    // film radius, four floats each (min x, min y, max x, max y; a degenerate
+    // bound, where the pupil was not found, is written as four zeros). All
+    // read off the camera PBRT built, so the 64 x 1M-ray search for the
+    // pupil is PBRT's own.
+    float physical_extent[4] = {};
+    float film_diagonal = 0.f;
+    float lens_rear_z = 0.f;
+    std::vector<float> lens_elements;
+    std::vector<float> exit_pupil_bounds;
     // PBRT: PixelSensor's `exposureTime * ISO / 100`, which scales the recorded
     // radiance. One at PBRT's defaults, which is why every scene here had it
     // until one set `"float iso"`.
@@ -2033,6 +2054,16 @@ inline bool write(const char *path, const Scene &scene) {
     out << "\nlens";
     detail::put(out, &scene.lens_radius, 1);
     detail::put(out, &scene.focal_distance, 1);
+    out << "\ncamerakind " << scene.camera_kind;
+    out << "\nrealistic";
+    detail::put(out, scene.physical_extent, 4);
+    detail::put(out, &scene.film_diagonal, 1);
+    detail::put(out, &scene.lens_rear_z, 1);
+    out << "\nlens_elements " << scene.lens_elements.size();
+    detail::put(out, scene.lens_elements.data(), scene.lens_elements.size());
+    out << "\nexit_pupil_bounds " << scene.exit_pupil_bounds.size();
+    detail::put(out, scene.exit_pupil_bounds.data(),
+                scene.exit_pupil_bounds.size());
     out << "\nimagingratio";
     detail::put(out, &scene.imaging_ratio, 1);
     // As a flag and a value, not as the number itself: `%.9g` writes infinity
@@ -2647,6 +2678,32 @@ inline bool read(const char *path, Scene &scene) {
     }
     floats(&scene.lens_radius, 1);
     floats(&scene.focal_distance, 1);
+    if (!(in >> word) || word != "camerakind") {
+        return false;
+    }
+    in >> scene.camera_kind;
+    if (!(in >> word) || word != "realistic") {
+        return false;
+    }
+    floats(scene.physical_extent, 4);
+    floats(&scene.film_diagonal, 1);
+    floats(&scene.lens_rear_z, 1);
+    {
+        const auto table = [&](const char *name, std::vector<float> &into) {
+            size_t n = 0;
+            if (!(in >> word) || word != name) {
+                return false;
+            }
+            in >> n;
+            into.resize(n);
+            floats(into.data(), int(n));
+            return true;
+        };
+        if (!table("lens_elements", scene.lens_elements) ||
+            !table("exit_pupil_bounds", scene.exit_pupil_bounds)) {
+            return false;
+        }
+    }
     if (!(in >> word) || word != "imagingratio") {
         return false;
     }

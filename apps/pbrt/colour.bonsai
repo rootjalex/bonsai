@@ -123,7 +123,18 @@ func sensor_rgb_of(s : vec4f, w : SampledWavelengths) -> vec3f {
 // assumption held for as long as nothing tried it.
 func radiance_to_rgb(s : vec4f, w : SampledWavelengths,
                      imaging_ratio : Float) -> vec3f {
-    c = imaging_ratio * sensor_rgb_of(s, w);
+    return sensor_to_output_rgb(imaging_ratio * sensor_rgb_of(s, w));
+}
+
+// pbrt: RGBFilm's `outputRGBFromSensorRGB * rgb` (GetPixelRGB), the sensor's
+// RGB taken to the output colour space. Linear, so a film may apply it per
+// sample and sum, or sum and apply it once, alike -- but not before the
+// per-sample clamp: pbrt's AddSample clamps the *sensor* RGB
+// (`maxcomponentvalue`), and a saturated sample's output red can stand above
+// the clamp where its XYZ did not (a 2500 K candle at scale 25000 in
+// pavilion-night came out 0.55x pbrt's when the film clamped after this
+// matrix instead; 10-25).
+func sensor_to_output_rgb(c : vec3f) -> vec3f {
     m = output_rgb_from_sensor;
     return vec3f{m[0] * c.x + m[1] * c.y + m[2] * c.z,
                  m[3] * c.x + m[4] * c.y + m[5] * c.z,

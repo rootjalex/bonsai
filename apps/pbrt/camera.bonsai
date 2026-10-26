@@ -1,4 +1,5 @@
-// pbrt: Transform and PerspectiveCamera, from util/transform.h and cameras.h.
+// pbrt: Transform and the two projective cameras, PerspectiveCamera and
+// OrthographicCamera, from util/transform.h and cameras.h.
 //
 // Only what applying a camera needs. What pbrt computes in a camera's
 // constructor -- the field of view, the screen window and the resolution
@@ -52,12 +53,31 @@ element CameraRay {
     diff : RayDifferential;
 }
 
-// pbrt: PerspectiveCamera, and the constants its constructor derives. The two
-// transforms come from the field of view, the screen window and the resolution;
-// `camera_from_render` is the second one inverted; the rest are what ray
-// differentials need. All of them are computed by scene_dump using pbrt's own
-// arithmetic -- see the note at the top of this file.
-element PerspectiveCamera {
+// pbrt: RealisticCamera's lens system, as data read off the camera pbrt built
+// (scene_dump): `elementInterfaces`, one vec4f per interface -- curvature
+// radius, thickness, eta, aperture radius, in metres, the stop the one with
+// radius zero, the last thickness already focused -- and `exitPupilBounds`,
+// one vec4f per film radius (min x, min y, max x, max y on the rear element's
+// plane; four zeros where pbrt found no pupil). Empty for the other cameras.
+extern camera_lens : array[vec4f];
+extern camera_pupil : array[vec4f];
+
+// pbrt: Camera -- PerspectiveCamera, OrthographicCamera and RealisticCamera
+// in one element, told apart by `kind` -- and the constants their
+// constructors derive. For the two projective cameras the two transforms come
+// from the projection (the field of view, or the orthographic unit box), the
+// screen window and the resolution; `camera_from_render` is the second one
+// inverted; the rest are what ray differentials need. The realistic camera
+// has no raster transform: its film point is a place on the physical film,
+// and its ray is traced out through the lens system. All of it is computed by
+// scene_dump using pbrt's own arithmetic -- see the note at the top of this
+// file.
+element Camera {
+    // 0: the perspective camera, every ray from the camera's origin through
+    // its film point. 1: the orthographic, every ray from its film point along
+    // +z. 2: the realistic camera, every ray from its film point through a
+    // point of the exit pupil and then the lens elements.
+    kind : u32 = 0u;
     camera_from_raster : Transform;
     render_from_camera : Transform;
     camera_from_render : Transform;
@@ -75,6 +95,28 @@ element PerspectiveCamera {
     // on the lens and aims it through the point the film is focused on.
     lens_radius : Float = 0.0;
     focal_distance : Float = 1.0e6;
+    // pbrt: RealisticCamera's `physicalExtent` (min x, min y, max x, max y,
+    // metres), the film's full resolution its sample is divided by, the
+    // film's `Diagonal()` the exit pupil table is indexed by, `LensRearZ()`,
+    // and how many entries of `camera_lens` and `camera_pupil` are this
+    // camera's. Zero for the projective cameras.
+    physical_extent : vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
+    film_resolution : vec2f = vec2f{1.0, 1.0};
+    film_diagonal : Float = 0.0;
+    lens_rear_z : Float = 0.0;
+    n_lens_elements : u32 = 0u;
+    n_pupil_bounds : u32 = 0u;
+}
+
+// pbrt: CameraRay -- the ray and its weight -- and the optional it comes
+// wrapped in: `valid` false is pbrt's empty optional, a sample the camera
+// gives no ray for (the realistic camera's vignetting), which the film still
+// counts at zero radiance. The projective cameras always give one, at weight
+// one.
+element WeightedRay {
+    ray : Ray;
+    weight : Float = 1.0;
+    valid : bool = true;
 }
 
 // pbrt: Transform::operator()(const Ray &), which is how a camera ray reaches
@@ -130,12 +172,18 @@ func transform_ray(t : Transform, o : vec3f, d : vec3f) -> Ray {
 // `Transform::operator()(const RayDifferential &)`: the ray itself through the
 // interval transform and its nudge, the companion origins and directions
 // through the plain point and vector transforms.
-func generate_ray_differential(camera : PerspectiveCamera,
+func generate_ray_differential(camera : Camera,
                                sample : CameraSample) -> CameraRay {
+    if camera.kind == 2u {
+        return generate_realistic_ray_differential(camera, sample);
+    }
     p_film = vec3f{sample.p_film.x, sample.p_film.y, 0.0};
     p_camera = apply_point(camera.camera_from_raster, p_film);
-    d_camera = unit_vector_(p_camera);
     zero = vec3f{0.0, 0.0, 0.0};
+    if camera.kind == 1u {
+        return generate_orthographic_ray_differential(camera, sample, p_camera);
+    }
+    d_camera = unit_vector_(p_camera);
 
     o : mut vec3f = zero;
     d : mut vec3f = d_camera;
@@ -185,11 +233,17 @@ func generate_ray_differential(camera : PerspectiveCamera,
 // downstream has a differential to carry, and every hit's footprint is the
 // camera approximation (approximate_differentials). The main ray of
 // `generate_ray_differential` above, operation for operation.
-func generate_ray(camera : PerspectiveCamera, sample : CameraSample) -> Ray {
+func generate_ray(camera : Camera, sample : CameraSample) -> Ray {
+    if camera.kind == 2u {
+        return generate_realistic_ray(camera, sample).ray;
+    }
     p_film = vec3f{sample.p_film.x, sample.p_film.y, 0.0};
     p_camera = apply_point(camera.camera_from_raster, p_film);
-    d_camera = unit_vector_(p_camera);
     zero = vec3f{0.0, 0.0, 0.0};
+    if camera.kind == 1u {
+        return generate_orthographic_ray(camera, sample, p_camera);
+    }
+    d_camera = unit_vector_(p_camera);
 
     o : mut vec3f = zero;
     d : mut vec3f = d_camera;
@@ -204,6 +258,283 @@ func generate_ray(camera : PerspectiveCamera, sample : CameraSample) -> Ray {
         d = unit_vector_(p_focus - o);
     }
     return transform_ray(camera.render_from_camera, o, d);
+}
+
+// pbrt: OrthographicCamera::GenerateRay. The ray starts at the film point
+// itself, in camera space, and leaves along +z; with a lens the origin moves
+// onto the lens and the ray is re-aimed through the point `focal_distance`
+// ahead of the film point -- `ray(ft)` with `ft = focalDistance / d.z`, and
+// d.z is one. `p_camera` is the film point, already computed by the caller.
+func generate_orthographic_ray(camera : Camera, sample : CameraSample,
+                               p_camera : vec3f) -> Ray {
+    forward = vec3f{0.0, 0.0, 1.0};
+    o : mut vec3f = p_camera;
+    d : mut vec3f = forward;
+    if camera.lens_radius > 0.0 {
+        p_lens = camera.lens_radius *
+                 sample_uniform_disk_concentric(sample.p_lens);
+        // pbrt: `pFocus = ray(ft)`, `o + d * ft` -- fused, as the perspective
+        // camera's note says.
+        ft = camera.focal_distance / forward.z;
+        p_focus = fma3(ft, forward, p_camera);
+        o = vec3f{p_lens.x, p_lens.y, 0.0};
+        d = unit_vector_(p_focus - o);
+    }
+    return transform_ray(camera.render_from_camera, o, d);
+}
+
+// pbrt: OrthographicCamera::GenerateRayDifferential, both branches. Without a
+// lens the companions are the ray moved one pixel across and one down, in the
+// same direction; with one, each companion leaves the same lens point and is
+// aimed through the point `ft` ahead of the neighbouring film point.
+func generate_orthographic_ray_differential(camera : Camera,
+                                            sample : CameraSample,
+                                            p_camera : vec3f) -> CameraRay {
+    forward = vec3f{0.0, 0.0, 1.0};
+    o : mut vec3f = p_camera;
+    d : mut vec3f = forward;
+    rx_o : mut vec3f = p_camera + camera.dx_camera;
+    ry_o : mut vec3f = p_camera + camera.dy_camera;
+    rx_d : mut vec3f = forward;
+    ry_d : mut vec3f = forward;
+    if camera.lens_radius > 0.0 {
+        p_lens = camera.lens_radius *
+                 sample_uniform_disk_concentric(sample.p_lens);
+        ft = camera.focal_distance / forward.z;
+        p_focus = fma3(ft, forward, p_camera);
+        o = vec3f{p_lens.x, p_lens.y, 0.0};
+        d = unit_vector_(p_focus - o);
+
+        // pbrt: `pCamera + dxCamera + (ft * Vector3f(0, 0, 1))`, the lens
+        // point drawn again from the same `sample.pLens`.
+        p_focus_x = (p_camera + camera.dx_camera) + ft * forward;
+        rx_o = o;
+        rx_d = unit_vector_(p_focus_x - rx_o);
+        p_focus_y = (p_camera + camera.dy_camera) + ft * forward;
+        ry_o = o;
+        ry_d = unit_vector_(p_focus_y - ry_o);
+    }
+    ray = transform_ray(camera.render_from_camera, o, d);
+    return CameraRay{ray,
+                     RayDifferential{
+                         apply_point(camera.render_from_camera, rx_o),
+                         apply_point(camera.render_from_camera, ry_o),
+                         apply_vector(camera.render_from_camera, rx_d),
+                         apply_vector(camera.render_from_camera, ry_d),
+                         true}};
+}
+
+// pbrt: Camera::GenerateRay as the wavefront's camera kernel calls it
+// (wavefront/camera.cpp): the ray and its weight, or no ray. What `render`
+// starts every path from.
+func generate_camera_ray(camera : Camera, sample : CameraSample) -> WeightedRay {
+    if camera.kind == 2u {
+        return generate_realistic_ray(camera, sample);
+    }
+    return WeightedRay{generate_ray(camera, sample), 1.0, true};
+}
+
+// What tracing a ray through the lens system answers: the ray leaving the
+// front element, in camera space, and a weight -- one, or zero when the ray
+// was stopped (missed an element, fell outside an aperture, or reflected
+// totally). pbrt returns the weight and writes the ray through a pointer.
+element LensTrace {
+    ray : Ray;
+    weight : Float;
+}
+
+// pbrt: RealisticCamera::TraceLensesFromFilm. The lens system is described
+// from the scene side in, so the film-side trace walks the interfaces
+// backwards, each one `thickness` behind the last, in a lens space whose z
+// runs the other way from the camera's (the flips at either end). At each
+// spherical interface the ray meets the sphere, is checked against the
+// element's aperture, and refracts by the ratio of the indices either side;
+// at the stop it is only checked against the aperture.
+func trace_lenses_from_film(camera : Camera, r_camera : Ray) -> LensTrace {
+    stopped : LensTrace = {Ray{vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 1.0}}, 0.0};
+    element_z : mut Float = 0.0;
+    o : mut vec3f = vec3f{r_camera.o.x, r_camera.o.y, -r_camera.o.z};
+    d : mut vec3f = vec3f{r_camera.d.x, r_camera.d.y, -r_camera.d.z};
+    n_el = camera.n_lens_elements;
+    for k in 0u:n_el {
+        i = n_el - 1u - k;
+        e = camera_lens[i];
+        element_z = element_z - e.y;
+        is_stop = e.x == 0.0;
+        t : mut Float = 0.0;
+        n : mut vec3f = vec3f{0.0, 0.0, 1.0};
+        if is_stop {
+            t = (element_z - o.z) / d.z;
+            if t < 0.0 {
+                return stopped;
+            }
+        } else {
+            // pbrt: IntersectSphericalElement -- the quadratic of the ray
+            // against the sphere of radius `e.x` centred `e.x` past the
+            // interface's vertex; which root is wanted depends on which way
+            // the ray runs and which way the surface bulges.
+            radius = e.x;
+            oc = o - vec3f{0.0, 0.0, element_z + radius};
+            a = d.x * d.x + d.y * d.y + d.z * d.z;
+            b = 2.0 * (d.x * oc.x + d.y * oc.y + d.z * oc.z);
+            c = oc.x * oc.x + oc.y * oc.y + oc.z * oc.z - radius * radius;
+            roots = quadratic_f(a, b, c);
+            if !roots {
+                return stopped;
+            }
+            r = *roots;
+            use_closer = (d.z > 0.0) != (radius < 0.0);
+            t = select(use_closer, min(r.t0, r.t1), max(r.t0, r.t1));
+            if t < 0.0 {
+                return stopped;
+            }
+            // pbrt: `FaceForward(Normalize(n), -ray.d)`.
+            nu = unit_vector_(oc + t * d);
+            n = select(dot(nu, -d) < 0.0, -nu, nu);
+        }
+        // pbrt: `pHit = rLens(t)`, `o + d * t`, fused.
+        p_hit = fma3(t, d, o);
+        if p_hit.x * p_hit.x + p_hit.y * p_hit.y > e.w * e.w {
+            return stopped;
+        }
+        o = p_hit;
+        if !is_stop {
+            // pbrt: eta_i the element's own, eta_t the one before it in the
+            // file (the next one scene-ward), or air where there is none or
+            // the one before is the stop.
+            eta_i = e.z;
+            eta_t : mut Float = 1.0;
+            if i > 0u {
+                before = camera_lens[i - 1u].z;
+                eta_t = select(before != 0.0, before, 1.0);
+            }
+            refracted = refract_(unit_vector_(-d), n, eta_t / eta_i);
+            if !refracted.valid {
+                return stopped;
+            }
+            d = refracted.wt;
+        }
+    }
+    return LensTrace{Ray{vec3f{o.x, o.y, -o.z}, vec3f{d.x, d.y, -d.z}}, 1.0};
+}
+
+// pbrt: ExitPupilSample, and SampleExitPupil below.
+element ExitPupilSample {
+    p_pupil : vec3f;
+    pdf : Float;
+    valid : bool;
+}
+
+// pbrt: RealisticCamera::SampleExitPupil. The exit pupil was bounded per
+// film radius at camera creation (`camera_pupil`, for a film point on the +x
+// axis); the bound for this film point's radius is sampled uniformly and
+// rotated round to the film point's angle.
+func sample_exit_pupil(camera : Camera, p_film : vec2f,
+                       u_lens : vec2f) -> ExitPupilSample {
+    r_film = sqrt(sqr(p_film.x) + sqr(p_film.y));
+    n = camera.n_pupil_bounds;
+    r_index = min(n - 1u,
+                  cast[[u32]](r_film / (camera.film_diagonal / 2.0) *
+                              cast[[Float]](n)));
+    b = camera_pupil[r_index];
+    area = (b.z - b.x) * (b.w - b.y);
+    if area <= 0.0 {
+        none : ExitPupilSample = {vec3f{0.0, 0.0, 0.0}, 0.0, false};
+        return none;
+    }
+    // pbrt: `pupilBounds.Lerp(uLens)`, `Lerp(t, a, b) = (1 - t) * a + t * b`.
+    p_lens = vec2f{(1.0 - u_lens.x) * b.x + u_lens.x * b.z,
+                   (1.0 - u_lens.y) * b.y + u_lens.y * b.w};
+    pdf = 1.0 / area;
+    // pbrt's sinTheta and cosTheta: the film point's angle round the axis.
+    sin_rot = select(r_film != 0.0, p_film.y / r_film, 0.0);
+    cos_rot = select(r_film != 0.0, p_film.x / r_film, 1.0);
+    p_pupil = vec3f{cos_rot * p_lens.x - sin_rot * p_lens.y,
+                    sin_rot * p_lens.x + cos_rot * p_lens.y,
+                    camera.lens_rear_z};
+    return ExitPupilSample{p_pupil, pdf, true};
+}
+
+// pbrt: RealisticCamera::GenerateRay. The raster sample becomes a point on
+// the physical film (x mirrored: the lens inverts the image), a point of the
+// exit pupil is drawn for it, the ray between them is traced out through the
+// lenses, moved to render space and normalized; its weight is cos^4 of its
+// angle to the film's normal over the pupil sample's density and the
+// squared distance to the rear element -- the measurement equation's
+// geometric term for a sensor of unit area.
+func generate_realistic_ray(camera : Camera, sample : CameraSample) -> WeightedRay {
+    none : WeightedRay = {Ray{vec3f{0.0, 0.0, 0.0}, vec3f{0.0, 0.0, 1.0}}, 0.0,
+                          false};
+    s = sample.p_film / camera.film_resolution;
+    ext = camera.physical_extent;
+    p_film2 = vec2f{(1.0 - s.x) * ext.x + s.x * ext.z,
+                    (1.0 - s.y) * ext.y + s.y * ext.w};
+    p_film = vec3f{-p_film2.x, p_film2.y, 0.0};
+    pupil = sample_exit_pupil(camera, vec2f{p_film.x, p_film.y}, sample.p_lens);
+    if !pupil.valid {
+        return none;
+    }
+    r_film = Ray{p_film, pupil.p_pupil - p_film};
+    traced = trace_lenses_from_film(camera, r_film);
+    if traced.weight == 0.0 {
+        return none;
+    }
+    moved = transform_ray(camera.render_from_camera, traced.ray.o, traced.ray.d);
+    ray = Ray{moved.o, unit_vector_(moved.d)};
+    cos_film = unit_vector_(r_film.d).z;
+    weight = traced.weight * sqr(sqr(cos_film)) /
+             (pupil.pdf * sqr(camera.lens_rear_z));
+    return WeightedRay{ray, weight, true};
+}
+
+// pbrt: CameraBase::GenerateRayDifferential, which the realistic camera
+// uses: the differentials by finite differences, the ray regenerated for a
+// film point a twentieth of a pixel across (or back, when the first gives no
+// ray) and the change scaled up to a pixel. Differentials only when both
+// neighbours gave a ray.
+func generate_realistic_ray_differential(camera : Camera,
+                                         sample : CameraSample) -> CameraRay {
+    zero = vec3f{0.0, 0.0, 0.0};
+    main = generate_realistic_ray(camera, sample);
+    if !main.valid {
+        return CameraRay{main.ray, RayDifferential{zero, zero, zero, zero, false}};
+    }
+    o = main.ray.o;
+    d = main.ray.d;
+    rx_o : mut vec3f = o;
+    rx_d : mut vec3f = d;
+    rx_ok : mut bool = false;
+    for attempt in 0u:2u {
+        if !rx_ok {
+            step = select(attempt == 0u, 0.05, -0.05);
+            shifted = CameraSample{vec2f{sample.p_film.x + step, sample.p_film.y},
+                                   sample.p_lens, sample.time, sample.filter_weight};
+            rx = generate_realistic_ray(camera, shifted);
+            if rx.valid {
+                rx_o = o + (rx.ray.o - o) / step;
+                rx_d = d + (rx.ray.d - d) / step;
+                rx_ok = true;
+            }
+        }
+    }
+    ry_o : mut vec3f = o;
+    ry_d : mut vec3f = d;
+    ry_ok : mut bool = false;
+    for attempt in 0u:2u {
+        if !ry_ok {
+            step = select(attempt == 0u, 0.05, -0.05);
+            shifted = CameraSample{vec2f{sample.p_film.x, sample.p_film.y + step},
+                                   sample.p_lens, sample.time, sample.filter_weight};
+            ry = generate_realistic_ray(camera, shifted);
+            if ry.valid {
+                ry_o = o + (ry.ray.o - o) / step;
+                ry_d = d + (ry.ray.d - d) / step;
+                ry_ok = true;
+            }
+        }
+    }
+    return CameraRay{main.ray,
+                     RayDifferential{rx_o, ry_o, rx_d, ry_d, rx_ok && ry_ok}};
 }
 
 // pbrt: RayDifferential::ScaleDifferentials, which RenderCPU applies to every

@@ -9,7 +9,7 @@
 //                     decision about a grazing ray trustworthy.
 //   shapes.bonsai     Sphere, Triangle, their intersections, the shading
 //                     geometry at a hit, and the AABB a BVH node is bounded by.
-//   camera.bonsai     Transform and PerspectiveCamera.
+//   camera.bonsai     Transform and Camera.
 //   spectrum.bonsai   SampledWavelengths and the sigmoid fit.
 //   colour.bonsai     the matching curves and the conversion back to RGB that a
 //                     film ends with.
@@ -1718,7 +1718,7 @@ element Integrator =
 // called it, so a random walk over a textured scene filters its textures the
 // same way a path does -- it just never has a ray carrying differentials of its
 // own past the first vertex, so every lookup uses the camera approximation.
-func walk_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
+func walk_step(ray : Ray, camera : Camera, spp_scale : Float,
                beta : vec4f, l : vec4f,
                lambda : SampledWavelengths, sampler : Sampler,
                state : mut SamplerState, ls : LightSet, seed : i32,
@@ -1822,7 +1822,7 @@ func walk_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
 // in it, as pbrt's RandomWalkIntegrator fills none, but a dispersive glass
 // on the path terminates the wavelengths the film converts with, and they
 // travel back to the film through it.
-func li_random_walk(r0 : Ray, camera : PerspectiveCamera, spp_scale : Float,
+func li_random_walk(r0 : Ray, camera : Camera, spp_scale : Float,
                     lambda : SampledWavelengths, sampler : Sampler,
                     state : mut SamplerState, ls : LightSet, seed : i32,
                     max_depth : i32, visible : mut VisibleSurface, path_lambda : mut SampledWavelengths) -> vec4f =
@@ -1858,7 +1858,7 @@ func unoccluded(from_p : vec3f, from_error : vec3f, from_n : vec3f,
 //
 // Tail-recursive, as `walk_step` is: what the schedule does with the path is
 // the schedule's to decide.
-func path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
+func path_step(ray : Ray, camera : Camera, spp_scale : Float,
                beta : vec4f, l : vec4f, specular_bounce : bool,
                lambda : SampledWavelengths, sampler : Sampler,
                state : mut SamplerState, ls : LightSampler, set : LightSet,
@@ -1988,7 +1988,7 @@ func path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
 // The entry point, which names the state a path starts with. `specular_bounce`
 // starts true because the camera ray has sampled no light, so a light it lands
 // on directly must be counted.
-func li_simple_path(r0 : Ray, camera : PerspectiveCamera, spp_scale : Float,
+func li_simple_path(r0 : Ray, camera : Camera, spp_scale : Float,
                     lambda : SampledWavelengths, sampler : Sampler,
                     state : mut SamplerState, ls : LightSampler, set : LightSet,
                     seed : i32, max_depth : i32,
@@ -2116,7 +2116,7 @@ func path_sample_ld(bsdf : BxDF, surf : SurfaceGeometry, shading : Frame,
 //
 // Tail-recursive, as `walk_step` and `path_step` are, and for the same reason:
 // what the schedule does with a path is the schedule's to decide.
-func full_path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
+func full_path_step(ray : Ray, camera : Camera, spp_scale : Float,
                     beta : vec4f, l : vec4f, depth : i32,
                     specular_bounce : bool, any_non_specular : bool,
                     eta_scale : Float, p_b : Float,
@@ -2357,7 +2357,7 @@ func full_path_step(ray : Ray, camera : PerspectiveCamera, spp_scale : Float,
 // no radiance, no scattering yet, and a previous vertex that does not exist --
 // `depth == 0` is what stops `prev_ctx` and `p_b` ever being read before one
 // does.
-func li_path(r0 : Ray, camera : PerspectiveCamera,
+func li_path(r0 : Ray, camera : Camera,
              spp_scale : Float, lambda : SampledWavelengths, sampler : Sampler,
              state : mut SamplerState, ls : LightSampler, set : LightSet,
              seed : i32, max_depth : i32, regularize : bool,
@@ -3006,7 +3006,7 @@ func vol_medium_step(ray_o : vec3f, ray_d : vec3f, dn : vec3f, t_min : Float,
 // a bounce on each boundary it crosses; a depth-first schedule of this
 // program does the same, since the count is the path's own.
 func vol_path_step(ray : Ray, medium : i32,
-                   camera : PerspectiveCamera, spp_scale : Float,
+                   camera : Camera, spp_scale : Float,
                    beta_in : vec4f, r_u_in : vec4f,
                    r_l_in : vec4f, depth_in : i32, wave : i32,
                    specular_bounce : bool,
@@ -3091,7 +3091,7 @@ func vol_path_step(ray : Ray, medium : i32,
 func vol_medium_sample(isect : option[(Primitive, Geometric, Hit)],
                        ray : Ray,
                        medium : i32,
-                       camera : PerspectiveCamera, spp_scale : Float,
+                       camera : Camera, spp_scale : Float,
                        beta : vec4f, r_u : vec4f, r_l : vec4f, depth : i32,
                        wave : i32, specular_bounce : bool,
                        any_non_specular : bool, eta_scale : Float,
@@ -3189,7 +3189,7 @@ func vol_medium_sample(isect : option[(Primitive, Geometric, Hit)],
 // light-sampling context of a medium point, with no normal; and the turned
 // ray pushed at the ray's depth plus one, for the next round.
 func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
-                        camera : PerspectiveCamera,
+                        camera : Camera,
                         spp_scale : Float, eta_scale : Float, wave : i32,
                         lambda : SampledWavelengths, sampler : Sampler,
                         pixel_x : i32, pixel_y : i32, sample_index : u32,
@@ -3257,7 +3257,7 @@ func vol_medium_scatter(event : MediumEvent, ray : Ray, medium : i32,
 // the material kernel.
 func vol_route(isect : option[(Primitive, Geometric, Hit)],
                ray : Ray, medium : i32,
-               camera : PerspectiveCamera,
+               camera : Camera,
                spp_scale : Float, beta : vec4f, r_u : vec4f, r_l : vec4f,
                depth : i32, wave : i32, specular_bounce : bool,
                any_non_specular : bool,
@@ -3454,7 +3454,7 @@ func emissive_contribution(light : i32, p : vec3f, uv : vec2f, n : vec3f,
 // the material queues), and `surf` is the hit's geometry in render space
 // (pbrt's MaterialEvalWorkItem holds the hit and the path).
 func vol_surface(ray : Ray, medium : i32,
-                 camera : PerspectiveCamera, spp_scale : Float, via : Primitive,
+                 camera : Camera, spp_scale : Float, via : Primitive,
                  prim : Geometric, mat : i32, evaluator : TextureEvaluator,
                  surf : SurfaceGeometry, beta : vec4f,
                  r_u : vec4f, r_l : vec4f, depth : i32, wave : i32,
@@ -3626,7 +3626,7 @@ func vol_surface(ray : Ray, medium : i32,
 // `hit` is the surface with the material's normal or bump map applied
 // (pbrt's `ns` and `dpdus` in the work item), `surf` the shape's own.
 func vol_subsurface(ss : SubsurfaceMaterial, medium : i32,
-                    camera : PerspectiveCamera, spp_scale : Float,
+                    camera : Camera, spp_scale : Float,
                     prim : Geometric, mat : i32,
                     surf : SurfaceGeometry,
                     hit : SurfaceGeometry, ctx : TextureEvalContext,
@@ -3693,7 +3693,7 @@ element ProbeResult {
 // mix there, and matches nothing). A hit the hardware re-found is pushed
 // clear of as everywhere else (hit_refused).
 func vol_probe(p0 : vec3f, p1 : vec3f, bssrdf : TabulatedBSSRDF, medium : i32,
-               camera : PerspectiveCamera, spp_scale : Float, prim : Geometric,
+               camera : Camera, spp_scale : Float, prim : Geometric,
                mat : i32, beta : vec4f, r_u : vec4f,
                depth : i32, wave : i32, eta_scale : Float,
                lam : SampledWavelengths, sampler : Sampler,
@@ -3782,7 +3782,7 @@ func vol_probe_step(o : vec3f, o_error : vec3f, o_n : vec3f, p1 : vec3f,
 // (`w.mediumInterface`), chosen by the exit's normal.
 func vol_exit(kept : SurfaceGeometry, reservoir_pdf : Float,
               bssrdf : TabulatedBSSRDF, medium : i32,
-              camera : PerspectiveCamera, spp_scale : Float, prim : Geometric,
+              camera : Camera, spp_scale : Float, prim : Geometric,
               beta : vec4f, r_u : vec4f, depth : i32, wave : i32,
               eta_scale : Float, lam : SampledWavelengths, sampler : Sampler,
               pixel_x : i32, pixel_y : i32, sample_index : u32,
@@ -3862,7 +3862,7 @@ func vol_exit(kept : SurfaceGeometry, reservoir_pdf : Float,
 // The entry point: full throughput, no radiance, both rescaled probabilities
 // one, no scattering yet, and the camera's medium.
 func li_vol_path(r0 : Ray, medium0 : i32, have_media : bool,
-                 camera : PerspectiveCamera, spp_scale : Float,
+                 camera : Camera, spp_scale : Float,
                  lambda : SampledWavelengths, sampler : Sampler,
                  pixel_x : i32, pixel_y : i32, sample_index : u32,
                  ls : LightSampler, set : LightSet,
@@ -3901,7 +3901,7 @@ func li_vol_path(r0 : Ray, medium0 : i32, have_media : bool,
 // and the sample index instead and starts a sampler of its own at every
 // bounce, as pbrt's wavefront does (vol_path_step).
 func integrator_li(integrator : Integrator, r : Ray, medium : i32,
-                   have_media : bool, camera : PerspectiveCamera,
+                   have_media : bool, camera : Camera,
                    spp_scale : Float, lambda : SampledWavelengths,
                    sampler : Sampler, state : mut SamplerState,
                    pixel_x : i32, pixel_y : i32, sample_index : u32, seed : i32,
@@ -3968,7 +3968,7 @@ func integrator_li(integrator : Integrator, r : Ray, medium : i32,
 // Thirty-five floats out: the camera ray's four differential vectors, then
 // dpdx, dpdy and the four (u,v) derivatives, then what a bounce into `wi` off a
 // lobe with `flags` and `eta` leaves behind -- its flag and its four vectors.
-func [[export]] differentials_at(camera : PerspectiveCamera,
+func [[export]] differentials_at(camera : Camera,
                                  px : Float, py : Float,
                                  has_differentials : bool, spp : u32,
                                  p : vec3f, dpdu : vec3f, dpdv : vec3f,
@@ -4112,7 +4112,7 @@ func [[export]] texture_at(index : u32, uv : vec2f, dudx : Float, dudy : Float,
 // film point, its lens point and its time -- and the pixel draw the filter
 // was sampled with, so that a direction that differs can be laid at the
 // sampler's door, the filter's or the camera's.
-func [[export]] hit_at(camera : PerspectiveCamera, sampler : Sampler,
+func [[export]] hit_at(camera : Camera, sampler : Sampler,
                        pixel_filter : Filter, px : i32, py : i32,
                        sample : u32, out : mut array[Float]) -> void {
     state : mut SamplerState = start_pixel_sample(sampler, px, py, sample);
@@ -4162,7 +4162,7 @@ func [[export]] sigmoid_at(rgb : vec3f, lambda_u : Float,
     out[3u] = s.w;
 }
 
-func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
+func [[export]] render(camera : Camera, width : u32, height : u32,
                        pixel_x0 : u32, pixel_y0 : u32,
                        sampler : Sampler, integrator : Integrator,
                        pixel_filter : Filter, seed : i32,
@@ -4279,7 +4279,16 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
             // footprint at every hit is then the camera approximation, scaled
             // by `max(1/8, 1/sqrt(spp))` inside it (Approximate_dp_dxy), which
             // is what `spp_scale` carries down.
-            ray = generate_ray(camera, sample);
+            // pbrt: the wavefront's camera kernel pushes a ray only when the
+            // camera gave one, and the film weighs what the path returns by
+            // the camera ray's weight (wavefront/camera.cpp, film.cpp:
+            // `cameraRayWeight`). A sample with no ray -- a realistic
+            // camera's vignetted one -- adds zero radiance at its filter
+            // weight. The projective cameras always give a ray at weight one.
+            camera_ray = generate_camera_ray(camera, sample);
+            ray = camera_ray.ray;
+            camera_ray_weight = camera_ray.weight;
+            camera_ray_valid = camera_ray.valid;
 
             // The radiance, which is the render -- and, for a gbuffer film,
             // the visible surface, which pbrt's `Li` fills at the path's first
@@ -4306,11 +4315,20 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
             // add to it): what lets a schedule run the path's stages on
             // separate drains, and add a deferred shadow ray's term late.
             radiance : reduce(+) vec4f = vec4f{0.0, 0.0, 0.0, 0.0};
-            integrator_li(integrator, ray, camera_medium, have_media, camera,
-                          ray_differential_scale(spp, disable_pixel_jitter),
-                          lambda, sampler, state, cast[[i32]](i),
-                          cast[[i32]](j), s, seed, film_visible_surface,
-                          visible, path_lambda, radiance);
+            // pbrt: `if (cameraRay) { ... rayQueue->PushCameraRay(...) }`
+            // (wavefront/camera.cpp): a path only when the camera gave a
+            // ray. Under a schedule that defers the path, the deferral ends
+            // this sample's iteration only when the call is made; a
+            // vignetted sample falls through to the film write below at
+            // once (SSA/Defer.cpp, k0_rejoins).
+            if camera_ray_valid {
+                integrator_li(integrator, ray, camera_medium,
+                              have_media, camera,
+                              ray_differential_scale(spp, disable_pixel_jitter),
+                              lambda, sampler, state, cast[[i32]](i),
+                              cast[[i32]](j), s, seed, film_visible_surface,
+                              visible, path_lambda, radiance);
+            }
             // pbrt: GBufferFilm::AddSample, which records the channels only
             // when the integrator set them -- and only a gbuffer film has
             // them (`film_visible_surface`, Film::UsesVisibleSurface); an RGB
@@ -4336,11 +4354,20 @@ func [[export]] render(camera : PerspectiveCamera, width : u32, height : u32,
             // pixelSampleState.lambda; the CPU's `Li` took `lambda` by
             // reference). That is what makes the floor beside a glass sphere
             // speckle in pbrt, and the per-pixel match depends on it.
-            rgb = radiance_to_rgb(radiance, path_lambda, imaging_ratio);
-            m = max(max(rgb.x, rgb.y), rgb.z);
+            // pbrt: RGBFilm::AddSample -- `sensor->ToSensorRGB(L, lambda)`
+            // (the imaging ratio inside it), the clamp to
+            // `maxcomponentvalue` on *that* RGB, XYZ for the cie1931 sensor,
+            // and only at GetPixelRGB the output space's matrix. The matrix
+            // is linear, so applying it per sample here sums to the same
+            // image; clamping after it instead capped a saturated sample's
+            // output red where pbrt caps its XYZ -- pavilion-night's candle,
+            // 0.55x pbrt's (10-25).
+            sensor = imaging_ratio *
+                     sensor_rgb_of(radiance * camera_ray_weight, path_lambda);
+            m = max(max(sensor.x, sensor.y), sensor.z);
             clamped = select(m > max_component_value,
-                             rgb * (max_component_value / m), rgb);
-            atomic radiance_out[p] += weight * clamped;
+                             sensor * (max_component_value / m), sensor);
+            atomic radiance_out[p] += weight * sensor_to_output_rgb(clamped);
             // pbrt: `p.weightSum += weight`, outside the visible-surface test.
             // Every sample counts towards what the pixel is divided by, even
             // one that hit nothing -- which is what makes a pixel on a

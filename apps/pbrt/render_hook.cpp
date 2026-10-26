@@ -1272,7 +1272,8 @@ int main(int argc, char **argv) {
         return float3{v[0], v[1], v[2]};
     };
 
-    PerspectiveCamera camera;
+    Camera camera;
+    camera.kind = loaded.camera_kind;
     camera.camera_from_raster = to_bonsai(&loaded.matrices[0]);
     camera.render_from_camera = to_bonsai(&loaded.matrices[16]);
     camera.camera_from_render = to_bonsai(&loaded.matrices[32]);
@@ -1284,6 +1285,35 @@ int main(int argc, char **argv) {
     camera.min_dir_differential_y = to_vec3(&loaded.min_differentials[9]);
     camera.lens_radius = loaded.lens_radius;
     camera.focal_distance = loaded.focal_distance;
+    // The realistic camera's constants (zero for the projective cameras); its
+    // lens interfaces and exit pupil bounds are the extern arrays
+    // camera_lens and camera_pupil, built below with the other buffers.
+    camera.physical_extent =
+        float4{loaded.physical_extent[0], loaded.physical_extent[1],
+               loaded.physical_extent[2], loaded.physical_extent[3]};
+    camera.film_resolution = float2{float(loaded.width), float(loaded.height)};
+    camera.film_diagonal = loaded.film_diagonal;
+    camera.lens_rear_z = loaded.lens_rear_z;
+    camera.n_lens_elements = uint32_t(loaded.lens_elements.size() / 4);
+    camera.n_pupil_bounds = uint32_t(loaded.exit_pupil_bounds.size() / 4);
+    // The realistic camera's lens interfaces and exit pupil bounds, four
+    // floats each in the file, one float4 each here (camera.bonsai's
+    // camera_lens and camera_pupil); empty for the projective cameras. Built
+    // here, before the diagnostics below, which generate camera rays too.
+    std::vector<float4> camera_lens(loaded.lens_elements.size() / 4);
+    for (size_t i = 0; i < camera_lens.size(); i++) {
+        camera_lens[i] = float4{loaded.lens_elements[4 * i + 0],
+                                loaded.lens_elements[4 * i + 1],
+                                loaded.lens_elements[4 * i + 2],
+                                loaded.lens_elements[4 * i + 3]};
+    }
+    std::vector<float4> camera_pupil(loaded.exit_pupil_bounds.size() / 4);
+    for (size_t i = 0; i < camera_pupil.size(); i++) {
+        camera_pupil[i] = float4{loaded.exit_pupil_bounds[4 * i + 0],
+                                 loaded.exit_pupil_bounds[4 * i + 1],
+                                 loaded.exit_pupil_bounds[4 * i + 2],
+                                 loaded.exit_pupil_bounds[4 * i + 3]};
+    }
 
     if (print_differentials) {
         // Chosen to match scene_dump's; a parameterization that is neither
@@ -1313,7 +1343,8 @@ int main(int argc, char **argv) {
             float out[47] = {};
             differentials_at(camera, float(px[0]), float(px[1]), true, 16,
                              hit_p, dpdu, dpdv, wi, lobes[0].flags,
-                             lobes[0].eta, out);
+                             lobes[0].eta, out, camera_lens.data(),
+                             camera_pupil.data());
             printf("camray %d %d: %.9g %.9g %.9g | %.9g %.9g %.9g\n", px[0],
                    px[1], double(out[35]), double(out[36]), double(out[37]),
                    double(out[38]), double(out[39]), double(out[40]));
@@ -1330,7 +1361,8 @@ int main(int argc, char **argv) {
             for (int has = 1; has >= 0; has--) {
                 differentials_at(camera, float(px[0]), float(px[1]), has != 0,
                                  16, hit_p, dpdu, dpdv, wi, lobes[0].flags,
-                                 lobes[0].eta, out);
+                                 lobes[0].eta, out, camera_lens.data(),
+                                 camera_pupil.data());
                 printf("dudxy %d %d %d: %.9g %.9g %.9g | %.9g %.9g %.9g | "
                        "%.9g %.9g %.9g %.9g\n",
                        px[0], px[1], has, double(out[12]), double(out[13]),
@@ -1340,7 +1372,8 @@ int main(int argc, char **argv) {
                 for (const Lobe &lobe : lobes) {
                     differentials_at(camera, float(px[0]), float(px[1]),
                                      has != 0, 16, hit_p, dpdu, dpdv, wi,
-                                     lobe.flags, lobe.eta, out);
+                                     lobe.flags, lobe.eta, out,
+                                     camera_lens.data(), camera_pupil.data());
                     printf("spawn %d %d %d %s: %d | %.9g %.9g %.9g | "
                            "%.9g %.9g %.9g | %.9g %.9g %.9g | %.9g %.9g %.9g\n",
                            px[0], px[1], has, lobe.label, int(out[22] != 0.f),
@@ -3460,6 +3493,9 @@ int main(int argc, char **argv) {
     bonsai_buffer b_curve_pool = buffer_of(curve_pool);
     bonsai_buffer b_curve_commons = buffer_of(curve_commons);
     bonsai_buffer b_curve_frames = buffer_of(curve_frames);
+    // The realistic camera's lens tables (built with the camera above).
+    bonsai_buffer b_camera_lens = buffer_of(camera_lens);
+    bonsai_buffer b_camera_pupil = buffer_of(camera_pupil);
     bonsai_buffer b_env_illuminants = buffer_of(env_illuminants);
     // The queues' storage, when the schedule made it this driver's
     // (`ExternDevice`, see --queue-memory above): one buffer per array the
@@ -3515,7 +3551,7 @@ int main(int argc, char **argv) {
         &b_rgb_table, &b_pl2d, &b_pl_data, &b_pl_marginal, &b_pl_conditional,
         &b_pl_params, &b_measured_brdfs, &b_conductor_eta, &b_conductor_k,
         &b_meshes, &b_mesh_indices, &b_mesh_positions, &b_mesh_normals,
-        &b_mesh_uvs, &b_curve_commons, &b_curve_frames, &b_cie_x, &b_cie_y,
+        &b_mesh_uvs, &b_curve_commons, &b_curve_frames, &b_camera_lens, &b_camera_pupil, &b_cie_x, &b_cie_y,
         &b_cie_z, &b_illuminant_d65,
         &b_sensor_r, &b_sensor_g, &b_sensor_b, &b_output_rgb_from_sensor,
         &b_filter_f, &b_filter_cond_cdf, &b_filter_marg_func,
@@ -3763,7 +3799,7 @@ int main(int argc, char **argv) {
                &b_pl_data, &b_pl_marginal, &b_pl_conditional, &b_pl_params,
                &b_measured_brdfs, &b_conductor_eta, &b_conductor_k, &b_meshes,
                &b_mesh_indices, &b_mesh_positions, &b_mesh_normals,
-               &b_mesh_uvs, &b_curve_commons, &b_curve_frames, &b_cie_x, &b_cie_y,
+               &b_mesh_uvs, &b_curve_commons, &b_curve_frames, &b_camera_lens, &b_camera_pupil, &b_cie_x, &b_cie_y,
                &b_cie_z, &b_illuminant_d65,
                &b_sensor_r, &b_sensor_g, &b_sensor_b,
                &b_output_rgb_from_sensor, &b_filter_f, &b_filter_cond_cdf,
@@ -3895,7 +3931,8 @@ int main(int argc, char **argv) {
 #endif
                            &b_meshes, &b_mesh_indices, &b_mesh_positions,
                            &b_mesh_normals, &b_mesh_uvs, &b_curve_commons,
-                           &b_curve_frames, &b_filter_f,
+                           &b_curve_frames, &b_camera_lens, &b_camera_pupil,
+                           &b_filter_f,
                            &b_filter_cond_cdf, &b_filter_marg_func,
                            &b_filter_marg_cdf, &b_primes,
                            &b_digit_permutations,
