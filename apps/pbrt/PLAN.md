@@ -17539,3 +17539,84 @@ worktree; run ssa/defer-initial-push and the suite; if green, commit the
 initial-push change with the Simplify fix (telling bonsai-ac first) and
 fast-forward; then the verification with pbrt's hair crash read first,
 then the sweep's resume, then the hit chain (a) if approved.
+
+## 10-26: the initial push landed, pbrt --gpu's crashes on hair and zero-day, the harness going on without it, and the sweep that had not stopped
+
+**The initial push landed (99c5de0d, worktree ajr/ssa-multi-queue rebased
+and fast-forwarded).** The owner's first push is a `defer q entry yield`
+terminator where the owner loops over the call, and the `q!end` block is
+gone; a lone call's owner keeps the push instruction and the jump to the
+drain. Simplify.cpp's resolve_uses resolves a Defer terminator's queue,
+entry and answer (its visitor was empty; the merged queue address
+dangled). Test ssa/defer-initial-push: the dump matched the expectation
+hand-made on 10-25 to the line (one formatting blank apart), so the
+Simplify fix did what it was meant to. 31 expectations re-blessed, every
+one a renumbering only: the push no longer names a value, so every later
+name in the owner is one lower; checked mechanically (every `@<n>`
+replaced by `@N`, every diff vanishes) -- the lowered code and the LLVM
+are the same. The renderer: the gpu-optix schedule compiles and its
+render.o is byte for byte the one 629761b6 produces; the compile takes
+6 m 46 s against 7 m 19 s for 629761b6 (not "about a minute" as the 10-25
+memory said; corrected). The red tests
+defer-two-queues-and-a-return (ssa + correctness/llvm) stay untracked in
+the worktree until the composition is built (ask 1, 10-25).
+
+**The sweep had not stopped.** What 10-25's section says -- "started 22:52
+and stopped at 22:56" -- is wrong: I killed the wrapper and the
+verification's gpu_compare.sh, removed the lock and told bonsai-ac 'done',
+and heatmap.sh, which the wrapper had moved on to, ran on with no lock
+until 00:41 (compare-out-heatmap8: 30 scenes x 16/64/128, one cell every
+minute or so, the figure heatmap-gpu-optix.png written at the end, 0 blank,
+0 not matching pbrt). bonsai-ac's waiter wanted five idle minutes, so
+their first cell started at 00:47 and nothing of theirs was disturbed,
+but the sweep took 1 h 45 of the window the user had given them, and
+their walk-on-stars CPU table was cut short in the morning for it. The
+lesson (memory after-a-kill-pgrep-the-harness): after a kill by pid,
+pgrep every harness name and kill what is left before the lock goes or
+'done' is sent. The sweep's estimate was also wrong by an order of
+magnitude: heatmap7's 10.5 h were its 256 spp cells; 16/64/128 take
+under two hours for 30 scenes.
+
+**pbrt --gpu's crash is the driver's, on two kinds of scene.** Under gdb,
+both the hair scenes and zero-day's frames die at the same place: a
+segfault in libcuda under libnvoptix and libnvidia-rtcore -- the
+acceleration-structure build -- called from pbrt's
+OptiXAggregate::buildOptixBVH; on hair from buildBVHForBLPs (the curves of
+curly-hair.pbrt.gz, which pbrt's GPU path turns into bilinear patches), on
+zero-day from buildBVHForTriangles (frame25 has 65 885 plymesh shapes).
+Not a curve matter then, and not ours: pbrt --gpu has no image of these
+scenes on this machine. (Whether an earlier driver rendered them is not
+known; killeroo and the other 30 scenes render.)
+
+**gpu_compare.sh goes on without it (b7165259).** A failed reference run
+ends the timed repeats and the reference image is pbrt's wavefront
+integrator on the CPU (`pbrt --wavefront`: the same integrator, the CPU's
+intersection), rendered once and untimed; the row's side says
+`pbrt --wavefront (cpu)`, its wall, kernel and speedup are `-`, every
+speedup of the scene is `-`, compare_gbuffer.py is told no pbrt time, and
+the comparison is the same (the spread against pbrt's CPU volpath
+included). No reference image at all leaves the cells `no reference
+image`. The image files are removed before the reference render so a
+redone cell is never compared against an earlier run's. Checked live on
+hair-actual-bsdf at 16 spp (10:19): pbrt --gpu dies, the CPU wavefront
+renders it in 1 m 45 s (43 CPU-minutes), our gpu-optix matches it (40.4%
+of lit pixels within 1e-3; the mean within tolerance; ok) at 1.83 s, and
+the run goes on. plot_gpu_heatmap.py skips a cell without a speedup, so
+these scenes are absent from the figure rather than wrong in it; the
+figure's .txt should say which scenes have no GPU reference (to do, with
+plots.sh's next change).
+
+**The day's runs (10:19 on, lock bonsai-f9, start_day.sh in the
+scratchpad):** the verification of the 24 scenes at 16 spp with
+`--resume` (the eleven hair scenes and bunny-fur against the CPU
+wavefront), then `heatmap.sh --resume` for the two zero-day frames the
+sweep skipped (against the CPU wavefront too, 65 885 meshes at 128 spp on
+the CPU: minutes per cell), then plots.sh with HEATMAP_TABLE at heatmap8.
+Results below when they are in.
+
+**Still waiting on the user (asked 10-25, restated 10-26 10:00 in plain
+pseudocode):** (1) two queues through one function -- undo the "did I
+push?" reporting when the second deferral removes the last plain return
+(proposed: yes); (2) the hit chain -- (a) the arm and mesh row hoisted
+into the OptiX hit record, (b) the triangle range as a set the type
+describes; (3) the NaN pixels plan's order. Nothing of these is built.
