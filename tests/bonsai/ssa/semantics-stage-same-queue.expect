@@ -94,42 +94,42 @@ func render(max_depth : i32, film : mut f32[8]) -> void {
   }
   rays!round = 0u
   while (!(rays_queue[(*rays!round) & 1u].count == 0u)) {
-    let @14 = (*rays!round) & 1u in
-    let @16 = rays_queue[(*rays!round) & 1u].count in
-    let @37 = @14 ^ 1u in
-    rays_queue[@37].count = 0u
-    parfor samples in [0u:@16:1u] {
-      let @38 = (&rays_queue[@37]) in
-      let @42 = rays_queue[@14].ray_o in
-      let @43 = @42[samples] in
-      let @45 = rays_queue[@14].ray_d in
-      let @46 = @45[samples] in
-      let @47 = build<Ray>(@43, @46) in
-      let @49 = rays_queue[@14].depth in
-      let @50 = @49[samples] in
-      let @52 = rays_queue[@14]._slot in
-      let @53 = @52[samples] in
-      step(@47, @50, @53, max_depth, (&rays_rad_slots[@53]), @38, @53, (&rays_draw_slots[@53]))
+    let @13 = (*rays!round) & 1u in
+    let @15 = rays_queue[(*rays!round) & 1u].count in
+    let @36 = @13 ^ 1u in
+    rays_queue[@36].count = 0u
+    parfor samples in [0u:@15:1u] {
+      let @37 = (&rays_queue[@36]) in
+      let @41 = rays_queue[@13].ray_o in
+      let @42 = @41[samples] in
+      let @44 = rays_queue[@13].ray_d in
+      let @45 = @44[samples] in
+      let @46 = build<Ray>(@42, @45) in
+      let @48 = rays_queue[@13].depth in
+      let @49 = @48[samples] in
+      let @51 = rays_queue[@13]._slot in
+      let @52 = @51[samples] in
+      step(@46, @49, @52, max_depth, (&rays_rad_slots[@52]), @37, @52, (&rays_draw_slots[@52]))
       continue
     }
-    let @18 = @14 ^ 1u in
-    parfor rays in [0u:@16:1u] {
-      let @19 = (&rays_queue[@18]) in
-      let @23 = rays_queue[@14].ray_o in
-      let @24 = @23[rays] in
-      let @26 = rays_queue[@14].ray_d in
-      let @27 = @26[rays] in
-      let @28 = build<Ray>(@24, @27) in
-      let @30 = rays_queue[@14].depth in
-      let @31 = @30[rays] in
-      let @33 = rays_queue[@14]._slot in
-      let @34 = @33[rays] in
-      let @57 = rays_draw_slots[@34] in
-      step!after(@57, @28, @31, @34, max_depth, (&rays_rad_slots[@34]), @19, @34)
+    let @17 = @13 ^ 1u in
+    parfor rays in [0u:@15:1u] {
+      let @18 = (&rays_queue[@17]) in
+      let @22 = rays_queue[@13].ray_o in
+      let @23 = @22[rays] in
+      let @25 = rays_queue[@13].ray_d in
+      let @26 = @25[rays] in
+      let @27 = build<Ray>(@23, @26) in
+      let @29 = rays_queue[@13].depth in
+      let @30 = @29[rays] in
+      let @32 = rays_queue[@13]._slot in
+      let @33 = @32[rays] in
+      let @56 = rays_draw_slots[@33] in
+      step!after(@56, @27, @30, @33, max_depth, (&rays_rad_slots[@33]), @18, @33)
       continue
     }
-    let @13 = (*rays!round) + 1u in
-    rays!round = @13
+    let @12 = (*rays!round) + 1u in
+    rays!round = @12
   }
   parfor rays_rest in [0:8:1] {
     let rad = (&rays_rad_slots[rays_rest]) in

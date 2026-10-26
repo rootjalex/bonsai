@@ -96,7 +96,7 @@ done:                                             ; preds = %rays_rest4_pf_exit,
   br label %"!step_call_cont_4"
 
 "rays!batch":                                     ; preds = %"rays!batch.lr.ph", %rays3_pf_exit
-  %"@19.count77" = phi i32 [ %"@19.count74.pre", %"rays!batch.lr.ph" ], [ %"@19.count", %rays3_pf_exit ]
+  %"@18.count77" = phi i32 [ %"@18.count74.pre", %"rays!batch.lr.ph" ], [ %"@18.count", %rays3_pf_exit ]
   %extract_ptr4076 = phi ptr [ %rays_queue2765, %"rays!batch.lr.ph" ], [ %extract_ptr40, %rays3_pf_exit ]
   %15 = phi i32 [ 0, %"rays!batch.lr.ph" ], [ %34, %rays3_pf_exit ]
   %"rays!round375" = phi i32 [ 0, %"rays!batch.lr.ph" ], [ %33, %rays3_pf_exit ]
@@ -108,7 +108,7 @@ done:                                             ; preds = %rays_rest4_pf_exit,
   %extract47.fca.2.gep = getelementptr inbounds nuw i8, ptr %extract_ptr4076, i64 16
   %17 = getelementptr inbounds nuw i8, ptr %rays_queue43, i64 8
   %18 = getelementptr inbounds nuw i8, ptr %rays_queue43, i64 16
-  %wide.trip.count85 = zext i32 %"@19.count77" to i64
+  %wide.trip.count85 = zext i32 %"@18.count77" to i64
   br label %"rays!run"
 
 "rays!round.preheader.unr-lcssa":                 ; preds = %"!par_body_2"
@@ -133,8 +133,8 @@ done:                                             ; preds = %rays_rest4_pf_exit,
   br label %"rays!round.preheader"
 
 "rays!round.preheader":                           ; preds = %"rays!round.preheader.unr-lcssa", %"!par_body_2.epil.preheader"
-  %"@19.count74.pre" = load i32, ptr %rays_queue2765, align 16
-  %22 = icmp eq i32 %"@19.count74.pre", 0
+  %"@18.count74.pre" = load i32, ptr %rays_queue2765, align 16
+  %22 = icmp eq i32 %"@18.count74.pre", 0
   br i1 %22, label %"!step_call_cont_4.lr.ph", label %"rays!batch.lr.ph"
 
 "rays!batch.lr.ph":                               ; preds = %"rays!round.preheader"
@@ -209,8 +209,8 @@ rays3_pf_exit:                                    ; preds = %step.exit
   %34 = and i32 %33, 1
   %_wide39 = zext nneg i32 %34 to i64
   %extract_ptr40 = getelementptr inbounds nuw [24 x i8], ptr %rays_queue2765, i64 %_wide39
-  %"@19.count" = load i32, ptr %extract_ptr40, align 8
-  %35 = icmp eq i32 %"@19.count", 0
+  %"@18.count" = load i32, ptr %extract_ptr40, align 8
+  %35 = icmp eq i32 %"@18.count", 0
   br i1 %35, label %"!step_call_cont_4.lr.ph", label %"rays!batch"
 
 rays_rest4_pf_head.rays_rest4_pf_exit_crit_edge.unr-lcssa: ; preds = %"!step_call_cont_4"

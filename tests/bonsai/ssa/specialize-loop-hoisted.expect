@@ -82,53 +82,53 @@ func render(max_depth : i32, s : Sky, film : mut f32[8]) -> void {
   }
   rays!round = 0u
   while (!(rays_queue[(*rays!round) & 1u].count == 0u)) {
-    let @14 = (*rays!round) & 1u in
-    let @16 = rays_queue[(*rays!round) & 1u].count in
-    let @18 = @14 ^ 1u in
-    rays_queue[@18].count = 0u
-    let @67 = s.tag in
-    switch (@67) {
+    let @13 = (*rays!round) & 1u in
+    let @15 = rays_queue[(*rays!round) & 1u].count in
+    let @17 = @13 ^ 1u in
+    rays_queue[@17].count = 0u
+    let @66 = s.tag in
+    switch (@66) {
     case 0: {
-      parfor rays!Clear in [0u:@16:1u] {
-        let @19 = (&rays_queue[@18]) in
-        let @68 = s._pad in
-        let @69 = s.payload in
-        let s!Clear = build<Sky>(0u, @68, @69) in
-        let @39 = rays_queue[@14].ray_o in
-        let @40 = @39[rays!Clear] in
-        let @42 = rays_queue[@14].ray_d in
-        let @43 = @42[rays!Clear] in
-        let @44 = build<Ray>(@40, @43) in
-        let @46 = rays_queue[@14].depth in
-        let @47 = @46[rays!Clear] in
-        let @49 = rays_queue[@14]._slot in
-        let @50 = @49[rays!Clear] in
-        step!Clear(@44, @47, max_depth, s!Clear, (&rays_rad_slots[@50]), @19, @50)
+      parfor rays!Clear in [0u:@15:1u] {
+        let @18 = (&rays_queue[@17]) in
+        let @67 = s._pad in
+        let @68 = s.payload in
+        let s!Clear = build<Sky>(0u, @67, @68) in
+        let @38 = rays_queue[@13].ray_o in
+        let @39 = @38[rays!Clear] in
+        let @41 = rays_queue[@13].ray_d in
+        let @42 = @41[rays!Clear] in
+        let @43 = build<Ray>(@39, @42) in
+        let @45 = rays_queue[@13].depth in
+        let @46 = @45[rays!Clear] in
+        let @48 = rays_queue[@13]._slot in
+        let @49 = @48[rays!Clear] in
+        step!Clear(@43, @46, max_depth, s!Clear, (&rays_rad_slots[@49]), @18, @49)
         continue
       }
     } break;
     default: {
-      parfor rays!Overcast in [0u:@16:1u] {
-        let @19 = (&rays_queue[@18]) in
-        let @70 = s._pad in
-        let @71 = s.payload in
-        let s!Overcast = build<Sky>(1u, @70, @71) in
-        let @54 = rays_queue[@14].ray_o in
-        let @55 = @54[rays!Overcast] in
-        let @57 = rays_queue[@14].ray_d in
-        let @58 = @57[rays!Overcast] in
-        let @59 = build<Ray>(@55, @58) in
-        let @61 = rays_queue[@14].depth in
-        let @62 = @61[rays!Overcast] in
-        let @64 = rays_queue[@14]._slot in
-        let @65 = @64[rays!Overcast] in
-        step!Overcast(@59, @62, max_depth, s!Overcast, (&rays_rad_slots[@65]), @19, @65)
+      parfor rays!Overcast in [0u:@15:1u] {
+        let @18 = (&rays_queue[@17]) in
+        let @69 = s._pad in
+        let @70 = s.payload in
+        let s!Overcast = build<Sky>(1u, @69, @70) in
+        let @53 = rays_queue[@13].ray_o in
+        let @54 = @53[rays!Overcast] in
+        let @56 = rays_queue[@13].ray_d in
+        let @57 = @56[rays!Overcast] in
+        let @58 = build<Ray>(@54, @57) in
+        let @60 = rays_queue[@13].depth in
+        let @61 = @60[rays!Overcast] in
+        let @63 = rays_queue[@13]._slot in
+        let @64 = @63[rays!Overcast] in
+        step!Overcast(@58, @61, max_depth, s!Overcast, (&rays_rad_slots[@64]), @18, @64)
         continue
       }
     }
     }
-    let @13 = (*rays!round) + 1u in
-    rays!round = @13
+    let @12 = (*rays!round) + 1u in
+    rays!round = @12
   }
   parfor rays_rest in [0:8:1] {
     let rad = (&rays_rad_slots[rays_rest]) in

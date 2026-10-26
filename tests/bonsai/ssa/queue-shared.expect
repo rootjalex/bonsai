@@ -32,35 +32,35 @@ func run(out : mut i32[4], n : i32) -> void {
     }
     sums!round = 0u
     while (!(sums_queue[(*sums!round) & 1u].count == 0u)) {
-      let @14 = (*sums!round) & 1u in
-      let @16 = sums_queue[(*sums!round) & 1u].count in
-      let @18 = @14 ^ 1u in
-      sums_queue[@18].count = 0u
-      let @34 = cast<u32>(n) in
-      parfor sums in [0u:@34:1u] {
-        let @19 = (&sums_queue[@18]) in
-        let @37 = (&sums_queue[@14].count) in
-        let @38 = (*@37) in
-        let @39 = sums < @38 in
-        if (@39) {
-          let @23 = sums_queue[@14].k in
-          let @24 = @23[sums] in
-          let @26 = sums_queue[@14].acc in
-          let @27 = @26[sums] in
-          let @29 = sums_queue[@14]._slot in
-          let @30 = @29[sums] in
-          walk(@24, @27, @19, (&sums_result[@30]), @30)
+      let @13 = (*sums!round) & 1u in
+      let @15 = sums_queue[(*sums!round) & 1u].count in
+      let @17 = @13 ^ 1u in
+      sums_queue[@17].count = 0u
+      let @33 = cast<u32>(n) in
+      parfor sums in [0u:@33:1u] {
+        let @18 = (&sums_queue[@17]) in
+        let @36 = (&sums_queue[@13].count) in
+        let @37 = (*@36) in
+        let @38 = sums < @37 in
+        if (@38) {
+          let @22 = sums_queue[@13].k in
+          let @23 = @22[sums] in
+          let @25 = sums_queue[@13].acc in
+          let @26 = @25[sums] in
+          let @28 = sums_queue[@13]._slot in
+          let @29 = @28[sums] in
+          walk(@23, @26, @18, (&sums_result[@29]), @29)
           continue
         } else {
           continue
         }
       }
-      let @13 = (*sums!round) + 1u in
-      sums!round = @13
+      let @12 = (*sums!round) + 1u in
+      sums!round = @12
     }
     parfor sums_rest in [0:n:1] {
-      let @33 = sums_result[sums_rest] in
-      let @1 = @33 in
+      let @32 = sums_result[sums_rest] in
+      let @1 = @32 in
       atomic total += @1
       continue
     }

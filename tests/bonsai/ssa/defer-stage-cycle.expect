@@ -24,9 +24,9 @@ func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
   hits_queue : mut Queue_hits
   parfor i in [0:8:1] {
     let @0 = values[i] in
-    let @27 = i < 4 in
-    let @28 = i - 4 in
-    let @1 = select(@27, i, @28) in
+    let @26 = i < 4 in
+    let @27 = i - 4 in
+    let @1 = select(@26, i, @27) in
     let @6 = build<Entry_rays>(@0, @1, i) in
     let @30 = atomic_add((&(*rays_queue).count), 1u) in
     let @32 = (*rays_queue).x in
@@ -39,33 +39,33 @@ func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
   }
   rays!round = 0u
   while (!((*rays_queue).count == 0u)) {
-    let @10 = (*rays_queue).count in
-    let @19 = build<Queue_hits>(0u, hits_@0, hits_n, hits__slot) in
-    hits_queue = @19
-    parfor rays in [0u:@10:1u] {
-      let @13 = rays_x[rays] in
-      let @14 = rays_n[rays] in
-      let @15 = rays__slot[rays] in
-      step(@13, @14, k, rays_queue, (&rays_result[@15]), @15, hits_queue, @15)
+    let @9 = (*rays_queue).count in
+    let @18 = build<Queue_hits>(0u, hits_@0, hits_n, hits__slot) in
+    hits_queue = @18
+    parfor rays in [0u:@9:1u] {
+      let @12 = rays_x[rays] in
+      let @13 = rays_n[rays] in
+      let @14 = rays__slot[rays] in
+      step(@12, @13, k, rays_queue, (&rays_result[@14]), @14, hits_queue, @14)
       continue
     }
     rays_queue.count = 0u
-    let @20 = (*hits_queue) in
-    let @21 = @20.count in
-    parfor hits in [0u:@21:1u] {
-      let @22 = hits_@0[hits] in
-      let @23 = hits_n[hits] in
-      let @24 = hits__slot[hits] in
-      step!after(@22, @23, k, (&rays_result[@24]), @24, rays_queue)
+    let @19 = (*hits_queue) in
+    let @20 = @19.count in
+    parfor hits in [0u:@20:1u] {
+      let @21 = hits_@0[hits] in
+      let @22 = hits_n[hits] in
+      let @23 = hits__slot[hits] in
+      step!after(@21, @22, k, (&rays_result[@23]), @23, rays_queue)
       continue
     }
     hits_queue.count = 0u
-    let @8 = (*rays!round) + 1u in
-    rays!round = @8
+    let @7 = (*rays!round) + 1u in
+    rays!round = @7
   }
   parfor rays_rest in [0:8:1] {
-    let @18 = rays_result[rays_rest] in
-    let @2 = @18 in
+    let @17 = rays_result[rays_rest] in
+    let @2 = @17 in
     let i = rays_rest in
     out[i] = @2
     continue

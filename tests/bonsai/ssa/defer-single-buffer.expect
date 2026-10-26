@@ -31,27 +31,27 @@ func run(a : i32[4], total : mut (i32*)) -> void {
   }
   rays!round = 0u
   while (!((*rays_queue).count == 0u)) {
-    let @6 = (*rays_queue).count in
-    let @11 = build<Queue_hits>(0u, hits_x, hits_depth) in
-    hits_queue = @11
-    parfor rays in [0u:@6:1u] {
-      let @9 = rays_x[rays] in
-      let @10 = rays_depth[rays] in
-      trace_step(@9, @10, total, rays_queue, hits_queue)
+    let @5 = (*rays_queue).count in
+    let @10 = build<Queue_hits>(0u, hits_x, hits_depth) in
+    hits_queue = @10
+    parfor rays in [0u:@5:1u] {
+      let @8 = rays_x[rays] in
+      let @9 = rays_depth[rays] in
+      trace_step(@8, @9, total, rays_queue, hits_queue)
       continue
     }
     rays_queue.count = 0u
-    let @12 = (*hits_queue) in
-    let @13 = @12.count in
-    parfor hits in [0u:@13:1u] {
-      let @14 = hits_x[hits] in
-      let @15 = hits_depth[hits] in
-      shade_step(@14, @15, total, rays_queue)
+    let @11 = (*hits_queue) in
+    let @12 = @11.count in
+    parfor hits in [0u:@12:1u] {
+      let @13 = hits_x[hits] in
+      let @14 = hits_depth[hits] in
+      shade_step(@13, @14, total, rays_queue)
       continue
     }
     hits_queue.count = 0u
-    let @4 = (*rays!round) + 1u in
-    rays!round = @4
+    let @3 = (*rays!round) + 1u in
+    rays!round = @3
   }
   return
 }

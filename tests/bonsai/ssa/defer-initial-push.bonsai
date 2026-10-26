@@ -1,0 +1,43 @@
+//! flags: -p ssa --dump-ssa-postschedule
+
+// FAILS, on purpose, until the owner's own first push is the deferral it is
+// (the user, 10-25). `run.defer(step, q)` beside `step.defer(step, q)`: the
+// owner's call into the recursion pushes the first entry instead of running
+// the first step, and the drain runs every step in rounds (QueueSpec::
+// initial_push). That push ends the owner's iteration as any deferral does,
+// and should be the terminator `defer q_queue <entry> yield` in the loop
+// body -- where it is today an `@n = push ..` instruction followed by `jmp
+// q!end`, with `q!end` a block holding the yield: the instruction-and-jump
+// form the Defer terminator replaced everywhere else (ssa/defer-terminator).
+// The lowered program is the same either way; what differs is that one
+// deferral is spelled unlike the others, and an analysis that reads the
+// block's end sees a jump where the iteration ends.
+//
+// The expectation is the intended shape written by hand over today's dump:
+// `!par_body_0` ending in `defer q_queue @2 yield` and no `q!end` block.
+// Its exact spelling is a guess; when the change lands, read the dump and
+// bless it (BONSAI_UPDATE_EXPECT=1) rather than trust this file's letters.
+import stdlib/numerics;
+
+func step(x : Float, n : i32, acc : reduce(+) Float) -> void {
+    acc += x;
+    if n > 0 {
+        step(x * 0.5, n - 1, acc);
+    }
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        acc : reduce(+) Float = 0.0;
+        step(values[i], 3, acc);
+        out[i] = acc;
+    }
+    return;
+}
+
+schedule {
+    q = run.queue(root);
+    run.defer(step, q);
+    step.defer(step, q);
+}

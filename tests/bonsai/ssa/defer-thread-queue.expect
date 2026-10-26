@@ -35,21 +35,21 @@ func run(values : f32[12], counts : u32[1], out : mut f32[4], done : mut f32[4])
     }
     rays!round = 0u
     while (!(rays_queue[(*rays!round) & 1u].count == 0u)) {
-      let @18 = (*rays!round) & 1u in
-      let @20 = rays_queue[(*rays!round) & 1u].count in
-      let @22 = @18 ^ 1u in
-      rays_queue[@22].count = 0u
-      parfor rays in [0u:@20:1u] {
-        let @23 = (&rays_queue[@22]) in
-        let @27 = rays_queue[@18].x in
-        let @28 = @27[rays] in
-        let @30 = rays_queue[@18].n in
-        let @31 = @30[rays] in
-        step(@28, @31, i, out, @23)
+      let @17 = (*rays!round) & 1u in
+      let @19 = rays_queue[(*rays!round) & 1u].count in
+      let @21 = @17 ^ 1u in
+      rays_queue[@21].count = 0u
+      parfor rays in [0u:@19:1u] {
+        let @22 = (&rays_queue[@21]) in
+        let @26 = rays_queue[@17].x in
+        let @27 = @26[rays] in
+        let @29 = rays_queue[@17].n in
+        let @30 = @29[rays] in
+        step(@27, @30, i, out, @22)
         continue
       }
-      let @17 = (*rays!round) + 1u in
-      rays!round = @17
+      let @16 = (*rays!round) + 1u in
+      rays!round = @16
     }
     parfor rays_rest in [0u:m:1u] {
       let @5 = done[i] in

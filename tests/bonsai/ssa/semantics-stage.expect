@@ -78,57 +78,57 @@ func render(max_depth : i32, film : mut f32[8]) -> void {
   }
   rays!round = 0u
   while (!((*rays_queue).count == 0u)) {
-    let @10 = (*rays_queue).count in
-    let @20 = build<Queue_hits>(0u, undef, undef, hits!None_ray_d, undef, hits!None__slot, undef) in
-    hits_queue[0u] = @20
-    let @22 = build<Queue_hits>(0u, hits!Some_@0_value_p, undef, hits!Some_ray_d, hits!Some_depth, hits!Some__slot, hits!Some__bits0) in
-    hits_queue[1u] = @22
-    parfor rays in [0u:@10:1u] {
-      let @13 = rays_ray_o[rays] in
-      let @14 = rays_ray_d[rays] in
-      let @15 = build<Ray>(@13, @14) in
-      let @16 = rays_depth[rays] in
-      let @17 = rays__slot[rays] in
-      step(@15, @16, max_depth, (&rays_rad_slots[@17]), rays_queue, @17, hits_queue, @17)
+    let @9 = (*rays_queue).count in
+    let @19 = build<Queue_hits>(0u, undef, undef, hits!None_ray_d, undef, hits!None__slot, undef) in
+    hits_queue[0u] = @19
+    let @21 = build<Queue_hits>(0u, hits!Some_@0_value_p, undef, hits!Some_ray_d, hits!Some_depth, hits!Some__slot, hits!Some__bits0) in
+    hits_queue[1u] = @21
+    parfor rays in [0u:@9:1u] {
+      let @12 = rays_ray_o[rays] in
+      let @13 = rays_ray_d[rays] in
+      let @14 = build<Ray>(@12, @13) in
+      let @15 = rays_depth[rays] in
+      let @16 = rays__slot[rays] in
+      step(@14, @15, max_depth, (&rays_rad_slots[@16]), rays_queue, @16, hits_queue, @16)
       continue
     }
     rays_queue.count = 0u
-    let @25 = hits_queue[0u] in
-    let @26 = @25.count in
-    parfor hits!None in [0u:@26:1u] {
-      let @29 = hits_queue[0u].ray_d in
-      let @30 = @29[hits!None] in
-      let @31 = build<Ray>(undef, @30) in
-      let @33 = hits_queue[0u]._slot in
-      let @34 = @33[hits!None] in
-      step!after!None(undef, @31, undef, max_depth, (&rays_rad_slots[@34]), rays_queue, undef)
+    let @24 = hits_queue[0u] in
+    let @25 = @24.count in
+    parfor hits!None in [0u:@25:1u] {
+      let @28 = hits_queue[0u].ray_d in
+      let @29 = @28[hits!None] in
+      let @30 = build<Ray>(undef, @29) in
+      let @32 = hits_queue[0u]._slot in
+      let @33 = @32[hits!None] in
+      step!after!None(undef, @30, undef, max_depth, (&rays_rad_slots[@33]), rays_queue, undef)
       continue
     }
-    let @37 = hits_queue[1u] in
-    let @38 = @37.count in
-    parfor hits!Some in [0u:@38:1u] {
-      let @41 = hits_queue[1u].@0_value_p in
-      let @42 = @41[hits!Some] in
-      let @43 = build<Hit>(@42) in
-      let @45 = hits_queue[1u]._bits0 in
-      let @46 = @45[hits!Some] in
-      let @47 = @46 & 1u in
-      let @48 = @47 != 0u in
-      let @49 = build<_option0>(@43, @48) in
-      let @51 = hits_queue[1u].ray_d in
-      let @52 = @51[hits!Some] in
-      let @53 = build<Ray>(undef, @52) in
-      let @55 = hits_queue[1u].depth in
-      let @56 = @55[hits!Some] in
-      let @58 = hits_queue[1u]._slot in
-      let @59 = @58[hits!Some] in
-      step!after!Some(@49, @53, @56, max_depth, (&rays_rad_slots[@59]), rays_queue, @59)
+    let @36 = hits_queue[1u] in
+    let @37 = @36.count in
+    parfor hits!Some in [0u:@37:1u] {
+      let @40 = hits_queue[1u].@0_value_p in
+      let @41 = @40[hits!Some] in
+      let @42 = build<Hit>(@41) in
+      let @44 = hits_queue[1u]._bits0 in
+      let @45 = @44[hits!Some] in
+      let @46 = @45 & 1u in
+      let @47 = @46 != 0u in
+      let @48 = build<_option0>(@42, @47) in
+      let @50 = hits_queue[1u].ray_d in
+      let @51 = @50[hits!Some] in
+      let @52 = build<Ray>(undef, @51) in
+      let @54 = hits_queue[1u].depth in
+      let @55 = @54[hits!Some] in
+      let @57 = hits_queue[1u]._slot in
+      let @58 = @57[hits!Some] in
+      step!after!Some(@48, @52, @55, max_depth, (&rays_rad_slots[@58]), rays_queue, @58)
       continue
     }
     hits_queue[0u].count = 0u
     hits_queue[1u].count = 0u
-    let @8 = (*rays!round) + 1u in
-    rays!round = @8
+    let @7 = (*rays!round) + 1u in
+    rays!round = @7
   }
   parfor rays_rest in [0:8:1] {
     let rad = (&rays_rad_slots[rays_rest]) in

@@ -76,40 +76,40 @@ func render(max_depth : i32, film : mut f32[8]) -> void {
   }
   rays!round = 0u
   while (!((*rays_queue).count == 0u)) {
-    let @12 = (*rays_queue).count in
-    let @25 = build<Queue_hits>(0u, hits_h_p, undef, hits_ray_d, hits_depth, hits__slot) in
-    hits_queue = @25
-    parfor rays in [0u:@12:1u] {
-      let @15 = rays_ray_o[rays] in
-      let @16 = rays_ray_d[rays] in
-      let @17 = build<Ray>(@15, @16) in
-      let @18 = rays__slot[rays] in
-      let @19 = cast<f32>(@18) in
-      let @20 = @19 * 0.0625f in
-      let @21 = 0.5f + @20 in
-      let @22 = rays_depth[rays] in
-      step(@17, @21, @22, @18, max_depth, (&rays_rad_slots[@18]), rays_queue, @18, hits_queue, @18)
+    let @11 = (*rays_queue).count in
+    let @24 = build<Queue_hits>(0u, hits_h_p, undef, hits_ray_d, hits_depth, hits__slot) in
+    hits_queue = @24
+    parfor rays in [0u:@11:1u] {
+      let @14 = rays_ray_o[rays] in
+      let @15 = rays_ray_d[rays] in
+      let @16 = build<Ray>(@14, @15) in
+      let @17 = rays__slot[rays] in
+      let @18 = cast<f32>(@17) in
+      let @19 = @18 * 0.0625f in
+      let @20 = 0.5f + @19 in
+      let @21 = rays_depth[rays] in
+      step(@16, @20, @21, @17, max_depth, (&rays_rad_slots[@17]), rays_queue, @17, hits_queue, @17)
       continue
     }
     rays_queue.count = 0u
-    let @26 = (*hits_queue) in
-    let @27 = @26.count in
-    parfor hits in [0u:@27:1u] {
-      let @28 = hits_h_p[hits] in
-      let @29 = build<Hit>(@28) in
-      let @30 = hits_ray_d[hits] in
-      let @31 = build<Ray>(undef, @30) in
-      let @32 = hits__slot[hits] in
-      let @33 = cast<f32>(@32) in
-      let @34 = @33 * 0.0625f in
-      let @35 = 0.5f + @34 in
-      let @36 = hits_depth[hits] in
-      shade(@29, @31, @35, @36, undef, max_depth, (&rays_rad_slots[@32]), rays_queue, @32)
+    let @25 = (*hits_queue) in
+    let @26 = @25.count in
+    parfor hits in [0u:@26:1u] {
+      let @27 = hits_h_p[hits] in
+      let @28 = build<Hit>(@27) in
+      let @29 = hits_ray_d[hits] in
+      let @30 = build<Ray>(undef, @29) in
+      let @31 = hits__slot[hits] in
+      let @32 = cast<f32>(@31) in
+      let @33 = @32 * 0.0625f in
+      let @34 = 0.5f + @33 in
+      let @35 = hits_depth[hits] in
+      shade(@28, @30, @34, @35, undef, max_depth, (&rays_rad_slots[@31]), rays_queue, @31)
       continue
     }
     hits_queue.count = 0u
-    let @10 = (*rays!round) + 1u in
-    rays!round = @10
+    let @9 = (*rays!round) + 1u in
+    rays!round = @9
   }
   parfor rays_rest in [0:8:1] {
     let rad = (&rays_rad_slots[rays_rest]) in

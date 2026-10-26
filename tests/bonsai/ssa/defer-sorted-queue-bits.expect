@@ -37,14 +37,14 @@ func run(values : u32[40], total : mut (i32*)) -> void {
     let @10 = x$i6 & 8u in
     let @11 = @10 << 6u in
     let @12 = @9 | @11 in
-    let @54 = i >> 31 in
-    let @55 = reinterpret_cast<u32>(@54) in
-    let @56 = @55 >> 31u in
-    let @57 = reinterpret_cast<i32>(@56) in
-    let @58 = i + @57 in
-    let @59 = @58 >> 1 in
-    let @60 = @59 * 2 in
-    let _t23 = i - @60 in
+    let @53 = i >> 31 in
+    let @54 = reinterpret_cast<u32>(@53) in
+    let @55 = @54 >> 31u in
+    let @56 = reinterpret_cast<i32>(@55) in
+    let @57 = i + @56 in
+    let @58 = @57 >> 1 in
+    let @59 = @58 * 2 in
+    let _t23 = i - @59 in
     let _t24 = cast<u32>(_t23) in
     let @16 = _t24 & 1u in
     let @17 = cast<u64>(@16) in
@@ -64,28 +64,28 @@ func run(values : u32[40], total : mut (i32*)) -> void {
   }
   rays!round = 0u
   while (!(rays_queue[(*rays!round) & 1u].count == 0u)) {
-    let @29 = (*rays!round) & 1u in
-    let @31 = rays_queue[(*rays!round) & 1u].count in
-    let @33 = @29 ^ 1u in
-    rays_queue[@33].count = 0u
-    let @38 = rays_queue[@29]._sort_key in
-    let @39 = sort_indices(@38, rays__perm, @31, 13u) in
-    parfor rays in [0u:@31:1u] {
-      let @34 = (&rays_queue[@33]) in
-      let @40 = rays__perm[rays] in
-      let @43 = rays_queue[@29].x in
-      let @44 = @43[@40] in
-      let @46 = rays_queue[@29].y in
-      let @47 = @46[@40] in
-      let @49 = rays_queue[@29].n in
-      let @50 = @49[@40] in
-      let @52 = rays_queue[@29]._sort_key in
-      let @53 = @52[@40] in
-      step(@44, @47, @50, total, @53, @34)
+    let @28 = (*rays!round) & 1u in
+    let @30 = rays_queue[(*rays!round) & 1u].count in
+    let @32 = @28 ^ 1u in
+    rays_queue[@32].count = 0u
+    let @37 = rays_queue[@28]._sort_key in
+    let @38 = sort_indices(@37, rays__perm, @30, 13u) in
+    parfor rays in [0u:@30:1u] {
+      let @33 = (&rays_queue[@32]) in
+      let @39 = rays__perm[rays] in
+      let @42 = rays_queue[@28].x in
+      let @43 = @42[@39] in
+      let @45 = rays_queue[@28].y in
+      let @46 = @45[@39] in
+      let @48 = rays_queue[@28].n in
+      let @49 = @48[@39] in
+      let @51 = rays_queue[@28]._sort_key in
+      let @52 = @51[@39] in
+      step(@43, @46, @49, total, @52, @33)
       continue
     }
-    let @28 = (*rays!round) + 1u in
-    rays!round = @28
+    let @27 = (*rays!round) + 1u in
+    rays!round = @27
   }
   return
 }

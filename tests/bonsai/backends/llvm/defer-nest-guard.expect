@@ -47,7 +47,7 @@ rays_rest4_pf_head.preheader:                     ; preds = %rays3_pf_exit, %ii1
   br i1 %.not120, label %"!step_call_cont_4.2", label %rays_rest4_pf_latch.2
 
 "rays!batch":                                     ; preds = %ii1_pf_latch.3, %rays3_pf_exit
-  %"@24.count98" = phi i32 [ %"@24.count", %rays3_pf_exit ], [ %"@24.count95", %ii1_pf_latch.3 ]
+  %"@23.count98" = phi i32 [ %"@23.count", %rays3_pf_exit ], [ %"@23.count95", %ii1_pf_latch.3 ]
   %extract_ptr5397 = phi ptr [ %extract_ptr53, %rays3_pf_exit ], [ %rays_queue85, %ii1_pf_latch.3 ]
   %2 = phi i32 [ %27, %rays3_pf_exit ], [ 0, %ii1_pf_latch.3 ]
   %"rays!round596" = phi i32 [ %26, %rays3_pf_exit ], [ 0, %ii1_pf_latch.3 ]
@@ -59,7 +59,7 @@ rays_rest4_pf_head.preheader:                     ; preds = %rays3_pf_exit, %ii1
   %extract60.fca.2.gep = getelementptr inbounds nuw i8, ptr %extract_ptr5397, i64 16
   %4 = getelementptr inbounds nuw i8, ptr %rays_queue56, i64 8
   %5 = getelementptr inbounds nuw i8, ptr %rays_queue56, i64 16
-  %wide.trip.count = zext i32 %"@24.count98" to i64
+  %wide.trip.count = zext i32 %"@23.count98" to i64
   br label %"rays!run"
 
 j2_pf_head.preheader:                             ; preds = %"!par_body_0_split_io"
@@ -170,8 +170,8 @@ j2_pf_head.preheader.3:                           ; preds = %ii1_pf_latch.2
   br label %ii1_pf_latch.3
 
 ii1_pf_latch.3:                                   ; preds = %j2_pf_head.preheader.3, %ii1_pf_latch.2
-  %"@24.count95" = load i32, ptr %rays_queue85, align 16
-  %21 = icmp eq i32 %"@24.count95", 0
+  %"@23.count95" = load i32, ptr %rays_queue85, align 16
+  %21 = icmp eq i32 %"@23.count95", 0
   br i1 %21, label %rays_rest4_pf_head.preheader, label %"rays!batch"
 
 "rays!run":                                       ; preds = %"rays!batch", %step.exit
@@ -210,8 +210,8 @@ rays3_pf_exit:                                    ; preds = %step.exit
   %27 = and i32 %26, 1
   %_wide52 = zext nneg i32 %27 to i64
   %extract_ptr53 = getelementptr inbounds nuw [24 x i8], ptr %rays_queue85, i64 %_wide52
-  %"@24.count" = load i32, ptr %extract_ptr53, align 8
-  %28 = icmp eq i32 %"@24.count", 0
+  %"@23.count" = load i32, ptr %extract_ptr53, align 8
+  %28 = icmp eq i32 %"@23.count", 0
   br i1 %28, label %rays_rest4_pf_head.preheader, label %"rays!batch"
 
 "!step_call_cont_4.2":                            ; preds = %rays_rest4_pf_head.preheader

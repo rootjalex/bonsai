@@ -68,14 +68,14 @@ func [[export]] run(values : f32[40], out : mut f32x4[40]) -> void {
     rays_total_z_slots[i] = 0f
     rays_total_w_slots[i] = 0f
     let @1 = values[i] in
-    let @37 = i >> 31 in
-    let @38 = reinterpret_cast<u32>(@37) in
-    let @39 = @38 >> 30u in
-    let @40 = reinterpret_cast<i32>(@39) in
-    let @41 = i + @40 in
-    let @42 = @41 >> 2 in
-    let @43 = @42 * 4 in
-    let @2 = i - @43 in
+    let @36 = i >> 31 in
+    let @37 = reinterpret_cast<u32>(@36) in
+    let @38 = @37 >> 30u in
+    let @39 = reinterpret_cast<i32>(@38) in
+    let @40 = i + @39 in
+    let @41 = @40 >> 2 in
+    let @42 = @41 * 4 in
+    let @2 = i - @42 in
     let @11 = build<Entry_rays>(@1, @2, i) in
     let @70 = atomic_add((&rays_queue[0u].count), 1u) in
     let @72 = rays_queue[0u].x in
@@ -88,29 +88,29 @@ func [[export]] run(values : f32[40], out : mut f32x4[40]) -> void {
   }
   rays!round = 0u
   while (!(rays_queue[(*rays!round) & 1u].count == 0u)) {
-    let @15 = (*rays!round) & 1u in
-    let @17 = rays_queue[(*rays!round) & 1u].count in
-    let @19 = @15 ^ 1u in
-    rays_queue[@19].count = 0u
-    parfor rays_gang in [0u:@17:16u] {
-      let @20 = (&rays_queue[@19]) in
-      let @34 = rays_queue[(*rays!round) & 1u].count in
-      let @48 = u32x16(@34) in
-      let @36 = ramp(rays_gang, 1u, 16) < @48 in
-      let @45 = reduce<any>(@36) in
-      if (@45) {
-        let @24 = rays_queue[@15].x in
-        let @25 = masked_extract(@24[ramp(rays_gang, 1u, 16)], @36) in
-        let @27 = rays_queue[@15].n in
-        let @28 = masked_extract(@27[ramp(rays_gang, 1u, 16)], @36) in
-        let @30 = rays_queue[@15]._slot in
-        let @31 = masked_extract(@30[ramp(rays_gang, 1u, 16)], @36) in
-        step$gang16_v0_v1_v2_v4$masked(@25, @28, (&rays_total_x_slots[@31]), (&rays_total_y_slots[@31]), (&rays_total_z_slots[@31]), (&rays_total_w_slots[@31]), @20, @31, @36)
+    let @14 = (*rays!round) & 1u in
+    let @16 = rays_queue[(*rays!round) & 1u].count in
+    let @18 = @14 ^ 1u in
+    rays_queue[@18].count = 0u
+    parfor rays_gang in [0u:@16:16u] {
+      let @19 = (&rays_queue[@18]) in
+      let @33 = rays_queue[(*rays!round) & 1u].count in
+      let @47 = u32x16(@33) in
+      let @35 = ramp(rays_gang, 1u, 16) < @47 in
+      let @44 = reduce<any>(@35) in
+      if (@44) {
+        let @23 = rays_queue[@14].x in
+        let @24 = masked_extract(@23[ramp(rays_gang, 1u, 16)], @35) in
+        let @26 = rays_queue[@14].n in
+        let @27 = masked_extract(@26[ramp(rays_gang, 1u, 16)], @35) in
+        let @29 = rays_queue[@14]._slot in
+        let @30 = masked_extract(@29[ramp(rays_gang, 1u, 16)], @35) in
+        step$gang16_v0_v1_v2_v4$masked(@24, @27, (&rays_total_x_slots[@30]), (&rays_total_y_slots[@30]), (&rays_total_z_slots[@30]), (&rays_total_w_slots[@30]), @19, @30, @35)
       }
       continue
     }
-    let @14 = (*rays!round) + 1u in
-    rays!round = @14
+    let @13 = (*rays!round) + 1u in
+    rays!round = @13
   }
   parfor rays_rest in [0:40:1] {
     let i = rays_rest in
@@ -118,12 +118,12 @@ func [[export]] run(values : f32[40], out : mut f32x4[40]) -> void {
     let total!arg_y = (&rays_total_y_slots[rays_rest]) in
     let total!arg_z = (&rays_total_z_slots[rays_rest]) in
     let total!arg_w = (&rays_total_w_slots[rays_rest]) in
-    let @63 = (*total!arg_x) in
-    let @64 = (*total!arg_y) in
-    let @65 = (*total!arg_z) in
-    let @66 = (*total!arg_w) in
-    let @67 = build<f32x4>(@63, @64, @65, @66) in
-    out[i] = @67
+    let @62 = (*total!arg_x) in
+    let @63 = (*total!arg_y) in
+    let @64 = (*total!arg_z) in
+    let @65 = (*total!arg_w) in
+    let @66 = build<f32x4>(@62, @63, @64, @65) in
+    out[i] = @66
     continue
   }
   return

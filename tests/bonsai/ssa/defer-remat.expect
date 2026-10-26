@@ -110,31 +110,31 @@ func run2(out : mut i32[8]) -> void {
   }
   q!round = 0u
   while (!(q_queue[(*q!round) & 1u].count == 0u)) {
-    let @12 = (*q!round) & 1u in
-    let @14 = q_queue[(*q!round) & 1u].count in
-    let @16 = @12 ^ 1u in
-    q_queue[@16].count = 0u
-    parfor q in [0u:@14:1u] {
-      let @17 = (&q_queue[@16]) in
-      let @21 = q_queue[@12].n in
-      let @22 = @21[q] in
-      let @24 = q_queue[@12].acc in
-      let @25 = @24[q] in
-      let @27 = q_queue[@12].neg in
-      let @28 = @27[q] in
-      let @30 = q_queue[@12].twice in
-      let @31 = @30[q] in
-      let @33 = q_queue[@12]._slot in
-      let @34 = @33[q] in
-      walk(@22, @25, @28, @31, @17, (&q_result[@34]), @34)
+    let @11 = (*q!round) & 1u in
+    let @13 = q_queue[(*q!round) & 1u].count in
+    let @15 = @11 ^ 1u in
+    q_queue[@15].count = 0u
+    parfor q in [0u:@13:1u] {
+      let @16 = (&q_queue[@15]) in
+      let @20 = q_queue[@11].n in
+      let @21 = @20[q] in
+      let @23 = q_queue[@11].acc in
+      let @24 = @23[q] in
+      let @26 = q_queue[@11].neg in
+      let @27 = @26[q] in
+      let @29 = q_queue[@11].twice in
+      let @30 = @29[q] in
+      let @32 = q_queue[@11]._slot in
+      let @33 = @32[q] in
+      walk(@21, @24, @27, @30, @16, (&q_result[@33]), @33)
       continue
     }
-    let @11 = (*q!round) + 1u in
-    q!round = @11
+    let @10 = (*q!round) + 1u in
+    q!round = @10
   }
   parfor q_rest in [0:8:1] {
-    let @37 = q_result[q_rest] in
-    let @0 = @37 in
+    let @36 = q_result[q_rest] in
+    let @0 = @36 in
     let i = q_rest in
     out[i] = @0
     continue

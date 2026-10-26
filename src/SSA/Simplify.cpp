@@ -2361,7 +2361,18 @@ void resolve_uses(Function &func, const Simplifier &s) {
                            resolve_jump(sp.cont, s);
                        },
                        [&](Terminator::Join &j) { resolve_jump(j.next, s); },
-                       [&](Terminator::Defer &) {},
+                       [&](Terminator::Defer &d) {
+                           // A deferral uses its queue, its entry and its
+                           // answer as a push instruction uses its operands;
+                           // left unresolved (until 10-25) the queue's
+                           // address, computed in the block and merged with
+                           // the owner's by value numbering, dangled.
+                           d.queue = s.resolve(d.queue);
+                           d.entry = s.resolve(d.entry);
+                           if (d.answer) {
+                               d.answer = s.resolve(d.answer);
+                           }
+                       },
                        [&](Terminator::MultiCall &c) {
                            resolve_jump(c.call, s);
                            resolve_jump(c.cont, s);

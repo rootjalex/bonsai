@@ -72,34 +72,34 @@ func render(max_depth : i32, film : mut f32[8]) -> void {
   }
   rays!round = 0u
   while (!((*rays_queue).count == 0u)) {
-    let @10 = (*rays_queue).count in
-    let @20 = build<Queue_hits>(0u, hits_h_p, undef, hits_ray_d, hits_depth, hits__slot) in
-    hits_queue = @20
-    parfor rays in [0u:@10:1u] {
-      let @13 = rays_ray_o[rays] in
-      let @14 = rays_ray_d[rays] in
-      let @15 = build<Ray>(@13, @14) in
-      let @16 = rays_depth[rays] in
-      let @17 = rays__slot[rays] in
-      step(@15, @16, @17, max_depth, (&rays_rad_slots[@17]), rays_queue, @17, hits_queue, @17)
+    let @9 = (*rays_queue).count in
+    let @19 = build<Queue_hits>(0u, hits_h_p, undef, hits_ray_d, hits_depth, hits__slot) in
+    hits_queue = @19
+    parfor rays in [0u:@9:1u] {
+      let @12 = rays_ray_o[rays] in
+      let @13 = rays_ray_d[rays] in
+      let @14 = build<Ray>(@12, @13) in
+      let @15 = rays_depth[rays] in
+      let @16 = rays__slot[rays] in
+      step(@14, @15, @16, max_depth, (&rays_rad_slots[@16]), rays_queue, @16, hits_queue, @16)
       continue
     }
     rays_queue.count = 0u
-    let @21 = (*hits_queue) in
-    let @22 = @21.count in
-    parfor hits in [0u:@22:1u] {
-      let @23 = hits_h_p[hits] in
-      let @24 = build<Hit>(@23) in
-      let @25 = hits_ray_d[hits] in
-      let @26 = build<Ray>(undef, @25) in
-      let @27 = hits_depth[hits] in
-      let @28 = hits__slot[hits] in
-      shade(@24, @26, @27, undef, max_depth, (&rays_rad_slots[@28]), rays_queue, @28)
+    let @20 = (*hits_queue) in
+    let @21 = @20.count in
+    parfor hits in [0u:@21:1u] {
+      let @22 = hits_h_p[hits] in
+      let @23 = build<Hit>(@22) in
+      let @24 = hits_ray_d[hits] in
+      let @25 = build<Ray>(undef, @24) in
+      let @26 = hits_depth[hits] in
+      let @27 = hits__slot[hits] in
+      shade(@23, @25, @26, undef, max_depth, (&rays_rad_slots[@27]), rays_queue, @27)
       continue
     }
     hits_queue.count = 0u
-    let @8 = (*rays!round) + 1u in
-    rays!round = @8
+    let @7 = (*rays!round) + 1u in
+    rays!round = @7
   }
   parfor rays_rest in [0:8:1] {
     let rad = (&rays_rad_slots[rays_rest]) in

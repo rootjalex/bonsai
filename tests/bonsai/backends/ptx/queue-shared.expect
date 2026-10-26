@@ -27,7 +27,7 @@ sums_rest:                                        ; preds = %sums_join, %s_join
   br i1 %in_phase, label %"sums_rest!run", label %sums_rest_join
 
 "sums!batch":                                     ; preds = %"sums!batch.lr.ph", %sums_join
-  %"@15.count100" = phi i32 [ %"@15.count97", %"sums!batch.lr.ph" ], [ %"@15.count", %sums_join ]
+  %"@14.count100" = phi i32 [ %"@14.count97", %"sums!batch.lr.ph" ], [ %"@14.count", %sums_join ]
   %extract_ptr99 = phi ptr [ addrspacecast (ptr addrspace(3) @_kernel_p_0_sums_queue to ptr), %"sums!batch.lr.ph" ], [ %extract_ptr, %sums_join ]
   %1 = phi i32 [ 0, %"sums!batch.lr.ph" ], [ %23, %sums_join ]
   %"sums!round498" = phi i32 [ 0, %"sums!batch.lr.ph" ], [ %22, %sums_join ]
@@ -105,8 +105,8 @@ if_lane_after43:                                  ; preds = %if_lane42, %if_lane
 
 s_join:                                           ; preds = %"!par_body_2", %if_lane_after43
   tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
-  %"@15.count97" = load i32, ptr addrspacecast (ptr addrspace(3) @_kernel_p_0_sums_queue to ptr), align 4
-  %20 = icmp eq i32 %"@15.count97", 0
+  %"@14.count97" = load i32, ptr addrspacecast (ptr addrspace(3) @_kernel_p_0_sums_queue to ptr), align 4
+  %20 = icmp eq i32 %"@14.count97", 0
   br i1 %20, label %sums_rest, label %"sums!batch.lr.ph"
 
 "sums!batch.lr.ph":                               ; preds = %s_join
@@ -122,7 +122,7 @@ if_lane_after54:                                  ; preds = %"sums!batch", %if_l
   tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
   tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
   %ptr_array_deref = getelementptr inbounds nuw [32 x i8], ptr addrspacecast (ptr addrspace(3) @_kernel_p_0_sums_queue to ptr), i64 %_wide55
-  %21 = icmp ult i32 %tid, %"@15.count100"
+  %21 = icmp ult i32 %tid, %"@14.count100"
   %or.cond = and i1 %in_phase, %21
   br i1 %or.cond, label %"sums!run", label %sums_join
 
@@ -132,8 +132,8 @@ sums_join:                                        ; preds = %"!merge_1.i", %"!th
   %23 = and i32 %22, 1
   %_wide49 = zext nneg i32 %23 to i64
   %extract_ptr = getelementptr inbounds nuw [32 x i8], ptr addrspacecast (ptr addrspace(3) @_kernel_p_0_sums_queue to ptr), i64 %_wide49
-  %"@15.count" = load i32, ptr %extract_ptr, align 4
-  %24 = icmp eq i32 %"@15.count", 0
+  %"@14.count" = load i32, ptr %extract_ptr, align 4
+  %24 = icmp eq i32 %"@14.count", 0
   br i1 %24, label %sums_rest, label %"sums!batch"
 
 "sums!run":                                       ; preds = %if_lane_after54

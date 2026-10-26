@@ -44,45 +44,45 @@ func run(out : mut i32[4]) -> void {
   }
   paths!round = 0u
   while (!(paths_queue[(*paths!round) & 1u].count == 0u)) {
-    let @23 = (*paths!round) & 1u in
-    let @25 = paths_queue[(*paths!round) & 1u].count in
-    let @27 = @23 ^ 1u in
-    paths_queue[@27].count = 0u
-    parfor paths in [0u:@25:1u] {
-      let @28 = (&paths_queue[@27]) in
-      let @32 = paths_queue[@23].x in
-      let @33 = @32[paths] in
-      let @35 = paths_queue[@23].depth in
-      let @36 = @35[paths] in
-      let @38 = paths_queue[@23]._slot in
-      let @39 = @38[paths] in
-      step(@33, @36, (&paths_total_slots[@39]), @28, @39)
+    let @22 = (*paths!round) & 1u in
+    let @24 = paths_queue[(*paths!round) & 1u].count in
+    let @26 = @22 ^ 1u in
+    paths_queue[@26].count = 0u
+    parfor paths in [0u:@24:1u] {
+      let @27 = (&paths_queue[@26]) in
+      let @31 = paths_queue[@22].x in
+      let @32 = @31[paths] in
+      let @34 = paths_queue[@22].depth in
+      let @35 = @34[paths] in
+      let @37 = paths_queue[@22]._slot in
+      let @38 = @37[paths] in
+      step(@32, @35, (&paths_total_slots[@38]), @27, @38)
       continue
     }
-    let @22 = (*paths!round) + 1u in
-    paths!round = @22
+    let @21 = (*paths!round) + 1u in
+    paths!round = @21
   }
   parfor paths_rest in [0:@8:1] {
-    let @48 = paths_rest >> 31 in
-    let @49 = reinterpret_cast<u32>(@48) in
-    let @50 = @49 >> 30u in
-    let @51 = reinterpret_cast<i32>(@50) in
-    let @52 = paths_rest + @51 in
-    let @42 = @52 >> 2 in
+    let @47 = paths_rest >> 31 in
+    let @48 = reinterpret_cast<u32>(@47) in
+    let @49 = @48 >> 30u in
+    let @50 = reinterpret_cast<i32>(@49) in
+    let @51 = paths_rest + @50 in
+    let @41 = @51 >> 2 in
     let total = (&paths_total_slots[paths_rest]) in
-    let p = @42 in
+    let p = @41 in
     let @3 = (*total) in
     out[p] += @3
     continue
   }
   parfor p$1 in [0:4:1] {
     let @5 = out[p$1] in
-    let @43 = @5 >> 31 in
-    let @44 = reinterpret_cast<u32>(@43) in
-    let @45 = @44 >> 30u in
-    let @46 = reinterpret_cast<i32>(@45) in
-    let @47 = @5 + @46 in
-    let @6 = @47 >> 2 in
+    let @42 = @5 >> 31 in
+    let @43 = reinterpret_cast<u32>(@42) in
+    let @44 = @43 >> 30u in
+    let @45 = reinterpret_cast<i32>(@44) in
+    let @46 = @5 + @45 in
+    let @6 = @46 >> 2 in
     out[p$1] = @6
     continue
   }

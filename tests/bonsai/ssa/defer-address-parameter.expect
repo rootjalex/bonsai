@@ -40,14 +40,14 @@ func grid(sums : mut i32[3]) -> void {
   let @10 = build<Queue_q>(0u, q_k_1, q_acc_1, q_dst_1) in
   q_queue[1u] = @10
   parfor k in [0:12:1] {
-    let @34 = k >> 31 in
-    let @35 = reinterpret_cast<u32>(@34) in
-    let @36 = @35 >> 30u in
-    let @37 = reinterpret_cast<i32>(@36) in
-    let @38 = k + @37 in
-    let @6 = @38 >> 2 in
-    let @45 = @6 * 4 in
-    let @7 = k - @45 in
+    let @33 = k >> 31 in
+    let @34 = reinterpret_cast<u32>(@33) in
+    let @35 = @34 >> 30u in
+    let @36 = reinterpret_cast<i32>(@35) in
+    let @37 = k + @36 in
+    let @6 = @37 >> 2 in
+    let @44 = @6 * 4 in
+    let @7 = k - @44 in
     let y = @6 in
     let x = @7 in
     let total = (&total!expanded[y]) in
@@ -64,23 +64,23 @@ func grid(sums : mut i32[3]) -> void {
   }
   q!round = 0u
   while (!(q_queue[(*q!round) & 1u].count == 0u)) {
-    let @17 = (*q!round) & 1u in
-    let @19 = q_queue[(*q!round) & 1u].count in
-    let @21 = @17 ^ 1u in
-    q_queue[@21].count = 0u
-    parfor q in [0u:@19:1u] {
-      let @22 = (&q_queue[@21]) in
-      let @26 = q_queue[@17].k in
-      let @27 = @26[q] in
-      let @29 = q_queue[@17].acc in
-      let @30 = @29[q] in
-      let @32 = q_queue[@17].dst in
-      let @33 = @32[q] in
-      fill(@27, @30, @33, @22)
+    let @16 = (*q!round) & 1u in
+    let @18 = q_queue[(*q!round) & 1u].count in
+    let @20 = @16 ^ 1u in
+    q_queue[@20].count = 0u
+    parfor q in [0u:@18:1u] {
+      let @21 = (&q_queue[@20]) in
+      let @25 = q_queue[@16].k in
+      let @26 = @25[q] in
+      let @28 = q_queue[@16].acc in
+      let @29 = @28[q] in
+      let @31 = q_queue[@16].dst in
+      let @32 = @31[q] in
+      fill(@26, @29, @32, @21)
       continue
     }
-    let @16 = (*q!round) + 1u in
-    q!round = @16
+    let @15 = (*q!round) + 1u in
+    q!round = @15
   }
   parfor y!epilogue in [0:3:1] {
     let total = (&total!expanded[y]) in

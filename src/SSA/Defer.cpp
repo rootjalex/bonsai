@@ -4761,8 +4761,8 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // one thing for the store and the end (the user, 10-25); `finish` is then
     // told of no slot. Otherwise the push is an instruction the block goes on
     // after: a spawned call's site, which runs its continuation, and the
-    // owner's own first push (initial_push), after which a lone call goes on
-    // to the drain.
+    // owner's own first push (initial_push) when the owner is a lone call,
+    // which goes on to the drain.
     const auto push_entry =
         [&](const shared_ptr<Function> &fn, const shared_ptr<Block> &block,
             const shared_ptr<Value> &base, const shared_ptr<Value> &entry,
@@ -5236,8 +5236,13 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         // The initial push: the owner's call itself pushes the first entry,
         // so that every step runs from the drain -- pbrt's camera rays go
         // through the ray queue and are traced by nothing else. The call's
-        // arguments become the entry as a deferred call's do.
+        // arguments become the entry as a deferred call's do, and the push
+        // is the deferral it is (the user, 10-25): a Terminator::Defer that
+        // ends the owner's iteration where the owner loops over the call; a
+        // lone call's owner pushes and goes on to the drain, so its push
+        // stays an instruction and a jump to `end`.
         if (queue.initial_push) {
+            const bool ends = producer_loop_block != nullptr;
             const Terminator::Call was = pcall;
             vector<shared_ptr<Value>> values;
             for (size_t f = 0; f < fields.size(); f++) {
@@ -5273,12 +5278,20 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                        entry, params_at(producer.block, was.call.args),
                        [&](const shared_ptr<Block> &at, const shared_ptr<Value> &,
                            const shared_ptr<Value> &) {
+                           if (ends) {
+                               return; // the Defer terminator yields
+                           }
                            if (at != producer.block) {
                                end->preds.push_back(at);
                            }
                            at->terminator.data = Terminator::Jump{end->name};
                        },
-                       /*ends=*/false);
+                       ends);
+            if (ends) {
+                // Nothing jumps to `end` now: the iteration ends at the push.
+                end->preds.clear();
+                std::erase(O->blocks, end);
+            }
         }
     }
 

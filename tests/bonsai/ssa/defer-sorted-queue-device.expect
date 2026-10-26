@@ -25,14 +25,14 @@ func run(values : f32[40], total : mut (f32*)) -> void {
   rays_queue[1u] = @7
   parfor i in [0:40:1] {
     let _t22 = values[i] in
-    let @42 = i >> 31 in
-    let @43 = reinterpret_cast<u32>(@42) in
-    let @44 = @43 >> 31u in
-    let @45 = reinterpret_cast<i32>(@44) in
-    let @46 = i + @45 in
-    let @47 = @46 >> 1 in
-    let @48 = @47 * 2 in
-    let @1 = i - @48 in
+    let @41 = i >> 31 in
+    let @42 = reinterpret_cast<u32>(@41) in
+    let @43 = @42 >> 31u in
+    let @44 = reinterpret_cast<i32>(@43) in
+    let @45 = i + @44 in
+    let @46 = @45 >> 1 in
+    let @47 = @46 * 2 in
+    let @1 = i - @47 in
     let @2 = _t22 * 4f in
     let @3 = cast<i32>(@2) in
     let @4 = cast<u64>(@3) in
@@ -48,40 +48,40 @@ func run(values : f32[40], total : mut (f32*)) -> void {
   }
   rays!round = 0u
   do {
-    let @14 = (*rays!round) & 1u in
-    let @15 = rays_queue[@14] in
-    let @16 = @15.count in
-    let @49 = bonsai_cuda_round_guard((*rays!round), (&rays_queue[@14].count)) in
-    let @50 = @49 == 0u in
-    if (@50) {
+    let @13 = (*rays!round) & 1u in
+    let @14 = rays_queue[@13] in
+    let @15 = @14.count in
+    let @48 = bonsai_cuda_round_guard((*rays!round), (&rays_queue[@13].count)) in
+    let @49 = @48 == 0u in
+    if (@49) {
       return
     } else {
-      let @18 = @14 ^ 1u in
-      rays_queue[@18].count = 0u
-      let @23 = rays_queue[@14]._sort_key in
-      let @24 = sort_indices(@23, rays__perm, @16, 64u) in
-      let @36 = cast<u32>(40) in
-      parfor rays in [0u:@36:1u] {
-        let @19 = (&rays_queue[@18]) in
-        let @39 = (&rays_queue[@14].count) in
-        let @40 = (*@39) in
-        let @41 = rays < @40 in
-        if (@41) {
-          let @25 = rays__perm[rays] in
-          let @28 = rays_queue[@14].x in
-          let @29 = @28[@25] in
-          let @31 = rays_queue[@14].n in
-          let @32 = @31[@25] in
-          let @34 = rays_queue[@14]._sort_key in
-          let @35 = @34[@25] in
-          step(@29, @32, total, @35, @19)
+      let @17 = @13 ^ 1u in
+      rays_queue[@17].count = 0u
+      let @22 = rays_queue[@13]._sort_key in
+      let @23 = sort_indices(@22, rays__perm, @15, 64u) in
+      let @35 = cast<u32>(40) in
+      parfor rays in [0u:@35:1u] {
+        let @18 = (&rays_queue[@17]) in
+        let @38 = (&rays_queue[@13].count) in
+        let @39 = (*@38) in
+        let @40 = rays < @39 in
+        if (@40) {
+          let @24 = rays__perm[rays] in
+          let @27 = rays_queue[@13].x in
+          let @28 = @27[@24] in
+          let @30 = rays_queue[@13].n in
+          let @31 = @30[@24] in
+          let @33 = rays_queue[@13]._sort_key in
+          let @34 = @33[@24] in
+          step(@28, @31, total, @34, @18)
           continue
         } else {
           continue
         }
       }
-      let @13 = (*rays!round) + 1u in
-      rays!round = @13
+      let @12 = (*rays!round) + 1u in
+      rays!round = @12
       continue
     }
   } while (true)

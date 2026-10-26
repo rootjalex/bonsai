@@ -21,14 +21,14 @@ func grid(out : mut i32[12], sums : mut i32[3]) -> void {
   let @15 = build<Queue_q>(0u, q_k_1, q_acc_1, q__slot_1) in
   q_queue[1u] = @15
   parfor k in [0:12:1] {
-    let @46 = k >> 31 in
-    let @47 = reinterpret_cast<u32>(@46) in
-    let @48 = @47 >> 30u in
-    let @49 = reinterpret_cast<i32>(@48) in
-    let @50 = k + @49 in
-    let @10 = @50 >> 2 in
-    let @57 = @10 * 4 in
-    let @11 = k - @57 in
+    let @45 = k >> 31 in
+    let @46 = reinterpret_cast<u32>(@45) in
+    let @47 = @46 >> 30u in
+    let @48 = reinterpret_cast<i32>(@47) in
+    let @49 = k + @48 in
+    let @10 = @49 >> 2 in
+    let @56 = @10 * 4 in
+    let @11 = k - @56 in
     let y = @10 in
     let x = @11 in
     let total = (&total!expanded[y]) in
@@ -45,38 +45,38 @@ func grid(out : mut i32[12], sums : mut i32[3]) -> void {
   }
   q!round = 0u
   while (!(q_queue[(*q!round) & 1u].count == 0u)) {
-    let @22 = (*q!round) & 1u in
-    let @24 = q_queue[(*q!round) & 1u].count in
-    let @26 = @22 ^ 1u in
-    q_queue[@26].count = 0u
-    parfor q in [0u:@24:1u] {
-      let @27 = (&q_queue[@26]) in
-      let @31 = q_queue[@22].k in
-      let @32 = @31[q] in
-      let @34 = q_queue[@22].acc in
-      let @35 = @34[q] in
-      let @37 = q_queue[@22]._slot in
-      let @38 = @37[q] in
-      walk(@32, @35, @27, (&q_result[@38]), @38)
+    let @21 = (*q!round) & 1u in
+    let @23 = q_queue[(*q!round) & 1u].count in
+    let @25 = @21 ^ 1u in
+    q_queue[@25].count = 0u
+    parfor q in [0u:@23:1u] {
+      let @26 = (&q_queue[@25]) in
+      let @30 = q_queue[@21].k in
+      let @31 = @30[q] in
+      let @33 = q_queue[@21].acc in
+      let @34 = @33[q] in
+      let @36 = q_queue[@21]._slot in
+      let @37 = @36[q] in
+      walk(@31, @34, @26, (&q_result[@37]), @37)
       continue
     }
-    let @21 = (*q!round) + 1u in
-    q!round = @21
+    let @20 = (*q!round) + 1u in
+    q!round = @20
   }
   parfor q_rest in [0:12:1] {
-    let @41 = q_result[q_rest] in
-    let @58 = q_rest >> 31 in
-    let @59 = reinterpret_cast<u32>(@58) in
-    let @60 = @59 >> 30u in
-    let @61 = reinterpret_cast<i32>(@60) in
-    let @62 = q_rest + @61 in
-    let @42 = @62 >> 2 in
-    let @69 = @42 * 4 in
-    let @43 = q_rest - @69 in
-    let @1 = @41 in
-    let y = @42 in
-    let x = @43 in
-    let total = (&total!expanded[@42]) in
+    let @40 = q_result[q_rest] in
+    let @57 = q_rest >> 31 in
+    let @58 = reinterpret_cast<u32>(@57) in
+    let @59 = @58 >> 30u in
+    let @60 = reinterpret_cast<i32>(@59) in
+    let @61 = q_rest + @60 in
+    let @41 = @61 >> 2 in
+    let @68 = @41 * 4 in
+    let @42 = q_rest - @68 in
+    let @1 = @40 in
+    let y = @41 in
+    let x = @42 in
+    let total = (&total!expanded[@41]) in
     let v = @1 in
     let @2 = y << 2 in
     let @3 = @2 + x in
