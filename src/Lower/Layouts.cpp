@@ -52,6 +52,18 @@ struct LayoutTypeMap {
         ir::Group::Type type = ir::Group::Type::Indirect;
     };
     std::map<std::string, Named> groups;
+    // Groups indexed by (holder, ordinal) (ir::Group::holder_name), by what
+    // the source called them: the elements of a holder's set, each computed
+    // from the pair and stored nowhere. Reached by a stored-element read
+    // through the field the schedule bound to the group (`Mesh.tris :
+    // OptixTree from tris`): the read substitutes the holder's value and the
+    // ordinal into the members' expressions and builds the element.
+    struct OfHolder {
+        std::string holder_name, ordinal_name;
+        ir::Type holder_t, ordinal_t;
+        ir::Layout inner; // the computed members (ir::Materialize)
+    };
+    std::map<std::string, OfHolder> of_holder;
     // Element fields the schedule bound to a tree, and the type a reference
     // into that tree's group is. Keyed `Element.field`.
     //
@@ -661,6 +673,22 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
                 // the program runs and written by nothing in it, so every
                 // group is read-only storage (Type::is_readonly), and so is
                 // every address formed inside one below.
+                // A group indexed by (holder, ordinal): the elements of a
+                // holder's set, each computed from the pair and stored
+                // nowhere. Remembered for the stored-element reads through
+                // the field the schedule bound to it (LowerMatches); it is
+                // no array and no field of the struct.
+                if (!node->holder_name.empty()) {
+                    const auto [_, added] = ltmap.of_holder.emplace(
+                        node->declared_name,
+                        LayoutTypeMap::OfHolder{node->holder_name, node->name,
+                                                node->holder_t, node->index_t,
+                                                node->inner});
+                    internal_assert(added)
+                        << "Two groups named " << node->declared_name
+                        << ": a stored-element read could not say which it meant.";
+                    break;
+                }
                 ir::Type base_t = layout_to_structs(node->inner, ltmap);
                 ir::Type group_t = ir::Array_t::make(
                     std::move(base_t), node->size, /*readonly=*/true);
@@ -2395,6 +2423,78 @@ struct LowerMatches : public ir::Mutator {
                 << "stored_element of " << path
                 << ", which the schedule binds to no tree: " << ir::Expr(node);
             const auto bound = tree_types.find(path);
+            if (const auto of = ltmap.of_holder.find(group->second);
+                of != ltmap.of_holder.cend()) {
+                // `Element.field : OptixTree from <group (holder, ordinal)>`:
+                // the field's elements are computed from the pair -- the
+                // holder is the element the field is read off, the ordinal
+                // the index of the read -- and stored nowhere: no array, no
+                // load, as pbrt's GPU hit programs name a triangle by the
+                // record's mesh and the primitive index. The group's members
+                // give the element's fields by name; the element is built in
+                // its own order.
+                const LayoutTypeMap::OfHolder &g = of->second;
+                internal_assert(bound != tree_types.cend() &&
+                                bound->second.as<ir::BVH_t>() != nullptr)
+                    << path << " is bound to no tree";
+                const ir::Type element_t = bound->second.as<ir::BVH_t>()->primitive;
+                const auto *as_struct = element_t.as<ir::Struct_t>();
+                internal_assert(as_struct != nullptr)
+                    << path << ": the elements of group " << group->second
+                    << " are " << element_t << ", not an element with fields, "
+                    << "which a group indexed by (holder, ordinal) computes";
+                const auto *holder_struct = g.holder_t.as<ir::Struct_t>();
+                internal_assert(holder_struct != nullptr &&
+                                holder_struct->name == element->name)
+                    << path << " is read off a " << element->name
+                    << ", but group " << group->second << " is indexed by a "
+                    << g.holder_t << " (" << g.holder_name << ")";
+                std::map<std::string, ir::Expr> members;
+                std::vector<ir::Layout> parts{g.inner};
+                if (const ir::Chain *chain = g.inner.as<ir::Chain>()) {
+                    parts = chain->layouts;
+                }
+                for (const ir::Layout &part : parts) {
+                    const ir::Materialize *m = part.as<ir::Materialize>();
+                    internal_assert(m != nullptr)
+                        << "group " << group->second << " stores " << part
+                        << "; a group indexed by (holder, ordinal) computes "
+                        << "every member";
+                    members[m->name] = m->value;
+                }
+                struct BindPair : public ir::Mutator {
+                    std::map<std::string, ir::Expr> repls;
+                    using ir::Mutator::visit;
+                    ir::Expr visit(const ir::Var *node) override {
+                        const auto found = repls.find(node->name);
+                        return found != repls.end() ? found->second : ir::Expr(node);
+                    }
+                };
+                BindPair bind;
+                bind.repls[g.holder_name] = mutate(access->value);
+                bind.repls[g.ordinal_name] =
+                    ir::equals(index.type(), g.ordinal_t)
+                        ? index
+                        : ir::Cast::make(g.ordinal_t, index);
+                std::vector<ir::Expr> values;
+                for (const auto &f : as_struct->fields) {
+                    const auto m = members.find(f.name);
+                    internal_assert(m != members.cend())
+                        << "group " << group->second << " computes no field `"
+                        << f.name << "` of its element " << element_t;
+                    ir::Expr v = bind.mutate(m->second);
+                    internal_assert(ir::equals(v.type(), f.type))
+                        << "group " << group->second << " computes `" << f.name
+                        << "` as " << v.type() << ", but the element's field is "
+                        << f.type;
+                    values.push_back(std::move(v));
+                }
+                internal_assert(members.size() == as_struct->fields.size())
+                    << "group " << group->second << " computes " << members.size()
+                    << " members for the " << as_struct->fields.size()
+                    << " fields of " << element_t;
+                return ir::Build::make(element_t, std::move(values));
+            }
             if (bound != tree_types.cend() &&
                 bound->second.as<ir::BVH_t>()->hardware) {
                 // `Element.field : OptixTree from <array>`: the field's

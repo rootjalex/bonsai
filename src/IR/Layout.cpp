@@ -70,6 +70,11 @@ uint64_t Layout::bits() const {
 
 Expr Layout::count() const {
     if (const Group *node = as<Group>()) {
+        if (!node->holder_name.empty()) {
+            // Indexed by (holder, ordinal) and stored nowhere: no rows.
+            static Expr none = UIntImm::make(UInt_t::make(64), 1);
+            return none;
+        }
         ir::Expr icount = node->inner.count();
         if (!is_const_one(icount)) {
             return node->size * node->inner.count();
@@ -224,6 +229,30 @@ Layout Group::make(Expr size, std::string name, std::string declared_name,
         << "A group's `where` is a predicate on its lanes, not " << valid
         << " of type " << valid.type();
     node->valid = std::move(valid);
+    return node;
+}
+
+Layout Group::make_of_holder(std::string declared_name, std::string holder_name,
+                             ir::Type holder_t, std::string name,
+                             ir::Type index_t, Layout inner) {
+    internal_assert(!declared_name.empty())
+        << "A group indexed by (holder, ordinal) is reached by the field the "
+           "schedule binds to it, so it has to be named.";
+    internal_assert(!holder_name.empty() && holder_t.defined() && !name.empty() &&
+                    index_t.defined() && index_t.is_int_or_uint())
+        << "A group indexed by (holder, ordinal) names both: group "
+        << declared_name << " (" << holder_name << " : " << holder_t << ", "
+        << name << " : " << index_t << ")";
+    internal_assert(inner.defined())
+        << "Cannot make Group with undefined inner, named: " << declared_name;
+    Group *node = new Group;
+    node->name = std::move(name);
+    node->declared_name = std::move(declared_name);
+    node->index_t = std::move(index_t);
+    node->inner = std::move(inner);
+    node->type = Group::Type::Indirect;
+    node->holder_name = std::move(holder_name);
+    node->holder_t = std::move(holder_t);
     return node;
 }
 

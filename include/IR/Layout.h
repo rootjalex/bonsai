@@ -153,11 +153,29 @@ struct Group : LayoutNode<Group> {
     // 4294967295u`, Embree's padding slots excluded by their ids). Undefined
     // means every lane does; see ir::TiledArray::valid.
     Expr valid;
+    // A group whose rows are the elements of a holder's set and whose
+    // reference is the pair (holder, ordinal) rather than a row index --
+    // `group tris (h : Mesh, k : u32) { mesh = h.mesh; tri = k; };`: the
+    // holder's variable and type, in scope for the body beside `name`, the
+    // ordinal. Such a group stores nothing (every field is computed from the
+    // pair) and is reached by a stored-element read alone, through the
+    // field the schedule bound to it (`Mesh.tris : OptixTree from tris`,
+    // Lower/Layouts.cpp): a triangle is unique only within its mesh, so the
+    // minimal reference to one is its mesh and its index, which is what
+    // pbrt's GPU hit programs read (the record's mesh and the primitive
+    // index) and store nothing per triangle for (the user, 10-26). Empty for
+    // every other group.
+    std::string holder_name;
+    ir::Type holder_t;
 
     static Layout make(Expr size, std::string name, std::string declared_name,
                        ir::Type index_t, Layout inner,
                        Type type = Type::Direct, ir::Type element = ir::Type(),
                        Expr start = Expr(), Expr valid = Expr());
+    // The group indexed by (holder, ordinal) above: named, indirect, sizeless.
+    static Layout make_of_holder(std::string declared_name, std::string holder_name,
+                                 ir::Type holder_t, std::string name,
+                                 ir::Type index_t, Layout inner);
 
     static const IRLayoutEnum node_type = IRLayoutEnum::Group;
 };

@@ -1,0 +1,8 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/gpu/main_rtcore_holder_reference_cpp.cpp -I. -o tests/bonsai/correctness/gpu/main_rtcore_holder_reference_cpp.o
+[test] clang++ tests/bonsai/correctness/gpu/main_rtcore_holder_reference_cpp.o tests/bonsai/correctness/gpu/rtcore-holder-reference.o -o tests/bonsai/correctness/gpu/rtcore-holder-reference
+[test] ./tests/bonsai/correctness/gpu/rtcore-holder-reference
+solo in front : hit mesh=-1 tri=(-3.00, -1.00, -1.50) any=yes
+mesh 0 tri 1  : hit mesh=0 tri=(0.00, -1.00, 0.50) any=yes
+mesh 1        : hit mesh=1 tri=(2.00, -1.00, 19.50) any=yes
+empty lane    : miss any=no
+between       : miss any=no

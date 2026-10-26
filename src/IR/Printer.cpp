@@ -2061,6 +2061,17 @@ void Printer::visit(const Chain *node) {
 
 void Printer::visit(const Group *node) {
     os << get_indent();
+    if (!node->holder_name.empty()) {
+        // Indexed by (holder, ordinal): the elements of a holder's set,
+        // computed from the pair and stored nowhere.
+        os << "group " << node->declared_name << " (" << node->holder_name << " : ";
+        print(node->holder_t);
+        os << ", " << node->name << " : ";
+        print(node->index_t);
+        os << ")\n";
+        print(node->inner);
+        return;
+    }
     if (node->type == Group::Type::Pointer) {
         os << "ptr ";
     }

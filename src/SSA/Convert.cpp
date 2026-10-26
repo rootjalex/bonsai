@@ -1577,12 +1577,27 @@ struct FunctionBuilder : Visitor {
             std::shared_ptr<Block> from = std::move(block);
             then_case->preds.push_back(from);
             else_case->preds.push_back(from);
+            // Each arm's value first, then the instruction that names it in
+            // the block the value left current: an arm that makes a call
+            // (`ite(own, tri, triangle_of(ref))`, a mapped tree arm whose
+            // lambda calls) splits the block at the call, and the name has
+            // to be set in the call's continuation, after the value exists
+            // -- not in the block before the call, which `block->make_
+            // instruction(.., get_value(..))` did, the receiver being read
+            // before the argument (10-26: `@14 is not bound in
+            // __anyhit__trace`).
             block = then_case;
-            block->make_instruction(result, node->type, get_value(node->tvalue));
+            {
+                auto tvalue = get_value(node->tvalue);
+                block->make_instruction(result, node->type, std::move(tvalue));
+            }
             merge->preds.push_back(block);
             set_block_jump(merge->name);
             block = else_case;
-            block->make_instruction(result, node->type, get_value(node->fvalue));
+            {
+                auto fvalue = get_value(node->fvalue);
+                block->make_instruction(result, node->type, std::move(fvalue));
+            }
             merge->preds.push_back(block);
             set_block_jump(merge->name);
             block = merge;

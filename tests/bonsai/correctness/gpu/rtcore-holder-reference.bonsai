@@ -1,0 +1,133 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/gpu/rtcore-holder-reference
+//! commands: clang++ -std=c++20 -O3 -c $<>/main_rtcore_holder_reference_cpp.cpp -I. -o $<>/main_rtcore_holder_reference_cpp.o, clang++ $<>/main_rtcore_holder_reference_cpp.o $<>/rtcore-holder-reference.o -o $<>/rtcore-holder-reference, ./$<>/rtcore-holder-reference, rm $<>/rtcore-holder-reference, rm $<>/main_rtcore_holder_reference_cpp.o, rm $<>/rtcore-holder-reference.h, rm $<>/rtcore-holder-reference.o
+
+// A mesh's triangles stored nowhere: the reference to one is the pair (the
+// mesh primitive, the triangle's index in the mesh), and the layout computes
+// the triangle from it -- `group mesh_tris (h : Mesh, k : u32) { mesh =
+// h.mesh; tri = k; }` -- as pbrt's GPU names a triangle by its hit-group
+// record's mesh and the primitive index (gpu/optix/optix.cu) and keeps no
+// object per triangle (the user, 10-26). The program is apps/pbrt's shape in
+// small: a triangle is (mesh, index), `triangle_of` reads its corners out of
+// the meshes' index and position arrays as pbrt's TriangleMesh keeps them,
+// and a `Mesh` primitive holds the set of its triangles. The driver builds
+// one hardware input per mesh from the mesh's own buffers, based at 0 (the
+// primitive index is the triangle's index in the mesh), with the mesh
+// primitive as the input's holder; nothing is uploaded for the triangles.
+// Two meshes and a standalone triangle, five rays along +x: a hit reports
+// its corner and which mesh it came through, so a triangle computed from the
+// wrong pair would show as the wrong corner or mesh.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+// pbrt: Triangle, `{meshIndex, triIndex}` and nothing else.
+element TriRef {
+    mesh : u32;
+    tri : u32;
+}
+
+// pbrt: TriangleMesh's arrays, every mesh's together: where a mesh's indices
+// and vertices start, the indices (three a triangle, relative to the mesh's
+// vertices), the positions.
+extern mesh_first_index : array[u32];
+extern mesh_first_vertex : array[u32];
+extern indices : array[u32];
+extern positions : array[vec3f];
+
+func corner(t : TriRef, c : u32) -> vec3f =
+    positions[mesh_first_vertex[t.mesh] +
+              indices[mesh_first_index[t.mesh] + 3u * t.tri + c]];
+
+// pbrt: what Triangle::InteractionFromIntersection reads of the mesh.
+func triangle_of(t : TriRef) -> Triangle {
+    out : Triangle = {corner(t, 0u), corner(t, 1u), corner(t, 2u)};
+    return out;
+}
+
+// pbrt: Primitive -- a GeometricPrimitive, or a mesh with its triangles.
+element Prim =
+    | Solo(tri : Triangle)
+    | Mesh(mesh : u32, tris : set[TriRef]);
+
+// pbrt: what Primitive::Intersect dispatches to.
+func geometry(p : Prim) -> set[Triangle] =
+    match p {
+        Solo(tri) => set[Triangle]{tri},
+        Mesh(mesh, tris) => map(|t : TriRef| triangle_of(t), tris)
+    };
+
+// pbrt: Primitive::Bounds(), through the same dispatch.
+element Prim with extent = |p| geometry(p).AABB;
+
+// Which mesh a hit came through, or -1 for a standalone triangle.
+func mesh_of(p : Prim) -> i32 {
+    match p {
+        Solo(tri) => return -1;
+        Mesh(mesh, tris) => return cast[[i32]](mesh);
+    }
+}
+
+// How near a hit may be (see rtcore-tlas.bonsai on its place in the
+// signature).
+extern near : array[f32, 1];
+extern prims : set[Prim];
+
+// pbrt: Primitive::Intersect over the scene.
+func trace(r : Ray) =
+    argmin(|p : Prim, tri : Triangle| distmin(r, tri),
+           filter(|p : Prim, tri : Triangle|
+                      intersects(r, tri) && distmin(r, tri) > near[0],
+                  flatten(|p : Prim| geometry(p), prims)));
+
+// pbrt: Primitive::IntersectP.
+func trace_any(r : Ray) =
+    any(|p : Prim, tri : Triangle|
+            intersects(r, tri) && distmin(r, tri) > near[0],
+        flatten(|p : Prim| geometry(p), prims));
+
+// Every ray traced, and what it found written out: the hit triangle's first
+// corner, the mesh it came through, and whether anything at all is along the
+// ray.
+func [[export]] trace_all(n : i32, rays : array[Ray, n],
+                          hit_p0 : mut array[vec3f], hit_mesh : mut array[i32],
+                          hit_any : mut array[i32]) -> void {
+    parfor i in 0:n {
+        r = rays[i];
+        found = trace(r);
+        if found {
+            hit = *found;
+            via = hit[0];
+            tri = hit[1];
+            hit_p0[i] = tri.p0;
+            hit_mesh[i] = mesh_of(via);
+        } else {
+            hit_p0[i] = vec3f{0.0, 0.0, 0.0};
+            hit_mesh[i] = -2;
+        }
+    }
+    parfor j in 0:n {
+        hit_any[j] = select(trace_any(rays[j]), 1, 0);
+    }
+    return;
+}
+
+schedule {
+    layout Prim = tagged_index;
+    // The hardware's tree over the primitives; a mesh's triangles computed
+    // from the pair (mesh primitive, index) and stored nowhere.
+    prims : OptixTree;
+    Mesh.tris : OptixTree from mesh_tris;
+    layout prims {
+        group mesh_tris (h : Mesh, k : u32) { mesh = h.mesh; tri = k; };
+        pCount : u32;
+        elems : array[Prim, pCount];
+    };
+    trace.bind(RTCore);
+    trace_any.bind(RTCore);
+    trace_all.bind(i, OptixThread);
+    trace_all.bind(j, OptixThread);
+}

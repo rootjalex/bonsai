@@ -969,6 +969,22 @@ Cmp compare_layouts(const Layout &l0, const Layout &l1) {
             cmp != Cmp::Equals) {
             return cmp;
         }
+        // Indexed by (holder, ordinal): the holder's name and type tell
+        // such groups apart as the index does.
+        if (Cmp cmp = compare_primitives(g0->holder_name, g1->holder_name);
+            cmp != Cmp::Equals) {
+            return cmp;
+        }
+        if (g0->holder_t.defined() || g1->holder_t.defined()) {
+            if (Cmp cmp = compare_primitives(g0->holder_t.defined(), g1->holder_t.defined());
+                cmp != Cmp::Equals) {
+                return cmp;
+            }
+            if (Cmp cmp = compare_types(g0->holder_t, g1->holder_t);
+                cmp != Cmp::Equals) {
+                return cmp;
+            }
+        }
         return compare_layouts(g0->inner, g1->inner);
     }
     case IRLayoutEnum::Materialize: {

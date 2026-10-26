@@ -18,21 +18,29 @@
 schedule {
     primitives : OptixTree;
     Inst.blas : OptixTree from geoms;
-    // A mesh primitive's triangles: a run of `tris`, one build input (pbrt's
+    // A mesh primitive's triangles: one build input (pbrt's
     // buildBVHForTriangles makes one per mesh too), the mesh's own index
-    // buffer from the run's first triangle on.
-    Mesh.tris : OptixTree from tris;
-    Placed.tris : OptixTree from tris;
+    // buffer, and nothing stored per triangle. A triangle is unique only
+    // within its mesh, so the reference to one is the pair (the mesh
+    // primitive, the triangle's index in the mesh): the hit-group record's
+    // holder and the primitive index the hardware reports, which is what
+    // pbrt's closest-hit program reads (`rec.mesh`,
+    // `optixGetPrimitiveIndex()`, gpu/optix/optix.cu). The groups below
+    // compute the Triangle from that pair (the user, 10-26); the software
+    // trees (trees/bvh.bonsai) store the same triangles as rows, pbrt's CPU
+    // Triangle objects, and the program is the same for both.
+    Mesh.tris : OptixTree from mesh_tris;
+    Placed.tris : OptixTree from placed_tris;
 
     layout primitives {
         // Every instanced GeometricPrimitive in the scene, each definition's
         // together, in the order the driver's build inputs want them.
         gCount : u32;
         geoms : array[Geometric, gCount];
-        // Every triangle of the scene's own meshes, mesh by mesh in the
-        // mesh's order: what a mesh primitive's `tris` is a run of.
-        tCount : u32;
-        tris : array[Triangle, tCount];
+        // A mesh's triangles, and a placed mesh's: computed from the holder
+        // and the ordinal, stored nowhere.
+        group mesh_tris (h : Mesh, k : u32) { mesh = h.mesh; tri = k; };
+        group placed_tris (h : Placed, k : u32) { mesh = h.mesh; tri = k; };
         // The scene's own primitives, and then its instances.
         pCount : u32;
         prims : array[Primitive, pCount];

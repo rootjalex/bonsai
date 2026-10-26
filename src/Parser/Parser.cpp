@@ -4970,6 +4970,25 @@ struct Parser {
         return adt->variants[*adt->index_of(name)].as<ir::Struct_t>();
     }
 
+    // The same lookup as a type: an element's, or a variant's struct type
+    // (what a layout group indexed by (holder, ordinal) names its holder by).
+    ir::Type element_type_of(const std::string &name) {
+        if (const auto type_iter = program.types.find(name);
+            type_iter != program.types.cend()) {
+            if (!type_iter->second.is<ir::Struct_t>()) {
+                report_error() << name << " is not an element with fields.";
+            }
+            return type_iter->second;
+        }
+        const auto owner = variant_owners.find(name);
+        if (owner == variant_owners.cend()) {
+            report_error() << name << " is neither an element nor a variant.";
+        }
+        const ir::ADT_t *adt = program.types.at(owner->second).as<ir::ADT_t>();
+        internal_assert(adt) << owner->second;
+        return adt->variants[*adt->index_of(name)];
+    }
+
     // Whether a layout may store a value of this type.
     //
     // Everything `is_primitive` allows, plus an element holding a field the
@@ -5105,6 +5124,61 @@ struct Parser {
                 report_error() << "An " << (pointer ? "ptr" : "indirect")
                                << " group has to be named: nothing can look "
                                   "it up otherwise.";
+            }
+
+            // `group Name (h : Holder, k : T) { name = expr; ... }`: a group
+            // indexed by the pair (holder, ordinal) -- the elements of a
+            // holder's set, each computed from the pair and stored nowhere
+            // (ir::Group::holder_name). `Holder` is an element or a variant
+            // with fields, the one whose set the schedule binds to this
+            // group (`Mesh.tris : OptixTree from tris`); its value and the
+            // ordinal are in scope for the body, every member of which is
+            // computed (`name = expr`).
+            if (peek().type == Token::Type::LPAREN) {
+                if (indirect || pointer || declared_name.empty()) {
+                    report_error()
+                        << "A group indexed by (holder, ordinal) is named and "
+                           "neither `indirect` nor `ptr`: `group <name> (<holder> "
+                           ": <Element>, <ordinal> : <int>) { ... }`.";
+                }
+                expect(Token::Type::LPAREN);
+                const std::string holder_name = get_id();
+                expect(Token::Type::COL);
+                const std::string holder_type_name = get_id();
+                const ir::Type holder_t = element_type_of(holder_type_name);
+                expect(Token::Type::COMMA);
+                const std::string ordinal = get_id();
+                expect(Token::Type::COL);
+                const ir::Type ordinal_t = parse_type();
+                if (!ordinal_t.is_int_or_uint()) {
+                    report_error() << "A group's ordinal is an integer: "
+                                   << ordinal << " is labelled " << ordinal_t;
+                }
+                expect(Token::Type::RPAREN);
+                // The pair's names are the body's alone: two such groups in
+                // one layout name their holders `h` alike (trees/optix.bonsai,
+                // a mesh's and a placed mesh's triangles).
+                push_frame();
+                add_type_to_frame(holder_name, holder_t, /*mutable=*/false);
+                add_type_to_frame(ordinal, ordinal_t, /*mutable=*/false);
+                ir::Layout inner = parse_layout();
+                pop_frame();
+                std::vector<ir::Layout> members{inner};
+                if (const ir::Chain *chain = inner.as<ir::Chain>()) {
+                    members = chain->layouts;
+                }
+                for (const ir::Layout &member : members) {
+                    if (!member.is<ir::Materialize>()) {
+                        report_error()
+                            << "A group indexed by (holder, ordinal) stores "
+                               "nothing: every member of group " << declared_name
+                            << " is computed from the pair (`name = expr`), and "
+                            << member << " is not.";
+                    }
+                }
+                return ir::Group::make_of_holder(std::move(declared_name), holder_name,
+                                                 holder_t, ordinal, ordinal_t,
+                                                 std::move(inner));
             }
 
             ir::Expr size;

@@ -58,6 +58,26 @@ static_assert(requires(_tree_layout0 t) { t.traversable; },
 #else
 constexpr bool kRTCore = false;
 #endif
+// Whether the tree's layout stores the meshes' triangles as rows (`tris :
+// array[Triangle, tCount]`, trees/bvh.bonsai and the software trees, pbrt's
+// CPU Triangle objects), or computes a triangle from its mesh and its index
+// and stores nothing (`group mesh_tris (h : Mesh, k : u32)`,
+// trees/optix.bonsai, pbrt's GPU). Decides whether the rows are uploaded
+// (upload_tris) and whether a build input's elements are based in them
+// (meshes_geometry). Asked of the layout's type through a template, since a
+// `requires` on a member that is not there is an error unless the
+// expression depends on a template parameter.
+template <class Layout>
+constexpr bool has_tris = requires(Layout t) { t.tris; };
+constexpr bool kTrisStored = has_tris<_tree_layout0>;
+// The rows and their count into the layout, where the layout has them.
+template <class Layout>
+void upload_tris(Layout &tree, uint32_t count, bonsai_buffer *rows) {
+    if constexpr (has_tris<Layout>) {
+        tree.tCount = count;
+        tree.tris = rows;
+    }
+}
 
 // The renderer's arrays reach it as buffer descriptors
 // (runtime/bonsai_buffer.h): where the bytes are on the host and on the
@@ -905,7 +925,14 @@ struct Acceleration {
             input.vertex_count = vertex_count;
             input.indices = indices;
             input.triangle_count = mp.count;
-            input.base = mp.first;
+            // Where the input's elements start in the tree's storage: the
+            // mesh's run of `tris`, when the layout stores the triangles as
+            // rows (`tris : array[Triangle, tCount]`); or 0, when the layout
+            // computes a triangle from its mesh and its index and stores
+            // nothing (`group tris (h : Mesh, k : u32)`, trees/optix.bonsai)
+            // -- the hit's primitive index is then the triangle's index in
+            // the mesh, as pbrt's GPU reads it.
+            input.base = kTrisStored ? mp.first : 0u;
             input.any_hit = any_hit;
             input.holder = holder_of.at(k);
             inputs.push_back(input);
@@ -2931,8 +2958,7 @@ int main(int argc, char **argv) {
     _tree_layout0 tree;
     tree.gCount = uint32_t(instanced.size());
     tree.geoms = &b_geoms;
-    tree.tCount = uint32_t(tris.size());
-    tree.tris = &b_tris;
+    upload_tris(tree, uint32_t(tris.size()), &b_tris);
     tree.pCount = uint32_t(prims.size());
     tree.prims = &b_prims;
 #ifndef BONSAI_HAS_OPTIX
@@ -3575,8 +3601,10 @@ int main(int argc, char **argv) {
         &b_material_displacement, &b_material_normal_map, &b_rho_uc, &b_rho_ux,
         &b_rho_uy,
         // The tree's arrays, in the order its layout struct declares them.
+        // On the RT cores no rows for the triangles: trees/optix.bonsai
+        // computes a triangle from its mesh and its index (kTrisStored).
 #ifdef BONSAI_HAS_OPTIX
-        &b_geoms, &b_tris, &b_prims,
+        &b_geoms, &b_prims,
 #else
         &b_geoms, &b_group0_bnode, &b_tris, &b_group1_mnode, &b_prims,
         &b_group2_index,

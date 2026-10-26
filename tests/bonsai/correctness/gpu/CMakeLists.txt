@@ -68,6 +68,7 @@ add_bonsai_tests(
     rtcore-alpha.bonsai
     rtcore-tlas.bonsai
     rtcore-placed.bonsai
+    rtcore-holder-reference.bonsai
     semantics-reload-by-slot.bonsai
     semantics-reload-by-slot-soa.bonsai
     semantics-stage-same-queue.bonsai

@@ -60,6 +60,7 @@ add_bonsai_tests(
     reorder.bonsai
     rtcore-any.bonsai
     rtcore-sink-loads.bonsai
+    rtcore-holder-reference.bonsai
     rtcore-witness.bonsai
     rtiow-primer.bonsai
     specialize.bonsai
