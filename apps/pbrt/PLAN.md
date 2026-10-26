@@ -11319,21 +11319,20 @@ profiler after, and ncu only with the user's say-so given the crash.
 
 ## Known-open, smaller
 
-- **The gbuffer albedo's last digits** (noted 2026-10-03, with the
-  cylinder). No albedo pixel is bit-exact against pbrt's, by a mean of 7e-5
-  to 1e-4 on every scene, though the spectra now are (the RGB-to-spectrum
-  lookup is pbrt's to the bit, `scene_dump --check-tables`): the film's
-  conversion differs. spectrum_to_rgb (colour.bonsai) divides the XYZ
-  estimate by the CIE Y integral and multiplies by a four-digit XYZ-to-sRGB
-  matrix written out; pbrt's GBufferFilm::AddSample multiplies the albedo by
-  the colour space's illuminant, sampled at the path's wavelengths, and
-  converts through `SampledSpectrum::ToRGB` -- `ToXYZ` with pbrt's SafeDiv
-  by the wavelength pdf, then the space's own `RGBFromXYZ`, nine floats pbrt
-  computes from the primaries. The fix is to ship that matrix from the
-  converter (it already ships `output_rgb_from_sensor`) and write the
-  conversion as pbrt's; with it the albedo check could tighten from 5e-3 to
-  the ulps, and would then catch a layered walk seeded a bit off, as the
-  disk's was for a week.
+- **The gbuffer albedo's last digits -- fixed 10-25 night.** (Noted
+  2026-10-03, with the cylinder: no albedo pixel was bit-exact against
+  pbrt's, by a mean of 7e-5 to 1e-4 on every scene, though the spectra
+  were.) The illuminant was already right -- the surface lights the
+  reflectance by D65 at the path's wavelengths as GBufferFilm::AddSample
+  does -- and the difference was the four-digit XYZ-to-sRGB matrix written
+  out in colour.bonsai's `rgb_of_xyz`. The converter now ships the colour
+  space's own `RGBFromXYZ` (`rgb_from_xyz`, nine floats pbrt inverts from
+  the primaries, beside `output_rgb_from_sensor`) and `rgb_of_xyz` uses it.
+  cylinder's albedo mean difference: 1.06e-6, float round-off; the three
+  pixels over 5e-3 are the wavelength-rounding discontinuities the check
+  allows for. compare_gbuffer.py's mean tolerance tightened from 5e-4 to
+  1e-5, an order of magnitude above the observed, which is what would now
+  catch a layered walk seeded a bit off, as the disk's was for a week.
 - **Deviation: the light list's order under the `uniform` sampler** (noted
   2026-10-03, with the point and spot lights). pbrt's light list is every
   area light, then the `LightSource` lights as declared -- an infinite light

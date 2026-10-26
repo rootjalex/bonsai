@@ -5270,6 +5270,16 @@ void load(const char *filename, bonsai_scene::Scene &out) {
                 out.output_rgb_from_sensor[size_t(3 * r + c)] = float(m[r][c]);
             }
         }
+        // The colour space's own RGBFromXYZ, which GBufferFilm::AddSample
+        // converts the albedo through (`albedo.ToRGB(lambda, *colorSpace)`):
+        // pbrt's floats, inverted from the primaries, where the renderer had
+        // a four-digit matrix written out.
+        const pbrt::SquareMatrix<3> &from_xyz = pbrt::RGBColorSpace::sRGB->RGBFromXYZ;
+        for (int r = 0; r < 3; r++) {
+            for (int c = 0; c < 3; c++) {
+                out.rgb_from_xyz[size_t(3 * r + c)] = float(from_xyz[r][c]);
+            }
+        }
     }
 
     // PBRT: PerspectiveCamera's constructor, which derives dxCamera and

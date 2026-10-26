@@ -63,10 +63,13 @@ DIFF_GAIN = 255.0
 # nanometres, which is a discontinuity rather than an error.
 ALBEDO_TOLERANCE = 5e-3
 
-# What the albedo is actually held to. Half floats hold about three decimal
-# digits, so a pixel pair drawn from the same wavelengths cannot agree better
-# than this, and the mean over the image should sit at that level.
-ALBEDO_MEAN_TOLERANCE = 5e-4
+# What the albedo is actually held to. The test scenes write pbrt's gbuffer in
+# float ("bool savefp16" false), and with the colour space's own XYZ-to-RGB
+# matrix shipped by the converter (scene_dump, `rgb_from_xyz`) the two sides
+# agree to float round-off: cylinder's mean difference is 1.06e-6 (10-25).
+# An order of magnitude above that. It was 5e-4 while a four-digit sRGB matrix
+# written out in colour.bonsai kept every pixel 7e-5 to 1e-4 off.
+ALBEDO_MEAN_TOLERANCE = 1e-5
 
 # How many pixels may round a wavelength differently, as a fraction of those
 # with an albedo at all. An order of magnitude above what is observed, which

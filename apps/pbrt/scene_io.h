@@ -1134,6 +1134,11 @@ struct Scene {
     std::vector<float> sensor_b;
     float output_rgb_from_sensor[9] = {1.f, 0.f, 0.f, 0.f, 1.f, 0.f,
                                        0.f, 0.f, 1.f};
+    // PBRT: the film's colour space's `RGBFromXYZ`, row-major -- what a
+    // gbuffer albedo is converted through (GBufferFilm::AddSample). The
+    // default is sRGB's to four digits; the converter writes pbrt's floats.
+    float rgb_from_xyz[9] = {3.2406f, -1.5372f, -0.4986f, -0.9689f, 1.8758f,
+                             0.0415f, 0.0557f, -0.2040f, 1.0570f};
     // PBRT: RGBFilm's `maxcomponentvalue`, which clamps each *sample*'s sensor
     // RGB before it is accumulated -- a firefly suppressor. Infinite unless the
     // scene names one.
@@ -2089,6 +2094,9 @@ inline bool write(const char *path, const Scene &scene) {
     detail::put(out, scene.sensor_g.data(), scene.sensor_g.size());
     out << "\nsensor_b " << scene.sensor_b.size();
     detail::put(out, scene.sensor_b.data(), scene.sensor_b.size());
+    // The colour space's RGBFromXYZ, for the gbuffer's albedo.
+    out << "\nrgb_from_xyz";
+    detail::put(out, scene.rgb_from_xyz, 9);
     out << '\n';
 
     // Before the materials, because a material names one by index.
@@ -2743,6 +2751,10 @@ inline bool read(const char *path, Scene &scene) {
             return false;
         }
     }
+    if (!(in >> word) || word != "rgb_from_xyz") {
+        return false;
+    }
+    floats(scene.rgb_from_xyz, 9);
 
     // A labelled field, checked as it is read. The labels are what makes a
     // stale file fail here rather than three fields later with plausible

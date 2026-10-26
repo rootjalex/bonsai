@@ -3374,6 +3374,8 @@ int main(int argc, char **argv) {
     std::array<float, 9> output_rgb_from_sensor{};
     std::copy(loaded.output_rgb_from_sensor, loaded.output_rgb_from_sensor + 9,
               output_rgb_from_sensor.begin());
+    std::array<float, 9> rgb_from_xyz{};
+    std::copy(loaded.rgb_from_xyz, loaded.rgb_from_xyz + 9, rgb_from_xyz.begin());
 
     // Only the render is timed. Building the scene and the BVH is the work
     // pbrt does before its own timer starts (its renderTimeSeconds comes from
@@ -3447,6 +3449,7 @@ int main(int argc, char **argv) {
     bonsai_buffer b_sensor_g = buffer_of(sensor_g);
     bonsai_buffer b_sensor_b = buffer_of(sensor_b);
     bonsai_buffer b_output_rgb_from_sensor = buffer_of(output_rgb_from_sensor);
+    bonsai_buffer b_rgb_from_xyz = buffer_of(rgb_from_xyz);
     bonsai_buffer b_filter_f = buffer_of(filter_f);
     bonsai_buffer b_filter_cond_cdf = buffer_of(filter_cond_cdf);
     bonsai_buffer b_filter_marg_func = buffer_of(filter_marg_func);
@@ -3553,7 +3556,7 @@ int main(int argc, char **argv) {
         &b_meshes, &b_mesh_indices, &b_mesh_positions, &b_mesh_normals,
         &b_mesh_uvs, &b_curve_commons, &b_curve_frames, &b_camera_lens, &b_camera_pupil, &b_cie_x, &b_cie_y,
         &b_cie_z, &b_illuminant_d65,
-        &b_sensor_r, &b_sensor_g, &b_sensor_b, &b_output_rgb_from_sensor,
+        &b_sensor_r, &b_sensor_g, &b_sensor_b, &b_output_rgb_from_sensor, &b_rgb_from_xyz,
         &b_filter_f, &b_filter_cond_cdf, &b_filter_marg_func,
         &b_filter_marg_cdf,
         // The media's, between the filter's and the sampler's: the externs
@@ -3802,7 +3805,7 @@ int main(int argc, char **argv) {
                &b_mesh_uvs, &b_curve_commons, &b_curve_frames, &b_camera_lens, &b_camera_pupil, &b_cie_x, &b_cie_y,
                &b_cie_z, &b_illuminant_d65,
                &b_sensor_r, &b_sensor_g, &b_sensor_b,
-               &b_output_rgb_from_sensor, &b_filter_f, &b_filter_cond_cdf,
+               &b_output_rgb_from_sensor, &b_rgb_from_xyz, &b_filter_f, &b_filter_cond_cdf,
                &b_filter_marg_func, &b_filter_marg_cdf, &b_media,
                &b_medium_spectra, &b_medium_grid, &b_vdb_bytes, &b_primes,
                &b_digit_permutations, &b_digit_permutation_offsets,

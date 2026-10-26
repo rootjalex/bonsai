@@ -31,6 +31,13 @@ extern sensor_r : array[Float, 471];
 extern sensor_g : array[Float, 471];
 extern sensor_b : array[Float, 471];
 extern output_rgb_from_sensor : array[Float, 9];
+// pbrt: RGBColorSpace::RGBFromXYZ, the film's colour space's own matrix from
+// XYZ to its RGB, nine floats pbrt computes from the space's primaries and
+// white point and the converter copies out (scene_dump). What the gbuffer's
+// albedo is converted through (GBufferFilm::AddSample: `albedo.ToRGB(lambda,
+// *colorSpace)`), and what a four-digit sRGB matrix written out here used to
+// stand in for -- off in the last digits on every albedo pixel (10-25).
+extern rgb_from_xyz : array[Float, 9];
 
 // pbrt: DenselySampledSpectrum::operator(), which rounds to the nearest
 // nanometre rather than interpolating -- the table is dense enough that it
@@ -85,13 +92,14 @@ func xyz_of(s : vec4f, w : SampledWavelengths) -> vec3f {
                  average_over_pdf(spectrum_at_dense(cie_z, w) * s, w)};
 }
 
-// pbrt: RGBColorSpace::sRGB's XYZFromRGB, inverted. Written out because the
-// driver would otherwise have to pass a matrix that never changes.
+// pbrt: RGBColorSpace::ToRGB, `RGBFromXYZ * xyz` with the colour space's own
+// matrix (`rgb_from_xyz`, from the converter). It was a four-digit sRGB matrix
+// written out here, which left no albedo pixel bit-exact against pbrt's.
 func rgb_of_xyz(xyz : vec3f) -> vec3f {
-    return vec3f{
-        3.2406 * xyz.x - 1.5372 * xyz.y - 0.4986 * xyz.z,
-        -0.9689 * xyz.x + 1.8758 * xyz.y + 0.0415 * xyz.z,
-        0.0557 * xyz.x - 0.2040 * xyz.y + 1.0570 * xyz.z};
+    m = rgb_from_xyz;
+    return vec3f{m[0] * xyz.x + m[1] * xyz.y + m[2] * xyz.z,
+                 m[3] * xyz.x + m[4] * xyz.y + m[5] * xyz.z,
+                 m[6] * xyz.x + m[7] * xyz.y + m[8] * xyz.z};
 }
 
 // A reflectance, normalized so that a perfect reflector is one.
