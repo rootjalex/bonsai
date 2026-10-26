@@ -336,14 +336,14 @@ def cpu_notes(base, exclude):
         ]
     elif base == "fcpwb":
         notes += [
-            "single-threaded under WoSX on the small trees (comb, pavilion, head, crown) and "
-            "level or ahead from a million triangles up: the generated two-child visit executes "
-            "about 130 instructions to FCPW's 70 (the children's boxes transposed into two "
-            "lanes, the entered lanes picked through the stack, the keys ordered as integers), "
-            "which the node loads' latency hides on the big trees and not on one that sits in "
-            "L1; the traversal itself visits 17% fewer nodes than FCPW's on the comb (a strict "
-            "improvement where FCPW's test is <=). apps/wosx/PLAN.md, 'The binary CPU walk's "
-            "gap, read from the machine'",
+            "single-threaded: the two-child visit is FCPW's since 2026-10-25 -- two box tests, "
+            "one compare, a swap, the far child pushed and the near one entered (apps/wosx/"
+            "PLAN.md, 'The binary node's visit made FCPW's'); what is left between the sides "
+            "is in the generated code of the closest-point query itself, read in apps/rtq/"
+            "PLAN.md, 'What is left between the sides, as code' (vec3f as LLVM's <3 x float> "
+            "in scalar code, the far-corner key's redundant distmin, the eager pIndex load); "
+            "the 2026-10-24 reading of a 130-instruction visit ('The binary CPU walk's gap, "
+            "read from the machine') describes the visit that change removed",
             "the threaded and persistent forms are ahead on every mesh but the comb",
         ]
     else:
@@ -430,14 +430,15 @@ def draw_gpu(rows, schedules, out_dir, formats, exclude, stars):
     notes += [
         "crown and beast have fewer walks (29440, 86016) than the kernel has threads, so a "
         "thread claims one walk and the card runs nearly empty (15-25% achieved occupancy "
-        "against 32-49% on a full mesh); the kernel's time is the longest walks' latency on "
-        "both sides, and every schedule sits at 1; with 1024 walks a point they are 1.16x and "
-        "1.24x. apps/wosx/PLAN.md, 'The crown and the beast'",
+        "against 32-49% on a full mesh, 2026-10-24); the kernel's time is the longest walks' "
+        "latency on both sides, and the two are the lowest bars of most schedules; with 1024 "
+        "walks a point they were 1.16x and 1.24x on 2026-10-24. apps/wosx/PLAN.md, 'The crown "
+        "and the beast'",
         "on every mesh both kernels keep about three of a warp's 32 lanes active per "
-        "instruction (ncu, head and dragon: WoSX 3.1 and 2.4, ours 2.8 and 2.1): a warp holds "
-        "its 32 walks until the longest ends, and the lanes' traversals diverge within a step; "
-        "our lead is in the registers (64 against 82, 49% occupancy against 32%), not the "
-        "lanes. apps/wosx/PLAN.md, 'The lanes of a warp'",
+        "instruction (ncu, 2026-10-24, head and dragon: WoSX 3.1 and 2.4, ours 2.8 and 2.1): a "
+        "warp holds its 32 walks until the longest ends, and the lanes' traversals diverge "
+        "within a step; our lead is in the registers (64 against 82, 49% occupancy against "
+        "32%), not the lanes. apps/wosx/PLAN.md, 'The lanes of a warp'",
         "persistent-point: a point a claim leaves 460 to 16348 threads busy of 131072, an empty "
         "card",
     ]

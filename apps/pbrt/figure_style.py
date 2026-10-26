@@ -24,9 +24,10 @@ Arial, Helvetica and DejaVu Sans when a machine lacks it.
 `lean_labels(ax, labels, pitch)` sets x tick labels at the least angle at
 which they do not overlap (`lean_angle`, `lean_height` size a figure for
 them). `write_summary` writes the statistics the paper quotes beside a figure,
-`<figure>.txt`: for each series the geometric mean, the least and greatest
-value and which point each is (the user, 10-24). `YLGNBU` is the paper's
-one colour ramp.
+`<figure>.txt`: for each series the geometric mean, the least value, the
+lower quartile, the median, the upper quartile and the greatest value, and
+which point each is (the user, 10-24 and 10-26; `describe` has the form).
+`YLGNBU` is the paper's one colour ramp.
 """
 
 import math
@@ -101,11 +102,40 @@ def lean_labels(ax, labels, pitch, font=TICK_FONT):
     return angle
 
 
+def quantile(points, q):
+    """The q-quantile of `points`, (label, value) pairs, by linear
+    interpolation between the two cells nearest the rank q * (n - 1)
+    (numpy's default), and the cells it is computed from: the one cell the
+    rank falls on, or the two it lies between."""
+    ordered = sorted(points, key=lambda p: p[1])
+    position = q * (len(ordered) - 1)
+    below, above = math.floor(position), math.ceil(position)
+    if below == above:
+        return ordered[below][1], [ordered[below]]
+    fraction = position - below
+    value = ordered[below][1] * (1 - fraction) + ordered[above][1] * fraction
+    return value, [ordered[below], ordered[above]]
+
+
+def _statistic(name, value, cells):
+    """`name value (where)`: the cell's label when the statistic is one
+    cell's value, the two cells with their values when it lies between
+    them."""
+    if len(cells) == 1:
+        where = cells[0][0]
+    else:
+        where = ", ".join(f"{label} {v:.2f}" for label, v in cells)
+    return f"{name} {value:.2f}x ({where})"
+
+
 def describe(points):
-    """Summary statistics of `points`, (label, value) pairs of one series:
-    the count, the geometric mean, and the least and greatest value each
-    with the label of the point it belongs to, as one line of text. The
-    paper quotes these beside every figure (the user, 10-24)."""
+    """Summary statistics of `points`, (label, value) pairs of one series,
+    as one line of text: the count, the geometric mean, then in order the
+    least value, the lower quartile, the median, the upper quartile and the
+    greatest value, each with the label of the cell it belongs to -- or,
+    where a quartile or the median falls between two cells, both cells with
+    their values. The paper quotes these beside every figure (the user,
+    10-24; the quartiles and the median with their cells, 10-26)."""
     points = [(label, v) for label, v in points if v is not None and v > 0]
     if not points:
         return "no points"
@@ -113,7 +143,11 @@ def describe(points):
     low = min(points, key=lambda p: p[1])
     high = max(points, key=lambda p: p[1])
     return (f"n={len(points)}  geomean {geomean:.2f}x  "
-            f"min {low[1]:.2f}x ({low[0]})  max {high[1]:.2f}x ({high[0]})")
+            f"min {low[1]:.2f}x ({low[0]})  "
+            f"{_statistic('lower quartile', *quantile(points, 0.25))}  "
+            f"{_statistic('median', *quantile(points, 0.5))}  "
+            f"{_statistic('upper quartile', *quantile(points, 0.75))}  "
+            f"max {high[1]:.2f}x ({high[0]})")
 
 
 def ratios(numerators, denominators):

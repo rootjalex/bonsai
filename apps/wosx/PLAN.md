@@ -1134,6 +1134,15 @@ Whether the table should give every mesh enough walks to fill the card
 
 ### The binary CPU walk's gap, read from the machine (2026-10-24, afternoon)
 
+(Superseded 2026-10-25: the two-lane visit this section reads -- the
+transposed boxes, the lanes picked through the stack, the integer keys --
+was replaced by FCPW's own visit, 'The binary node's visit made FCPW's'
+below. The 2026-10-26 table, the first clean one on the CPU-bytes layout,
+has `fcpwb` one thread at 1.02 geomean over the nineteen meshes, comb 0.81,
+pavilion 0.88, head 0.97, the rest 0.99 to 1.07; what is left is in the
+closest-point query's generated code, apps/rtq/PLAN.md, 'What is left
+between the sides, as code'.)
+
 The user asked why `fcpwb`, one thread against one thread, is under WoSX
 on the small meshes (comb 0.73, pavilion 0.84, crown 0.93, head 0.94;
 level or ahead from a million triangles up). Read on the comb
