@@ -1,11 +1,12 @@
 // A reducer handed to a spawned call is read only after the join: the
 // spawned call may still be running, adding into it, until the `join;`
-// that waits for it or the function's return. `counts[i] = n` here reads
-// `n` with `wet(x, total, n)` outstanding, and would see a value that
-// depends on whether the spawned call has run yet (docs/parallel-
-// semantics.md, section 3). Write `join;` before the read, or read after
-// the spawning function has returned (tests/bonsai/ssa/
-// demote-atomics-spawn-inline reads it in the caller).
+// that waits for it or the end of the enclosing parfor body -- a return
+// joins nothing (docs/parallel-semantics.md, section 1). `counts[i] = n`
+// here reads `n` with `wet(x, total, n)` outstanding, and would see a value
+// that depends on whether the spawned call has run yet (section 3). Write
+// `join;` before the read; a caller that reads it after the call writes
+// the join too (tests/bonsai/error/reducer-read-after-callee-spawn,
+// tests/bonsai/ssa/demote-atomics-spawn-inline).
 
 import stdlib/numerics;
 

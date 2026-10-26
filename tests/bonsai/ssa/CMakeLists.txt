@@ -37,6 +37,7 @@ add_bonsai_tests(
     tiled-leaf-vectorized.bonsai
     tiled-elements-one.bonsai
     layout-row-read.bonsai
+    layout-tile-group-reads.bonsai
     skip-leaf-helper.bonsai
     skip-geometric-op.bonsai
     prefetch-children.bonsai
@@ -83,6 +84,7 @@ add_bonsai_tests(
     queue-shared.bonsai
     defer-spawn.bonsai
     defer-spawn-join.bonsai
+    defer-spawn-join-in-place.bonsai
     defer-continuation.bonsai
     defer-drain-order.bonsai
     defer-single-buffer.bonsai

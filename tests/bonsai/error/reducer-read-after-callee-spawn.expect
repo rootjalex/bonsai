@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/reducer-read-after-callee-spawn.bonsai:19:21: [parse error] n is a reducer (`reduce(+)`) handed to step, which hands it on to a spawned call that no `join;` of its own waits for, so the call may still be running and adding into it; write `join;` before reading it.
+
+        counts[i] = n;
+                    ^

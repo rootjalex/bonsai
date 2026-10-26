@@ -39,14 +39,25 @@ X10 (Lee and Palsberg, "Featherweight X10", PPoPP 2010).
 spawning activity and forks: the call `f(a)` runs in an activity of its
 own, and the spawning activity goes on with the statements after the
 spawn, its *continuation*, which may run at the same time as the call.
-`join;` waits for every call the function has spawned since its last
-join. A function's return joins as well, and so does the end of a
-`parfor` body for the calls spawned in it, since an iteration is an
-activity whose end is its own join. This is Cilk's `spawn` and `sync`
-(Frigo, Leiserson and Randall, "The Implementation of the Cilk-5
-Multithreaded Language", PLDI 1998; Blumofe et al., "Cilk: An Efficient
-Multithreaded Runtime System", PPoPP 1995), with Cilk's rule that a
-procedure cannot return until its children have.
+`join;` waits for every call the activity has spawned since its last
+join -- through the functions it called as well, since a call runs in
+its caller's activity. A function's return joins nothing: a spawn the
+callee made and did not join is outstanding in the caller after the
+return, and the caller writes the `join;` before it reads what the spawn
+adds into (the parser refuses the read before one, and knows which
+calls leave a spawn outstanding, `src/Parser/Parser.cpp`
+`Outstanding`). The end of a `parfor` body joins the calls spawned in
+it, since an iteration is an activity whose end is its own join, and so
+does the end of the program. This is Cilk's `spawn` and `sync` (Frigo,
+Leiserson and Randall, "The Implementation of the Cilk-5 Multithreaded
+Language", PLDI 1998; Blumofe et al., "Cilk: An Efficient Multithreaded
+Runtime System", PPoPP 1995) without Cilk's rule that a procedure cannot
+return until its children have; the nearer model is X10's `async` and
+`finish` (Lee and Palsberg, PPoPP 2010), where an `async` is bounded by
+the enclosing `finish` and not by the procedure that made it -- here a
+`parfor` body is a `finish`, and a `join;` closes one early. What this
+buys is that the program alone says where every join is, and a schedule
+only places the calls (section 4).
 
 A spawn is a `parfor` of two iterations, and that is its definition:
 
@@ -55,7 +66,9 @@ A spawn is a `parfor` of two iterations, and that is its definition:
                                             }
                                             J;
 
-where `K` is the continuation up to the join and `J` what follows it.
+where `K` is the continuation up to the join -- through the return of
+the function that spawned, into its caller, when the join is written
+there -- and `J` what follows it.
 Everything this document says of two iterations of a `parfor` therefore
 holds of a spawned call and its continuation, and of two calls spawned
 before one join. The SSA keeps the spawn as a terminator of its own
@@ -165,9 +178,14 @@ A schedule chooses, for each fork, how it is run.
   spawning activity (no directive) -- or its call goes onto a queue
   (`f.defer(g, q)`) drained by a `parfor` over the entries after the loop
   that pushed them, itself run one entry at a time or bound, with the
-  continuation run in place; what follows the join -- the pass over the
-  record, `docs/schedule-semantics.md` section 4.2 -- runs after the
-  drain. The deferral moves the join later, never earlier.
+  continuation run in place up to the join the program wrote. There the
+  activity waits, which under a deferral means it is suspended -- its
+  iteration ends -- and resumes after the drain, in the pass over the
+  record (`docs/schedule-semantics.md` section 4.2), where what follows
+  the join runs. The join stays where the program put it: a schedule
+  never moves one, it only decides that the wait is a suspension across
+  the drain rather than a wait on a running task. A spawn with no join
+  before its iteration's end leaves nothing to resume.
 
 Every one of these is an execution section 1 allows: the iterations'
 interleaving is one the `parfor` admits, a spawned call run inline or in a

@@ -38,6 +38,7 @@ func run(values : array[Float, 8], total : reduce(+) Float,
     parfor i in 0:8 {
         n : reduce(+) Float = 0.0;
         step(values[i], total, n);
+        join;
         counts[i] = n;
     }
     return;

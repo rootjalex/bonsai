@@ -1694,7 +1694,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     Definitions odefs(*O);
     shared_ptr<Block> k0_entry;
     vector<shared_ptr<Block>> k0;
-    const size_t result_args = pcall.drop ? 0 : 1;
+    size_t result_args = pcall.drop ? 0 : 1;
     if (producers.size() == 1) {
         k0_entry = omap.at(pcall.cont.name);
         internal_assert(k0_entry->preds.size() == 1)
@@ -1705,6 +1705,90 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             << k0_entry->name << " takes " << k0_entry->args.size()
             << " arguments but its call passes " << pcall.cont.args.size();
         k0 = region_from(*O, k0_entry->name);
+    }
+    // A spawned call's producer goes on in place after the call, up to the
+    // `join;` the program wrote (docs/parallel-semantics.md, sections 1 and
+    // 4): the blocks from the call's continuation to the join stay where
+    // they are and run as the iteration does; at the join the iteration is
+    // suspended, and what follows the join is the rest the pass over the
+    // record runs after the drain. The join is the program's, and a
+    // schedule never moves one (the user, 10-25) -- so the rest begins at
+    // the join's `next`, not at the call's continuation, and the values it
+    // takes are the join's jump's. No join on the way to the iteration's
+    // end: no rest, and the iteration runs to its end as written, the
+    // spawned calls joined by the parfor body's end after the drain.
+    shared_ptr<Block> join_block;            // the block ending in the Join
+    Terminator::Jump rest_jump = pcall.cont; // the jump into the rest
+    shared_ptr<Block> rest_from = producer.block; // the block making it
+    if (spawned && k0_entry) {
+        vector<shared_ptr<Block>> joins;
+        for (const auto &block : k0) {
+            if (std::holds_alternative<Terminator::Join>(block->terminator.data)) {
+                joins.push_back(block);
+            }
+        }
+        internal_assert(joins.size() <= 1)
+            << "[unimplemented] " << what << ": after the call to "
+            << pcall.call.name << " in " << producer.block->name << ", "
+            << queue.owner << " joins in " << joins.size() << " places ("
+            << joins[0]->name << ", " << joins[1]->name << "); one `join;` on "
+            << "the way to the iteration's end is what is built.";
+        if (joins.empty()) {
+            k0_entry = nullptr;
+            k0.clear();
+        } else {
+            join_block = joins.front();
+            rest_jump = std::get<Terminator::Join>(join_block->terminator.data).next;
+            rest_from = join_block;
+            const vector<shared_ptr<Block>> rest = region_from(*O, rest_jump.name);
+            set<string> in_rest;
+            for (const auto &block : rest) {
+                in_rest.insert(block->name);
+            }
+            for (const auto &block : k0) {
+                if (in_rest.contains(block->name)) {
+                    continue;
+                }
+                // Every path from the call reaches the join: a block before
+                // it that ends the iteration would be an iteration with no
+                // rest beside ones with a rest, which the pass has no gate
+                // for; and the way to the join is the call's alone, since
+                // an iteration that skipped the call would otherwise be
+                // suspended at the join and run a rest it has no record of.
+                internal_assert(
+                    !std::holds_alternative<Terminator::Yield>(block->terminator.data) &&
+                    !std::holds_alternative<Terminator::Return>(block->terminator.data))
+                    << "[unimplemented] " << what << ": after the call to "
+                    << pcall.call.name << " in " << producer.block->name << ", "
+                    << block->name << " ends the iteration without reaching the "
+                    << "`join;` in " << join_block->name << "; a join reached on "
+                    << "every path from the call is what is built.";
+                if (block == k0_entry) {
+                    continue;
+                }
+                for (const auto &weak : block->preds) {
+                    const shared_ptr<Block> pred = weak.lock();
+                    internal_assert(!pred || (std::find(k0.begin(), k0.end(), pred) != k0.end() &&
+                                              !in_rest.contains(pred->name)))
+                        << "[unimplemented] " << what << ": between the call to "
+                        << pcall.call.name << " in " << producer.block->name
+                        << " and the `join;` in " << join_block->name << ", "
+                        << block->name << " is also reached from "
+                        << (pred ? pred->name : string("?")) << ", a path that did "
+                        << "not make the call; a join reached from the call alone "
+                        << "is what is built.";
+                }
+            }
+            k0_entry = omap.at(rest_jump.name);
+            internal_assert(k0_entry->preds.size() == 1 &&
+                            k0_entry->args.size() == rest_jump.args.size())
+                << what << ": the block after the `join;` in " << join_block->name
+                << ", " << k0_entry->name << ", has " << k0_entry->preds.size()
+                << " predecessors and " << k0_entry->args.size()
+                << " arguments where the join passes " << rest_jump.args.size();
+            k0 = rest;
+            result_args = 0;
+        }
     }
     // Whether the continuation rejoins a path of the iteration that did not
     // make the call: a block of `k0` past its entry with a predecessor
@@ -2607,9 +2691,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     };
     vector<CarriedPlan> carried;
     vector<RecordValue> record_values;
-    for (size_t i = 0; k0_entry && i < pcall.cont.args.size(); i++) {
+    for (size_t i = 0; k0_entry && i < rest_jump.args.size(); i++) {
         const Definition d =
-            settle(odefs.of(producer.block->name, pcall.cont.args[i]));
+            settle(odefs.of(rest_from->name, rest_jump.args[i]));
         const Argument &arg = k0_entry->args[i + result_args];
         if (available(d)) {
             carried.push_back({From::Available, nullptr, 0, d});
@@ -4822,18 +4906,39 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         // exists. The continuation the call had is the pass's now. A spawned
         // call's producer still has the call's value at once, and puts it
         // in the record for the pass.
-        end = fresh_block(prefix + "end");
-        end->preds = {producer.block};
-        if (spawned && keeps_result) {
-            auto value = end->add_argument(Argument{ret_type, O->get_unique_name()});
-            end->make_side_effect(Instruction::Op::Store,
-                                  {reach(end, result_slot), value});
+        if (join_block) {
+            // A spawned call's producer runs on in place to its `join;` and
+            // is suspended there (join_block, above): the join's block goes
+            // to `end`, and the call keeps its continuation and its value.
+            end = fresh_block(prefix + "end");
+            end->preds = {join_block};
+            join_block->terminator.data = Terminator::Jump{end->name, {}};
+            end->terminator.data = Terminator::Yield{};
+        } else if (spawned && !k0_entry) {
+            // No join before the iteration's end: nothing is suspended, the
+            // iteration runs to its end as written, and the drain follows
+            // the producer loop as it does.
+            internal_assert(producer_loop_block)
+                << "[unimplemented] " << what << ": the spawned " << callee_name
+                << " is deferred from " << queue.owner << ", which neither "
+                << "loops over the call nor writes a `join;` after it, so "
+                << "there is no place for the drain -- not built.";
         } else {
-            pcall.drop = true;
+            end = fresh_block(prefix + "end");
+            end->preds = {producer.block};
+            if (spawned && keeps_result) {
+                auto value = end->add_argument(Argument{ret_type, O->get_unique_name()});
+                end->make_side_effect(Instruction::Op::Store,
+                                      {reach(end, result_slot), value});
+            } else {
+                pcall.drop = true;
+            }
+            end->terminator.data = Terminator::Yield{};
+            pcall.cont = Terminator::Jump{end->name, {}};
         }
-        end->terminator.data = Terminator::Yield{};
-        pcall.cont = Terminator::Jump{end->name, {}};
-        k0_entry->preds.clear();
+        if (k0_entry) {
+            k0_entry->preds.clear();
+        }
 
         // The initial push: the owner's call itself pushes the first entry,
         // so that every step runs from the drain -- pbrt's camera rays go
@@ -4985,7 +5090,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         });
         old_cont->preds.push_back(exit);
     } else {
-        // The iteration ends at the call, and the drain follows.
+        // The iteration ends at the call (or, a spawned call's, at its
+        // join), and the drain follows.
+        internal_assert(end) << what << ": a lone call with nothing to end at";
         end->terminator.data = Terminator::Jump{drain_entry->name};
         drain_entry->preds.push_back(end);
     }
@@ -5467,11 +5574,12 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // -- the call's value, the values written before the call, the slots'
     // addresses -- and what is in scope. Nothing when the continuation is
     // empty: an iteration that ended at the call. A spawned call's producer
-    // waits the same way: what it goes on to do may read the reducer the
-    // spawned calls add into (the film write reading L), which is whole
-    // only after the drain -- the join the spawning function's return
-    // makes (Terminator::Spawn), moved here after the drain, pbrt's
-    // UpdateFilm after the last bounce.
+    // is suspended at the `join;` the program wrote after the call, since
+    // what follows the join may read the reducer the spawned calls add
+    // into (the film write reading L), which is whole only after the
+    // drain; so the rest is what follows the join (join_block, above), run
+    // here, pbrt's UpdateFilm after the last bounce. The join itself stays
+    // where the program put it.
     if (k0_entry) {
         const bool trivial =
             k0.size() == 1 && k0_entry->instrs.empty() &&

@@ -155,6 +155,7 @@ func run(values : f32[40], wet : bool, out : mut f32[40], surface_arms : u64) ->
   parfor hits_rest in [0:40:1] {
     let total = (&hits_total_slots[hits_rest]) in
     let i = hits_rest in
+    join
     let @1 = (*total) in
     out[i] = @1
     continue

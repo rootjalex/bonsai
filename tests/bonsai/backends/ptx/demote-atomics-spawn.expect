@@ -21,8 +21,8 @@ define ptx_kernel void @_kernel_i_0(i32 %_begin, i32 %_stride, ptr nofree readon
   %0 = mul i32 %_stride, %tid
   %i = add i32 %0, %_begin
   %i_wide = sext i32 %i to i64
-  %q_n_slots1 = getelementptr inbounds [4 x i8], ptr %q_n_slots.generic, i64 %i_wide
-  store float 0.000000e+00, ptr %q_n_slots1, align 4, !tbaa !1
+  %q_n_slots3 = getelementptr inbounds [4 x i8], ptr %q_n_slots.generic, i64 %i_wide
+  store float 0.000000e+00, ptr %q_n_slots3, align 4, !tbaa !1
   %extract_ptr = getelementptr inbounds [4 x i8], ptr %values.generic, i64 %i_wide
   %extract = load float, ptr %extract_ptr, align 4, !invariant.load !4
   %1 = atomicrmw add ptr %q_queue.generic, i32 1 syncscope("device") monotonic, align 4

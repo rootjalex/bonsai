@@ -4,20 +4,17 @@
 // `step` hands its next round to `route`, and `route` spawns `tally` into
 // the reducer before handing the round back; so `route` is copied into
 // `step` at its call (SSA/Rewrite.cpp, inline_call, as ssa/loopify-mutual
-// shows), and because `route` spawns, the copy's return becomes a `join`
-// -- the implicit join every return is, made explicit where the return
-// is no longer one -- on the way to the call's continuation. The tail
-// call of `step` in the copy then leads to `join; return`, and that is a
-// tail position still: a join before a return is the return's own, and
-// once the call is the loop's back edge the function's return joins every
-// iteration's spawns. What to look for: `route!inl0`'s blocks inside
-// `step`, the `spawn tally(...)` among them, the tail call become the
-// loop's back edge carrying `n` and `acc` round, and no join left -- the
-// continuation it stood in is unreachable, and the function's one return
-// does the joining. Before the walk saw through a join, this schedule was
-// refused: "its continuation does more than return" -- which is what
-// stopped apps/pbrt's megakernel schedule once its contributions were
-// spawned functions. correctness/llvm/loopify-spawn-mutual runs it.
+// shows), and the copy's return becomes a plain jump to the call's
+// continuation: a return joins nothing (docs/parallel-semantics.md,
+// section 1), so the spawns are outstanding until `main`'s `join;`, which
+// waits for every call its activity spawned through `step` and `route`
+// alike, before `seen` is read. What to look for: `route!inl0`'s blocks
+// inside `step`, the `spawn tally(...)` among them, the tail call become
+// the loop's back edge carrying `n` and `acc` round, no join inside
+// `step`, and the `join` in `main` between the two prints. (Until 10-25 a
+// return joined, the copy's return became a `join` on the way to the
+// continuation, and the walk to the tail call had to see through it.)
+// correctness/llvm/loopify-spawn-mutual runs it.
 import stdlib/numerics;
 
 func tally(x : Float, seen : reduce(+) Float) -> void {
@@ -41,6 +38,7 @@ func main() -> i32 {
     seen : reduce(+) Float = 0.0;
     r = step(4, 0.0, seen);
     print(r);
+    join;
     print(seen);
     return 0;
 }

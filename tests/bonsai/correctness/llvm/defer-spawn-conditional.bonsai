@@ -6,11 +6,11 @@
 // spawn was made -- a spawned call's producer goes on by the program's
 // word, so nothing after the spawn goes onto the queue, and an iteration
 // that skipped it simply has no entry there. The reducer is the owner's
-// iteration's, handed down, and is read by the owner after the call: the
-// iteration's end joins, and the deferral moves that join after the drain,
-// so `out[i] = acc` runs in the pass over the record (the user, 10-25:
-// "film_add should execute regardless of the deferral outcome, and the
-// continuation of the queue should not include film_add").
+// iteration's, handed down, and is read by the owner after the call and
+// after its `join;`, where the iteration is suspended until the drain has
+// run, so `out[i] = acc` runs in the pass over the record (the user,
+// 10-25: "film_add should execute regardless of the deferral outcome, and
+// the continuation of the queue should not include film_add").
 //
 // marks: w = v + 1 for every i: 2..9. out: v/2 for v > 4, else 0.
 import stdlib/numerics;
@@ -34,6 +34,7 @@ func run(values : array[Float, 8], marks : mut array[Float, 8],
     parfor i in 0:8 {
         acc : reduce(+) Float = 0.0;
         step(values[i], acc, values[i] + 1.0, marks, i);
+        join;
         out[i] = acc;
     }
     return;

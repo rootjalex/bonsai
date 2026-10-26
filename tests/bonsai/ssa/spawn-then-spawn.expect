@@ -39,6 +39,7 @@ func run(values : f32[8], out : mut f32[8]) -> void {
     dries_l_slots[i] = 0f
     let @0 = values[i] in
     step(@0, (&dries_l_slots[i]), dries_queue, i)
+    let l = (&dries_l_slots[i]) in
     continue
   }
   let @5 = (*dries_queue) in

@@ -21,6 +21,7 @@ add_bonsai_tests(
     reducer-read.bonsai
     reducer-read-parfor.bonsai
     reducer-read-spawned.bonsai
+    reducer-read-after-callee-spawn.bonsai
     atomic-reducer.bonsai
     adt-layout-arm-missing.bonsai
     adt-layout-arm-unknown.bonsai

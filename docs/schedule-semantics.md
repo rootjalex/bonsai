@@ -593,11 +593,17 @@ nothing after the call but return. A call that is not in tail position,
 the entry holds `a` and `L`, and the drain runs `g` and then `K`. This is
 pbrt's medium-sample queue, work whose routing is known before the call.
 A spawned call, `spawn g(.., x);` in the program, says the call may run
-beside the rest of its function and reports through the reducers it is
+beside the rest of its activity and reports through the reducers it is
 handed, `x` among them (`docs/parallel-semantics.md`, section 1); the
 entry carries `x` -- the address of the reducer, or of its record slot --
 the drain makes the call, which adds into it, and the caller does not
-wait.
+wait until the `join;` the program wrote: the owner's iteration runs on in
+place after its call into the chain, up to the join, is suspended there,
+and what follows the join runs in the pass over the record after the
+drain (`docs/parallel-semantics.md`, section 4). A return joins nothing,
+so the join is the owner's to write, and the parser refuses a read of the
+reducer before it. With no join before the iteration's end nothing is
+suspended and the pass has nothing to run.
 
 Conditions, each refused with an error: the loop that pushes is a
 `parfor` (deferring across a `for` would reorder what the `for` promised);

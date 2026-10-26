@@ -1,0 +1,33 @@
+// A reducer handed to a call that spawns with it and returns without a join
+// is still outstanding in the caller: `step` hands `n` to the spawned `wet`
+// and returns at once -- a return joins nothing (docs/parallel-semantics.md,
+// section 1; the user, 10-25) -- so `counts[i] = n` reads `n` while the
+// spawned call may still be adding into it. The parser follows the reducer
+// through the call (src/Parser/Parser.cpp, Outstanding) and refuses the read
+// where it stands, once the whole program is parsed: `run` comes first here,
+// before the functions it calls, so what `step` leaves outstanding is known
+// only at the end. `join;` before the read is the fix
+// (tests/bonsai/correctness/llvm/defer-spawn-join reads after one).
+
+import stdlib/numerics;
+
+func run(values : array[Float, 8], total : reduce(+) Float,
+         counts : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        n : reduce(+) Float = 0.0;
+        step(values[i], total, n);
+        counts[i] = n;
+    }
+    return;
+}
+
+func step(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
+    spawn wet(x, total, n);
+    return;
+}
+
+func wet(x : Float, total : reduce(+) Float, n : reduce(+) Float) -> void {
+    total += x * 0.5;
+    n += 1.0;
+    return;
+}

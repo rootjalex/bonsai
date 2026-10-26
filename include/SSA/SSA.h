@@ -412,10 +412,12 @@ struct Terminator {
     // `spawn f(args);` (ir::CallStmt::spawned): the call, and the
     // continuation that may run beside it. The call returns nothing; what it
     // does reaches this function only through the reducers among its
-    // arguments. The continuation runs on to a Join, or to a Return, which
-    // joins too: everything from `cont` to there may run at the same time as
-    // the call, as two iterations of a parfor may -- a spawn is a parfor of
-    // two iterations, the call and the continuation, whose end is the join
+    // arguments. The continuation runs on to a Join -- in this function, or
+    // in a caller after this function returns, since a return joins
+    // nothing -- or to the end of the enclosing parfor body: everything
+    // from `cont` to there may run at the same time as the call, as two
+    // iterations of a parfor may -- a spawn is a parfor of two iterations,
+    // the call and the continuation, whose end is the join
     // (docs/parallel-semantics.md, section 1; Cilk's spawn and sync, Frigo,
     // Leiserson and Randall, PLDI 1998). Kept as a terminator of its own
     // rather than lowered to that parfor so that the structure stays
@@ -429,13 +431,14 @@ struct Terminator {
         Jump call;
         Jump cont;
     };
-    // `join;` (ir::Join): wait for every call spawned since the last join
-    // or the function's start, then go on to `next`. A Return joins as well,
-    // so a Join is written only where the function goes on after waiting.
-    // The deferral, which has moved the spawned calls into a drain that
-    // runs after the loop they were spawned from, moves what follows the
-    // join after the drain too (the pass over the record, SSA/Defer.cpp);
-    // run as written the calls have run already and a Join is a Jump.
+    // `join;` (ir::Join): wait for every call the activity has spawned
+    // since the last join -- here or in the functions it called, since a
+    // return joins nothing -- then go on to `next`. Under a deferral, which
+    // has moved the spawned calls into a drain that runs after the loop they
+    // were spawned from, the wait is a suspension: the iteration ends at
+    // the join and `next` runs after the drain, in the pass over the record
+    // (SSA/Defer.cpp). The join itself stays where the program wrote it.
+    // Run as written the calls have run already and a Join is a Jump.
     struct Join {
         Jump next;
     };

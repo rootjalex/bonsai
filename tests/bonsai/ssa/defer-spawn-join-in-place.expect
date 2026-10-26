@@ -1,0 +1,64 @@
+type Entry_q = struct Entry_q{ _slot : i32 }
+type Float = f32
+type Half = f16
+type Queue_q = struct Queue_q{ count : u32; _slot : i32[] }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func run(values : f32[8], marks : mut f32[8], out : mut f32[8]) -> void {
+  q_total_slots : mut f32[8]
+  q__slot : mut i32[8]
+  q_queue : mut Queue_q
+  let @6 = build<Queue_q>(0u, q__slot) in
+  q_queue = @6
+  parfor i in [0:8:1] {
+    q_total_slots[i] = 0f
+    let _t22 = values[i] in
+    step(_t22, (&q_total_slots[i]), q_queue, i)
+    let total = (&q_total_slots[i]) in
+    let @1 = _t22 + 1f in
+    marks[i] = @1
+    continue
+  }
+  let @7 = (*q_queue) in
+  let @8 = @7.count in
+  parfor q in [0u:@8:1u] {
+    let @9 = q__slot[q] in
+    let @10 = values[@9] in
+    shade(@10, (&q_total_slots[@9]))
+    continue
+  }
+  q_queue.count = 0u
+  parfor q_rest in [0:8:1] {
+    let total = (&q_total_slots[q_rest]) in
+    let i = q_rest in
+    let @3 = (*total) in
+    out[i] = @3
+    continue
+  }
+  return
+}
+
+func shade(x : f32, total : mut (f32*)) -> void {
+  let @0 = x * 2f in
+  total += @0
+  return
+}
+
+func step(x : f32, total : mut (f32*), _queue_q : mut (Queue_q*), _slot_q : i32) -> void {
+  let @0 = build<Entry_q>(_slot_q) in
+  let @3 = atomic_add((&(*_queue_q).count), 1u) in
+  let @5 = (*_queue_q)._slot in
+  @5[@3] = _slot_q
+  total += x
+  return
+}
+
+
+schedule {
+    q = run.queue(root);
+    step.defer(shade, q)
+
+}

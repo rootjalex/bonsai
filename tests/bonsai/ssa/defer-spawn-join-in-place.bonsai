@@ -1,0 +1,41 @@
+//! flags: -p ssa
+
+// The shape of a deferred spawn with a join after it in the owner
+// (tests/bonsai/correctness/llvm/defer-spawn-join-in-place runs it). What
+// to read for: `run`'s loop body calls `step`, which pushes the shade
+// entry and goes on, then writes `marks[i]` *in the loop* -- the
+// statement before the `join;` runs in place -- and ends the iteration at
+// the join; the drain over the queue follows the loop; and `out[i] =
+// total`, the statement after the join, runs in the pass over the record
+// after the drain (`q_rest`), reading the reducer's slot. The join is where
+// the program wrote it; the deferral only made the wait there a suspension
+// across the drain (docs/parallel-semantics.md, section 4).
+import stdlib/numerics;
+
+func shade(x : Float, total : reduce(+) Float) -> void {
+    total += x * 2.0;
+    return;
+}
+
+func step(x : Float, total : reduce(+) Float) -> void {
+    spawn shade(x, total);
+    total += x;
+    return;
+}
+
+func run(values : array[Float, 8], marks : mut array[Float, 8],
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        total : reduce(+) Float = 0.0;
+        step(values[i], total);
+        marks[i] = values[i] + 1.0;
+        join;
+        out[i] = total;
+    }
+    return;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(shade, q);
+}

@@ -10,49 +10,49 @@ source_filename = "bonsai_module"
 define noundef i32 @main() local_unnamed_addr #0 {
 main:
   %q_queue11.i = alloca %struct.Queue_q, align 16
-  %q__slot1027.i = alloca [8 x i32], align 4
-  %q_n_slots928.i = alloca [8 x float], align 4
+  %q__slot1032.i = alloca [8 x i32], align 4
+  %q_n_slots933.i = alloca [8 x float], align 4
   %calloc32 = tail call dereferenceable_or_null(32) ptr @calloc(i64 1, i64 32)
   %_untyped9 = tail call dereferenceable_or_null(32) ptr @malloc(i64 32)
   store <4 x float> <float 1.000000e+00, float 4.000000e+00, float 9.000000e+00, float 1.100000e+01>, ptr %_untyped9, align 4
   %build_ptr14 = getelementptr inbounds nuw i8, ptr %_untyped9, i64 16
   store <4 x float> <float 2.000000e+00, float 1.500000e+01, float 3.000000e+00, float 2.000000e+01>, ptr %build_ptr14, align 4
   call void @llvm.lifetime.start.p0(ptr nonnull %q_queue11.i)
-  call void @llvm.lifetime.start.p0(ptr nonnull %q__slot1027.i)
-  call void @llvm.lifetime.start.p0(ptr nonnull %q_n_slots928.i)
+  call void @llvm.lifetime.start.p0(ptr nonnull %q__slot1032.i)
+  call void @llvm.lifetime.start.p0(ptr nonnull %q_n_slots933.i)
   store i32 0, ptr %q_queue11.i, align 16
-  call void @llvm.memset.p0.i64(ptr noundef nonnull align 4 dereferenceable(32) %q_n_slots928.i, i8 0, i64 32, i1 false), !tbaa !0
+  call void @llvm.memset.p0.i64(ptr noundef nonnull align 4 dereferenceable(32) %q_n_slots933.i, i8 0, i64 32, i1 false), !tbaa !0
   %0 = atomicrmw add ptr %q_queue11.i, i32 1 monotonic, align 4
   %_wide.i.i = zext i32 %0 to i64
-  %"@5.i.i" = getelementptr inbounds nuw [4 x i8], ptr %q__slot1027.i, i64 %_wide.i.i
+  %"@5.i.i" = getelementptr inbounds nuw [4 x i8], ptr %q__slot1032.i, i64 %_wide.i.i
   store i32 0, ptr %"@5.i.i", align 4, !tbaa !3
   %1 = atomicrmw add ptr %q_queue11.i, i32 1 monotonic, align 4
   %_wide.i.1.i = zext i32 %1 to i64
-  %"@5.i.1.i" = getelementptr inbounds nuw [4 x i8], ptr %q__slot1027.i, i64 %_wide.i.1.i
+  %"@5.i.1.i" = getelementptr inbounds nuw [4 x i8], ptr %q__slot1032.i, i64 %_wide.i.1.i
   store i32 1, ptr %"@5.i.1.i", align 4, !tbaa !3
   %2 = atomicrmw add ptr %q_queue11.i, i32 1 monotonic, align 4
   %_wide.i.2.i = zext i32 %2 to i64
-  %"@5.i.2.i" = getelementptr inbounds nuw [4 x i8], ptr %q__slot1027.i, i64 %_wide.i.2.i
+  %"@5.i.2.i" = getelementptr inbounds nuw [4 x i8], ptr %q__slot1032.i, i64 %_wide.i.2.i
   store i32 2, ptr %"@5.i.2.i", align 4, !tbaa !3
   %3 = atomicrmw add ptr %q_queue11.i, i32 1 monotonic, align 4
   %_wide.i.3.i = zext i32 %3 to i64
-  %"@5.i.3.i" = getelementptr inbounds nuw [4 x i8], ptr %q__slot1027.i, i64 %_wide.i.3.i
+  %"@5.i.3.i" = getelementptr inbounds nuw [4 x i8], ptr %q__slot1032.i, i64 %_wide.i.3.i
   store i32 3, ptr %"@5.i.3.i", align 4, !tbaa !3
   %4 = atomicrmw add ptr %q_queue11.i, i32 1 monotonic, align 4
   %_wide.i.4.i = zext i32 %4 to i64
-  %"@5.i.4.i" = getelementptr inbounds nuw [4 x i8], ptr %q__slot1027.i, i64 %_wide.i.4.i
+  %"@5.i.4.i" = getelementptr inbounds nuw [4 x i8], ptr %q__slot1032.i, i64 %_wide.i.4.i
   store i32 4, ptr %"@5.i.4.i", align 4, !tbaa !3
   %5 = atomicrmw add ptr %q_queue11.i, i32 1 monotonic, align 4
   %_wide.i.5.i = zext i32 %5 to i64
-  %"@5.i.5.i" = getelementptr inbounds nuw [4 x i8], ptr %q__slot1027.i, i64 %_wide.i.5.i
+  %"@5.i.5.i" = getelementptr inbounds nuw [4 x i8], ptr %q__slot1032.i, i64 %_wide.i.5.i
   store i32 5, ptr %"@5.i.5.i", align 4, !tbaa !3
   %6 = atomicrmw add ptr %q_queue11.i, i32 1 monotonic, align 4
   %_wide.i.6.i = zext i32 %6 to i64
-  %"@5.i.6.i" = getelementptr inbounds nuw [4 x i8], ptr %q__slot1027.i, i64 %_wide.i.6.i
+  %"@5.i.6.i" = getelementptr inbounds nuw [4 x i8], ptr %q__slot1032.i, i64 %_wide.i.6.i
   store i32 6, ptr %"@5.i.6.i", align 4, !tbaa !3
   %7 = atomicrmw add ptr %q_queue11.i, i32 1 monotonic, align 4
   %_wide.i.7.i = zext i32 %7 to i64
-  %"@5.i.7.i" = getelementptr inbounds nuw [4 x i8], ptr %q__slot1027.i, i64 %_wide.i.7.i
+  %"@5.i.7.i" = getelementptr inbounds nuw [4 x i8], ptr %q__slot1032.i, i64 %_wide.i.7.i
   store i32 7, ptr %"@5.i.7.i", align 4, !tbaa !3
   %deref_temp.fca.0.load.i = load i32, ptr %q_queue11.i, align 16
   %.not.i = icmp eq i32 %deref_temp.fca.0.load.i, 0
@@ -72,29 +72,29 @@ main:
   %indvars.iv.i = phi i64 [ 0, %"q!run.lr.ph.i.new" ], [ %indvars.iv.next.i.1, %"q!run.i" ]
   %9 = phi float [ 6.500000e+01, %"q!run.lr.ph.i.new" ], [ %15, %"q!run.i" ]
   %niter = phi i64 [ 0, %"q!run.lr.ph.i.new" ], [ %niter.next.1, %"q!run.i" ]
-  %extract_ptr15.i = getelementptr inbounds nuw [4 x i8], ptr %q__slot1027.i, i64 %indvars.iv.i
-  %extract16.i = load i32, ptr %extract_ptr15.i, align 4
-  %extract16_wide.i = sext i32 %extract16.i to i64
-  %extract_ptr17.i = getelementptr inbounds [4 x i8], ptr %_untyped9, i64 %extract16_wide.i
-  %extract18.i = load float, ptr %extract_ptr17.i, align 4
-  %ptr_array_deref20.i = getelementptr inbounds [4 x i8], ptr %q_n_slots928.i, i64 %extract16_wide.i
-  %10 = fmul float %extract18.i, 5.000000e-01
+  %extract_ptr19.i = getelementptr inbounds nuw [4 x i8], ptr %q__slot1032.i, i64 %indvars.iv.i
+  %extract20.i = load i32, ptr %extract_ptr19.i, align 4
+  %extract20_wide.i = sext i32 %extract20.i to i64
+  %extract_ptr21.i = getelementptr inbounds [4 x i8], ptr %_untyped9, i64 %extract20_wide.i
+  %extract22.i = load float, ptr %extract_ptr21.i, align 4
+  %ptr_array_deref24.i = getelementptr inbounds [4 x i8], ptr %q_n_slots933.i, i64 %extract20_wide.i
+  %10 = fmul float %extract22.i, 5.000000e-01
   %11 = fadd float %9, %10
-  %acc_base1.i.i = load float, ptr %ptr_array_deref20.i, align 4
+  %acc_base1.i.i = load float, ptr %ptr_array_deref24.i, align 4
   %12 = fadd float %acc_base1.i.i, 1.000000e+00
-  store float %12, ptr %ptr_array_deref20.i, align 4
-  %13 = getelementptr inbounds nuw [4 x i8], ptr %q__slot1027.i, i64 %indvars.iv.i
-  %extract_ptr15.i.1 = getelementptr inbounds nuw i8, ptr %13, i64 4
-  %extract16.i.1 = load i32, ptr %extract_ptr15.i.1, align 4
-  %extract16_wide.i.1 = sext i32 %extract16.i.1 to i64
-  %extract_ptr17.i.1 = getelementptr inbounds [4 x i8], ptr %_untyped9, i64 %extract16_wide.i.1
-  %extract18.i.1 = load float, ptr %extract_ptr17.i.1, align 4
-  %ptr_array_deref20.i.1 = getelementptr inbounds [4 x i8], ptr %q_n_slots928.i, i64 %extract16_wide.i.1
-  %14 = fmul float %extract18.i.1, 5.000000e-01
+  store float %12, ptr %ptr_array_deref24.i, align 4
+  %13 = getelementptr inbounds nuw [4 x i8], ptr %q__slot1032.i, i64 %indvars.iv.i
+  %extract_ptr19.i.1 = getelementptr inbounds nuw i8, ptr %13, i64 4
+  %extract20.i.1 = load i32, ptr %extract_ptr19.i.1, align 4
+  %extract20_wide.i.1 = sext i32 %extract20.i.1 to i64
+  %extract_ptr21.i.1 = getelementptr inbounds [4 x i8], ptr %_untyped9, i64 %extract20_wide.i.1
+  %extract22.i.1 = load float, ptr %extract_ptr21.i.1, align 4
+  %ptr_array_deref24.i.1 = getelementptr inbounds [4 x i8], ptr %q_n_slots933.i, i64 %extract20_wide.i.1
+  %14 = fmul float %extract22.i.1, 5.000000e-01
   %15 = fadd float %11, %14
-  %acc_base1.i.i.1 = load float, ptr %ptr_array_deref20.i.1, align 4
+  %acc_base1.i.i.1 = load float, ptr %ptr_array_deref24.i.1, align 4
   %16 = fadd float %acc_base1.i.i.1, 1.000000e+00
-  store float %16, ptr %ptr_array_deref20.i.1, align 4
+  store float %16, ptr %ptr_array_deref24.i.1, align 4
   %indvars.iv.next.i.1 = add nuw nsw i64 %indvars.iv.i, 2
   %niter.next.1 = add i64 %niter, 2
   %niter.ncmp.1 = icmp eq i64 %niter.next.1, %unroll_iter
@@ -109,17 +109,17 @@ run.exit.loopexit.unr-lcssa:                      ; preds = %"q!run.i"
   %.epil.init = phi float [ 6.500000e+01, %"q!run.lr.ph.i" ], [ %15, %run.exit.loopexit.unr-lcssa ]
   %lcmp.mod34 = trunc i32 %deref_temp.fca.0.load.i to i1
   call void @llvm.assume(i1 %lcmp.mod34)
-  %extract_ptr15.i.epil = getelementptr inbounds nuw [4 x i8], ptr %q__slot1027.i, i64 %indvars.iv.i.epil.init
-  %extract16.i.epil = load i32, ptr %extract_ptr15.i.epil, align 4
-  %extract16_wide.i.epil = sext i32 %extract16.i.epil to i64
-  %extract_ptr17.i.epil = getelementptr inbounds [4 x i8], ptr %_untyped9, i64 %extract16_wide.i.epil
-  %extract18.i.epil = load float, ptr %extract_ptr17.i.epil, align 4
-  %ptr_array_deref20.i.epil = getelementptr inbounds [4 x i8], ptr %q_n_slots928.i, i64 %extract16_wide.i.epil
-  %17 = fmul float %extract18.i.epil, 5.000000e-01
+  %extract_ptr19.i.epil = getelementptr inbounds nuw [4 x i8], ptr %q__slot1032.i, i64 %indvars.iv.i.epil.init
+  %extract20.i.epil = load i32, ptr %extract_ptr19.i.epil, align 4
+  %extract20_wide.i.epil = sext i32 %extract20.i.epil to i64
+  %extract_ptr21.i.epil = getelementptr inbounds [4 x i8], ptr %_untyped9, i64 %extract20_wide.i.epil
+  %extract22.i.epil = load float, ptr %extract_ptr21.i.epil, align 4
+  %ptr_array_deref24.i.epil = getelementptr inbounds [4 x i8], ptr %q_n_slots933.i, i64 %extract20_wide.i.epil
+  %17 = fmul float %extract22.i.epil, 5.000000e-01
   %18 = fadd float %.epil.init, %17
-  %acc_base1.i.i.epil = load float, ptr %ptr_array_deref20.i.epil, align 4
+  %acc_base1.i.i.epil = load float, ptr %ptr_array_deref24.i.epil, align 4
   %19 = fadd float %acc_base1.i.i.epil, 1.000000e+00
-  store float %19, ptr %ptr_array_deref20.i.epil, align 4
+  store float %19, ptr %ptr_array_deref24.i.epil, align 4
   br label %run.exit.loopexit
 
 run.exit.loopexit:                                ; preds = %run.exit.loopexit.unr-lcssa, %"q!run.i.epil.preheader"
@@ -129,10 +129,10 @@ run.exit.loopexit:                                ; preds = %run.exit.loopexit.u
 
 run.exit:                                         ; preds = %run.exit.loopexit, %main
   %total1.0 = phi double [ 6.500000e+01, %main ], [ %20, %run.exit.loopexit ]
-  call void @llvm.memcpy.p0.p0.i64(ptr noundef nonnull align 4 dereferenceable(32) %calloc32, ptr noundef nonnull align 4 dereferenceable(32) %q_n_slots928.i, i64 32, i1 false), !tbaa !0
+  call void @llvm.memcpy.p0.p0.i64(ptr noundef nonnull align 4 dereferenceable(32) %calloc32, ptr noundef nonnull align 4 dereferenceable(32) %q_n_slots933.i, i64 32, i1 false), !tbaa !0
   call void @llvm.lifetime.end.p0(ptr nonnull %q_queue11.i)
-  call void @llvm.lifetime.end.p0(ptr nonnull %q__slot1027.i)
-  call void @llvm.lifetime.end.p0(ptr nonnull %q_n_slots928.i)
+  call void @llvm.lifetime.end.p0(ptr nonnull %q__slot1032.i)
+  call void @llvm.lifetime.end.p0(ptr nonnull %q_n_slots933.i)
   %21 = call i32 (ptr, ...) @printf(ptr nonnull dereferenceable(1) @0, double %total1.0)
   %extract = load float, ptr %calloc32, align 4
   %22 = fpext float %extract to double

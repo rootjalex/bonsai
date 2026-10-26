@@ -38,6 +38,7 @@ func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
     parfor i in 0:8 {
         l : reduce(+) Float = 0.0;
         step(values[i], l);
+        join;
         out[i] = l;
     }
     return;

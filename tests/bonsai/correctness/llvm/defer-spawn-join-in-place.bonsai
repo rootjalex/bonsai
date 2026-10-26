@@ -1,0 +1,53 @@
+//! flags: -p ssa -b llvm -e
+
+// What runs where around a join after a deferred spawn. `step` spawns
+// `shade(x, total)` and returns; in `run`'s iteration `marks[i] = w` comes
+// after the call and before the `join;`, and `out[i] = total` after the
+// join. Under the deferral the spawned shades run in a drain after the
+// loop; the iteration runs on in place to its join -- the marks write
+// happens in the loop -- and is suspended there, resuming after the drain
+// in the pass over the record, where the out write reads the whole reducer
+// (docs/parallel-semantics.md, section 4; the user, 10-25: a schedule never
+// moves a join). tests/bonsai/ssa/defer-spawn-join-in-place shows the
+// shape. marks: v + 1; out: v + 2v.
+import stdlib/numerics;
+
+func shade(x : Float, total : reduce(+) Float) -> void {
+    total += x * 2.0;
+    return;
+}
+
+func step(x : Float, total : reduce(+) Float) -> void {
+    spawn shade(x, total);
+    total += x;
+    return;
+}
+
+func run(values : array[Float, 8], marks : mut array[Float, 8],
+         out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        total : reduce(+) Float = 0.0;
+        step(values[i], total);
+        marks[i] = values[i] + 1.0;
+        join;
+        out[i] = total;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+    marks : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, marks, out);
+    // 2, 3, 4, 5, 6, 7, 8, 9
+    print(marks);
+    // 3, 6, 9, 12, 15, 18, 21, 24
+    print(out);
+    return 0;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(shade, q);
+}

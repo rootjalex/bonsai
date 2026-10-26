@@ -17228,13 +17228,49 @@ for any such array rather than for the one the camera's test introduced.
 Reported to bonsai-ac, who will read c7fdce07 for which array it moved to
 the device without moving its fill.
 
-**To do, added:** (4) the spawn-join semantics the user ruled on (10-25):
-a spawn is joined by an explicit `join;` or by the end of the enclosing
-parfor body, never by a function's return, so that the program alone says
-where the join is and a schedule only places the call. docs/parallel-
-semantics.md sections 1 and 4, the parser's `refuse_reducer_read` made
-interprocedural as a check over the parsed program (forward references
-resolve through pre-read headers, so the parser cannot know a callee's
-outstanding spawns while parsing the call), one `join;` in render.bonsai
-before the film write, the spawn tests re-read; Defer.cpp's behaviour
-unchanged, its comments no longer saying the join "moves".
+**The spawn-join semantics, built (10-25 evening).** The user's ruling:
+"The schedule cannot move a join! ... make spawn require an explicit join
+or the end of the enclosing parfor ... The schedule should never indicate
+program semantics, only the program specification should indicate
+parallel semantics!" So (docs/parallel-semantics.md sections 1 and 4): a
+`join;` waits for every call the *activity* spawned since its last join,
+through the functions it called; a function's return joins nothing; the
+end of a parfor body joins what the body spawned. Cilk's spawn and sync
+without Cilk's return rule -- X10's async bounded by its finish is the
+nearer model. Under a deferral the join is where the activity is
+suspended: the owner's iteration runs on in place after its call into the
+chain up to the join, ends there, and what follows the join runs in the
+pass over the record after the drain; with no join before the iteration's
+end nothing is suspended and the pass has nothing to run. The parser
+(src/Parser/Parser.cpp, `Outstanding`): a reducer handed to a spawn is
+outstanding outright; one handed to a call is outstanding provisionally,
+if the callee leaves its parameter outstanding at a return, which is
+settled once the whole program is parsed (`escape_rules`, a fixed point,
+since a callee may be declared ahead of its body or be the function
+itself); `join;` clears what this block and the blocks inside it made (by
+block depth, so a join under a test does not clear an enclosing block's
+spawns); a parfor body's entries are the body's alone. A read of a
+reducer against a standing entry is refused where it was written:
+tests/bonsai/error/reducer-read-after-callee-spawn (the caller parsed
+before the callees). SSA/Defer.cpp: for a spawned deferral the owner's
+rest begins at the join's `next` (`join_block`, `rest_jump`), the join's
+block jumps to the iteration's end, and the blocks between the call and
+the join stay in place -- tests/bonsai/ssa/defer-spawn-join-in-place
+shows `marks[i] = ..` in the loop and `out[i] = total` in `q_rest`, and
+correctness/llvm/defer-spawn-join-in-place runs it; two joins on
+different paths, a join not reached on every path from the call, a path
+to the join that skipped the call, and a lone call with no join are
+refused as unimplemented, each with a message. SSA/Rewrite.cpp's
+inline_call no longer turns an inlined return into a Join (loopify over a
+spawning recursion: ssa/loopify-spawn-mutual's `main` now joins). Eighteen
+tests that read a reducer after a chain's spawn write `join;` before the
+read; their goldens change by one line each -- a dead slot address in the
+loop where the rest no longer moves, or the join itself -- and the LLVM
+and PTX dumps by value numbers alone. render.bonsai: one `join;` after
+`if camera_ray_valid { integrator_li(...) }`, before the film write; under
+wavefront-volpath and gpu-optix the join lands inside `rays_rest` right
+before the film's reads of the radiance slot, and the spawned queues
+(shadow, escaped, emissive, exit_shadow) have, as before, no rest of their
+own, since the rays drain's iteration ends without a join. killeroo-simple
+at 16 spp under gpu-optix against pbrt --gpu (18:40): 3.15x, the image
+matching pbrt's, the kernel 27.66 ms against the afternoon's 27.62.

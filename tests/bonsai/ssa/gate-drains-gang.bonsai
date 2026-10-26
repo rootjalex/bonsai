@@ -74,6 +74,7 @@ func run(values : array[Float, 40], wet : bool,
     parfor i in 0:40 {
         total : reduce(+) Float = 0.0;
         step(values[i], wet, total);
+        join;
         out[i] = total;
     }
     return;

@@ -28,6 +28,7 @@ func main() -> i32 {
     seen : reduce(+) Float = 0.0;
     r = step(4, 0.0, seen);
     print(r);
+    join;
     print(seen);
     return 0;
 }

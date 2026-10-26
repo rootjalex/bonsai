@@ -17,6 +17,7 @@ func run(values : f32[8], out : mut f32[8]) -> void {
     q_total_slots[i] = 0f
     let @0 = values[i] in
     step(@0, (&q_total_slots[i]), q_queue, i)
+    let total = (&q_total_slots[i]) in
     continue
   }
   let @5 = (*q_queue) in

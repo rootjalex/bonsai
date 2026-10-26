@@ -3,9 +3,9 @@
 // A spawned call whose drained function itself spawns onto a second
 // queue: `step` spawns `dampen` onto `dries`, and `dampen`, run by the
 // dries drain, spawns `soak` onto `soaks`, both adding into the
-// iteration's reducer `l`, which the iteration reads after `step` returns
-// -- the implicit join of `step`'s return covers the spawn inside it, and
-// the drains run before the rest. Expected: half of each value.
+// iteration's reducer `l`, which the iteration reads after its `join;` --
+// a join waits for what the calls made spawned too, through both levels,
+// and the drains run before the rest. Expected: half of each value.
 //
 // Was tests/bonsai/pending/spawn-then-spawn (2026-10-12): under the
 // `spawn x op= g()` form the second deferral's one producer was the dries
@@ -37,6 +37,7 @@ func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
     parfor i in 0:8 {
         l : reduce(+) Float = 0.0;
         step(values[i], l);
+        join;
         out[i] = l;
     }
     return;

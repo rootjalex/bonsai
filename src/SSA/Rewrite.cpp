@@ -1190,14 +1190,12 @@ void inline_call(FuncMap &funcs, const shared_ptr<Function> &caller,
         const auto ptr = p.lock();
         return ptr && ptr.get() == site.get();
     });
-    // A callee that spawns is joined by its return (Terminator::Spawn): the
-    // caller's continuation ran after everything the callee spawned, and
-    // must still, so each return becomes a join rather than a jump.
-    bool spawns = false;
-    for (const auto &block : callee.blocks) {
-        spawns = spawns ||
-                 std::holds_alternative<Terminator::Spawn>(block->terminator.data);
-    }
+    // A callee that spawns is not joined by its return: what it spawned is
+    // outstanding in the caller until the caller's own `join;` or the end
+    // of the enclosing parfor body (docs/parallel-semantics.md, section 1),
+    // so each return becomes a plain jump to the continuation, as any
+    // inlined return does. (Until 10-25 a return joined, and the copy's
+    // return became a Terminator::Join here.)
     for (const auto &block : callee.blocks) {
         auto copy = copies.at(block->name);
         const auto *ret = std::get_if<Terminator::Return>(&copy->terminator.data);
@@ -1215,12 +1213,7 @@ void inline_call(FuncMap &funcs, const shared_ptr<Function> &caller,
             args.push_back(fresh.empty() ? v
                                          : copy->get_value(fresh, v->get_type()));
         }
-        Terminator::Jump onward{call.cont.name, std::move(args)};
-        if (spawns) {
-            copy->terminator.data = Terminator::Join{std::move(onward)};
-        } else {
-            copy->terminator.data = std::move(onward);
-        }
+        copy->terminator.data = Terminator::Jump{call.cont.name, std::move(args)};
         cont->second->preds.push_back(copy);
     }
 }

@@ -1,15 +1,17 @@
 //! flags: -p ssa
 
-// The join a spawned call's function makes by returning. `step` spawns
-// `shade(x, total)` and returns, and its return waits for the spawn; the
-// producer's continuation, `out[i] = total`, reads the reducer after that,
-// whole. Deferred, the drain that runs the spawned calls comes after the
-// producer loop -- so the continuation cannot run where it was. As for any
-// deferral, it runs in the pass over the record after the drain
-// (`q_rest`), once per iteration, with the reducer's slot
-// (`q_total_slots`) and the iteration's `i` the producer wrote into the
-// record before its call (`out` is in scope): pbrt's per-sample state and
-// its film pass after the last bounce.
+// A join written in the caller of the function that spawned. `step` spawns
+// `shade(x, total)` and returns at once -- a return joins nothing -- and
+// the iteration's `join;` waits for the spawn; what follows it, `out[i] =
+// total`, reads the reducer whole. Deferred, the drain that runs the
+// spawned calls comes after the producer loop -- so the iteration is
+// suspended at its join (the join's block jumps to `q_end`, the
+// iteration's end) and what follows the join runs in the pass over the
+// record after the drain (`q_rest`), once per iteration, with the
+// reducer's slot (`q_total_slots`) and the iteration's `i` the producer
+// wrote into the record before its call (`out` is in scope): pbrt's
+// per-sample state and its film pass after the last bounce. The join is
+// where the program wrote it; the schedule only placed the call.
 import stdlib/numerics;
 
 func shade(x : Float, total : reduce(+) Float) -> void {
@@ -27,6 +29,7 @@ func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
     parfor i in 0:8 {
         total : reduce(+) Float = 0.0;
         step(values[i], total);
+        join;
         out[i] = total;
     }
     return;

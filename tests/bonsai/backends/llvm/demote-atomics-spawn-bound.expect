@@ -196,14 +196,14 @@ entry:
   br label %"!par_body_0.prol.loopexit"
 
 "!par_body_0.prol.loopexit":                      ; preds = %"!par_body_0.prol", %"!par_body_0.lr.ph"
-  %n3.unr = phi i64 [ %1, %"!par_body_0.lr.ph" ], [ %16, %"!par_body_0.prol" ]
+  %n7.unr = phi i64 [ %1, %"!par_body_0.lr.ph" ], [ %16, %"!par_body_0.prol" ]
   %17 = icmp eq i64 %2, %.neg
   br i1 %17, label %done, label %"!par_body_0", !prof !9
 
 "!par_body_0":                                    ; preds = %"!par_body_0.prol.loopexit", %"!par_body_0"
-  %n3 = phi i64 [ %25, %"!par_body_0" ], [ %n3.unr, %"!par_body_0.prol.loopexit" ]
-  %18 = trunc i64 %n3 to i32
-  %sext = shl i64 %n3, 32
+  %n7 = phi i64 [ %25, %"!par_body_0" ], [ %n7.unr, %"!par_body_0.prol.loopexit" ]
+  %18 = trunc i64 %n7 to i32
+  %sext = shl i64 %n7, 32
   %i_wide = ashr exact i64 %sext, 32
   %q_n_slots = getelementptr inbounds [4 x i8], ptr %7, i64 %i_wide
   store float 0.000000e+00, ptr %q_n_slots, align 4, !tbaa !0
@@ -215,7 +215,7 @@ entry:
   %"@5.i" = getelementptr inbounds nuw [4 x i8], ptr %_slot.i, i64 %_wide.i
   store i32 %18, ptr %"@5.i", align 4, !tbaa !7
   %20 = atomicrmw fadd ptr %5, float %extract monotonic, align 4
-  %21 = add nsw i64 %n3, 1
+  %21 = add nsw i64 %n7, 1
   %22 = trunc i64 %21 to i32
   %sext.1 = shl i64 %21, 32
   %i_wide.1 = ashr exact i64 %sext.1, 32
@@ -229,7 +229,7 @@ entry:
   %"@5.i.1" = getelementptr inbounds nuw [4 x i8], ptr %_slot.i.1, i64 %_wide.i.1
   store i32 %22, ptr %"@5.i.1", align 4, !tbaa !7
   %24 = atomicrmw fadd ptr %5, float %extract.1 monotonic, align 4
-  %25 = add nsw i64 %n3, 2
+  %25 = add nsw i64 %n7, 2
   %exitcond.not.1 = icmp eq i64 %25, %2
   br i1 %exitcond.not.1, label %done, label %"!par_body_0", !prof !10
 

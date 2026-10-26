@@ -18,8 +18,8 @@
 //   wet    `n += 1f` plain: into the iteration's own reducer.
 //   step   `total += x` plain: the iteration's own write, no other
 //          iteration running beside it.
-//   step   `spawn wet(x, total, n)`: the spawn, kept as written, and
-//          `step`'s return the join of it.
+//   step   `spawn wet(x, total, n)`: the spawn, kept as written, joined by
+//          the iteration's `join;` in `run` after `step` returns.
 //
 // The same program under a sequential drain is demote-atomics-spawn-drain,
 // under a bound loop demote-atomics-spawn-bound; correctness/llvm/
@@ -47,6 +47,7 @@ func run(values : array[Float, 8], total : reduce(+) Float,
     parfor i in 0:8 {
         n : reduce(+) Float = 0.0;
         step(values[i], total, n);
+        join;
         counts[i] = n;
     }
     return;

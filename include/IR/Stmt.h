@@ -91,10 +91,12 @@ struct CallStmt : StmtNode<CallStmt> {
     Expr func;
     std::vector<Expr> args;
 
-    // `spawn f(args);` -- the call may run beside the rest of the function
-    // that made it, up to the `join` that waits for it (ir::Join) or the
-    // function's return, which waits too: Cilk's spawn and sync (Frigo,
-    // Leiserson and Randall, PLDI 1998). The callee returns nothing; what it
+    // `spawn f(args);` -- the call may run beside the rest of the activity
+    // that made it, up to the `join` that waits for it (ir::Join), written
+    // in the function that spawned or in a caller, since a return joins
+    // nothing, or the end of the enclosing parfor body: Cilk's spawn and
+    // sync (Frigo, Leiserson and Randall, PLDI 1998), bounded as X10's
+    // async is by its finish. The callee returns nothing; what it
     // computes it adds into the reducers it is handed, whose accumulates are
     // atomic by declaration. What the program states so that a schedule may
     // queue the call and go on -- pbrt's shadow ray, traced by its own
@@ -110,14 +112,17 @@ struct CallStmt : StmtNode<CallStmt> {
     static const IRStmtEnum node_type = IRStmtEnum::CallStmt;
 };
 
-// `join;` -- wait for every call the function spawned since the last join
-// (CallStmt::spawned): Cilk's sync. After it the reducers those calls were
-// handed are whole and may be read; the parser refuses a read before it. A
-// return and the end of a parfor body join too, so a function or an
-// iteration that reads nothing of its spawns writes none. Run as written a
-// spawned call has already run, and the join does nothing; its meaning is
-// for the schedule, which may have moved the call, and for the SSA, where
-// it is Terminator::Join.
+// `join;` -- wait for every call the activity spawned since the last join
+// (CallStmt::spawned), through the functions it called as well: Cilk's
+// sync. After it the reducers those calls were handed are whole and may be
+// read; the parser refuses a read before it, in the function that spawned
+// and in a caller the spawn is outstanding in. A return joins nothing; the
+// end of a parfor body joins what the body spawned, so an iteration that
+// reads nothing of its spawns writes none (docs/parallel-semantics.md,
+// section 1). Run as written a spawned call has already run, and the join
+// does nothing; its meaning is for the schedule, which may have moved the
+// call and then suspends the activity here until the drain has run it, and
+// for the SSA, where it is Terminator::Join.
 struct Join : StmtNode<Join> {
     static Stmt make();
 

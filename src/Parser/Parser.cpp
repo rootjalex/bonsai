@@ -193,6 +193,7 @@ struct Parser {
             parse_program_stream();
             context.pop_back();
         }
+        settle_outstanding_reads();
         pop_frame();
         internal_assert(frames.empty());
         return std::move(program);
@@ -260,13 +261,116 @@ struct Parser {
     ir::MapStack<std::string, FunctionVariable> frames;
     // How many `parfor` bodies enclose the statement being parsed.
     int parfor_depth = 0;
-    // The reducers (by IR name) handed to a spawned call that no `join` has
-    // closed yet, in the activity being parsed: a `spawn f(.., x)` adds
-    // `x`, a `join;` empties the set, and so does the end of a `parfor`
-    // body or of the function, each of which joins the spawns made in it
-    // (docs/parallel-semantics.md, section 1). A read of a reducer in the
-    // set would see a value a running task may still be adding to.
-    std::set<std::string> spawned_reducers;
+    // A reducer handed to a call that may still be running -- the activity
+    // being parsed has not joined it -- so that a read of it would see a
+    // value some task is still adding to (docs/parallel-semantics.md,
+    // sections 1 and 3). `spawn f(.., x)` makes one outright. `g(.., x)`
+    // makes one that stands if `g` hands its parameter to a spawn it does
+    // not join before returning: a call runs in its caller's activity, so
+    // what the callee leaves outstanding is the caller's, and a function's
+    // return joins nothing (the user, 10-25: a spawn is joined by an explicit
+    // `join;` or by the end of the enclosing parfor body, never by a return,
+    // so that the program alone says where the join is and a schedule only
+    // places the call). Whether `g` does is known only once the whole
+    // program is parsed -- a callee may be declared ahead of its body, or be
+    // this very function -- so such an entry is provisional, naming the
+    // callee and the parameter, and a read against it is a pending error,
+    // settled by settle_outstanding_reads.
+    //
+    // `join;` at block depth d clears the entries made at depth d or deeper:
+    // the ones made in this block and in the blocks nested in it, which all
+    // reach the join on their one way out. An entry made in an enclosing
+    // block is not cleared by a join under a test inside it, which may not
+    // be on the path. The end of a parfor body clears what the body made
+    // (parse_loop); the end of a function clears nothing, and the entries
+    // naming its reducer parameters are what it leaves outstanding for its
+    // callers (note_escapes).
+    struct Outstanding {
+        std::string ir_name; // the reducer, by IR name
+        int depth;           // block depth of the spawn or the call
+        std::string callee;  // empty: a spawn made here, outstanding outright
+        size_t position = 0; // else: stands iff callee's parameter escapes
+    };
+    std::vector<Outstanding> outstanding;
+    // How many blocks -- a function body, an arm, a loop body -- enclose the
+    // statement being parsed.
+    int block_depth = 0;
+    struct Nested {
+        int &depth;
+        explicit Nested(int &depth) : depth(depth) { depth++; }
+        ~Nested() { depth--; }
+    };
+    // A statement that is the body of another: one block deeper.
+    ir::Stmt parse_nested_statement() {
+        const Nested nested(block_depth);
+        return parse_statement();
+    }
+    // What a function leaves outstanding at a return, per reducer parameter:
+    // outright, or if a callee's parameter does.
+    struct EscapeRule {
+        size_t parameter;
+        std::string callee;
+        size_t position;
+    };
+    std::map<std::string, std::vector<EscapeRule>> escape_rules;
+    // A read of a reducer against a provisional entry, with where it was
+    // written: reported at the end if the entry stands.
+    struct PendingRead {
+        std::string back_trace;
+        std::string file_name;
+        Token at;
+        std::string name;   // the reducer as written
+        std::string callee; // the call it was handed to
+        size_t position;
+    };
+    std::vector<PendingRead> pending_reads;
+
+    // At a return of `func`: every outstanding entry naming one of its
+    // reducer parameters is left to its callers -- outright, or if the
+    // callee it names leaves its own.
+    void note_escapes(const std::string &func) {
+        if (func.empty() || !program.funcs.contains(func)) {
+            return;
+        }
+        const auto &args = program.funcs[func]->args;
+        for (const Outstanding &o : outstanding) {
+            for (size_t k = 0; k < args.size(); k++) {
+                if (args[k].reducer && args[k].name == o.ir_name) {
+                    escape_rules[func].push_back({k, o.callee, o.position});
+                }
+            }
+        }
+    }
+
+    // Once the whole program is parsed: which reducer parameters each
+    // function leaves outstanding, the least fixed point of escape_rules (a
+    // rule may name a callee parsed later, or the function itself), and the
+    // pending reads that stand, reported where they were written.
+    void settle_outstanding_reads() {
+        std::map<std::string, std::set<size_t>> escapes;
+        for (bool changed = true; changed;) {
+            changed = false;
+            for (const auto &[func, rules] : escape_rules) {
+                for (const EscapeRule &r : rules) {
+                    const bool stands =
+                        r.callee.empty() || escapes[r.callee].contains(r.position);
+                    if (stands && escapes[func].insert(r.parameter).second) {
+                        changed = true;
+                    }
+                }
+            }
+        }
+        for (const PendingRead &p : pending_reads) {
+            if (escapes[p.callee].contains(p.position)) {
+                ParseErrorReport(p.back_trace, p.file_name, p.at)
+                    << p.name << " is a reducer (`reduce(+)`) handed to "
+                    << p.callee << ", which hands it on to a spawned call "
+                    << "that no `join;` of its own waits for, so the call "
+                    << "may still be running and adding into it; write "
+                    << "`join;` before reading it.";
+            }
+        }
+    }
     // Every name already spent in the function being parsed.
     //
     // Scopes nest in the source but names do not in the IR: `LetStmt` and
@@ -441,11 +545,13 @@ struct Parser {
     // A reducer is read in the scope that declared it, once everything that
     // adds into it has finished: not in the function it was handed to, not
     // inside a `parfor` whose iterations add into it, and not while a
-    // spawned call that was handed it may still be running
-    // (docs/parallel-semantics.md, section 3). Each is a read beside writes
-    // -- a value that depends on which contributions are in -- which is the
-    // one thing declaring it a reducer promises nothing does.
-    void refuse_reducer_read(const std::string &name) const {
+    // spawned call that was handed it -- here, or by a function it was
+    // handed to that returned without joining -- may still be running
+    // (docs/parallel-semantics.md, section 3; Outstanding). Each is a read
+    // beside writes -- a value that depends on which contributions are in
+    // -- which is the one thing declaring it a reducer promises nothing
+    // does.
+    void refuse_reducer_read(const std::string &name) {
         const std::optional<FunctionVariable> v = frames.from_frames(name);
         if (!v.has_value() || !v->reducer) {
             return;
@@ -462,11 +568,19 @@ struct Parser {
                            << "be adding into it as it is read; it is read "
                            << "after the loop.";
         }
-        if (spawned_reducers.contains(v->ir_name)) {
-            report_error() << name << " is a reducer (`reduce(+)`) handed to "
-                           << "a spawned call that may still be running and "
-                           << "adding into it; write `join;` before reading "
-                           << "it.";
+        for (const Outstanding &o : outstanding) {
+            if (o.ir_name != v->ir_name) {
+                continue;
+            }
+            if (o.callee.empty()) {
+                report_error() << name << " is a reducer (`reduce(+)`) handed to "
+                               << "a spawned call that may still be running and "
+                               << "adding into it; write `join;` before reading "
+                               << "it.";
+            }
+            pending_reads.push_back({back_trace(), file_name(),
+                                     tokens().current_token(), name, o.callee,
+                                     o.position});
         }
     }
 
@@ -1443,10 +1557,12 @@ struct Parser {
         push_frame();
         used_names.clear();
         renaming_declarations = true;
-        // A function's return joins what it spawned, so nothing is
-        // outstanding when the next one begins; and a function body is
-        // inside no parfor of another.
-        spawned_reducers.clear();
+        // A function body is an activity of its own to parse: what the last
+        // one left outstanding was noted for its callers (note_escapes) and
+        // is not this one's; and a function body is inside no block or
+        // parfor of another.
+        outstanding.clear();
+        block_depth = 0;
         parfor_depth = 0;
         std::vector<ir::Function::Argument> args = parse_func_args();
 
@@ -1493,6 +1609,9 @@ struct Parser {
         renaming_declarations = false;
         current_generics.clear();
 
+        // The body's end is a return's for what it leaves outstanding.
+        note_escapes(name);
+
         internal_assert(!program.funcs[name]->body.defined())
             << "Woah, how did " << name
             << " get a function body before being parsed?";
@@ -1511,8 +1630,13 @@ struct Parser {
         // brackets enclose a new frame!
         push_frame();
 
-        while (!consume(Token::Type::RSQUIGGLE)) {
-            stmts.push_back(parse_statement());
+        {
+            // A block nests: a `join;` inside it clears what was spawned
+            // inside it (Outstanding).
+            const Nested nested(block_depth);
+            while (!consume(Token::Type::RSQUIGGLE)) {
+                stmts.push_back(parse_statement());
+            }
         }
         // close the frame.
         pop_frame();
@@ -1615,7 +1739,7 @@ struct Parser {
                 arm.bindings[i] = declare(arm.bindings[i], fields[i].type,
                                           /*mutable=*/false);
             }
-            arm.body = parse_statement();
+            arm.body = parse_nested_statement();
             pop_frame();
 
             arms.push_back(std::move(arm));
@@ -1710,7 +1834,7 @@ struct Parser {
             return parse_match();
         } else if (consume(Token::Type::IF)) {
             ir::Expr cond = parse_expr(); // no required parens
-            ir::Stmt then_case = parse_statement();
+            ir::Stmt then_case = parse_nested_statement();
             internal_assert(!consume(Token::Type::ELIF))
                 << "TODO: implement elif parsing for line: "
                 << peek().line_begin();
@@ -1721,7 +1845,7 @@ struct Parser {
                     ? ir::Provenance()
                     : ir::Provenance::if_arm(function_being_parsed);
             if (consume(Token::Type::ELSE)) {
-                ir::Stmt else_case = parse_statement();
+                ir::Stmt else_case = parse_nested_statement();
                 return ir::IfElse::make(std::move(cond), std::move(then_case),
                                         std::move(else_case), written_in);
             } else {
@@ -1729,6 +1853,9 @@ struct Parser {
                                         ir::Stmt(), written_in);
             }
         } else if (consume(Token::Type::RETURN)) {
+            // A return joins nothing: what is outstanding here is the
+            // caller's from now on (Outstanding, note_escapes).
+            note_escapes(function_being_parsed);
             if (consume(Token::Type::SEMICOL)) {
                 return ir::Return::make();
             }
@@ -1765,9 +1892,11 @@ struct Parser {
                                     std::nullopt);
         } else if (consume(Token::Type::SPAWN)) {
             // `spawn f(args);` -- the call may run beside the rest of this
-            // function, up to the `join;` that waits for it or the return
-            // that does (Cilk's spawn and sync: Frigo, Leiserson and
-            // Randall, PLDI 1998; docs/parallel-semantics.md, section 1).
+            // activity, up to the `join;` that waits for it -- in this
+            // function or in a caller, since a return joins nothing -- or
+            // the end of the enclosing parfor body (Cilk's spawn and sync:
+            // Frigo, Leiserson and Randall, PLDI 1998;
+            // docs/parallel-semantics.md, section 1).
             // What the call does reaches the spawner only through the
             // reducers it is handed, each of which adds up what its tasks
             // contribute in whatever order they run, so the call returns
@@ -1807,18 +1936,23 @@ struct Parser {
             for (const ir::Expr &arg : as_call->args) {
                 if (const ir::Var *v = arg.as<ir::Var>();
                     v != nullptr && is_reducer_ir_name(v->name)) {
-                    spawned_reducers.insert(v->name);
+                    outstanding.push_back({v->name, block_depth, "", 0});
                 }
             }
             return ir::CallStmt::make(as_call->func, as_call->args,
                                       /*spawned=*/true);
         } else if (consume(Token::Type::JOIN)) {
-            // `join;` -- wait for every call this function spawned since
-            // the last join: Cilk's sync. After it the reducers they were
-            // handed are whole and may be read. A return joins too, so a
-            // function that reads nothing of its spawns needs no `join`.
+            // `join;` -- wait for every call this activity has spawned since
+            // the last join, through the calls it made as well: Cilk's sync.
+            // After it the reducers they were handed are whole and may be
+            // read. A return joins nothing (a function that reads nothing of
+            // its spawns writes no `join`, and its caller joins them); the
+            // end of a parfor body joins what the body spawned. Cleared here
+            // is what this block and the blocks inside it made (Outstanding).
             expect(Token::Type::SEMICOL);
-            spawned_reducers.clear();
+            std::erase_if(outstanding, [&](const Outstanding &o) {
+                return o.depth >= block_depth;
+            });
             return ir::Join::make();
         } else if (consume(Token::Type::DO)) {
             // `do body while (cond);` -- a loop whose trip count is not known
@@ -1831,14 +1965,14 @@ struct Parser {
             // Tested first would be the more usual spelling, but the body of a
             // rejection sampler -- pbrt's PermutationElement, which is what
             // wanted this -- always runs at least once, and a `do` says so.
-            ir::Stmt body = parse_statement();
+            ir::Stmt body = parse_nested_statement();
             expect(Token::Type::WHILE);
             ir::Expr cond = parse_expr();
             expect(Token::Type::SEMICOL);
             return ir::DoWhile::make(std::move(body), std::move(cond));
         } else if (consume(Token::Type::WHILE)) {
             ir::Expr cond = parse_expr();
-            ir::Stmt body = parse_statement();
+            ir::Stmt body = parse_nested_statement();
             return ir::While::make(std::move(cond), std::move(body));
         } else if (consume(Token::Type::PARFOR)) {
             Loop loop = parse_loop("parfor", /*parallel=*/true);
@@ -1950,7 +2084,7 @@ struct Parser {
     // `parallel` for a `parfor`: its body is one activity per iteration, so
     // a reducer declared outside it is not readable inside it, and the
     // body's end joins the calls spawned in it (docs/parallel-semantics.md,
-    // section 1) -- tracked through parfor_depth and spawned_reducers.
+    // section 1) -- tracked through parfor_depth and `outstanding`.
     Loop parse_loop(const char *what, bool parallel = false) {
         std::string idx = get_id();
         if (name_in_scope(idx)) {
@@ -1994,15 +2128,15 @@ struct Parser {
         // at its end, and what the enclosing activity has outstanding is
         // not its concern -- so the set is the body's alone while the body
         // is parsed, and the enclosing one's after.
-        std::set<std::string> outstanding;
+        std::vector<Outstanding> enclosing;
         if (parallel) {
             parfor_depth++;
-            outstanding.swap(spawned_reducers);
+            enclosing.swap(outstanding);
         }
-        ir::Stmt body = parse_statement();
+        ir::Stmt body = parse_nested_statement();
         if (parallel) {
             parfor_depth--;
-            spawned_reducers.swap(outstanding);
+            outstanding.swap(enclosing);
         }
         pop_frame();
 
@@ -3197,6 +3331,17 @@ struct Parser {
                         << "function could "
                         << (func->args[i].mutating ? "assign" : "read") << " it.";
                 }
+            }
+        }
+
+        // A reducer handed to the call stays outstanding for as long as the
+        // callee leaves it so -- handed on to a spawn it does not join
+        // before returning -- which is settled once the program is parsed
+        // (Outstanding, settle_outstanding_reads).
+        for (size_t i = 0; i < func->args.size(); i++) {
+            if (func->args[i].reducer && is_reducer(args[i])) {
+                outstanding.push_back(
+                    {args[i].as<ir::Var>()->name, block_depth, name, i});
             }
         }
 
@@ -4861,6 +5006,31 @@ struct Parser {
         return type.is_primitive();
     }
 
+    // The row of a named group as a struct, for typing a read of one
+    // (`vertices[i].p`): the group's stored fields and those of its derived
+    // fields that have a type, in the group's order. A switch's arms and a
+    // nested group are not fields of the row and are left out, so a read of
+    // one of their fields through the row is an error at the field.
+    static ir::Type row_struct_of(const std::string &group,
+                                  const ir::Layout &inner) {
+        std::vector<ir::Layout> members;
+        if (const ir::Chain *chain = inner.as<ir::Chain>()) {
+            members = chain->layouts;
+        } else {
+            members.push_back(inner);
+        }
+        ir::Struct_t::Map fields;
+        for (const ir::Layout &member : members) {
+            if (const ir::Name *stored = member.as<ir::Name>()) {
+                fields.emplace_back(stored->name, stored->type);
+            } else if (const ir::Materialize *derived = member.as<ir::Materialize>();
+                       derived != nullptr && derived->value.type().defined()) {
+                fields.emplace_back(derived->name, derived->value.type());
+            }
+        }
+        return ir::Struct_t::make(group, std::move(fields));
+    }
+
     ir::Layout parse_layout() {
         // Default.
         static ir::Expr count = ir::Var::make(u32, "count");
@@ -5003,6 +5173,22 @@ struct Parser {
                                       ir::Array_t::make(element, size),
                                       /*mutable=*/false);
                 }
+            }
+            // A named group of rows -- indirect, or reached by address -- is
+            // in scope from here as the array of its rows, so that a later
+            // member can read a field of one: a tile deriving a triangle's
+            // corners from the vertices its stored indices name (`p0 =
+            // vertices[f.i0].p`) through the face object a stored address
+            // points at (`f = faces[face]`) -- FCPW's CPU leaf, which gathers
+            // through an indexed polygon soup (apps/rtq/schedules/layouts/
+            // fcpwb.bonsai). A row types as the struct of the group's stored
+            // and derived fields; Lower/Layouts.cpp (fill) binds the read to
+            // the group's storage, by index or at the address.
+            if (kind != ir::Group::Type::Direct && !element.defined() &&
+                !declared_name.empty() && size.defined()) {
+                add_type_to_frame(declared_name,
+                                  ir::Array_t::make(row_struct_of(declared_name, inner), size),
+                                  /*mutable=*/false);
             }
             if (!size.defined() && element.defined()) {
                 // The sizeless run of tiles above.

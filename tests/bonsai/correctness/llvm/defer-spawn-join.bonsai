@@ -1,11 +1,12 @@
 //! flags: -p ssa -b llvm -e
 
-// The join a spawned call's function makes by returning, run: `step`'s
-// return waits for the `shade(x, total)` it spawned, so `out[i] = total`
-// reads the reducer after the spawned shade calls have added into it,
-// though those run in a drain after the loop -- the continuation runs in
-// the pass over the record after the drain, as any deferral's does. Each
-// out[i] is x + 2x.
+// A join written in the caller of the function that spawned, run: `step`
+// spawns `shade(x, total)` and returns at once -- a return joins nothing
+// (docs/parallel-semantics.md, section 1) -- and the iteration's `join;`
+// waits for it, so `out[i] = total` reads the reducer after the spawned
+// shade calls have added into it, though those run in a drain after the
+// loop: the iteration is suspended at its join and what follows runs in
+// the pass over the record after the drain. Each out[i] is x + 2x.
 import stdlib/numerics;
 
 func shade(x : Float, total : reduce(+) Float) -> void {
@@ -23,6 +24,7 @@ func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
     parfor i in 0:8 {
         total : reduce(+) Float = 0.0;
         step(values[i], total);
+        join;
         out[i] = total;
     }
     return;

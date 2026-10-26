@@ -4329,6 +4329,15 @@ func [[export]] render(camera : Camera, width : u32, height : u32,
                               cast[[i32]](j), s, seed, film_visible_surface,
                               visible, path_lambda, radiance);
             }
+            // The contributions the path spawned -- the shadow rays, the
+            // escaped and the emissive terms, the exit shadow -- add into
+            // `radiance`, and a return joins nothing: this `join;` is where
+            // the sample waits for them before the film reads the sum
+            // (docs/parallel-semantics.md, section 1). Under a wavefront
+            // schedule the wait is a suspension across the drains, and the
+            // film write below runs in the pass over the record after them
+            // (SSA/Defer.cpp), pbrt's UpdateFilm after the last bounce.
+            join;
             // pbrt: GBufferFilm::AddSample, which records the channels only
             // when the integrator set them -- and only a gbuffer film has
             // them (`film_visible_surface`, Film::UsesVisibleSurface); an RGB

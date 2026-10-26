@@ -80,6 +80,7 @@ add_bonsai_tests(
     merge-variant-fold.bonsai
     defer-spawn.bonsai
     defer-spawn-join.bonsai
+    defer-spawn-join-in-place.bonsai
     demote-atomics-spawn-inline.bonsai
     demote-atomics-spawn-drain.bonsai
     loopify-mutual.bonsai
