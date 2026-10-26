@@ -1,0 +1,732 @@
+; === ssa postschedule ===
+; --- _recloop_func0 ---
+func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : (__tuple_1*), p : Point, tris : _tree_layout0): 
+  !stack = alloca<u32[64]>()
+  !stack0 = alloca<f32[64]>()
+  !count = alloca<(u32*)>()
+  store !count (u32)0
+  jmp _recloop_func0!loop(tris_ref, _bound0)
+
+_recloop_func0!loop(tris_ref!top : u32, _bound0!top : f32): // preds: !visit_next, _recloop_func0
+  @0 = load(_best0)
+  @1 = load_field(@0, (u32)0)
+  @2 = lt(_bound0!top, @1)
+  dispatch @2 [!merge_1(), !then_0(tris_ref!top, tris, p, _best0, _bound0!top)]
+
+!then_0(tris_ref!top : u32, tris : _tree_layout0, p : Point, _best0 : (__tuple_1*), _bound0!top : f32): // gate; preds: !par_cont_6!pushed1, _recloop_func0!loop
+  _t86 = bwand(tris_ref!top, (u32)15)
+  @4 = eq(_t86, (u32)0)
+  dispatch @4 [!else_3(_t86, tris_ref!top, tris, p, _best0), !then_2(tris, tris_ref!top, p, _best0, _bound0!top)]
+
+!merge_1(): // preds: !merge_4, _recloop_func0!loop
+  jmp !visit_pop()
+
+!then_2(tris : _tree_layout0, tris_ref!top : u32, p : Point, _best0 : (__tuple_1*), _bound0!top : f32): // preds: !then_0
+  _mask0 = alloca<bool[2]>()
+  _carry0 = alloca<f32[2]>()
+  _keys0 = alloca<f32[2]>()
+  jmp !par_body_5!unroll0(tris, tris_ref!top, p, _best0, _mask0, _carry0, _keys0)
+
+!else_3(_t86 : u32, tris_ref!top : u32, tris : _tree_layout0, p : Point, _best0 : (__tuple_1*)): // preds: !then_0
+  @84 = sub(_t86, (u32)8)
+  jmp !for_data_9((u32)0, @84, tris_ref!top, tris, p, _best0)
+
+!merge_4(): // preds: !for_data_end_11
+  jmp !merge_1()
+
+!par_cont_6(tris : _tree_layout0, tris_ref!top : u32, _bound0!top : f32, _best0 : (__tuple_1*), p : Point, _carry0 : f32[2], _keys0 : f32[2], _mask0 : bool[2]): // preds: !half_call_cont_7!unroll1
+  @71 = load_field(tris, (u32)3)
+  @72 = shr(tris_ref!top, (u32)4)
+  @73 = extract_idx(@71, @72)
+  @74 = load_field(@73, (u32)0)
+  _t67 = cast<u32x2>(@74)
+  @76 = extract_idx(_t67, (u32)0)
+  @77 = extract_idx(_carry0, (u32)0)
+  @78 = extract_idx(_t67, (u32)1)
+  @79 = extract_idx(_carry0, (u32)1)
+  @80 = extract_idx(_keys0, (u32)0)
+  @82 = extract_idx(_mask0, (u32)0)
+  @83 = extract_idx(_mask0, (u32)1)
+  @156 = lt(@80, @305)
+  @159 = select(@156, @76, @78)
+  @160 = select(@156, @78, @76)
+  @161 = select(@156, @77, @79)
+  @162 = select(@156, @79, @77)
+  @163 = select(@156, @82, @83)
+  @164 = select(@156, @83, @82)
+  dispatch @164 [!par_cont_6!pushed1(), !par_cont_6!push1()]
+
+!for_data_9(data : u32, @84 : u32, tris_ref!top : u32, tris : _tree_layout0, p : Point, _best0 : (__tuple_1*)): // preds: !else_3, !merge_14
+  @85 = lt(data, @84)
+  dispatch @85 [!for_data_end_11(), !for_data_body_10(tris_ref!top, data, tris, p, _best0, @84)]
+
+!for_data_body_10(tris_ref!top : u32, data : u32, tris : _tree_layout0, p : Point, _best0 : (__tuple_1*), @84 : u32): // preds: !for_data_9
+  distmin_Point_Triangle$r2 = alloca<(f32*)>()
+  @86 = shr(tris_ref!top, (u32)4)
+  _t82 = add(@86, data)
+  @88 = load_field(tris, (u32)1)
+  tri$i2 = extract_idx(@88, _t82)
+  callc closestPointonTriangle(p, tri$i2) !closestPointonTriangle_call_cont_12(p, distmin_Point_Triangle$r2, _best0, _t82, data, @84, tris_ref!top, tris)
+
+!for_data_end_11(): // preds: !for_data_9
+  jmp !merge_4()
+
+!closestPointonTriangle_call_cont_12(@90 : __tuple_3, p : Point, distmin_Point_Triangle$r2 : (f32*), _best0 : (__tuple_1*), _t82 : u32, data : u32, @84 : u32, tris_ref!top : u32, tris : _tree_layout0): // preds: !for_data_body_10
+  pts$i2 = set(@90)
+  @91 = load_field(p, (u32)0)
+  @92 = load_field(pts$i2, (u32)0)
+  @93 = load_field(@92, (u32)0)
+  @94 = sub(@91, @93)
+  @95 = extract_idx(@94, (i32)0)
+  @101 = mul(@95, @95)
+  @106 = extract_idx(@94, (i32)1)
+  @112 = mul(@106, @106)
+  @113 = add(@101, @112)
+  @118 = extract_idx(@94, (i32)2)
+  @124 = mul(@118, @118)
+  @125 = add(@113, @124)
+  @126 = sqrt(@125)
+  store distmin_Point_Triangle$r2 @126
+  @127 = load(distmin_Point_Triangle$r2)
+  @128 = load(_best0)
+  @129 = load_field(@128, (u32)0)
+  @130 = lt(@127, @129)
+  dispatch @130 [!merge_14(data, @84, tris_ref!top, tris, p, _best0), !then_13(distmin_Point_Triangle$r2, _t82, _best0, data, @84, tris_ref!top, tris, p)]
+
+!then_13(distmin_Point_Triangle$r2 : (f32*), _t82 : u32, _best0 : (__tuple_1*), data : u32, @84 : u32, tris_ref!top : u32, tris : _tree_layout0, p : Point): // preds: !closestPointonTriangle_call_cont_12
+  @131 = load(distmin_Point_Triangle$r2)
+  @132 = make_struct<__tuple_0>(_t82)
+  @133 = make_struct<__tuple_1>(@131, @132)
+  acc.argmin _best0 @133
+  jmp !merge_14(data, @84, tris_ref!top, tris, p, _best0)
+
+!merge_14(data : u32, @84 : u32, tris_ref!top : u32, tris : _tree_layout0, p : Point, _best0 : (__tuple_1*)): // preds: !closestPointonTriangle_call_cont_12, !then_13
+  @134 = add(data, (u32)1)
+  jmp !for_data_9(@134, @84, tris_ref!top, tris, p, _best0)
+
+!par_body_5!unroll0(tris : _tree_layout0, tris_ref!top : u32, p : Point, _best0 : (__tuple_1*), _mask0 : bool[2], _carry0 : f32[2], _keys0 : f32[2]): // preds: !then_2
+  @165 = alloca<(f32*)>()
+  @166 = load_field(tris, (u32)3)
+  @167 = shr(tris_ref!top, (u32)4)
+  @168 = gep(@166, @167)
+  @169 = field.ptr(@168, (u32)1)
+  @170 = reinterpret<const f32[6]>(@169)
+  @171 = gep(@170, (u32)0)
+  @172 = load(@171)
+  @174 = gep(@170, (u32)2)
+  @175 = load(@174)
+  @177 = gep(@170, (u32)4)
+  @178 = load(@177)
+  @179 = make_struct<f32x3>(@172, @175, @178)
+  @180 = load_field(p, (u32)0)
+  @181 = sub(@179, @180)
+  @182 = mul(@181, @181)
+  @183 = lt(@180, @179)
+  @184 = bc((f32)0, (u32)3)
+  @185 = select(@183, @182, @184)
+  @186 = field.ptr(@168, (u32)2)
+  @187 = reinterpret<const f32[6]>(@186)
+  @188 = gep(@187, (u32)0)
+  @189 = load(@188)
+  @190 = gep(@187, (u32)2)
+  @191 = load(@190)
+  @192 = gep(@187, (u32)4)
+  @193 = load(@192)
+  @194 = make_struct<f32x3>(@189, @191, @193)
+  @195 = sub(@180, @194)
+  @196 = mul(@195, @195)
+  @197 = lt(@194, @180)
+  @198 = select(@197, @196, @184)
+  @199 = add(@185, @198)
+  @200 = reduce<+>(@199)
+  store @165 @200
+  @201 = load(@165)
+  @202 = sqrt(@201)
+  @203 = load(_best0)
+  @204 = load_field(@203, (u32)0)
+  @205 = lt(@202, @204)
+  @206 = gep(_mask0, (u32)0)
+  store @206 @205
+  @207 = gep(_carry0, (u32)0)
+  store @207 @202
+  @208 = alloca<(f32*)>()
+  @209 = sub(@180, @179)
+  @210 = abs(@209)
+  @211 = abs(@195)
+  @212 = max(@210, @211)
+  @213 = extract_idx(@212, (i32)0)
+  @214 = mul(@213, @213)
+  @215 = extract_idx(@212, (i32)1)
+  @216 = mul(@215, @215)
+  @217 = add(@214, @216)
+  @218 = extract_idx(@212, (i32)2)
+  @219 = mul(@218, @218)
+  @220 = add(@217, @219)
+  @221 = sqrt(@220)
+  store @208 @221
+  @222 = load(@208)
+  @223 = field.ptr(_best0, (u32)0)
+  accmin @223 @222
+  @224 = alloca<(f32*)>()
+  @225 = alloca<(f32*)>()
+  @226 = alloca<(f32*)>()
+  store @226 @200
+  @227 = load(@226)
+  @228 = sqrt(@227)
+  store @225 @228
+  @229 = load(@225)
+  callc half(@229) !half_call_cont_7!unroll0(@180, @224, _keys0)
+
+!half_call_cont_7!unroll0(@64 : f32, @180 : f32x3, @224 : (f32*), _keys0 : f32[2]): // preds: !par_body_5!unroll0
+  k$i1 = set(@64)
+  @230 = extract_idx(@180, (u32)0)
+  @231 = mul(@230, (f32)0)
+  @232 = add(@231, (f32)1)
+  @233 = mul(k$i1, @232)
+  store @224 @233
+  @234 = load(@224)
+  @235 = gep(_keys0, (u32)0)
+  store @235 @234
+  jmp !par_body_5!unroll1(tris, tris_ref!top, p, _best0, _mask0, _carry0, _keys0)
+
+!par_body_5!unroll1(tris : _tree_layout0, tris_ref!top : u32, p : Point, _best0 : (__tuple_1*), _mask0 : bool[2], _carry0 : f32[2], _keys0 : f32[2]): // preds: !half_call_cont_7!unroll0
+  @236 = alloca<(f32*)>()
+  @237 = load_field(tris, (u32)3)
+  @238 = shr(tris_ref!top, (u32)4)
+  @239 = gep(@237, @238)
+  @240 = field.ptr(@239, (u32)1)
+  @241 = reinterpret<const f32[6]>(@240)
+  @242 = gep(@241, (u32)1)
+  @243 = load(@242)
+  @244 = add((u32)1, (u32)2)
+  @245 = gep(@241, @244)
+  @246 = load(@245)
+  @247 = add((u32)1, (u32)4)
+  @248 = gep(@241, @247)
+  @249 = load(@248)
+  @250 = make_struct<f32x3>(@243, @246, @249)
+  @251 = load_field(p, (u32)0)
+  @252 = sub(@250, @251)
+  @253 = mul(@252, @252)
+  @254 = lt(@251, @250)
+  @255 = bc((f32)0, (u32)3)
+  @256 = select(@254, @253, @255)
+  @257 = field.ptr(@239, (u32)2)
+  @258 = reinterpret<const f32[6]>(@257)
+  @259 = gep(@258, (u32)1)
+  @260 = load(@259)
+  @261 = gep(@258, @244)
+  @262 = load(@261)
+  @263 = gep(@258, @247)
+  @264 = load(@263)
+  @265 = make_struct<f32x3>(@260, @262, @264)
+  @266 = sub(@251, @265)
+  @267 = mul(@266, @266)
+  @268 = lt(@265, @251)
+  @269 = select(@268, @267, @255)
+  @270 = add(@256, @269)
+  @271 = reduce<+>(@270)
+  store @236 @271
+  @272 = load(@236)
+  @273 = sqrt(@272)
+  @274 = load(_best0)
+  @275 = load_field(@274, (u32)0)
+  @276 = lt(@273, @275)
+  @277 = gep(_mask0, (u32)1)
+  store @277 @276
+  @278 = gep(_carry0, (u32)1)
+  store @278 @273
+  @279 = alloca<(f32*)>()
+  @280 = sub(@251, @250)
+  @281 = abs(@280)
+  @282 = abs(@266)
+  @283 = max(@281, @282)
+  @284 = extract_idx(@283, (i32)0)
+  @285 = mul(@284, @284)
+  @286 = extract_idx(@283, (i32)1)
+  @287 = mul(@286, @286)
+  @288 = add(@285, @287)
+  @289 = extract_idx(@283, (i32)2)
+  @290 = mul(@289, @289)
+  @291 = add(@288, @290)
+  @292 = sqrt(@291)
+  store @279 @292
+  @293 = load(@279)
+  @294 = field.ptr(_best0, (u32)0)
+  accmin @294 @293
+  @295 = alloca<(f32*)>()
+  @296 = alloca<(f32*)>()
+  @297 = alloca<(f32*)>()
+  store @297 @271
+  @298 = load(@297)
+  @299 = sqrt(@298)
+  store @296 @299
+  @300 = load(@296)
+  callc half(@300) !half_call_cont_7!unroll1(@251, @295, _keys0)
+
+!half_call_cont_7!unroll1(@64 : f32, @251 : f32x3, @295 : (f32*), _keys0 : f32[2]): // preds: !par_body_5!unroll1
+  k$i1 = set(@64)
+  @301 = extract_idx(@251, (u32)0)
+  @302 = mul(@301, (f32)0)
+  @303 = add(@302, (f32)1)
+  @304 = mul(k$i1, @303)
+  store @295 @304
+  @305 = load(@295)
+  @306 = gep(_keys0, (u32)1)
+  store @306 @305
+  jmp !par_cont_6(tris, tris_ref!top, _bound0!top, _best0, p, _carry0, _keys0, _mask0)
+
+!visited(): // preds: !visit_done
+  ret
+
+!visit_pop(): // preds: !merge_1, !par_cont_6!pushed1
+  @307 = load(!count)
+  @308 = ne(@307, (u32)0)
+  dispatch @308 [!visit_done(), !visit_next()]
+
+!visit_next(): // preds: !visit_pop
+  @309 = sub(@307, (u32)1)
+  store !count @309
+  @310 = extract_idx(!stack, @309)
+  @311 = extract_idx(!stack0, @309)
+  jmp _recloop_func0!loop(@310, @311)
+
+!visit_done(): // preds: !visit_pop
+  jmp !visited()
+
+!par_cont_6!push1(): // preds: !par_cont_6
+  @312 = load(!count)
+  @313 = gep(!stack, @312)
+  store @313 @160
+  @314 = gep(!stack0, @312)
+  store @314 @162
+  @315 = add(@312, (u32)1)
+  store !count @315
+  jmp !par_cont_6!pushed1()
+
+!par_cont_6!pushed1(): // preds: !par_cont_6, !par_cont_6!push1
+  dispatch @163 [!visit_pop(), !then_0(@159, tris, p, _best0, @161)]
+
+; --- _traverse_tree0 ---
+func _traverse_tree0(p : Point, tris : _tree_layout0): 
+  _best0 = alloca<(__tuple_1*)>()
+  @0 = inf()
+  @1 = make_struct<__tuple_0>()
+  @2 = make_struct<__tuple_1>(@0, @1)
+  store _best0 @2
+  @4 = sub((f32)-0, @0)
+  call _recloop_func0((u32)0, @4, _best0, p, tris) !_recloop_func0_call_cont_0(tris, _best0)
+
+!_recloop_func0_call_cont_0(tris : _tree_layout0, _best0 : (__tuple_1*)): // preds: _traverse_tree0
+  @5 = load_field(tris, (u32)1)
+  @6 = load(_best0)
+  @7 = load_field(@6, (u32)1)
+  @8 = load_field(@7, (u32)0)
+  @9 = extract_idx(@5, @8)
+  ret @9
+
+; --- closest ---
+func closest(_ret0 : (Triangle*), p : (Point*), tris : (_tree_layout0*)): 
+  _traverse_tree0$r3 = alloca<(Triangle*)>()
+  _best0$i3 = alloca<(__tuple_1*)>()
+  @0 = inf()
+  @1 = make_struct<__tuple_0>()
+  @2 = make_struct<__tuple_1>(@0, @1)
+  store _best0$i3 @2
+  @4 = sub((f32)-0, @0)
+  @5 = load(p)
+  @6 = load(tris)
+  call _recloop_func0((u32)0, @4, _best0$i3, @5, @6) !_recloop_func0_call_cont_0(tris, _best0$i3, _traverse_tree0$r3, _ret0)
+
+!_recloop_func0_call_cont_0(tris : (_tree_layout0*), _best0$i3 : (__tuple_1*), _traverse_tree0$r3 : (Triangle*), _ret0 : (Triangle*)): // preds: closest
+  @7 = load(tris)
+  @8 = load_field(@7, (u32)1)
+  @9 = load(_best0$i3)
+  @10 = load_field(@9, (u32)1)
+  @11 = load_field(@10, (u32)0)
+  @12 = extract_idx(@8, @11)
+  store _traverse_tree0$r3 @12
+  @13 = load(_traverse_tree0$r3)
+  store _ret0 @13
+  ret
+
+; --- half ---
+func half(x : f32): 
+  @0 = mul(x, (f32)0.5)
+  ret @0
+
+; --- key ---
+func key(p : Point, lo : f32x3, hi : f32x3): 
+  SqDistPointAABB$r35 = alloca<(f32*)>()
+  _t0$i35 = set(lo)
+  v$i35 = load_field(p, (u32)0)
+  _t1$i35 = sub(_t0$i35, v$i35)
+  sqLow$i35 = mul(_t1$i35, _t1$i35)
+  @3 = lt(v$i35, _t0$i35)
+  @4 = bc((f32)0, (u32)3)
+  low$i35 = select(@3, sqLow$i35, @4)
+  _t5$i35 = set(hi)
+  _t6$i35 = sub(v$i35, _t5$i35)
+  sqHigh$i35 = mul(_t6$i35, _t6$i35)
+  @8 = lt(_t5$i35, v$i35)
+  high$i35 = select(@8, sqHigh$i35, @4)
+  @11 = add(low$i35, high$i35)
+  @12 = reduce<+>(@11)
+  store SqDistPointAABB$r35 @12
+  @13 = load(SqDistPointAABB$r35)
+  @14 = sqrt(@13)
+  callc half(@14) !half_call_cont_0(v$i35)
+
+!half_call_cont_0(@15 : f32, v$i35 : f32x3): // preds: key
+  k = set(@15)
+  @16 = extract_idx(v$i35, (u32)0)
+  @17 = mul(@16, (f32)0)
+  s = add(@17, (f32)1)
+  @19 = mul(k, s)
+  ret @19
+
+type AABB = struct AABB{ low : f32x3; high : f32x3 }
+type BVH2 = (const BVH2&)
+type FInterval = struct FInterval{ low : f32; high : f32 }
+type Float = f32
+type Half = f16
+type Point = struct Point{ vec : f32x3 }
+type Ray = struct Ray{ o : f32x3; d : f32x3; tmax : f32 = (f32)inf }
+type Sphere = struct Sphere{ center : f32x3; radius : f32 }
+type Triangle = struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }
+type TriangleIntersection = struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }
+type __tuple_0 = struct __tuple_0{ _field0 : u32 }
+type __tuple_1 = struct __tuple_1{ _field0 : f32; _field1 : struct __tuple_0{ _field0 : u32 } }
+type __tuple_2 = struct __tuple_2{ _field0 : u32; _field1 : f32 }
+type __tuple_3 = struct __tuple_3{ _field0 : struct Point{ vec : f32x3 }; _field1 : struct Point{ vec : f32x3 } }
+type _option0 = struct _option0{ value : struct FInterval{ low : f32; high : f32 }; set : bool = false }
+type _option1 = struct _option1{ value : struct TriangleIntersection{ b0 : f32; b1 : f32; b2 : f32; t : f32 }; set : bool = false }
+type _tree_layout0 = [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; nCount : u32; group0_row : const [[packed]] struct _tree_layout1{ children : [[packed]] u32x2; lo : [[packed]] f32x3x2; hi : [[packed]] f32x3x2 }[nCount] }
+type _tree_layout1 = [[packed]] struct _tree_layout1{ children : [[packed]] u32x2; lo : [[packed]] f32x3x2; hi : [[packed]] f32x3x2 }
+type _tree_layout2 = [[packed]] struct _tree_layout2{  }
+type _tree_layout3 = [[packed]] struct _tree_layout3{  }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+extern tris : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }[pCount]; nCount : u32; group0_row : const [[packed]] struct _tree_layout1{ children : [[packed]] u32x2; lo : [[packed]] f32x3x2; hi : [[packed]] f32x3x2 }[nCount] }
+
+func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), p : Point, tris : _tree_layout0) -> void {
+  tris_ref!top : mut u32
+  _bound0!top : mut f32
+  !count : mut u32
+  data : mut u32
+  !stack : mut u32[64]
+  !stack0 : mut f32[64]
+  tris_ref!top = tris_ref
+  _bound0!top = _bound0
+  !count = 0u
+  do {
+    let @0 = (*_best0) in
+    let @1 = @0._field0 in
+    let @2 = (*_bound0!top) < @1 in
+    if (@2) {
+      let _t86 = (*tris_ref!top) & 15u in
+      let @4 = _t86 == 0u in
+      if (@4) {
+        do {
+          _carry0 : mut f32[2]
+          _keys0 : mut f32[2]
+          let @166 = tris.group0_row in
+          let @167 = (*tris_ref!top) >> 4u in
+          let @170 = reinterpret_cast<const f32[6]>((&@166[@167].lo)) in
+          let @172 = @170[0u] in
+          let @175 = @170[2u] in
+          let @178 = @170[4u] in
+          let @179 = build<f32x3>(@172, @175, @178) in
+          let @180 = p.vec in
+          let @181 = @179 - @180 in
+          let @182 = @181 * @181 in
+          let @183 = @180 < @179 in
+          let @184 = f32x3(0f) in
+          let @185 = select(@183, @182, @184) in
+          let @187 = reinterpret_cast<const f32[6]>((&@166[@167].hi)) in
+          let @189 = @187[0u] in
+          let @191 = @187[2u] in
+          let @193 = @187[4u] in
+          let @194 = build<f32x3>(@189, @191, @193) in
+          let @195 = @180 - @194 in
+          let @196 = @195 * @195 in
+          let @197 = @194 < @180 in
+          let @198 = select(@197, @196, @184) in
+          let @199 = @185 + @198 in
+          let @200 = reduce<+>(@199) in
+          let @202 = sqrt(@200) in
+          let @203 = (*_best0) in
+          let @204 = @203._field0 in
+          let @205 = @202 < @204 in
+          let @320 = cast<u32>(@205) in
+          let @321 = @320 << 0u in
+          let @322 = 0u | @321 in
+          _carry0[0u] = @202
+          let @209 = @180 - @179 in
+          let @210 = abs(@209) in
+          let @211 = abs(@195) in
+          let @212 = max(@210, @211) in
+          let @213 = @212[0] in
+          let @214 = @213 * @213 in
+          let @215 = @212[1] in
+          let @216 = @215 * @215 in
+          let @217 = @214 + @216 in
+          let @218 = @212[2] in
+          let @219 = @218 * @218 in
+          let @220 = @217 + @219 in
+          let @221 = sqrt(@220) in
+          _best0._field0 min= @221
+          let @64 = half(@202) in
+          let k$i1 = @64 in
+          let @230 = @180[0u] in
+          let @231 = @230 * 0f in
+          let @232 = @231 + 1f in
+          let @233 = k$i1 * @232 in
+          _keys0[0u] = @233
+          let @237 = tris.group0_row in
+          let @238 = (*tris_ref!top) >> 4u in
+          let @241 = reinterpret_cast<const f32[6]>((&@237[@238].lo)) in
+          let @243 = @241[1u] in
+          let @244 = 1u + 2u in
+          let @246 = @241[@244] in
+          let @247 = 1u + 4u in
+          let @249 = @241[@247] in
+          let @250 = build<f32x3>(@243, @246, @249) in
+          let @251 = p.vec in
+          let @252 = @250 - @251 in
+          let @253 = @252 * @252 in
+          let @254 = @251 < @250 in
+          let @255 = f32x3(0f) in
+          let @256 = select(@254, @253, @255) in
+          let @258 = reinterpret_cast<const f32[6]>((&@237[@238].hi)) in
+          let @260 = @258[1u] in
+          let @262 = @258[@244] in
+          let @264 = @258[@247] in
+          let @265 = build<f32x3>(@260, @262, @264) in
+          let @266 = @251 - @265 in
+          let @267 = @266 * @266 in
+          let @268 = @265 < @251 in
+          let @269 = select(@268, @267, @255) in
+          let @270 = @256 + @269 in
+          let @271 = reduce<+>(@270) in
+          let @273 = sqrt(@271) in
+          let @274 = (*_best0) in
+          let @275 = @274._field0 in
+          let @276 = @273 < @275 in
+          let @325 = ~2u in
+          let @326 = @322 & @325 in
+          let @327 = cast<u32>(@276) in
+          let @328 = @327 << 1u in
+          let @329 = @326 | @328 in
+          _carry0[1u] = @273
+          let @280 = @251 - @250 in
+          let @281 = abs(@280) in
+          let @282 = abs(@266) in
+          let @283 = max(@281, @282) in
+          let @284 = @283[0] in
+          let @285 = @284 * @284 in
+          let @286 = @283[1] in
+          let @287 = @286 * @286 in
+          let @288 = @285 + @287 in
+          let @289 = @283[2] in
+          let @290 = @289 * @289 in
+          let @291 = @288 + @290 in
+          let @292 = sqrt(@291) in
+          _best0._field0 min= @292
+          let @64 = half(@273) in
+          let k$i1 = @64 in
+          let @301 = @251[0u] in
+          let @302 = @301 * 0f in
+          let @303 = @302 + 1f in
+          let @304 = k$i1 * @303 in
+          _keys0[1u] = @304
+          let @71 = tris.group0_row in
+          let @72 = (*tris_ref!top) >> 4u in
+          let @73 = @71[@72] in
+          let @74 = @73.children in
+          let _t67 = cast<u32x2>(@74) in
+          let @76 = _t67[0u] in
+          let @77 = _carry0[0u] in
+          let @78 = _t67[1u] in
+          let @79 = _carry0[1u] in
+          let @80 = _keys0[0u] in
+          let @331 = @329 >> 0u in
+          let @332 = @331 & 1u in
+          let @333 = @332 != 0u in
+          let @335 = @329 >> 1u in
+          let @336 = @335 & 1u in
+          let @337 = @336 != 0u in
+          let @156 = @80 < @304 in
+          let @159 = select(@156, @76, @78) in
+          let @160 = select(@156, @78, @76) in
+          let @161 = select(@156, @77, @79) in
+          let @162 = select(@156, @79, @77) in
+          let @163 = select(@156, @333, @337) in
+          let @164 = select(@156, @337, @333) in
+          if (!@164) {
+            do {
+              tris_ref!top = @159
+              _bound0!top = @161
+            } while (@163)
+            let @308 = (*!count) != 0u in
+            if (@308) {
+              let @309 = (*!count) - 1u in
+              let @310 = !stack[@309] in
+              let @311 = !stack0[@309] in
+              tris_ref!top = @310
+              _bound0!top = @311
+              !count = @309
+              continue
+            } else {
+              return
+            }
+          }
+          !stack[(*!count)] = @160
+          !stack0[(*!count)] = @162
+          let @315 = (*!count) + 1u in
+          !count = @315
+          tris_ref!top = @159
+          _bound0!top = @161
+        } while (@163)
+      } else {
+        let @84 = _t86 - 8u in
+        data = 0u
+        while ((*data) < @84) {
+          let @86 = (*tris_ref!top) >> 4u in
+          let _t82 = @86 + (*data) in
+          let @88 = tris.prims in
+          let tri$i2 = @88[_t82] in
+          let @90 = closestPointonTriangle(p, tri$i2) in
+          let pts$i2 = @90 in
+          let @91 = p.vec in
+          let @92 = pts$i2._field0 in
+          let @93 = @92.vec in
+          let @94 = @91 - @93 in
+          let @95 = @94[0] in
+          let @101 = @95 * @95 in
+          let @106 = @94[1] in
+          let @112 = @106 * @106 in
+          let @113 = @101 + @112 in
+          let @118 = @94[2] in
+          let @124 = @118 * @118 in
+          let @125 = @113 + @124 in
+          let @126 = sqrt(@125) in
+          let @128 = (*_best0) in
+          let @129 = @128._field0 in
+          let @130 = @126 < @129 in
+          if (@130) {
+            let @132 = build<__tuple_0>(_t82) in
+            let @133 = build<__tuple_1>(@126, @132) in
+            _best0 argmin= @133
+          }
+          let @134 = (*data) + 1u in
+          data = @134
+        }
+      }
+      let @308 = (*!count) != 0u in
+      if (@308) {
+        let @309 = (*!count) - 1u in
+        let @310 = !stack[@309] in
+        let @311 = !stack0[@309] in
+        tris_ref!top = @310
+        _bound0!top = @311
+        !count = @309
+        continue
+      } else {
+        return
+      }
+    }
+    let @308 = (*!count) != 0u in
+    if (@308) {
+      let @309 = (*!count) - 1u in
+      let @310 = !stack[@309] in
+      let @311 = !stack0[@309] in
+      tris_ref!top = @310
+      _bound0!top = @311
+      !count = @309
+      continue
+    } else {
+      return
+    }
+  } while (true)
+}
+
+func _traverse_tree0(p : Point, tris : _tree_layout0) -> Triangle {
+  _best0 : mut __tuple_1
+  let @0 = (f32)inf in
+  let @1 = build<__tuple_0>() in
+  let @2 = build<__tuple_1>(@0, @1) in
+  _best0 = @2
+  let @4 = -0f - @0 in
+  _recloop_func0(0u, @4, _best0, p, tris)
+  let @5 = tris.prims in
+  let @6 = (*_best0) in
+  let @7 = @6._field1 in
+  let @8 = @7._field0 in
+  let @9 = @5[@8] in
+  return @9
+}
+
+func [[export]] closest(_ret0 : mut (Triangle*), p : (Point*), tris : (_tree_layout0*)) -> void {
+  _best0$i3 : mut __tuple_1
+  let @0 = (f32)inf in
+  let @1 = build<__tuple_0>() in
+  let @2 = build<__tuple_1>(@0, @1) in
+  _best0$i3 = @2
+  let @4 = -0f - @0 in
+  let @5 = (*p) in
+  let @6 = (*tris) in
+  _recloop_func0(0u, @4, _best0$i3, @5, @6)
+  let @7 = (*tris) in
+  let @8 = @7.prims in
+  let @9 = (*_best0$i3) in
+  let @10 = @9._field1 in
+  let @11 = @10._field0 in
+  let @12 = @8[@11] in
+  _ret0 = @12
+  return
+}
+
+func [[noinline]] half(x : f32) -> f32 {
+  let @0 = x * 0.5f in
+  return @0
+}
+
+func key(p : Point, lo : f32x3, hi : f32x3) -> f32 {
+  let _t0$i35 = lo in
+  let v$i35 = p.vec in
+  let _t1$i35 = _t0$i35 - v$i35 in
+  let sqLow$i35 = _t1$i35 * _t1$i35 in
+  let @3 = v$i35 < _t0$i35 in
+  let @4 = f32x3(0f) in
+  let low$i35 = select(@3, sqLow$i35, @4) in
+  let _t5$i35 = hi in
+  let _t6$i35 = v$i35 - _t5$i35 in
+  let sqHigh$i35 = _t6$i35 * _t6$i35 in
+  let @8 = _t5$i35 < v$i35 in
+  let high$i35 = select(@8, sqHigh$i35, @4) in
+  let @11 = low$i35 + high$i35 in
+  let @12 = reduce<+>(@11) in
+  let @14 = sqrt(@12) in
+  let @15 = half(@14) in
+  let k = @15 in
+  let @16 = v$i35[0u] in
+  let @17 = @16 * 0f in
+  let s = @17 + 1f in
+  let @19 = k * s in
+  return @19
+}
+
+
+schedule {
+    tris : tree[[struct Triangle{ p0 : f32x3; p1 : f32x3; p2 : f32x3 }]] BVH2
+  | Interior(children : (const BVH2&)[2], lo : f32x3x2, hi : f32x3x2) with AABB(lo, hi) on children
+  | Leaf(data : Triangle[]) with data = data
+    closest.sort(tris.Interior, |i : u32, p : struct Point{ vec : f32x3 }, lo : f32x3x2, hi : f32x3x2| key(p, lo[i], hi[i]))
+           .unroll(tris.Interior.children)
+           .loopify((i32)64)
+
+}

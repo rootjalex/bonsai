@@ -1,0 +1,62 @@
+//! flags: -p ssa -b llvm
+
+// The program of ssa/blocks/unroll-let-names.bonsai, all the way to LLVM:
+// a children loop unrolled whose body binds a call's result to a `let` (a
+// named Set in the SSA, one per copy, both under the program's name). What
+// to read for: `half` computed once per child (LLVM copies it in), each
+// result multiplied by the shared factor into its own key, and the two
+// keys compared to order the children -- the `fcmp` of the two deciding
+// the swap. A value numbering that told the copies' Sets apart by name
+// alone would have one key and no compare (ssa/blocks/unroll-let-names.
+// bonsai says where that happened).
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/point;
+import stdlib/triangle;
+
+extern tris : set[Triangle];
+
+func [[noinline]] half(x : Float) -> Float = x * 0.5;
+
+func key(p : Point, lo : vec3f, hi : vec3f) -> Float {
+    k = half(distmin(p, AABB{lo, hi}));
+    s = p.vec.x * 0.0 + 1.0;
+    return k * s;
+}
+
+func [[export]] closest(p : Point) = argmin(|t : Triangle| distmin(p, t), tris);
+
+schedule {
+    tree[[Triangle]] BVH2 =
+    | Interior(children : array[BVH2, 2], lo hi : vector[vec3f, 2])
+        with AABB(lo, hi) on children
+    | Leaf(data : array[Triangle]) with data = data;
+
+    tris : BVH2;
+
+    layout tris {
+        pCount : u32;
+        prims : array[Triangle, pCount];
+        nCount : u32;
+        indirect group Nodes[nCount] row : u32 {
+            children : vector[u32, 2];
+            lo : vector[vec3f, 2];
+            hi : vector[vec3f, 2];
+        };
+        group[nCount] ref : u32 {
+            kind = ref & 15u;
+            switch kind {
+                0 => Interior from Nodes[ref >> 4];
+                _ => Leaf { data = range(prims, ref >> 4, kind - 8u); };
+            };
+        };
+    };
+
+    closest.sort(tris.Interior,
+                 |i : u32, p : Point, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                 key(p, lo[i], hi[i]))
+           .unroll(tris.Interior.children)
+           .loopify(64);
+}
