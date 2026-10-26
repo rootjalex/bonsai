@@ -494,6 +494,15 @@ struct Terminator {
         // does not push it (SSA/QueueRecursion.h).
         std::vector<std::shared_ptr<Value>> conds;
         bool drop = true;
+        // Whether the order of the calls is fixed: a sort() has put them in
+        // it (SSA/SortRecursion.cpp -- sort_two's arms, the network, the
+        // peel chain's arms), and whoever writes the run out keeps it. A run
+        // the tree lowering made from a node's children under their mask
+        // has no order of its own, and loopify may then write it as the
+        // lanes of vectors in whatever order its compaction gives
+        // (QueueRecursion.cpp, LaneRun); it may not do that to an ordered
+        // run, whose calls may well be those same lanes read in order.
+        bool ordered = false;
 
         // `call.args` with entry `c` substituted in at `varying_at`.
         std::vector<std::shared_ptr<Value>> call_args(size_t c) const;

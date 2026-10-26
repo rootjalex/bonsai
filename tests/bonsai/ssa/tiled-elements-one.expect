@@ -42,14 +42,14 @@ func _recloop_func0(tris_index : u32, _bound0 : f32, _best0 : mut (__tuple_1*), 
     let @1 = @0._field0 in
     let @2 = (*_bound0!top) < @1 in
     if (@2) {
-      let @3 = tris.group1_index in
-      let _t228 = @3[(*tris_index!top)] in
-      let _t229 = _t228.child0 in
-      let @6 = _t229 >> 31 in
-      let @7 = @6 & 1 in
-      let @8 = @7 == 0 in
-      if (@8) {
-        do {
+      do {
+        let @3 = tris.group1_index in
+        let _t228 = @3[(*tris_index!top)] in
+        let _t229 = _t228.child0 in
+        let @6 = _t229 >> 31 in
+        let @7 = @6 & 1 in
+        let @8 = @7 == 0 in
+        if (@8) {
           _mask0 = 0u
           _carry0 : mut f32[2]
           _keys0 : mut f32[2]
@@ -90,14 +90,14 @@ func _recloop_func0(tris_index : u32, _bound0 : f32, _best0 : mut (__tuple_1*), 
             let @40 = (*_best0) in
             let @41 = @40._field0 in
             let @42 = _t39 < @41 in
-            let @195 = (*_mask0) in
-            let @196 = 1u << children in
-            let @197 = ~@196 in
-            let @198 = @195 & @197 in
-            let @199 = cast<u32>(@42) in
-            let @200 = @199 << children in
-            let @201 = @198 | @200 in
-            _mask0 = @201
+            let @191 = (*_mask0) in
+            let @192 = 1u << children in
+            let @193 = ~@192 in
+            let @194 = @191 & @193 in
+            let @195 = cast<u32>(@42) in
+            let @196 = @195 << children in
+            let @197 = @194 | @196 in
+            _mask0 = @197
             _carry0[children] = _t39
             let @45 = v$i26 - _t0$i26 in
             let @46 = abs(@45) in
@@ -123,102 +123,111 @@ func _recloop_func0(tris_index : u32, _bound0 : f32, _best0 : mut (__tuple_1*), 
           let @71 = _carry0[1u] in
           let @72 = _keys0[0u] in
           let @73 = _keys0[1u] in
-          let @202 = (*_mask0) in
-          let @203 = @202 >> 0u in
+          let @198 = (*_mask0) in
+          let @199 = @198 >> 0u in
+          let @200 = @199 & 1u in
+          let @201 = @200 != 0u in
+          let @203 = @198 >> 1u in
           let @204 = @203 & 1u in
           let @205 = @204 != 0u in
-          let @207 = @202 >> 1u in
-          let @208 = @207 & 1u in
-          let @209 = @208 != 0u in
-          let @177 = @72 < @73 in
-          let @180 = select(@177, @64, @66) in
-          let @181 = select(@177, @66, @64) in
-          let @182 = select(@177, @69, @71) in
-          let @183 = select(@177, @71, @69) in
-          let @184 = select(@177, @205, @209) in
-          let @185 = select(@177, @209, @205) in
-          if (!@185) {
-            do {
-              tris_index!top = @180
-              _bound0!top = @182
-            } while (@184)
-            let @187 = (*!count) != 0u in
-            if (@187) {
-              let @188 = (*!count) - 1u in
-              let @189 = !stack[@188] in
-              let @190 = !stack0[@188] in
-              tris_index!top = @189
-              _bound0!top = @190
-              !count = @188
+          let @177 = @73 < @72 in
+          let @177!vote = @177 in
+          if (@177!vote) {
+            if (@201) {
+              !stack[(*!count)] = @64
+              !stack0[(*!count)] = @69
+              let @190 = (*!count) + 1u in
+              !count = @190
+            }
+            if (@205) {
+              tris_index!top = @66
+              _bound0!top = @71
               continue
-            } else {
-              return
+            }
+          } else {
+            if (@205) {
+              !stack[(*!count)] = @66
+              !stack0[(*!count)] = @71
+              let @186 = (*!count) + 1u in
+              !count = @186
+            }
+            if (@201) {
+              tris_index!top = @64
+              _bound0!top = @69
+              continue
             }
           }
-          !stack[(*!count)] = @181
-          !stack0[(*!count)] = @183
-          let @194 = (*!count) + 1u in
-          !count = @194
-          tris_index!top = @180
-          _bound0!top = @182
-        } while (@184)
-      } else {
-        let @76 = _t228.child1 in
-        let @77 = cast<u32>(@76) in
-        data = 0u
-        while ((*data) < @77) {
-          let @79 = 0 - _t229 in
-          let @80 = @79 - 1 in
-          let @81 = cast<u32>(@80) in
-          let _t356 = @81 + (*data) in
-          let @83 = tris.group0_prims in
-          let @84 = @83[_t356] in
-          let _t357$pa2 = @84.pa in
-          let _t357$pb3 = @84.pb in
-          let _t357$pc4 = @84.pc in
-          let @92 = cast<f32x3x1>(_t357$pa2) in
-          let @93 = @92[0u] in
-          let @94 = cast<f32x3x1>(_t357$pb3) in
-          let @95 = @94[0u] in
-          let @96 = cast<f32x3x1>(_t357$pc4) in
-          let @97 = @96[0u] in
-          let tri$i1 = build<Triangle>(@93, @95, @97) in
-          let @99 = closestPointonTriangle(p, tri$i1) in
-          let pts$i1 = @99 in
-          let _t375 = p.vec in
-          let @101 = pts$i1._field0 in
-          let @102 = @101.vec in
-          let @103 = _t375 - @102 in
-          let @104 = @103[0] in
-          let @109 = @104 * @104 in
-          let @113 = @103[1] in
-          let @118 = @113 * @113 in
-          let @119 = @109 + @118 in
-          let @123 = @103[2] in
-          let @128 = @123 * @123 in
-          let @129 = @119 + @128 in
-          let @130 = sqrt(@129) in
-          let @132 = (*_best0) in
-          let @133 = @132._field0 in
-          let @134 = @130 < @133 in
-          if (@134) {
-            let @166 = build<__tuple_0>(_t356) in
-            let @167 = build<__tuple_1>(@130, @166) in
-            _best0 argmin= @167
+        } else {
+          let @76 = _t228.child1 in
+          let @77 = cast<u32>(@76) in
+          data = 0u
+          while ((*data) < @77) {
+            let @79 = 0 - _t229 in
+            let @80 = @79 - 1 in
+            let @81 = cast<u32>(@80) in
+            let _t356 = @81 + (*data) in
+            let @83 = tris.group0_prims in
+            let @84 = @83[_t356] in
+            let _t357$pa2 = @84.pa in
+            let _t357$pb3 = @84.pb in
+            let _t357$pc4 = @84.pc in
+            let @92 = cast<f32x3x1>(_t357$pa2) in
+            let @93 = @92[0u] in
+            let @94 = cast<f32x3x1>(_t357$pb3) in
+            let @95 = @94[0u] in
+            let @96 = cast<f32x3x1>(_t357$pc4) in
+            let @97 = @96[0u] in
+            let tri$i1 = build<Triangle>(@93, @95, @97) in
+            let @99 = closestPointonTriangle(p, tri$i1) in
+            let pts$i1 = @99 in
+            let _t375 = p.vec in
+            let @101 = pts$i1._field0 in
+            let @102 = @101.vec in
+            let @103 = _t375 - @102 in
+            let @104 = @103[0] in
+            let @109 = @104 * @104 in
+            let @113 = @103[1] in
+            let @118 = @113 * @113 in
+            let @119 = @109 + @118 in
+            let @123 = @103[2] in
+            let @128 = @123 * @123 in
+            let @129 = @119 + @128 in
+            let @130 = sqrt(@129) in
+            let @132 = (*_best0) in
+            let @133 = @132._field0 in
+            let @134 = @130 < @133 in
+            if (@134) {
+              let @166 = build<__tuple_0>(_t356) in
+              let @167 = build<__tuple_1>(@130, @166) in
+              _best0 argmin= @167
+            }
+            let @168 = (*data) + 1u in
+            data = @168
           }
-          let @168 = (*data) + 1u in
-          data = @168
         }
+        break
+      } while (true)
+      let @179 = (*!count) != 0u in
+      if (@179) {
+        let @180 = (*!count) - 1u in
+        let @181 = !stack[@180] in
+        let @182 = !stack0[@180] in
+        tris_index!top = @181
+        _bound0!top = @182
+        !count = @180
+        continue
+      } else {
+        return
       }
     }
-    let @187 = (*!count) != 0u in
-    if (@187) {
-      let @188 = (*!count) - 1u in
-      let @189 = !stack[@188] in
-      let @190 = !stack0[@188] in
-      tris_index!top = @189
-      _bound0!top = @190
-      !count = @188
+    let @179 = (*!count) != 0u in
+    if (@179) {
+      let @180 = (*!count) - 1u in
+      let @181 = !stack[@180] in
+      let @182 = !stack0[@180] in
+      tris_index!top = @181
+      _bound0!top = @182
+      !count = @180
       continue
     } else {
       return

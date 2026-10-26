@@ -4,25 +4,36 @@
 // one place it is legible.
 //
 // ssa/sort-recursion.bonsai is this schedule read through the relooper, and
-// there the sort arrives as a run of `lt` and `select` with nothing saying
-// what they are for. Here it is one line, twice:
+// there the sort arrives as an `if` with a run in each arm and nothing
+// saying what it is for. Here it is one line before, and a branch after:
 //
-//   pre:   multicall _recloop_func0(..) from { (@23), (@29) } at { 0 }
-//                                       sorted by (@38, @48) ..
-//   post:  multicall _recloop_func0(..) from { (@98), (@99) } at { 0 } ..
+//   pre:   multicall _recloop_func0(..) from { (@103), (@106) } at { 0 }
+//                                       sorted by (@107, @109) ..
+//   post:  @129!vote = vote(_t19)
+//          dispatch @129!vote [!then_16!sorted(), !then_16!swapped()]
+//          ..
+//          !then_16!sorted():  multicall .. from { (@103), (@106) } ..
+//          !then_16!swapped(): multicall .. from { (@106), (@103) } ..
 //
 // A `from (a, b)` is one terminator with a branch per child, which is the
 // whole reason `ir::MultiRecurse` exists: a schedule that wants to *order*
 // those calls needs them to still be one thing. `sorted by` carries the keys
-// the schedule's lambda produced. The rewrite permutes the branches to match
-// and then clears the keys -- so a multicall reaching code generation with
-// keys still on it would be a sort that never happened, and the absence of
-// `sorted by` in the second dump is the test.
+// the schedule's lambda produced. The rewrite of a run of two
+// (SSA/SortRecursion.cpp, sort_two) compares the two keys once and branches
+// between the two orders of the run, each arm the run as written in that
+// order with its keys cleared -- so a multicall reaching code generation
+// with keys still on it would be a sort that never happened, and the absence
+// of `sorted by` in the second dump is the test. A branch rather than a
+// select of the two children: the child entered next is then a matter of
+// control, which the machine predicts and runs ahead of, where a select made
+// it a value the next node's loads had to wait for (FCPW's and Embree's
+// `if (d1 < d0) swap`; measured on FCPW's binary tree, 2026-10-26,
+// apps/rtq/PLAN.md). The vote on the comparison is the comparison itself
+// here, a scalar traversal; for a gang it is the lanes' majority.
 //
 // The branches are indices, not subtrees. Sorting after the layout is what
-// makes the permutation a run of selects over numbers rather than over whole
-// subtree values, which is what it cost when Lower/Sorts.cpp did the
-// reordering itself.
+// makes the arms differ in numbers rather than in whole subtree values,
+// which is what it cost when Lower/Sorts.cpp did the reordering itself.
 //
 // No `loopify()` here, deliberately: with one the multicall becomes stack
 // pushes and the thing being tested is gone from the output. That combination

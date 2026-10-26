@@ -487,11 +487,8 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
   @104 = reinterpret<_tree_layout2>(_t75$split0on_nPrims4)
   @105 = load_field(@104, (u32)0)
   @106 = add(triangles_index, @105)
-  @108 = not(_t19)
-  @129!vote = vote(@108)
-  @132 = select(@129!vote, @103, @106)
-  @133 = select(@129!vote, @106, @103)
-  multicall _recloop_func0(triangles_index, triangles, ray, _best0) from { (@132), (@133) } at { 0 } !_recloop_func0_multicall_cont_19()
+  @129!vote = vote(_t19)
+  dispatch @129!vote [!then_16!sorted(), !then_16!swapped()]
 
 !else_17(_t64 : u16, _t75$split0on_nPrims4 : [[packed]] u8x4, ray : Ray, triangles : _tree_layout0, _best0 : (__tuple_1*)): // preds: !then_14
   @110 = cast<u32>(_t64)
@@ -531,10 +528,10 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
   @121 = load(distmin_Ray_Triangle$r2)
   @122 = load(_best0)
   @123 = load_field(@122, (u32)0)
-  @134 = reinterpret<i32>(@121)
-  @135 = reinterpret<i32>(@123)
-  @136 = lt(@134, @135)
-  dispatch @136 [!merge_27(data, @110, _t75$split0on_nPrims4, ray, triangles, _best0), !then_26(distmin_Ray_Triangle$r2, _t57, _best0, data, @110, _t75$split0on_nPrims4, ray, triangles)]
+  @130 = reinterpret<i32>(@121)
+  @131 = reinterpret<i32>(@123)
+  @132 = lt(@130, @131)
+  dispatch @132 [!merge_27(data, @110, _t75$split0on_nPrims4, ray, triangles, _best0), !then_26(distmin_Ray_Triangle$r2, _t57, _best0, data, @110, _t75$split0on_nPrims4, ray, triangles)]
 
 !merge_25(data : u32, @110 : u32, _t75$split0on_nPrims4 : [[packed]] u8x4, ray : Ray, triangles : _tree_layout0, _best0 : (__tuple_1*)): // preds: !merge_27, !intersectsp_ray_tri_call_cont_23
   @128 = add(data, (u32)1)
@@ -549,6 +546,21 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
 
 !merge_27(data : u32, @110 : u32, _t75$split0on_nPrims4 : [[packed]] u8x4, ray : Ray, triangles : _tree_layout0, _best0 : (__tuple_1*)): // preds: !then_26, !then_24
   jmp !merge_25(data, @110, _t75$split0on_nPrims4, ray, triangles, _best0)
+
+!then_16!sort!merge(): 
+  jmp !_recloop_func0_multicall_cont_19()
+
+!then_16!sorted(): 
+  multicall _recloop_func0(triangles_index, triangles, ray, _best0) from { (@103), (@106) } at { 0 } !then_16!sorted!cont()
+
+!then_16!sorted!cont(): 
+  jmp !then_16!sort!merge()
+
+!then_16!swapped(): 
+  multicall _recloop_func0(triangles_index, triangles, ray, _best0) from { (@106), (@103) } at { 0 } !then_16!swapped!cont()
+
+!then_16!swapped!cont(): 
+  jmp !then_16!sort!merge()
 
 ; --- _traverse_tree0 ---
 func _traverse_tree0(ray : Ray, triangles : _tree_layout0): 
@@ -682,11 +694,11 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
   let @24 = _t118$i14$i26 / @23 in
   let @26 = 2f * @24 in
   let @27 = 1f + @26 in
-  let @137 = @19 * f32x3(@27) in
-  let @29 = @137[1u] in
+  let @133 = @19 * f32x3(@27) in
+  let @29 = @133[1u] in
   let @31 = @16[0u] in
   let @32 = @29 < @31 in
-  let @34 = @137[0u] in
+  let @34 = @133[0u] in
   let @36 = @16[1u] in
   let @37 = @34 < @36 in
   let @38 = @32 || @37 in
@@ -696,7 +708,7 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
   } else {
     let @44 = max(@31, @36) in
     let @49 = min(@34, @29) in
-    let @51 = @137[2u] in
+    let @51 = @133[2u] in
     let @53 = @51 < @44 in
     let @56 = @16[2u] in
     let @57 = @49 < @56 in
@@ -753,12 +765,14 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
         let @104 = reinterpret_cast<_tree_layout2>(_t75$split0on_nPrims4) in
         let @105 = @104.offset in
         let @106 = triangles_index + @105 in
-        let @108 = !_t19 in
-        let @129!vote = @108 in
-        let @132 = select(@129!vote, @103, @106) in
-        let @133 = select(@129!vote, @106, @103) in
-        _recloop_func0(@132, triangles, ray, _best0)
-        _recloop_func0(@133, triangles, ray, _best0)
+        let @129!vote = _t19 in
+        if (@129!vote) {
+          _recloop_func0(@106, triangles, ray, _best0)
+          _recloop_func0(@103, triangles, ray, _best0)
+        } else {
+          _recloop_func0(@103, triangles, ray, _best0)
+          _recloop_func0(@106, triangles, ray, _best0)
+        }
       } else {
         let @110 = cast<u32>(_t64) in
         data = 0u
@@ -776,10 +790,10 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
             let @120 = isect_$i2.t in
             let @122 = (*_best0) in
             let @123 = @122._field0 in
-            let @134 = reinterpret_cast<i32>(@120) in
-            let @135 = reinterpret_cast<i32>(@123) in
-            let @136 = @134 < @135 in
-            if (@136) {
+            let @130 = reinterpret_cast<i32>(@120) in
+            let @131 = reinterpret_cast<i32>(@123) in
+            let @132 = @130 < @131 in
+            if (@132) {
               let @126 = build<__tuple_0>(_t57) in
               let @127 = build<__tuple_1>(@120, @126) in
               _best0 argmin= @127

@@ -1212,11 +1212,14 @@ BlockMasks linearize(Function &func, const string &entry_name,
 
     // The landings between a definition in `at` and a read in `to`, innermost
     // region first; regions that share a landing are one hop. At each, the
-    // block the region leaves from and any other way in -- a landing that is
-    // a join of a uniform branch of the program's.
+    // blocks the region leaves from -- one, or several where a uniform
+    // branch inside the region has its sides leave for the landing
+    // separately, as the two orders of a sorted run of two do
+    // (SSA/SortRecursion.cpp, sort_two) -- and any other way in: a landing
+    // that is a join of a uniform branch of the program's.
     struct Hop {
         BlockId landing;
-        BlockId inside;
+        vector<BlockId> insides;
         vector<BlockId> others;
     };
     auto hops = [&](BlockId at, BlockId to) {
@@ -1237,7 +1240,7 @@ BlockMasks linearize(Function &func, const string &entry_name,
                     inner = g;
                 }
             }
-            Hop hop{inner->landing, NO_BLOCK, {}};
+            Hop hop{inner->landing, {}, {}};
             for (BlockId from = 0; from < linear.size(); from++) {
                 for (const CfgEdge &e : linear[from]) {
                     if (e.to != hop.landing ||
@@ -1245,18 +1248,13 @@ BlockMasks linearize(Function &func, const string &entry_name,
                         continue;
                     }
                     if (inner->region.contains(from)) {
-                        internal_assert(hop.inside == NO_BLOCK)
-                            << "The region of " << cfg.name(inner->arm)
-                            << " leaves for " << cfg.name(hop.landing)
-                            << " from both " << cfg.name(hop.inside) << " and "
-                            << cfg.name(from);
-                        hop.inside = from;
+                        hop.insides.push_back(from);
                     } else {
                         hop.others.push_back(from);
                     }
                 }
             }
-            internal_assert(hop.inside != NO_BLOCK)
+            internal_assert(!hop.insides.empty())
                 << "The region of " << cfg.name(inner->arm)
                 << " does not leave for its landing " << cfg.name(hop.landing);
             path.push_back(hop);
@@ -1297,9 +1295,14 @@ BlockMasks linearize(Function &func, const string &entry_name,
                 continue;
             }
             const shared_ptr<Block> &landing = cfg.block(hop.landing);
-            // What each way into the landing would hand the argument.
+            // What each way into the landing would hand the argument. A
+            // value threaded past the landing is read beyond it, so its
+            // definition dominates the landing and every block the region
+            // leaves from: each hands `v` itself.
             map<BlockId, shared_ptr<Value>> from;
-            from[hop.inside] = v;
+            for (BlockId inside : hop.insides) {
+                from[inside] = v;
+            }
             for (const Gadget &g : gadgets) {
                 if (g.landing == hop.landing) {
                     from[g.guard] = g.region.contains(at) ? skipped(g) : v;

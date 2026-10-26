@@ -195,9 +195,8 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
             let @75 = reinterpret_cast<_tree_layout2>(@74) in
             let @76 = @75.offset in
             let @77 = (*shapes_index!top) + @76 in
-            let @79 = !_t31 in
-            let @263 = select(@79, @73, @77) in
-            let @264 = select(@79, @77, @73) in
+            let @263 = select(_t31, @77, @73) in
+            let @264 = select(_t31, @73, @77) in
             !stack[(*!count)] = @264
             let @271 = (*!count) + 1u in
             shapes_index!top = @263
@@ -579,9 +578,8 @@ func _recloop_func0$gang8_v2_p3(shapes_index : u16, shapes : _tree_layout0, r : 
               let @75 = reinterpret_cast<_tree_layout2$v8>(@74) in
               let @76 = @75.offset in
               let @77 = (*shapes_index!top!loop) + @76 in
-              let @79 = !@424 in
-              let @263 = select(@79, @73, @77) in
-              let @264 = select(@79, @77, @73) in
+              let @263 = select(@424, @77, @73) in
+              let @264 = select(@424, @73, @77) in
               let @497 = reinterpret_cast<u16[]>(!stack) in
               let @499 = u32x8(8u) in
               let @500 = (*!count!loop) * @499 in

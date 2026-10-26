@@ -1,0 +1,7 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_sort_tie_left_first.cpp -I. -o tests/bonsai/correctness/cpp/main_sort_tie_left_first.o
+[test] clang++ tests/bonsai/correctness/cpp/main_sort_tie_left_first.o tests/bonsai/correctness/cpp/sort_tie_left_first.o -o tests/bonsai/correctness/cpp/sort_tie_left_first
+[test] ./tests/bonsai/correctness/cpp/sort_tie_left_first
+tie: left (expected left)
+left nearer: left (expected left)
+right nearer: right (expected right)
+sort_tie_left_first: ok

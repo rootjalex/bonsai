@@ -25,6 +25,7 @@ add_bonsai_tests(
     bvh4_tiled_elements_where.bonsai
     layout_tile_group_reads.bonsai
     unroll_let_names.bonsai
+    sort_tie_left_first.bonsai
     bvh4_tiled_elements_prefetch.bonsai
     destination_passing.bonsai
     defer_sorted_queue.bonsai

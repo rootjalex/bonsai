@@ -134,9 +134,9 @@ hit_z_all:
   %16 = fdiv <8 x float> splat (float 1.000000e+00), %extract_d_0
   %17 = fdiv <8 x float> splat (float 1.000000e+00), %extract_d_1
   %18 = fdiv <8 x float> splat (float 1.000000e+00), %extract_d_2
-  %19 = fcmp uge <8 x float> %16, zeroinitializer
-  %20 = fcmp uge <8 x float> %17, zeroinitializer
-  %21 = fcmp uge <8 x float> %18, zeroinitializer
+  %19 = fcmp olt <8 x float> %16, zeroinitializer
+  %20 = fcmp olt <8 x float> %17, zeroinitializer
+  %21 = fcmp olt <8 x float> %18, zeroinitializer
   br label %"_recloop_func0$gang8_v2_p3$masked!loop.i"
 
 "_recloop_func0$gang8_v2_p3$masked!loop.i":       ; preds = %"_recloop_func0$gang8_v2_p3$masked!loop.i.backedge", %hit_z_all
@@ -228,21 +228,21 @@ hit_z_all:
   %62 = icmp eq i8 %extract.unpack139.i, 1
   %.splatinsert108.i = insertelement <8 x i1> poison, i1 %62, i64 0
   %.splat109.i = shufflevector <8 x i1> %.splatinsert108.i, <8 x i1> poison, <8 x i32> zeroinitializer
+  %63 = select <8 x i1> %.splat109.i, <8 x i1> %20, <8 x i1> %21
   %.splatinsert110.i = insertelement <8 x i1> poison, i1 %61, i64 0
   %.splat111.i = shufflevector <8 x i1> %.splatinsert110.i, <8 x i1> poison, <8 x i32> zeroinitializer
-  %63 = add i16 %"shapes_index!top.i", 1
-  %64 = bitcast <2 x i8> %22 to i16
-  %65 = add i16 %"shapes_index!top.i", %64
-  %66 = select <8 x i1> %.splat109.i, <8 x i1> %20, <8 x i1> %21
-  %67 = select <8 x i1> %.splat111.i, <8 x i1> %19, <8 x i1> %66
-  %68 = and <8 x i1> %67, %58
+  %64 = select <8 x i1> %.splat111.i, <8 x i1> %19, <8 x i1> %63
+  %65 = add i16 %"shapes_index!top.i", 1
+  %66 = bitcast <2 x i8> %22 to i16
+  %67 = add i16 %"shapes_index!top.i", %66
+  %68 = and <8 x i1> %64, %58
   %69 = tail call range(i8 1, 9) i8 @llvm.ctpop.i8(i8 %59)
   %70 = bitcast <8 x i1> %68 to i8
   %71 = tail call range(i8 0, 9) i8 @llvm.ctpop.i8(i8 %70)
   %72 = shl nuw nsw i8 %71, 1
   %73 = icmp samesign ult i8 %69, %72
-  %74 = select i1 %73, i16 %63, i16 %65
-  %75 = select i1 %73, i16 %65, i16 %63
+  %74 = select i1 %73, i16 %67, i16 %65
+  %75 = select i1 %73, i16 %65, i16 %67
   %"!count_wide.i" = zext i32 %"!count.i" to i64
   %"!stack113.i" = getelementptr inbounds nuw [2 x i8], ptr %"!stack133.i", i64 %"!count_wide.i"
   store i16 %75, ptr %"!stack113.i", align 2, !tbaa !1

@@ -2629,12 +2629,49 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                 intervals.dump(std::cout, *f);
             }
         }
+        // Whether a gang runs a function: some directive of the schedule
+        // vectorizes a loop of it or of a function it is called from, so
+        // that, once loopify() has put a sorted run on a stack, each lane
+        // orders the run for itself -- a select per value, not a branch
+        // (SSA/SortRecursion.cpp, sort_two and the header's `per_lane`).
+        // Read off the whole schedule, as `vectorizes` below is: the
+        // vectorize directive comes after the sort it bears on.
+        std::map<std::string, std::vector<std::string>> callers;
+        for (const auto &[caller, f] : fmap) {
+            for (const auto &block : f->blocks) {
+                if (const Terminator::Jump *callee = block->terminator.callee()) {
+                    callers[callee->name].push_back(caller);
+                }
+            }
+        }
+        const auto gang_runs = [&](const std::string &fname) {
+            std::set<std::string> seen{fname};
+            std::vector<std::string> todo{fname};
+            while (!todo.empty()) {
+                const std::string f = todo.back();
+                todo.pop_back();
+                if (const auto ts = transforms.find(f); ts != transforms.end()) {
+                    for (const ir::Transform &t : ts->second) {
+                        if (std::holds_alternative<ir::Vectorize>(t)) {
+                            return true;
+                        }
+                    }
+                }
+                for (const std::string &c : callers[f]) {
+                    if (seen.insert(c).second) {
+                        todo.push_back(c);
+                    }
+                }
+            }
+            return false;
+        };
         for (const std::string &fname : reach) {
             const auto f = fmap.find(fname);
             if (f == fmap.end()) {
                 continue;
             }
-            sort_recursion(*f->second, fmap, options.target, intervals);
+            sort_recursion(*f->second, fmap, options.target, intervals,
+                           gang_runs(fname));
             // What the network compared was built by rule; this is where it
             // is looked at (see SSA/Simplify.h).
             simplify(*f->second);

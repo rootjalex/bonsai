@@ -598,6 +598,7 @@ clone_region(Function &func, const vector<shared_ptr<Block>> &region,
                     out.keys = clone_values(c.keys);
                     out.conds = clone_values(c.conds);
                     out.drop = c.drop;
+                    out.ordered = c.ordered;
                     return out;
                 },
             },

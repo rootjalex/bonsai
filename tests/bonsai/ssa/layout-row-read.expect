@@ -94,14 +94,21 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, p : Point, _best0 : 
         let @70 = build<AABB>(@68, @69) in
         let @71 = SqDistPointAABB(p, @70) in
         let @72 = sqrt(@71) in
-        let @117 = @67 < @72 in
-        let @120 = select(@117, _t19, _t23) in
-        let @121 = select(@117, _t23, _t19) in
-        !stack[(*!count)] = @121
-        let @128 = (*!count) + 1u in
-        tris_index!top = @120
-        !count = @128
-        continue
+        let @117 = @72 < @67 in
+        let @117!vote = @117 in
+        if (@117!vote) {
+          !stack[(*!count)] = _t19
+          let @127 = (*!count) + 1u in
+          tris_index!top = _t23
+          !count = @127
+          continue
+        } else {
+          !stack[(*!count)] = _t23
+          let @124 = (*!count) + 1u in
+          tris_index!top = _t19
+          !count = @124
+          continue
+        }
       } else {
         data = 0u
         while ((*data) < _t89) {
@@ -136,12 +143,12 @@ func _recloop_func0(tris_index : u32, tris : _tree_layout0, p : Point, _best0 : 
         }
       }
     }
-    let @123 = (*!count) != 0u in
-    if (@123) {
-      let @124 = (*!count) - 1u in
-      let @125 = !stack[@124] in
-      tris_index!top = @125
-      !count = @124
+    let @119 = (*!count) != 0u in
+    if (@119) {
+      let @120 = (*!count) - 1u in
+      let @121 = !stack[@120] in
+      tris_index!top = @121
+      !count = @120
       continue
     } else {
       return

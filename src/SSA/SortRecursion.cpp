@@ -49,8 +49,17 @@ const string &name_of(const shared_ptr<Value> &v) {
 // One compare-and-swap of a sorting network, applied to the keys and to
 // everything travelling with them.
 //
-// `keep` is true where element i is the smaller of the pair, and both elements
-// are rewritten to selects on it. Note that both arms of every select are
+// `swap` is true where the later element of the pair is strictly the smaller,
+// and both elements are rewritten to selects on it. Strictly: equal keys keep
+// their order, the left child before the right, which is what the references
+// do -- FCPW exchanges its two children on `boxHits[2] < boxHits[0]`
+// (bvh.inl, processSubtreeForIntersection), Embree its hits on `d1 < d0`.
+// Until 2026-10-26 the compare was the earlier element's `<`, which put the
+// right child first on a tie; a tie is every ray whose origin lies in both
+// children's boxes, the common case near the root for a camera or a surface
+// point inside the scene, and the first hit's traversal then descended the
+// far side first (apps/rtq/PLAN.md, the 2026-10-26 reading of the ray gap
+// against FCPW's scalar tree). Note that both arms of every select are
 // values that already exist -- the point of doing this here is that they are
 // node indices by now, so a select is a select and not a materialisation.
 //
@@ -80,18 +89,20 @@ void compare_and_swap(Function &func, const shared_ptr<Block> &block,
             : Bool_t::make();
     shared_ptr<Value> compared =
         append(func, block, compared_t, Instruction::Op::Lt,
-               ascending ? vector<shared_ptr<Value>>{keys[i], keys[l]}
-                         : vector<shared_ptr<Value>>{keys[l], keys[i]});
+               ascending ? vector<shared_ptr<Value>>{keys[l], keys[i]}
+                         : vector<shared_ptr<Value>>{keys[i], keys[l]});
     // Named after the comparison it decides, so that the vote reads as what
     // it is in a dump, and so that a scalar traversal -- where loopify drops
     // it again -- numbers everything after it as before.
-    shared_ptr<Value> keep =
+    shared_ptr<Value> swap =
         append(func, block, Bool_t::make(), Instruction::Op::Vote, {compared},
                name_of(compared) + "!vote");
 
+    // An element's own value `a`, or the other's `b` where the pair is
+    // exchanged.
     auto pick = [&](const shared_ptr<Value> &a, const shared_ptr<Value> &b) {
         return append(func, block, a->get_type(), Instruction::Op::Select,
-                      {keep, a, b});
+                      {swap, b, a});
     };
 
     // Read both sides out before writing either, or the second select would
@@ -911,6 +922,7 @@ void sort_lanes(Function &func, const shared_ptr<Block> &block,
             run.cont = call.cont;
             run.drop = call.drop;
             run.varying_at = call.varying_at;
+            run.ordered = true;
             for (const Item &placed : sorted) {
                 vector<shared_ptr<Value>> args;
                 for (size_t j = 0; j < values.size(); j++) {
@@ -1097,9 +1109,104 @@ void settle_votes(Function &func, const shared_ptr<Block> &block,
     }
 }
 
+// A run of two, sorted by a branch: one comparison of the two keys, and the
+// run made in one of two orders, each an arm holding the two calls as they
+// are, with their own operands and conditions. Nothing is selected.
+//
+// The network above would order the pair with a select per key, per
+// operand and per condition, and the child entered next would then be a
+// value computed from the whole of the node's test -- the loads of both
+// boxes, the slab arithmetic, the compares -- so that the next node's loads
+// could not issue until all of it had retired: a dependence through data,
+// about forty cycles a node on a binary tree. A branch is a dependence
+// through control, which the machine predicts and runs ahead of: the next
+// node's loads issue while this node's arithmetic is still in flight, and a
+// wrong guess costs a flush where the data form costs the chain every time.
+// Measured 2026-10-26 on FCPW's binary tree (pavilion, the first hit, the
+// same program with the swap rewritten by hand into this branch): 0.66x of
+// FCPW's scalar traversal with the selects, 1.37x with the branch, every
+// ray agreeing. The branch is also what both references write: FCPW's `if
+// (boxHits[2] < boxHits[0]) swap` (bvh.inl, processSubtreeForIntersection
+// and processSubtreeForClosestPoint), Embree's two-hit case in
+// traverseClosestHit (`if (d0 < d1) { push c1; cur = c0 } else { push c0;
+// cur = c1 }`); their networks of selects begin at three. The comparison is
+// strict, the later child the smaller: a tie keeps the left child first,
+// as theirs do (see compare_and_swap).
+//
+// The comparison is put to a vote as the network's are: for a scalar
+// traversal the vote is the comparison itself and loopify() drops it; for a
+// gang whose lanes hold different keys the vote is the lanes' majority
+// (settle_votes), one order for the gang, which is what the gang's selects
+// decided already -- the branch is on a uniform value and stays a branch.
+// Each arm is a run of two calls in its order, with the conditions the
+// parent's tests left on them, which loopify() writes as before: the second
+// pushed under its condition, the first entered under its.
+void sort_two(Function &func, const shared_ptr<Block> &block,
+              Terminator::MultiCall &call, const shared_ptr<Value> &mask) {
+    internal_assert(call.varying.size() == 2 && call.keys.size() == 2)
+        << "sort_two on a run of " << call.varying.size() << " calls with "
+        << call.keys.size() << " keys in " << block->name;
+    const Type &key_type = call.keys[0]->get_type();
+    internal_assert(equals(key_type, call.keys[1]->get_type()))
+        << "A sort's keys have different types, " << key_type << " and "
+        << call.keys[1]->get_type();
+    const Type compared_t =
+        key_type.is<Vector_t>()
+            ? Vector_t::make(Bool_t::make(), key_type.lanes())
+            : Bool_t::make();
+    shared_ptr<Value> compared =
+        append(func, block, compared_t, Instruction::Op::Lt,
+               {call.keys[1], call.keys[0]});
+    shared_ptr<Value> swap =
+        append(func, block, Bool_t::make(), Instruction::Op::Vote, {compared},
+               name_of(compared) + "!vote");
+
+    // The two orders, each the run as written with its calls in that order.
+    // Each arm's run continues into a block of its own, and the two of them
+    // meet in one block that goes on to the run's continuation: a call's
+    // continuation is entered from that call alone (CodeGen_Stmt.cpp,
+    // check_continuation -- the structuring of a function left recursive
+    // reads nothing else), and a gang's region leaves from one block
+    // (Linearize.cpp), so the arms are a diamond closed before the
+    // continuation, which sees one predecessor as it did.
+    auto merge = fresh_block(func, block->name + "!sort!merge");
+    func.blocks.push_back(merge);
+    merge->terminator.data = Terminator::Jump{call.cont.name, call.cont.args};
+    const auto arm = [&](const string &suffix, size_t first, size_t second) {
+        auto into = fresh_block(func, block->name + suffix);
+        func.blocks.push_back(into);
+        auto onward = fresh_block(func, block->name + suffix + "!cont");
+        func.blocks.push_back(onward);
+        onward->terminator.data = Terminator::Jump{merge->name, {}};
+        Terminator::MultiCall run;
+        run.call = call.call;
+        run.cont = Terminator::Jump{onward->name, {}};
+        run.drop = call.drop;
+        run.varying_at = call.varying_at;
+        run.varying = {call.varying[first], call.varying[second]};
+        if (!call.conds.empty()) {
+            run.conds = {call.conds[first], call.conds[second]};
+        }
+        // In this order: the calls may be a node's two lanes read in turn,
+        // which loopify would otherwise take for a run in no order.
+        run.ordered = true;
+        into->terminator.data = std::move(run);
+        return into;
+    };
+    const shared_ptr<Block> as_written = arm("!sorted", 0, 1);
+    const shared_ptr<Block> swapped = arm("!swapped", 1, 0);
+
+    // The terminator first, so that a vote settled for a gang reaches the
+    // branch's condition (settle_votes replaces every use).
+    block->terminator.data = Terminator::Dispatch{
+        swap,
+        {Terminator::Jump{as_written->name, {}}, Terminator::Jump{swapped->name, {}}}};
+    settle_votes(func, block, mask);
+}
+
 size_t sort_recursion(Function &func, const FuncMap &funcs,
                       const Target &target,
-                      const ConstantIntervals &intervals) {
+                      const ConstantIntervals &intervals, bool per_lane) {
     const LaneSortStrategy strategy = lane_sort_strategy(target);
     internal_assert(strategy == LaneSortStrategy::Peel);
     size_t sorted = 0;
@@ -1125,14 +1232,13 @@ size_t sort_recursion(Function &func, const FuncMap &funcs,
             << " conditions for " << call->varying.size() << " calls";
         if (call->varying.size() > 1) {
             // A run of two lanes -- a binary node that holds its children's
-            // boxes -- is sorted by the network below, as scalars: the two
-            // children's keys read at their lanes, one comparison of them
-            // as the floats they are, and a swap of the keys, the children
-            // and what travels with them. That is FCPW's two-child visit
-            // (bvh.inl processSubtreeForClosestPoint, bvh.slang: both boxes
-            // tested, `if (boxHits[1] < boxHits[0]) swap`, the farther
-            // pushed and the nearer entered), and pbrt's (`if (dirIsNeg)
-            // swap`). The peel chain is Embree's shape for its four- and
+            // boxes -- is sorted by sort_two, as scalars: the two children's
+            // keys read at their lanes, one comparison of them as the floats
+            // they are, and a branch between the two orders of the run. That
+            // is FCPW's two-child visit (bvh.inl processSubtreeForClosestPoint,
+            // bvh.slang: both boxes tested, `if (boxHits[1] < boxHits[0])
+            // swap`, the farther pushed and the nearer entered), and pbrt's
+            // (`if (dirIsNeg) swap`). The peel chain is Embree's shape for its four- and
             // eight-wide nodes, and at two lanes it would spend the mask's
             // word, a tzcnt and a clear, the keys through a cell as integers
             // and an indexed load per item, to order two children (measured
@@ -1148,9 +1254,21 @@ size_t sort_recursion(Function &func, const FuncMap &funcs,
                 sorted++;
                 continue;
             }
+            if (call->varying.size() == 2 && !per_lane) {
+                // A run of two is a branch between its two orders (sort_two)
+                // where one visitor orders it; a gang's lanes order it for
+                // themselves, by the network's selects (see the header). The
+                // run moves into the arms and `block` ends in the branch, so
+                // `call` is spent.
+                const shared_ptr<Value> mask = run_mask(funcs, *call);
+                sort_two(func, block, *call, mask);
+                sorted++;
+                continue;
+            }
             sort_network(func, block, call->keys, call->varying,
                          call->conds);
             settle_votes(func, block, run_mask(funcs, *call));
+            call->ordered = true;
             sorted++;
         }
         call->keys.clear();

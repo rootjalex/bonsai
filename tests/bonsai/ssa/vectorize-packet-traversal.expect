@@ -195,14 +195,20 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
             let @75 = reinterpret_cast<_tree_layout2>(@74) in
             let @76 = @75.offset in
             let @77 = (*shapes_index!top) + @76 in
-            let @79 = !_t31 in
-            let @263 = select(@79, @73, @77) in
-            let @264 = select(@79, @77, @73) in
-            !stack[(*!count)] = @264
-            let @271 = (*!count) + 1u in
-            shapes_index!top = @263
-            !count = @271
-            continue
+            let @260!vote = _t31 in
+            if (@260!vote) {
+              !stack[(*!count)] = @73
+              let @270 = (*!count) + 1u in
+              shapes_index!top = @77
+              !count = @270
+              continue
+            } else {
+              !stack[(*!count)] = @77
+              let @267 = (*!count) + 1u in
+              shapes_index!top = @73
+              !count = @267
+              continue
+            }
           } else {
             let @81 = cast<u16>(_t85) in
             data = 0u
@@ -396,12 +402,12 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
         }
       }
     }
-    let @266 = (*!count) != 0u in
-    if (@266) {
-      let @267 = (*!count) - 1u in
-      let @268 = !stack[@267] in
-      shapes_index!top = @268
-      !count = @267
+    let @262 = (*!count) != 0u in
+    if (@262) {
+      let @263 = (*!count) - 1u in
+      let @264 = !stack[@263] in
+      shapes_index!top = @264
+      !count = @263
       continue
     } else {
       return
@@ -536,14 +542,13 @@ func _recloop_func0$gang8_v2_p3$masked(shapes_index : u16, shapes : _tree_layout
             let @75 = reinterpret_cast<_tree_layout2>(@74) in
             let @76 = @75.offset in
             let @77 = (*shapes_index!top) + @76 in
-            let @79 = !@360 in
-            let @490 = @79 && @531 in
+            let @490 = @360 && @531 in
             let @491 = reduce<+>(cast<u32x8>(@531)) in
             let @492 = reduce<+>(cast<u32x8>(@490)) in
             let @493 = @492 + @492 in
             let @494 = @491 < @493 in
-            let @488 = select(@494, @73, @77) in
-            let @489 = select(@494, @77, @73) in
+            let @488 = select(@494, @77, @73) in
+            let @489 = select(@494, @73, @77) in
             !stack[(*!count)] = @489
             !stack0[(*!count)] = @531
             let @581 = (*!count) + 1u in

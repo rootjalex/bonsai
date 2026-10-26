@@ -157,14 +157,20 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
           let @104 = reinterpret_cast<_tree_layout2>(_t75$split0on_nPrims4) in
           let @105 = @104.offset in
           let @106 = (*triangles_index!top) + @105 in
-          let @108 = !_t19 in
-          let @132 = select(@108, @103, @106) in
-          let @133 = select(@108, @106, @103) in
-          !stack[(*!count)] = @133
-          let @140 = (*!count) + 1u in
-          triangles_index!top = @132
-          !count = @140
-          continue
+          let @129!vote = _t19 in
+          if (@129!vote) {
+            !stack[(*!count)] = @103
+            let @139 = (*!count) + 1u in
+            triangles_index!top = @106
+            !count = @139
+            continue
+          } else {
+            !stack[(*!count)] = @106
+            let @136 = (*!count) + 1u in
+            triangles_index!top = @103
+            !count = @136
+            continue
+          }
         } else {
           let @110 = cast<u32>(_t64) in
           data = 0u
@@ -182,10 +188,10 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
               let @120 = isect_$i2.t in
               let @122 = (*_best0) in
               let @123 = @122._field0 in
-              let @141 = reinterpret_cast<i32>(@120) in
-              let @142 = reinterpret_cast<i32>(@123) in
-              let @143 = @141 < @142 in
-              if (@143) {
+              let @140 = reinterpret_cast<i32>(@120) in
+              let @141 = reinterpret_cast<i32>(@123) in
+              let @142 = @140 < @141 in
+              if (@142) {
                 let @126 = build<__tuple_0>(_t57) in
                 let @127 = build<__tuple_1>(@120, @126) in
                 _best0 argmin= @127
@@ -197,12 +203,12 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
         }
       }
     }
-    let @135 = (*!count) != 0u in
-    if (@135) {
-      let @136 = (*!count) - 1u in
-      let @137 = !stack[@136] in
-      triangles_index!top = @137
-      !count = @136
+    let @131 = (*!count) != 0u in
+    if (@131) {
+      let @132 = (*!count) - 1u in
+      let @133 = !stack[@132] in
+      triangles_index!top = @133
+      !count = @132
       continue
     } else {
       return

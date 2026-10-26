@@ -768,8 +768,11 @@ std::optional<RecursiveCall> called_by(const Block &block) {
             << "Write the sort first; the order of a schedule's directives "
             << "is the order they are applied in.";
         std::optional<SortedRun> sorted = sorted_run(*c);
+        // The lanes of vectors in no order of their own -- never a run a
+        // sort has ordered (Terminator::MultiCall::ordered), whose calls may
+        // be those lanes read in the order the sort chose.
         std::optional<LaneRun> lanes =
-            sorted.has_value() ? std::nullopt : lane_run(*c);
+            sorted.has_value() || c->ordered ? std::nullopt : lane_run(*c);
         return RecursiveCall{c->call.name, std::move(args), c->conds,
                              c->cont,      c->drop,         std::move(sorted),
                              std::move(lanes)};
