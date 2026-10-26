@@ -35,13 +35,20 @@ PREFIX="apps/pbrt"
 # bunny-cloud and kroken were held out while the 595 driver's nvidia_uvm
 # lazy-free fault (the crashes of 2026-09-29, 10-04 and 10-07) stood;
 # the user lifted the hold on 2026-10-07 once driver 615.71.09 was in.
+# A scene `pbrt --gpu` cannot render is not in the heatmap (the user,
+# 10-26): the figure is a speedup over pbrt --gpu, and a scene with no
+# pbrt --gpu image has none. pbrt --gpu segfaults in the driver's
+# acceleration-structure build (under its OptiXAggregate::buildOptixBVH)
+# on zero-day's frame25 and frame380 (65 885 triangle meshes) and on the
+# hair scenes and bunny-fur (curves as bilinear patches); gpu_compare.sh
+# renders those against pbrt's CPU wavefront for the image check alone.
 ALL_SCENES="killeroos/killeroo-simple killeroos/killeroo-gold \
 killeroos/killeroo-coated-gold pbrt-book/book ganesha/ganesha \
-barcelona-pavilion/pavilion-day zero-day/frame25 lte-orb/lte-orb-simple-ball \
+barcelona-pavilion/pavilion-day lte-orb/lte-orb-simple-ball \
 lte-orb/lte-orb-silver lte-orb/lte-orb-rough-glass head/head \
 sssdragon/dragon_10 villa/villa-lights-on smoke-plume/plume \
 bunny-cloud/bunny-cloud explosion/explosion disney-cloud/disney-cloud \
-landscape/view-0 zero-day/frame380 crown/crown kroken/camera-1 \
+landscape/view-0 crown/crown kroken/camera-1 \
 sportscar/sportscar-sky bmw-m6/bmw-m6 dambreak/dambreak0 \
 transparent-machines/frame542 villa/villa-daylight clouds/clouds \
 sanmiguel/sanmiguel-courtyard bistro/bistro_cafe bistro/bistro_vespa \
