@@ -1061,6 +1061,9 @@ class BonsaiToCpp : ir::Printer {
         ss << '\n' << '\n';
 
         // Headers for C++ types.
+        ss << "#include <array>" << '\n';   // std::array: packed vectors,
+                                            // byte vectors and constant-size
+                                            // arrays (see emit_type)
         ss << "#include <cstdint>" << '\n'; // integer
         ss << "#include <atomic>" << '\n';  // std::atomic_ref, for an
                                             // atomic accumulate

@@ -1,0 +1,12 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_packed_field.cpp -I. -o tests/bonsai/correctness/cpp/main_packed_field.o
+[test] clang++ tests/bonsai/correctness/cpp/main_packed_field.o tests/bonsai/correctness/cpp/packed_field.o -o tests/bonsai/correctness/cpp/packed_field
+[test] ./tests/bonsai/correctness/cpp/packed_field
+rec 10 0.5 1 0 0
+hit 10 0.5 1 0 0
+square 1
+rec 11 1 2 2 3
+hit 11 1 2 2 3
+square 17
+rec 12 1.5 3 4 6
+hit 12 1.5 3 4 6
+square 61

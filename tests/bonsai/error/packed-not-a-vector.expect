@@ -1,0 +1,8 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Parser/Parser.cpp:60
+tests/bonsai/error/packed-not-a-vector.bonsai:5:20: [parse error] [[packed]] f32: packed is a vector's storage form, and f32 is not a vector.
+
+    x : [[packed]] f32;
+                   ^^^

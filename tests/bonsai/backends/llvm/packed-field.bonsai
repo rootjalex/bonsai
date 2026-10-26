@@ -1,0 +1,41 @@
+//! flags: -b llvm
+
+// `[[packed]] vec3f` as a field's type reaches LLVM as `[3 x float]` inside
+// the struct: twenty bytes aligned to four for HitRecord, where a
+// `<3 x float>` field would make it thirty-two aligned to sixteen, as Hit
+// is (see tests/bonsai/ssa/packed-field.bonsai for the form and the
+// conversions). What to read for: the records addressed at a stride of
+// `[20 x i8]` against the hits' `[32 x i8]`; the hit's point stored into
+// the record's first twelve bytes as a `<3 x float>` store at align 4 (the
+// optimizer's merge of the three scalar stores the `[3 x float]` was
+// written as -- a store of a three-lane vector writes its twelve bytes,
+// its store size, not the sixteen it occupies in a register), the distance
+// at byte twelve and the index at sixteen; and the record read back into a
+// Hit as the same three floats.
+import stdlib/numerics;
+
+element Hit {
+    primID : u32;
+    d : f32;
+    p : vec3f;
+}
+
+element HitRecord {
+    p : [[packed]] vec3f;
+    d : f32;
+    index : u32;
+}
+
+func record_of(h : Hit) -> HitRecord = HitRecord{h.p, h.d, h.primID};
+
+func hit_of(r : HitRecord) -> Hit = Hit{r.index, r.d, r.p};
+
+func [[export]] round_trip(n : u32, hits : array[Hit, n],
+                           recs : mut array[HitRecord, n],
+                           back : mut array[Hit, n]) {
+    for i in 0u:n {
+        recs[i] = record_of(hits[i]);
+        back[i] = hit_of(recs[i]);
+    }
+    return;
+}

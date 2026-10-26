@@ -70,6 +70,7 @@ add_bonsai_tests(
     nested-exported-function.bonsai
     option.bonsai
     packed-struct.bonsai
+    packed-field.bonsai
     parfor-sequential.bonsai
     rand-par.bonsai
     persistent.bonsai

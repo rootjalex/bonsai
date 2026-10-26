@@ -1,0 +1,84 @@
+type Float = f32
+type Half = f16
+type Hit = struct Hit{ primID : u32; d : f32; p : f32x3 }
+type HitRecord = struct HitRecord{ p : [[packed]] f32x3; d : f32; index : u32 }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func hit_of(r : HitRecord) -> Hit {
+  let @0 = r.index in
+  let @1 = r.d in
+  let @2 = r.p in
+  let @3 = cast<f32x3>(@2) in
+  let @4 = build<Hit>(@0, @1, @3) in
+  return @4
+}
+
+func px(r : HitRecord) -> f32 {
+  let @0 = r.p in
+  let @1 = cast<f32x3>(@0) in
+  let @2 = @1[0u] in
+  return @2
+}
+
+func record_of(h : Hit) -> HitRecord {
+  let @0 = h.p in
+  let @1 = cast<[[packed]] f32x3>(@0) in
+  let @2 = h.d in
+  let @3 = h.primID in
+  let @4 = build<HitRecord>(@1, @2, @3) in
+  return @4
+}
+
+func [[export]] round_trip(n : u32, hits : Hit[n], recs : mut HitRecord[n], back : mut Hit[n], xs : mut f32[n]) -> void {
+  i : mut u32
+  alloc out$i6 : mut HitRecord
+  i = 0u
+  while ((*i) < n) {
+    let _t28 = hits[(*i)] in
+    let @2 = _t28.p in
+    let @3 = cast<[[packed]] f32x3>(@2) in
+    let @4 = _t28.d in
+    let @5 = _t28.primID in
+    let r$i6 = build<HitRecord>(@3, @4, @5) in
+    out$i6 = r$i6
+    let @8 = cast<f32x3>(@3) in
+    let @9 = build<f32x3>(1f, 0f, 0f) in
+    let @10 = @8 + @9 in
+    let @11 = cast<[[packed]] f32x3>(@10) in
+    out$i6.p = @11
+    let @13 = (*out$i6) in
+    recs[(*i)] = @13
+    let @17 = @13.index in
+    let @19 = @13.d in
+    let @21 = @13.p in
+    let @22 = cast<f32x3>(@21) in
+    let @23 = build<Hit>(@17, @19, @22) in
+    back[(*i)] = @23
+    let @25 = recs[(*i)] in
+    let @26 = @25.p in
+    let @27 = cast<f32x3>(@26) in
+    let @28 = @27[0u] in
+    xs[(*i)] = @28
+    let @30 = (*i) + 1u in
+    i = @30
+  }
+  return
+}
+
+func shift(r : HitRecord, dx : f32) -> HitRecord {
+  alloc out : mut HitRecord
+  out = r
+  let @0 = r.p in
+  let @1 = cast<f32x3>(@0) in
+  let @2 = build<f32x3>(dx, 0f, 0f) in
+  let @3 = @1 + @2 in
+  let @4 = cast<[[packed]] f32x3>(@3) in
+  out.p = @4
+  let @6 = (*out) in
+  return @6
+}
+
+

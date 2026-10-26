@@ -2153,6 +2153,36 @@ struct Parser {
     // no such rule: they reached Build still u32 and were rejected for not
     // matching the element type, which made the aggregate case stricter than
     // the scalar one for no reason a program could see.
+    // A vector's storage form and the form the program computes with
+    // (Vector_t::packed). A field declared `[[packed]] vec3f` holds exactly
+    // its three floats, twelve bytes aligned to four, where the vector the
+    // program computes with is the machine's sixteen; nothing computes with
+    // the storage form directly. So a read of such a field or element is the
+    // computing kind (unpacked_read, at every field and index read), and a
+    // value written into one -- a constructor's argument, an assignment --
+    // is converted to the storage kind (packed_write), as Lower/Layouts.cpp
+    // converts a layout row's packed fields where they are read
+    // (field_in_layout) and where a row is assembled.
+    static ir::Expr unpacked_read(ir::Expr value) {
+        const ir::Vector_t *vector = value.type().as<ir::Vector_t>();
+        if (vector == nullptr || !vector->packed) {
+            return value;
+        }
+        return ir::Cast::make(ir::Vector_t::make(vector->etype, vector->lanes),
+                              std::move(value), ir::Cast::Mode::Convert);
+    }
+
+    static ir::Expr packed_write(const ir::Type &slot, ir::Expr value) {
+        const ir::Vector_t *stored = slot.as<ir::Vector_t>();
+        const ir::Vector_t *vector = value.type().as<ir::Vector_t>();
+        if (stored == nullptr || !stored->packed || vector == nullptr ||
+            vector->packed || stored->lanes != vector->lanes ||
+            !ir::equals(stored->etype, vector->etype)) {
+            return value;
+        }
+        return ir::Cast::make(slot, std::move(value), ir::Cast::Mode::Convert);
+    }
+
     std::vector<ir::Expr> coerce_elements(const ir::Type &aggregate,
                                           std::vector<ir::Expr> values) {
         if (!aggregate.defined()) {
@@ -2173,6 +2203,9 @@ struct Parser {
                 want = struct_t->fields[i].type;
             } else {
                 want = aggregate.element_of();
+            }
+            if (want.defined() && values[i].type().defined()) {
+                values[i] = packed_write(want, std::move(values[i]));
             }
             if (want.defined() && values[i].type().defined() &&
                 !ir::equals(want, values[i].type()) && is_const(values[i])) {
@@ -2234,6 +2267,7 @@ struct Parser {
 
         // TODO: do type-forcing here!
         if (type_label.defined() && type.defined()) {
+            value = packed_write(type_label, std::move(value));
             if (!ir::equals(type_label, value.type()) && is_const(value)) {
                 value = constant_cast(type_label, value);
             }
@@ -2271,6 +2305,7 @@ struct Parser {
 
         // TODO: do type forcing here!
         if (loc.type.defined() && value.type().defined()) {
+            value = packed_write(loc.type, std::move(value));
             internal_assert(ir::equals(loc.type, value.type()))
                 << "Mismatching assignment: " << loc
                 << " has type: " << loc.type << " but " << value << " has type "
@@ -2321,6 +2356,13 @@ struct Parser {
         expect(Token::Type::ASSIGN);
         ir::Expr value = parse_expr();
         expect(Token::Type::SEMICOL);
+        if (const ir::Vector_t *stored = loc.type.as<ir::Vector_t>();
+            stored != nullptr && stored->packed) {
+            // Storage nothing computes with directly (see unpacked_read):
+            // the sum is made of the read and stored back.
+            report_error() << loc << " is `[[packed]]` storage, which nothing "
+                           << "accumulates into: read it, add, and assign.";
+        }
         return ir::Accumulate::make(std::move(loc), op, std::move(value),
                                     atomic);
     }
@@ -2522,7 +2564,10 @@ struct Parser {
                         base = ir::Access::make(std::move(field), std::move(base));
                     }
                 } else {
-                    base = ir::Access::make(std::move(field), std::move(base));
+                    // A `[[packed]]` field is read as the vector the program
+                    // computes with (unpacked_read).
+                    base = unpacked_read(
+                        ir::Access::make(std::move(field), std::move(base)));
                 }
             } else if (consume(Token::Type::LBRACKET)) {
                 // `x[i]`, or several indices in one `[` `]`; or a range,
@@ -2546,7 +2591,8 @@ struct Parser {
                 }
                 expect(Token::Type::RBRACKET);
                 for (auto &idx : idxs) {
-                    base = ir::Extract::make(std::move(base), std::move(idx));
+                    base = unpacked_read(
+                        ir::Extract::make(std::move(base), std::move(idx)));
                 }
             } else {
                 break;
@@ -3029,11 +3075,20 @@ struct Parser {
             if (consume(Token::Type::PERIOD)) {
                 // TODO: this could use better error handling/messaging.
                 std::map<std::string, ir::Expr> args;
+                const ir::Struct_t *struct_t = type.as<ir::Struct_t>();
                 do {
                     std::string field = get_id();
                     expect(Token::Type::ASSIGN);
                     ir::Expr value = parse_expr();
                     internal_assert(value.defined());
+                    if (struct_t != nullptr) {
+                        const auto slot = std::find_if(
+                            struct_t->fields.begin(), struct_t->fields.end(),
+                            [&](const auto &f) { return f.name == field; });
+                        if (slot != struct_t->fields.end()) {
+                            value = packed_write(slot->type, std::move(value));
+                        }
+                    }
                     args[std::move(field)] = std::move(value);
                 } while (consume(Token::Type::COMMA) &&
                          consume(Token::Type::PERIOD));
@@ -3511,7 +3566,7 @@ struct Parser {
 
     // type := i[N] | u[N]
     //         | f[N] | bf[N] | f[N]_[N]
-    //         | bool | vector[type, int]
+    //         | bool | vector[type, int] | [[packed]] type
     //         | option[type] | declared_type
     // `[T, n]` after `vector`: the element type and the lane count.
     ir::Type parse_vector_type() {
@@ -3536,6 +3591,37 @@ struct Parser {
                 report_error() << "Cannot construct empty tuple type.";
             }
             return ir::Tuple_t::make(std::move(etypes));
+        }
+        // `[[packed]] vec3f`: a vector's storage form, exactly its lanes
+        // wide and aligned as one lane is (Vector_t::packed) -- the printer's
+        // own spelling of the type, and what an element that has to be
+        // another system's bytes says of a `vec3f` field: twelve bytes, as a
+        // layout's `vec3f` is (Lower/Layouts.cpp's packed_storage), where the
+        // vector the program computes with takes sixteen. Reads of such a
+        // field or element are converted to the computing kind, and writes
+        // into one to the storage kind (unpacked_read, packed_write).
+        if (peek().type == Token::Type::LBRACKET) {
+            expect(Token::Type::LBRACKET);
+            expect(Token::Type::LBRACKET);
+            const std::string attribute = get_id();
+            if (attribute != "packed") {
+                report_error() << "unexpected type attribute: " << attribute
+                               << " (`[[packed]]` is the one a type takes)";
+            }
+            expect(Token::Type::RBRACKET);
+            expect(Token::Type::RBRACKET);
+            ir::Type type = parse_type();
+            const ir::Vector_t *vector = type.as<ir::Vector_t>();
+            if (vector == nullptr) {
+                report_error() << "[[packed]] " << type << ": packed is a "
+                               << "vector's storage form, and " << type
+                               << " is not a vector.";
+            }
+            if (vector->packed) {
+                return type;
+            }
+            return ir::Vector_t::make(vector->etype, vector->lanes,
+                                      /*packed=*/true);
         }
         // TODO: support tuples of types! AKA unnamed structs.
         const std::string name = get_id();

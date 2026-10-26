@@ -219,8 +219,9 @@
       }
     },
     "layout-words": {
+      "comment": "A layout's words, and `packed`: an element's attribute, and a vector type's storage form (`[[packed]] vec3f`).",
       "name": "support.constant.layout.bonsai",
-      "match": "\\b(tagged_index|inline|tight)\\b"
+      "match": "\\b(tagged_index|inline|tight|packed)\\b"
     },
     "storage-words": {
       "comment": "The memory a queue lives in: queue()'s optional last argument.",

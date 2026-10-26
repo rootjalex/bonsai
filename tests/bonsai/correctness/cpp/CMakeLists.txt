@@ -15,6 +15,7 @@ add_bonsai_tests(
     bind_cpu_thread.bonsai
     persistent.bonsai
     buffers.bonsai
+    packed_field.bonsai
     bvh4_child_volumes.bonsai
     bvh4_child_volumes_vectorized.bonsai
     bvh4_child_volumes_packet.bonsai

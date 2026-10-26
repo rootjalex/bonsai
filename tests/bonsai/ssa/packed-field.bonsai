@@ -1,0 +1,57 @@
+//! flags: -p ssa
+
+// `[[packed]] vec3f` as a field's type: the vector's storage form
+// (Vector_t::packed), exactly three floats, twelve bytes aligned to four,
+// where the vector the program computes with is the machine's sixteen. It
+// is what an element that has to be another system's bytes says of a
+// vector field -- Embree's RTCRay has `org_x, org_y, org_z`, FCPW's GPURay a
+// Slang float3, both twelve bytes -- so that a record crossing the exported
+// boundary is the reference's record to the byte, and the program still
+// computes on vec3f. Nothing computes with the storage form: the parser
+// converts a read of such a field to the computing kind and a value built
+// or assigned into one to the storage kind (Parser.cpp's unpacked_read and
+// packed_write), as Lower/Layouts.cpp converts a layout row's fields.
+//
+// What to read for: HitRecord's field `p : [[packed]] f32x3`; in
+// `record_of` a `cast<[[packed]] f32x3>` of the hit's point before the
+// make_struct, and in `hit_of` a `cast<f32x3>` of the field after the
+// load_field; `px` reading `.x` off the converted vector; `shift` storing a
+// converted vector into the record's field.
+import stdlib/numerics;
+
+element Hit {
+    primID : u32;
+    d : f32;
+    p : vec3f;
+}
+
+// Another system's hit record, to the byte: three floats, a float, an
+// index -- twenty bytes.
+element HitRecord {
+    p : [[packed]] vec3f;
+    d : f32;
+    index : u32;
+}
+
+func record_of(h : Hit) -> HitRecord = HitRecord{h.p, h.d, h.primID};
+
+func hit_of(r : HitRecord) -> Hit = Hit{r.index, r.d, r.p};
+
+func px(r : HitRecord) -> f32 = r.p.x;
+
+func shift(r : HitRecord, dx : f32) -> HitRecord {
+    out : mut HitRecord = r;
+    out.p = r.p + vec3f{dx, 0.0, 0.0};
+    return out;
+}
+
+func [[export]] round_trip(n : u32, hits : array[Hit, n],
+                           recs : mut array[HitRecord, n],
+                           back : mut array[Hit, n], xs : mut array[f32, n]) {
+    for i in 0u:n {
+        recs[i] = shift(record_of(hits[i]), 1.0);
+        back[i] = hit_of(recs[i]);
+        xs[i] = px(recs[i]);
+    }
+    return;
+}

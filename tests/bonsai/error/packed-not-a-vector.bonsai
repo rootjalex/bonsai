@@ -1,0 +1,6 @@
+// `[[packed]]` is a vector's storage form (Vector_t::packed): exactly its
+// lanes wide, aligned as one lane is. A scalar has no other form, so the
+// attribute on one says nothing and is refused where it is written.
+element Record {
+    x : [[packed]] f32;
+}

@@ -1,0 +1,53 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+%struct.Hit = type { i32, float, <3 x float> }
+
+; Function Attrs: mustprogress
+define void @round_trip(i32 noundef %n, ptr noundef %hits_buffer, ptr noundef %recs_buffer, ptr noundef %back_buffer) local_unnamed_addr #0 {
+round_trip_entry:
+  %hits = tail call ptr @bonsai_buffer_require(ptr %hits_buffer, i32 1)
+  %recs = tail call ptr @bonsai_buffer_require(ptr %recs_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %recs_buffer, i32 1)
+  %back = tail call ptr @bonsai_buffer_require(ptr %back_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %back_buffer, i32 1)
+  %.not = icmp eq i32 %n, 0
+  br i1 %.not, label %i0_for_end, label %i0_for.preheader, !prof !0
+
+i0_for.preheader:                                 ; preds = %round_trip_entry
+  %wide.trip.count = zext i32 %n to i64
+  br label %i0_for
+
+i0_for:                                           ; preds = %i0_for.preheader, %i0_for
+  %indvars.iv = phi i64 [ 0, %i0_for.preheader ], [ %indvars.iv.next, %i0_for ]
+  %extract_ptr = getelementptr inbounds nuw [32 x i8], ptr %hits, i64 %indvars.iv
+  %extract = load %struct.Hit, ptr %extract_ptr, align 16
+  %_t10.p = extractvalue %struct.Hit %extract, 2
+  %_t10.d = extractvalue %struct.Hit %extract, 1
+  %_t10.primID = extractvalue %struct.Hit %extract, 0
+  %recs2 = getelementptr inbounds nuw [20 x i8], ptr %recs, i64 %indvars.iv
+  store <3 x float> %_t10.p, ptr %recs2, align 4
+  %recs2.repack14 = getelementptr inbounds nuw i8, ptr %recs2, i64 12
+  store float %_t10.d, ptr %recs2.repack14, align 4
+  %recs2.repack16 = getelementptr inbounds nuw i8, ptr %recs2, i64 16
+  store i32 %_t10.primID, ptr %recs2.repack16, align 4
+  %0 = insertvalue %struct.Hit undef, i32 %_t10.primID, 0
+  %1 = insertvalue %struct.Hit %0, float %_t10.d, 1
+  %2 = insertvalue %struct.Hit %1, <3 x float> %_t10.p, 2
+  %back13 = getelementptr inbounds nuw [32 x i8], ptr %back, i64 %indvars.iv
+  store %struct.Hit %2, ptr %back13, align 16
+  %indvars.iv.next = add nuw nsw i64 %indvars.iv, 1
+  %exitcond.not = icmp eq i64 %indvars.iv.next, %wide.trip.count
+  br i1 %exitcond.not, label %i0_for_end, label %i0_for
+
+i0_for_end:                                       ; preds = %i0_for, %round_trip_entry
+  ret void
+}
+
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+attributes #0 = { mustprogress }
+
+!0 = !{!"branch_weights", i32 0, i32 1073741824}

@@ -1,0 +1,49 @@
+//! flags: -b cpp -o tests/bonsai/correctness/cpp/packed_field
+//! commands: clang++ -std=c++20 -O3 -c $<>/main_packed_field.cpp -I. -o $<>/main_packed_field.o, clang++ $<>/main_packed_field.o $<>/packed_field.o -o $<>/packed_field, ./$<>/packed_field, rm $<>/packed_field, rm $<>/main_packed_field.o, rm $<>/packed_field.h, rm $<>/packed_field.o
+
+// A record crossing the exported boundary with `[[packed]] vec3f` fields is
+// another system's record to the byte: the driver's struct has three floats
+// where the program's vector is, twenty bytes for a point, a distance and an
+// index (main_packed_field.cpp checks the size and the offsets against what
+// a C `float p[3]; float d; uint32_t index;` is), and the values the
+// program reads out of it and writes into it are the floats the driver put
+// there and reads back -- through the vector the program computes with
+// (tests/bonsai/ssa/packed-field.bonsai has the conversions).
+import stdlib/numerics;
+
+element Hit {
+    primID : u32;
+    d : f32;
+    p : vec3f;
+}
+
+element HitRecord {
+    p : [[packed]] vec3f;
+    d : f32;
+    index : u32;
+}
+
+func record_of(h : Hit) -> HitRecord = HitRecord{h.p, h.d, h.primID};
+
+func hit_of(r : HitRecord) -> Hit = Hit{r.index, r.d, r.p};
+
+func shift(r : HitRecord, dx : f32) -> HitRecord {
+    out : mut HitRecord = r;
+    out.p = r.p + vec3f{dx, 0.0, 0.0};
+    return out;
+}
+
+// Each hit as a record shifted by one in x, and back as a hit; the
+// records' points' squared lengths, computed on the vector the record was
+// read as.
+func [[export]] round_trip(n : u32, hits : array[Hit, n],
+                           recs : mut array[HitRecord, n],
+                           back : mut array[Hit, n], squares : mut array[f32, n]) {
+    for i in 0u:n {
+        recs[i] = shift(record_of(hits[i]), 1.0);
+        back[i] = hit_of(recs[i]);
+        q = recs[i].p;
+        squares[i] = q.x * q.x + q.y * q.y + q.z * q.z;
+    }
+    return;
+}
