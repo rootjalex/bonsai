@@ -22,8 +22,8 @@ program's rays in gangs of sixteen over Embree's rtcIntersect16 (primary
 and diffuse rays) and rtcOccluded16 (ambient-occlusion rays), the ray sets
 by hatching, both sides over the same BVH8 and the same sixteen consecutive
 rays a packet. Two more, the queries apps/wosx's walks make over FCPW's
-scalar trees, are drawn when the CSV has their rows: `rtq-fcpw-scalar-cpu`,
-bonsai over FCPW's scalar build, and `rtq-fcpw-scalar-gpu`, bonsai over
+scalar trees, are drawn when the CSV has their rows: `rtq-fcpwb-fcpws-cpu`,
+bonsai over FCPW's scalar build, and `rtq-fcpwb-fcpws-gpu`, bonsai over
 FCPW's GPUScene, seven bars a mesh -- the first hit, the any hit and the
 closest point over FCPW's binary BVH (`fcpwb`, `fcpwb-gpu`) and the closest
 silhouette point over its normal cone hierarchy (`fcpws`, `fcpws-gpu`), the
@@ -105,9 +105,16 @@ PACKET_SETS = [("nearest", "primary"), ("nearest", "diffuse"), ("any", "ao")]
 # the closest silhouette point about the same points over the normal cone
 # hierarchy (fcpws). Each platform's pair of schedules, and its reference's
 # name in the CSV.
+#
+# Named by the two schedules whose cells they hold (the user, 10-26: the
+# name says the data structure): `rtq-fcpwb-fcpws-cpu`, FCPW's binary BVH
+# and its normal cone hierarchy on the CPU, and `rtq-fcpwb-fcpws-gpu`, the
+# same two trees on the GPU -- FCPW's GPUScene takes only the binary trees
+# (its README: the scene must be built with vectorization off before it is
+# transferred), so there is no GPU counterpart of the four-wide figures.
 SCALAR_FIGURES = [
-    ("fcpw-scalar-cpu", "fcpw", "fcpwb", "fcpws", "FCPW's scalar build"),
-    ("fcpw-scalar-gpu", "fcpw-gpu", "fcpwb-gpu", "fcpws-gpu", "FCPW's GPUScene"),
+    ("fcpwb-fcpws-cpu", "fcpw", "fcpwb", "fcpws", "FCPW's scalar build"),
+    ("fcpwb-fcpws-gpu", "fcpw-gpu", "fcpwb-gpu", "fcpws-gpu", "FCPW's GPUScene"),
 ]
 # (query, set, which of the two schedules, the legend's name of the query)
 SCALAR_SETS = [
@@ -457,7 +464,10 @@ def draw_scalar(rows, out_dir, formats, exclude):
                 sets.append(rays)
         handles += [Patch(facecolor="white", edgecolor=EDGE, linewidth=0.4, hatch=HATCH[s],
                           label=LABEL[s]) for s in sets]
-        legend_above(ax, handles, ncol=4)
+        # Two rows of five, filled down the columns: the four queries in the
+        # first two -- First hit over Any hit, Closest point over Silhouette
+        # -- and the five sets in the other three (the user, 10-26).
+        legend_above(ax, handles, ncol=5)
         path = save(fig, out_dir, f"rtq-{name}", formats)
         sections = []
         for kind in kinds:
