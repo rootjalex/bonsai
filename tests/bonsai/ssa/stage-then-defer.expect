@@ -22,6 +22,7 @@ func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
   let @4 = build<Queue_hits>(0u, hits_@0, hits__slot) in
   hits_queue = @4
   q_rest_@10 : mut (f32*)[8]
+  q_ran : mut u8[8]
   q_result : mut f32[8]
   q_r : mut f32[8]
   q__slot : mut u32[8]
@@ -33,34 +34,54 @@ func run(values : f32[8], k : f32, out : mut f32[8]) -> void {
   }
   let @5 = (*hits_queue) in
   let @6 = @5.count in
-  let @15 = build<Queue_q>(0u, q_r, q__slot) in
-  q_queue = @15
+  let @14 = fill_bytes(q_ran, 0u, 8) in
+  let @16 = build<Queue_q>(0u, q_r, q__slot) in
+  q_queue = @16
   parfor hits in [0u:@6:1u] {
     let @7 = hits_@0[hits] in
     let @9 = hits__slot[hits] in
     q_rest_@10[hits] = (&hits_result[@9])
-    step!after(@7, k, q_queue, (&q_result[hits]), hits)
-    continue
+    let @18 = step!after(@7, k, q_queue, (&q_result[hits]), hits) in
+    let @19 = (&hits_result[@9]) in
+    let @20 = @18.set in
+    let @21 = @18.value in
+    if (@20) {
+      let @8 = @21 in
+      let @10 = (&hits_result[@9]) in
+      @10 = @8
+      continue
+    } else {
+      q_ran[hits] = 1u
+      continue
+    }
   }
-  let @17 = (*q_queue) in
-  let @18 = @17.count in
-  parfor q in [0u:@18:1u] {
-    let @19 = q_r[q] in
-    let @21 = q__slot[q] in
-    let @20 = step!after!finish!k(@19, k) in
-    let @22 = (&q_result[@21]) in
-    @22 = @20
+  let @23 = (*q_queue) in
+  let @24 = @23.count in
+  parfor q in [0u:@24:1u] {
+    let @25 = q_r[q] in
+    let @27 = q__slot[q] in
+    let @26 = step!after!finish!k(@25, k) in
+    let @28 = (&q_result[@27]) in
+    @28 = @26
     continue
   }
   q_queue.count = 0u
-  let @24 = cast<i32>(@6) in
-  parfor q_rest in [0:@24:1] {
-    let @26 = q_result[q_rest] in
-    let @28 = q_rest_@10[q_rest] in
-    let @8 = @26 in
-    let @10 = @28 in
-    @10 = @8
-    continue
+  let @32 = cast<i32>(@6) in
+  parfor q_rest in [0:@32:1] {
+    let @34 = q_result[q_rest] in
+    let @36 = q_rest_@10[q_rest] in
+    let @38 = q_ran[q_rest] in
+    switch (@38) {
+    case 0: {
+      continue
+    } break;
+    default: {
+      let @30 = @34 in
+      let @31 = @36 in
+      @31 = @30
+      continue
+    }
+    }
   }
   hits_queue.count = 0u
   parfor hits_rest in [0:8:1] {
@@ -84,21 +105,23 @@ func step(x : f32, k : f32, _queue_hits : mut (Queue_hits*), _result_hits : mut 
   return
 }
 
-func step!after(@0 : f32, k : f32, _queue_q : mut (Queue_q*), _result_q : mut (f32*), _slot_q : u32) -> void {
+func step!after(@0 : f32, k : f32, _queue_q : mut (Queue_q*), _result_q : mut (f32*), _slot_q : u32) -> _option_q {
   let r = @0 in
   let @1 = 4f < r in
   if (@1) {
-    let @5 = build<Entry_q>(r, _slot_q) in
-    let @8 = atomic_add((&(*_queue_q).count), 1u) in
-    let @10 = (*_queue_q).r in
-    @10[@8] = r
-    let @13 = (*_queue_q)._slot in
-    @13[@8] = _slot_q
-    return
+    let @6 = build<Entry_q>(r, _slot_q) in
+    let @7 = build<_option_q>(undef, false) in
+    let @10 = atomic_add((&(*_queue_q).count), 1u) in
+    let @12 = (*_queue_q).r in
+    @12[@10] = r
+    let @15 = (*_queue_q)._slot in
+    @15[@10] = _slot_q
+    return @7
   } else {
     let @4 = r + k in
     _result_q = @4
-    return
+    let @5 = build<_option_q>(@4, true) in
+    return @5
   }
 }
 

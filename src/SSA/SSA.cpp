@@ -483,6 +483,10 @@ void Terminator::dump(std::ostream &os) const {
                        if (d.yields) {
                            os << " yield";
                        }
+                       if (d.answer) {
+                           os << " ret ";
+                           d.answer->dump(os);
+                       }
                    },
                    [&](const MultiCall &c) {
                        os << "multicall";

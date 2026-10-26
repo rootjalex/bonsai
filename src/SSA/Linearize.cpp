@@ -2157,6 +2157,9 @@ BlockMasks linearize(Function &func, const string &entry_name,
                         [&](Terminator::Defer &t) {
                             replace(t.queue);
                             replace(t.entry);
+                            if (t.answer) {
+                                replace(t.answer);
+                            }
                         },
                         [&](Terminator::Join &t) {
                             for (auto &a : t.next.args) {

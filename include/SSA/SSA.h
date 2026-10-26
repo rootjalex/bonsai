@@ -460,6 +460,11 @@ struct Terminator {
         std::shared_ptr<Value> queue; // the queue's address (or a split's)
         std::shared_ptr<Value> entry; // the entry, a MakeStruct of the leaves
         bool yields = false;          // ends an iteration, not the function
+        // What the function answers at the deferral when its chain reports
+        // whether it deferred (SSA/Defer.cpp `reports`): `true`, or the
+        // empty option of its value; null when nothing asks. Lowered as the
+        // return's value.
+        std::shared_ptr<Value> answer;
     };
     struct MultiCall {
         // A run of calls to one callee, differing only in some arguments, and

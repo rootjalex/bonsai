@@ -65,14 +65,16 @@ func main() -> i32 {
 
 func run(values : f32[32], out : mut f32[32], found_arms : u64) -> void {
   rays!round : mut u32
+  rays_ran : mut u8[32]
+  let @3 = fill_bytes(rays_ran, 0u, 32) in
   rays_result : mut f32[32]
   rays_x : mut f32[32]
   rays_depth : mut i32[32]
   rays_acc : mut f32[32]
   rays__slot : mut i32[32]
   rays_queue : mut Queue_rays
-  let @4 = build<Queue_rays>(0u, rays_x, rays_depth, rays_acc, rays__slot) in
-  rays_queue = @4
+  let @5 = build<Queue_rays>(0u, rays_x, rays_depth, rays_acc, rays__slot) in
+  rays_queue = @5
   hits!Huge_r_payload_x : mut u32[32]
   hits!Huge_x : mut f32[32]
   hits!Huge_depth : mut i32[32]
@@ -96,189 +98,210 @@ func run(values : f32[32], out : mut f32[32], found_arms : u64) -> void {
   hits_queue : mut Queue_hits[4]
   parfor i in [0:32:1] {
     let @0 = values[i] in
-    start(@0, rays_queue, (&rays_result[i]), i)
-    continue
+    let @6 = start(@0, rays_queue, (&rays_result[i]), i) in
+    let @7 = out in
+    let @8 = i in
+    let @9 = @6.set in
+    let @10 = @6.value in
+    if (@9) {
+      let @1 = @10 in
+      out[i] = @1
+      continue
+    } else {
+      rays_ran[i] = 1u
+      continue
+    }
   }
-  let @166 = build<Queue_hits>(0u, undef, hits!Huge_r_payload_x, hits!Huge_x, hits!Huge_depth, hits!Huge_acc, hits!Huge__slot) in
-  hits_queue[0u] = @166
-  let @170 = build<Queue_hits>(0u, undef, hits!Big_r_payload_x, hits!Big_x, hits!Big_depth, hits!Big_acc, hits!Big__slot) in
-  hits_queue[1u] = @170
-  let @174 = build<Queue_hits>(0u, undef, hits!Mid_r_payload_x, hits!Mid_x, hits!Mid_depth, hits!Mid_acc, hits!Mid__slot) in
-  hits_queue[2u] = @174
-  let @178 = build<Queue_hits>(0u, undef, hits!Small_r_payload_x, hits!Small_x, hits!Small_depth, hits!Small_acc, hits!Small__slot) in
-  hits_queue[3u] = @178
+  let @179 = build<Queue_hits>(0u, undef, hits!Huge_r_payload_x, hits!Huge_x, hits!Huge_depth, hits!Huge_acc, hits!Huge__slot) in
+  hits_queue[0u] = @179
+  let @183 = build<Queue_hits>(0u, undef, hits!Big_r_payload_x, hits!Big_x, hits!Big_depth, hits!Big_acc, hits!Big__slot) in
+  hits_queue[1u] = @183
+  let @187 = build<Queue_hits>(0u, undef, hits!Mid_r_payload_x, hits!Mid_x, hits!Mid_depth, hits!Mid_acc, hits!Mid__slot) in
+  hits_queue[2u] = @187
+  let @191 = build<Queue_hits>(0u, undef, hits!Small_r_payload_x, hits!Small_x, hits!Small_depth, hits!Small_acc, hits!Small__slot) in
+  hits_queue[3u] = @191
   rays!round = 0u
   do {
-    let @162 = bonsai_cuda_round_guard((*rays!round), (&(*rays_queue).count)) in
-    let @163 = @162 == 0u in
-    if (@163) {
+    let @175 = bonsai_cuda_round_guard((*rays!round), (&(*rays_queue).count)) in
+    let @176 = @175 == 0u in
+    if (@176) {
       break
     } else {
-      let @121 = cast<u32>(32) in
+      let @134 = cast<u32>(32) in
       hits_queue[0u].count = 0u
       hits_queue[1u].count = 0u
       hits_queue[2u].count = 0u
       hits_queue[3u].count = 0u
-      parfor rays in [0u:@121:1u] {
-        let @123 = (&(*rays_queue).count) in
-        let @124 = (*@123) in
-        let @125 = rays < @124 in
-        if (@125) {
-          let @10 = rays_x[rays] in
-          let @11 = rays_depth[rays] in
-          let @12 = rays_acc[rays] in
-          let @13 = rays__slot[rays] in
-          step(@10, @11, @12, rays_queue, (&rays_result[@13]), @13, hits_queue, @13)
+      parfor rays in [0u:@134:1u] {
+        let @136 = (&(*rays_queue).count) in
+        let @137 = (*@136) in
+        let @138 = rays < @137 in
+        if (@138) {
+          let @17 = rays_x[rays] in
+          let @18 = rays_depth[rays] in
+          let @19 = rays_acc[rays] in
+          let @20 = rays__slot[rays] in
+          step(@17, @18, @19, rays_queue, (&rays_result[@20]), @20, hits_queue, @20)
           continue
         } else {
           continue
         }
       }
       rays_queue.count = 0u
-      let @132 = cast<u32>(32) in
-      let @150 = found_arms >> 0u in
-      let @151 = @150 & 1u in
-      let @152 = @151 != 0u in
-      if (@152) {
-        parfor hits!Huge in [0u:@132:1u] {
-          let @135 = (&hits_queue[0u].count) in
-          let @136 = (*@135) in
-          let @137 = hits!Huge < @136 in
-          if (@137) {
-            let @29 = build<[[packed]] u8x3>(0u, 0u, 0u) in
-            let @31 = hits_queue[0u].r_payload_x in
-            let @32 = @31[hits!Huge] in
-            let @33 = build<[[packed]] u32x1>(@32) in
-            let @34 = build<Found>(undef, @29, @33) in
-            let @36 = hits_queue[0u].x in
-            let @37 = @36[hits!Huge] in
-            let @39 = hits_queue[0u].depth in
-            let @40 = @39[hits!Huge] in
-            let @42 = hits_queue[0u].acc in
-            let @43 = @42[hits!Huge] in
-            let @45 = hits_queue[0u]._slot in
-            let @46 = @45[hits!Huge] in
-            surface!Huge(@34, @37, @40, @43, rays_queue, undef, @46)
+      let @145 = cast<u32>(32) in
+      let @163 = found_arms >> 0u in
+      let @164 = @163 & 1u in
+      let @165 = @164 != 0u in
+      if (@165) {
+        parfor hits!Huge in [0u:@145:1u] {
+          let @148 = (&hits_queue[0u].count) in
+          let @149 = (*@148) in
+          let @150 = hits!Huge < @149 in
+          if (@150) {
+            let @42 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+            let @44 = hits_queue[0u].r_payload_x in
+            let @45 = @44[hits!Huge] in
+            let @46 = build<[[packed]] u32x1>(@45) in
+            let @47 = build<Found>(undef, @42, @46) in
+            let @49 = hits_queue[0u].x in
+            let @50 = @49[hits!Huge] in
+            let @52 = hits_queue[0u].depth in
+            let @53 = @52[hits!Huge] in
+            let @55 = hits_queue[0u].acc in
+            let @56 = @55[hits!Huge] in
+            let @58 = hits_queue[0u]._slot in
+            let @59 = @58[hits!Huge] in
+            surface!Huge(@47, @50, @53, @56, rays_queue, undef, @59)
             continue
           } else {
             continue
           }
         }
       }
-      let @153 = found_arms >> 1u in
-      let @154 = @153 & 1u in
-      let @155 = @154 != 0u in
-      if (@155) {
-        parfor hits!Big in [0u:@132:1u] {
-          let @129 = (&hits_queue[1u].count) in
-          let @130 = (*@129) in
-          let @131 = hits!Big < @130 in
-          if (@131) {
-            let @51 = build<[[packed]] u8x3>(0u, 0u, 0u) in
-            let @53 = hits_queue[1u].r_payload_x in
-            let @54 = @53[hits!Big] in
-            let @55 = build<[[packed]] u32x1>(@54) in
-            let @56 = build<Found>(undef, @51, @55) in
-            let @58 = hits_queue[1u].x in
-            let @59 = @58[hits!Big] in
-            let @61 = hits_queue[1u].depth in
-            let @62 = @61[hits!Big] in
-            let @64 = hits_queue[1u].acc in
-            let @65 = @64[hits!Big] in
-            let @67 = hits_queue[1u]._slot in
-            let @68 = @67[hits!Big] in
-            surface!Big(@56, @59, @62, @65, rays_queue, undef, @68)
+      let @166 = found_arms >> 1u in
+      let @167 = @166 & 1u in
+      let @168 = @167 != 0u in
+      if (@168) {
+        parfor hits!Big in [0u:@145:1u] {
+          let @142 = (&hits_queue[1u].count) in
+          let @143 = (*@142) in
+          let @144 = hits!Big < @143 in
+          if (@144) {
+            let @64 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+            let @66 = hits_queue[1u].r_payload_x in
+            let @67 = @66[hits!Big] in
+            let @68 = build<[[packed]] u32x1>(@67) in
+            let @69 = build<Found>(undef, @64, @68) in
+            let @71 = hits_queue[1u].x in
+            let @72 = @71[hits!Big] in
+            let @74 = hits_queue[1u].depth in
+            let @75 = @74[hits!Big] in
+            let @77 = hits_queue[1u].acc in
+            let @78 = @77[hits!Big] in
+            let @80 = hits_queue[1u]._slot in
+            let @81 = @80[hits!Big] in
+            surface!Big(@69, @72, @75, @78, rays_queue, undef, @81)
             continue
           } else {
             continue
           }
         }
       }
-      let @156 = found_arms >> 2u in
-      let @157 = @156 & 1u in
-      let @158 = @157 != 0u in
-      if (@158) {
-        parfor hits!Mid in [0u:@132:1u] {
-          let @141 = (&hits_queue[2u].count) in
-          let @142 = (*@141) in
-          let @143 = hits!Mid < @142 in
-          if (@143) {
-            let @73 = build<[[packed]] u8x3>(0u, 0u, 0u) in
-            let @75 = hits_queue[2u].r_payload_x in
-            let @76 = @75[hits!Mid] in
-            let @77 = build<[[packed]] u32x1>(@76) in
-            let @78 = build<Found>(undef, @73, @77) in
-            let @80 = hits_queue[2u].x in
-            let @81 = @80[hits!Mid] in
-            let @83 = hits_queue[2u].depth in
-            let @84 = @83[hits!Mid] in
-            let @86 = hits_queue[2u].acc in
-            let @87 = @86[hits!Mid] in
-            let @89 = hits_queue[2u]._slot in
-            let @90 = @89[hits!Mid] in
-            surface!Mid(@78, @81, @84, @87, rays_queue, undef, @90)
+      let @169 = found_arms >> 2u in
+      let @170 = @169 & 1u in
+      let @171 = @170 != 0u in
+      if (@171) {
+        parfor hits!Mid in [0u:@145:1u] {
+          let @154 = (&hits_queue[2u].count) in
+          let @155 = (*@154) in
+          let @156 = hits!Mid < @155 in
+          if (@156) {
+            let @86 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+            let @88 = hits_queue[2u].r_payload_x in
+            let @89 = @88[hits!Mid] in
+            let @90 = build<[[packed]] u32x1>(@89) in
+            let @91 = build<Found>(undef, @86, @90) in
+            let @93 = hits_queue[2u].x in
+            let @94 = @93[hits!Mid] in
+            let @96 = hits_queue[2u].depth in
+            let @97 = @96[hits!Mid] in
+            let @99 = hits_queue[2u].acc in
+            let @100 = @99[hits!Mid] in
+            let @102 = hits_queue[2u]._slot in
+            let @103 = @102[hits!Mid] in
+            surface!Mid(@91, @94, @97, @100, rays_queue, undef, @103)
             continue
           } else {
             continue
           }
         }
       }
-      let @159 = found_arms >> 3u in
-      let @160 = @159 & 1u in
-      let @161 = @160 != 0u in
-      if (@161) {
-        parfor hits!Small in [0u:@132:1u] {
-          let @147 = (&hits_queue[3u].count) in
-          let @148 = (*@147) in
-          let @149 = hits!Small < @148 in
-          if (@149) {
-            let @95 = build<[[packed]] u8x3>(0u, 0u, 0u) in
-            let @97 = hits_queue[3u].r_payload_x in
-            let @98 = @97[hits!Small] in
-            let @99 = build<[[packed]] u32x1>(@98) in
-            let @100 = build<Found>(undef, @95, @99) in
-            let @102 = hits_queue[3u].x in
-            let @103 = @102[hits!Small] in
-            let @105 = hits_queue[3u].depth in
-            let @106 = @105[hits!Small] in
-            let @108 = hits_queue[3u].acc in
-            let @109 = @108[hits!Small] in
-            let @111 = hits_queue[3u]._slot in
-            let @112 = @111[hits!Small] in
-            surface!Small(@100, @103, @106, @109, rays_queue, undef, @112)
+      let @172 = found_arms >> 3u in
+      let @173 = @172 & 1u in
+      let @174 = @173 != 0u in
+      if (@174) {
+        parfor hits!Small in [0u:@145:1u] {
+          let @160 = (&hits_queue[3u].count) in
+          let @161 = (*@160) in
+          let @162 = hits!Small < @161 in
+          if (@162) {
+            let @108 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+            let @110 = hits_queue[3u].r_payload_x in
+            let @111 = @110[hits!Small] in
+            let @112 = build<[[packed]] u32x1>(@111) in
+            let @113 = build<Found>(undef, @108, @112) in
+            let @115 = hits_queue[3u].x in
+            let @116 = @115[hits!Small] in
+            let @118 = hits_queue[3u].depth in
+            let @119 = @118[hits!Small] in
+            let @121 = hits_queue[3u].acc in
+            let @122 = @121[hits!Small] in
+            let @124 = hits_queue[3u]._slot in
+            let @125 = @124[hits!Small] in
+            surface!Small(@113, @116, @119, @122, rays_queue, undef, @125)
             continue
           } else {
             continue
           }
         }
       }
-      let @5 = (*rays!round) + 1u in
-      rays!round = @5
+      let @12 = (*rays!round) + 1u in
+      rays!round = @12
       continue
     }
   } while (true)
   parfor rays_rest in [0:32:1] {
-    let @16 = rays_result[rays_rest] in
-    let @1 = @16 in
-    let i = rays_rest in
-    out[i] = @1
-    continue
+    let @27 = rays_result[rays_rest] in
+    let @29 = rays_ran[rays_rest] in
+    switch (@29) {
+    case 0: {
+      continue
+    } break;
+    default: {
+      let @23 = @27 in
+      let @24 = out in
+      let @25 = rays_rest in
+      @24[@25] = @23
+      continue
+    }
+    }
   }
   return
 }
 
-func start(x : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _slot_rays : i32) -> void {
+func start(x : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _slot_rays : i32) -> _option_rays {
   let @1 = build<Entry_rays>(x, 3, 0f, _slot_rays) in
-  let @4 = atomic_add((&(*_queue_rays).count), 1u) in
-  let @6 = (*_queue_rays).x in
-  @6[@4] = x
-  let @9 = (*_queue_rays).depth in
-  @9[@4] = 3
-  let @12 = (*_queue_rays).acc in
-  @12[@4] = 0f
-  let @15 = (*_queue_rays)._slot in
-  @15[@4] = _slot_rays
-  return
+  let @2 = build<_option_rays>(undef, false) in
+  let @5 = atomic_add((&(*_queue_rays).count), 1u) in
+  let @7 = (*_queue_rays).x in
+  @7[@5] = x
+  let @10 = (*_queue_rays).depth in
+  @10[@5] = 3
+  let @13 = (*_queue_rays).acc in
+  @13[@5] = 0f
+  let @16 = (*_queue_rays)._slot in
+  @16[@5] = _slot_rays
+  return @2
 }
 
 func step(x : f32, depth : i32, acc : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _slot_rays : i32, _queue_hits : mut Queue_hits[4], _slot_hits : i32) -> void {
@@ -320,78 +343,78 @@ func step(x : f32, depth : i32, acc : f32, _queue_rays : mut (Queue_rays*), _res
         }
       }
     }
-    let @22 = build<Entry_hits>((*classify$r6), x, depth, acc, _slot_hits) in
-    let @23 = (*classify$r6).tag in
-    switch (@23) {
+    let @23 = build<Entry_hits>((*classify$r6), x, depth, acc, _slot_hits) in
+    let @24 = (*classify$r6).tag in
+    switch (@24) {
     case 0: {
-      let @33 = atomic_add((&_queue_hits[0u].count), 1u) in
-      let @40 = (*classify$r6).payload in
-      let @41 = @40[0u] in
-      let @47 = _queue_hits[0u].r_payload_x in
-      @47[@33] = @41
-      let @50 = _queue_hits[0u].x in
-      @50[@33] = x
-      let @53 = _queue_hits[0u].depth in
-      @53[@33] = depth
-      let @56 = _queue_hits[0u].acc in
-      @56[@33] = acc
-      let @59 = _queue_hits[0u]._slot in
-      @59[@33] = _slot_hits
+      let @34 = atomic_add((&_queue_hits[0u].count), 1u) in
+      let @41 = (*classify$r6).payload in
+      let @42 = @41[0u] in
+      let @48 = _queue_hits[0u].r_payload_x in
+      @48[@34] = @42
+      let @51 = _queue_hits[0u].x in
+      @51[@34] = x
+      let @54 = _queue_hits[0u].depth in
+      @54[@34] = depth
+      let @57 = _queue_hits[0u].acc in
+      @57[@34] = acc
+      let @60 = _queue_hits[0u]._slot in
+      @60[@34] = _slot_hits
       return
     } break;
     case 1: {
-      let @62 = atomic_add((&_queue_hits[1u].count), 1u) in
-      let @69 = (*classify$r6).payload in
-      let @70 = @69[0u] in
-      let @76 = _queue_hits[1u].r_payload_x in
-      @76[@62] = @70
-      let @79 = _queue_hits[1u].x in
-      @79[@62] = x
-      let @82 = _queue_hits[1u].depth in
-      @82[@62] = depth
-      let @85 = _queue_hits[1u].acc in
-      @85[@62] = acc
-      let @88 = _queue_hits[1u]._slot in
-      @88[@62] = _slot_hits
+      let @63 = atomic_add((&_queue_hits[1u].count), 1u) in
+      let @70 = (*classify$r6).payload in
+      let @71 = @70[0u] in
+      let @77 = _queue_hits[1u].r_payload_x in
+      @77[@63] = @71
+      let @80 = _queue_hits[1u].x in
+      @80[@63] = x
+      let @83 = _queue_hits[1u].depth in
+      @83[@63] = depth
+      let @86 = _queue_hits[1u].acc in
+      @86[@63] = acc
+      let @89 = _queue_hits[1u]._slot in
+      @89[@63] = _slot_hits
       return
     } break;
     case 2: {
-      let @91 = atomic_add((&_queue_hits[2u].count), 1u) in
-      let @98 = (*classify$r6).payload in
-      let @99 = @98[0u] in
-      let @105 = _queue_hits[2u].r_payload_x in
-      @105[@91] = @99
-      let @108 = _queue_hits[2u].x in
-      @108[@91] = x
-      let @111 = _queue_hits[2u].depth in
-      @111[@91] = depth
-      let @114 = _queue_hits[2u].acc in
-      @114[@91] = acc
-      let @117 = _queue_hits[2u]._slot in
-      @117[@91] = _slot_hits
+      let @92 = atomic_add((&_queue_hits[2u].count), 1u) in
+      let @99 = (*classify$r6).payload in
+      let @100 = @99[0u] in
+      let @106 = _queue_hits[2u].r_payload_x in
+      @106[@92] = @100
+      let @109 = _queue_hits[2u].x in
+      @109[@92] = x
+      let @112 = _queue_hits[2u].depth in
+      @112[@92] = depth
+      let @115 = _queue_hits[2u].acc in
+      @115[@92] = acc
+      let @118 = _queue_hits[2u]._slot in
+      @118[@92] = _slot_hits
       return
     } break;
     default: {
-      let @120 = atomic_add((&_queue_hits[3u].count), 1u) in
-      let @127 = (*classify$r6).payload in
-      let @128 = @127[0u] in
-      let @134 = _queue_hits[3u].r_payload_x in
-      @134[@120] = @128
-      let @137 = _queue_hits[3u].x in
-      @137[@120] = x
-      let @140 = _queue_hits[3u].depth in
-      @140[@120] = depth
-      let @143 = _queue_hits[3u].acc in
-      @143[@120] = acc
-      let @146 = _queue_hits[3u]._slot in
-      @146[@120] = _slot_hits
+      let @121 = atomic_add((&_queue_hits[3u].count), 1u) in
+      let @128 = (*classify$r6).payload in
+      let @129 = @128[0u] in
+      let @135 = _queue_hits[3u].r_payload_x in
+      @135[@121] = @129
+      let @138 = _queue_hits[3u].x in
+      @138[@121] = x
+      let @141 = _queue_hits[3u].depth in
+      @141[@121] = depth
+      let @144 = _queue_hits[3u].acc in
+      @144[@121] = acc
+      let @147 = _queue_hits[3u]._slot in
+      @147[@121] = _slot_hits
       return
     }
     }
   }
 }
 
-func surface(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _slot_rays : i32) -> void {
+func surface(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _slot_rays : i32) -> _option_rays {
   let @0 = r.tag in
   switch (@0) {
   case 0: { // Found.Huge of surface
@@ -402,16 +425,17 @@ func surface(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queu
     let @5 = depth - 1 in
     let @6 = acc + v in
     let @29 = build<Entry_rays>(@4, @5, @6, _slot_rays) in
-    let @38 = atomic_add((&(*_queue_rays).count), 1u) in
-    let @40 = (*_queue_rays).x in
-    @40[@38] = @4
-    let @43 = (*_queue_rays).depth in
-    @43[@38] = @5
-    let @46 = (*_queue_rays).acc in
-    @46[@38] = @6
-    let @49 = (*_queue_rays)._slot in
-    @49[@38] = _slot_rays
-    return
+    let @30 = build<_option_rays>(undef, false) in
+    let @42 = atomic_add((&(*_queue_rays).count), 1u) in
+    let @44 = (*_queue_rays).x in
+    @44[@42] = @4
+    let @47 = (*_queue_rays).depth in
+    @47[@42] = @5
+    let @50 = (*_queue_rays).acc in
+    @50[@42] = @6
+    let @53 = (*_queue_rays)._slot in
+    @53[@42] = _slot_rays
+    return @30
   } break;
   case 1: { // Found.Big of surface
     let @8 = r.payload in
@@ -420,17 +444,18 @@ func surface(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queu
     let @11 = x * 0.25f in
     let @12 = depth - 1 in
     let @13 = acc + v$1 in
-    let @30 = build<Entry_rays>(@11, @12, @13, _slot_rays) in
-    let @52 = atomic_add((&(*_queue_rays).count), 1u) in
-    let @54 = (*_queue_rays).x in
-    @54[@52] = @11
-    let @57 = (*_queue_rays).depth in
-    @57[@52] = @12
-    let @60 = (*_queue_rays).acc in
-    @60[@52] = @13
-    let @63 = (*_queue_rays)._slot in
-    @63[@52] = _slot_rays
-    return
+    let @31 = build<Entry_rays>(@11, @12, @13, _slot_rays) in
+    let @32 = build<_option_rays>(undef, false) in
+    let @56 = atomic_add((&(*_queue_rays).count), 1u) in
+    let @58 = (*_queue_rays).x in
+    @58[@56] = @11
+    let @61 = (*_queue_rays).depth in
+    @61[@56] = @12
+    let @64 = (*_queue_rays).acc in
+    @64[@56] = @13
+    let @67 = (*_queue_rays)._slot in
+    @67[@56] = _slot_rays
+    return @32
   } break;
   case 2: { // Found.Mid of surface
     let @15 = r.payload in
@@ -439,17 +464,18 @@ func surface(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queu
     let @18 = x * 0.5f in
     let @19 = depth - 1 in
     let @20 = acc + v$2 in
-    let @31 = build<Entry_rays>(@18, @19, @20, _slot_rays) in
-    let @66 = atomic_add((&(*_queue_rays).count), 1u) in
-    let @68 = (*_queue_rays).x in
-    @68[@66] = @18
-    let @71 = (*_queue_rays).depth in
-    @71[@66] = @19
-    let @74 = (*_queue_rays).acc in
-    @74[@66] = @20
-    let @77 = (*_queue_rays)._slot in
-    @77[@66] = _slot_rays
-    return
+    let @33 = build<Entry_rays>(@18, @19, @20, _slot_rays) in
+    let @34 = build<_option_rays>(undef, false) in
+    let @70 = atomic_add((&(*_queue_rays).count), 1u) in
+    let @72 = (*_queue_rays).x in
+    @72[@70] = @18
+    let @75 = (*_queue_rays).depth in
+    @75[@70] = @19
+    let @78 = (*_queue_rays).acc in
+    @78[@70] = @20
+    let @81 = (*_queue_rays)._slot in
+    @81[@70] = _slot_rays
+    return @34
   } break;
   default: { // Found.Small of surface
     let @22 = r.payload in
@@ -458,107 +484,112 @@ func surface(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queu
     let @25 = x + 1f in
     let @26 = depth - 1 in
     let @27 = acc - v$3 in
-    let @32 = build<Entry_rays>(@25, @26, @27, _slot_rays) in
-    let @80 = atomic_add((&(*_queue_rays).count), 1u) in
-    let @82 = (*_queue_rays).x in
-    @82[@80] = @25
-    let @85 = (*_queue_rays).depth in
-    @85[@80] = @26
-    let @88 = (*_queue_rays).acc in
-    @88[@80] = @27
-    let @91 = (*_queue_rays)._slot in
-    @91[@80] = _slot_rays
-    return
+    let @35 = build<Entry_rays>(@25, @26, @27, _slot_rays) in
+    let @36 = build<_option_rays>(undef, false) in
+    let @84 = atomic_add((&(*_queue_rays).count), 1u) in
+    let @86 = (*_queue_rays).x in
+    @86[@84] = @25
+    let @89 = (*_queue_rays).depth in
+    @89[@84] = @26
+    let @92 = (*_queue_rays).acc in
+    @92[@84] = @27
+    let @95 = (*_queue_rays)._slot in
+    @95[@84] = _slot_rays
+    return @36
   }
   }
 }
 
-func surface!Big(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _slot_rays : i32) -> void {
-  let @33 = r._pad in
-  let @34 = r.payload in
-  let r!Big = build<Found>(1u, @33, @34) in
-  let @9 = @34[0u] in
+func surface!Big(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _slot_rays : i32) -> _option_rays {
+  let @37 = r._pad in
+  let @38 = r.payload in
+  let r!Big = build<Found>(1u, @37, @38) in
+  let @9 = @38[0u] in
   let v$1 = reinterpret_cast<f32>(@9) in
   let @11 = x * 0.25f in
   let @12 = depth - 1 in
   let @13 = acc + v$1 in
-  let @30 = build<Entry_rays>(@11, @12, @13, _slot_rays) in
-  let @37 = atomic_add((&(*_queue_rays).count), 1u) in
-  let @39 = (*_queue_rays).x in
-  @39[@37] = @11
-  let @42 = (*_queue_rays).depth in
-  @42[@37] = @12
-  let @45 = (*_queue_rays).acc in
-  @45[@37] = @13
-  let @48 = (*_queue_rays)._slot in
-  @48[@37] = _slot_rays
-  return
+  let @31 = build<Entry_rays>(@11, @12, @13, _slot_rays) in
+  let @32 = build<_option_rays>(undef, false) in
+  let @41 = atomic_add((&(*_queue_rays).count), 1u) in
+  let @43 = (*_queue_rays).x in
+  @43[@41] = @11
+  let @46 = (*_queue_rays).depth in
+  @46[@41] = @12
+  let @49 = (*_queue_rays).acc in
+  @49[@41] = @13
+  let @52 = (*_queue_rays)._slot in
+  @52[@41] = _slot_rays
+  return @32
 }
 
-func surface!Huge(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _slot_rays : i32) -> void {
-  let @33 = r._pad in
-  let @34 = r.payload in
-  let r!Huge = build<Found>(0u, @33, @34) in
-  let @2 = @34[0u] in
+func surface!Huge(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _slot_rays : i32) -> _option_rays {
+  let @37 = r._pad in
+  let @38 = r.payload in
+  let r!Huge = build<Found>(0u, @37, @38) in
+  let @2 = @38[0u] in
   let v = reinterpret_cast<f32>(@2) in
   let @4 = x * 0.125f in
   let @5 = depth - 1 in
   let @6 = acc + v in
   let @29 = build<Entry_rays>(@4, @5, @6, _slot_rays) in
-  let @37 = atomic_add((&(*_queue_rays).count), 1u) in
-  let @39 = (*_queue_rays).x in
-  @39[@37] = @4
-  let @42 = (*_queue_rays).depth in
-  @42[@37] = @5
-  let @45 = (*_queue_rays).acc in
-  @45[@37] = @6
-  let @48 = (*_queue_rays)._slot in
-  @48[@37] = _slot_rays
-  return
+  let @30 = build<_option_rays>(undef, false) in
+  let @41 = atomic_add((&(*_queue_rays).count), 1u) in
+  let @43 = (*_queue_rays).x in
+  @43[@41] = @4
+  let @46 = (*_queue_rays).depth in
+  @46[@41] = @5
+  let @49 = (*_queue_rays).acc in
+  @49[@41] = @6
+  let @52 = (*_queue_rays)._slot in
+  @52[@41] = _slot_rays
+  return @30
 }
 
-func surface!Mid(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _slot_rays : i32) -> void {
-  let @33 = r._pad in
-  let @34 = r.payload in
-  let r!Mid = build<Found>(2u, @33, @34) in
-  let @16 = @34[0u] in
+func surface!Mid(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _slot_rays : i32) -> _option_rays {
+  let @37 = r._pad in
+  let @38 = r.payload in
+  let r!Mid = build<Found>(2u, @37, @38) in
+  let @16 = @38[0u] in
   let v$2 = reinterpret_cast<f32>(@16) in
   let @18 = x * 0.5f in
   let @19 = depth - 1 in
   let @20 = acc + v$2 in
-  let @31 = build<Entry_rays>(@18, @19, @20, _slot_rays) in
-  let @37 = atomic_add((&(*_queue_rays).count), 1u) in
-  let @39 = (*_queue_rays).x in
-  @39[@37] = @18
-  let @42 = (*_queue_rays).depth in
-  @42[@37] = @19
-  let @45 = (*_queue_rays).acc in
-  @45[@37] = @20
-  let @48 = (*_queue_rays)._slot in
-  @48[@37] = _slot_rays
-  return
+  let @33 = build<Entry_rays>(@18, @19, @20, _slot_rays) in
+  let @34 = build<_option_rays>(undef, false) in
+  let @41 = atomic_add((&(*_queue_rays).count), 1u) in
+  let @43 = (*_queue_rays).x in
+  @43[@41] = @18
+  let @46 = (*_queue_rays).depth in
+  @46[@41] = @19
+  let @49 = (*_queue_rays).acc in
+  @49[@41] = @20
+  let @52 = (*_queue_rays)._slot in
+  @52[@41] = _slot_rays
+  return @34
 }
 
-func surface!Small(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _slot_rays : i32) -> void {
-  let @33 = r._pad in
-  let @34 = r.payload in
-  let r!Small = build<Found>(3u, @33, @34) in
-  let @23 = @34[0u] in
+func surface!Small(r : Found, x : f32, depth : i32, acc : f32, _queue_rays : mut (Queue_rays*), _result_rays : mut (f32*), _slot_rays : i32) -> _option_rays {
+  let @37 = r._pad in
+  let @38 = r.payload in
+  let r!Small = build<Found>(3u, @37, @38) in
+  let @23 = @38[0u] in
   let v$3 = reinterpret_cast<f32>(@23) in
   let @25 = x + 1f in
   let @26 = depth - 1 in
   let @27 = acc - v$3 in
-  let @32 = build<Entry_rays>(@25, @26, @27, _slot_rays) in
-  let @37 = atomic_add((&(*_queue_rays).count), 1u) in
-  let @39 = (*_queue_rays).x in
-  @39[@37] = @25
-  let @42 = (*_queue_rays).depth in
-  @42[@37] = @26
-  let @45 = (*_queue_rays).acc in
-  @45[@37] = @27
-  let @48 = (*_queue_rays)._slot in
-  @48[@37] = _slot_rays
-  return
+  let @35 = build<Entry_rays>(@25, @26, @27, _slot_rays) in
+  let @36 = build<_option_rays>(undef, false) in
+  let @41 = atomic_add((&(*_queue_rays).count), 1u) in
+  let @43 = (*_queue_rays).x in
+  @43[@41] = @25
+  let @46 = (*_queue_rays).depth in
+  @46[@41] = @26
+  let @49 = (*_queue_rays).acc in
+  @49[@41] = @27
+  let @52 = (*_queue_rays)._slot in
+  @52[@41] = _slot_rays
+  return @36
 }
 
 

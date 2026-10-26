@@ -120,6 +120,7 @@ struct CodeGen_LLVM::SSALowering {
     // read-only for the launch, every thread's (see launch_readonly below).
     std::optional<ir::ssa::KernelWrites> launch_writes;
     std::unordered_map<std::string, const ir::ssa::Instruction *> kernel_defs;
+    ir::ssa::ArgumentSources kernel_sources;
 
     SSALowering(CodeGen_LLVM &cg, const ir::ssa::Function &func,
                 llvm::Function *function)
@@ -142,7 +143,7 @@ struct CodeGen_LLVM::SSALowering {
             !(rebuilt.type().is<Ptr_t>() || rebuilt.type().is_reference())) {
             return rebuilt;
         }
-        const ir::ssa::Roots roots = ir::ssa::roots_of(v, kernel_defs);
+        const ir::ssa::Roots roots = ir::ssa::roots_of(v, kernel_defs, &kernel_sources);
         if (roots.unknown || roots.names.empty() ||
             launch_writes->writes(roots.names)) {
             return rebuilt;
@@ -1325,6 +1326,7 @@ struct CodeGen_LLVM::SSALowering {
         // blocks -- another kernel filling what this one drains -- are
         // other launches.
         kernel_defs = ir::ssa::instruction_names(func);
+        kernel_sources = ir::ssa::argument_sources(func);
         launch_writes = ir::ssa::kernel_writes(func, p.body.name);
         kernel_body_head = by_name.at(p.body.name);
         if (std::getenv("BONSAI_EXPLAIN_DEVICE") != nullptr) {
@@ -1534,6 +1536,9 @@ struct CodeGen_LLVM::SSALowering {
                 [&](const Terminator::Defer &d) {
                     escapes(d.queue);
                     escapes(d.entry);
+                    if (d.answer) {
+                        escapes(d.answer);
+                    }
                 },
                 [&](const Terminator::MultiCall &c) {
                     for (const auto &a : c.call.args) {

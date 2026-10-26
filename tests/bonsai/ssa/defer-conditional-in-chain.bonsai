@@ -1,27 +1,23 @@
 //! flags: -p ssa --dump-ssa-postschedule
 
-// FAILS, on purpose, until the chain reports whether it deferred (the
-// user, 10-25): the program of correctness/llvm/defer-conditional-in-chain,
-// whose deferred call sits under a test *inside* the chain -- `step` calls
-// `work` only `if x > 4.0` and returns without it otherwise. The rule: a
-// deferral ends the parallel iteration only when the call is made, and an
-// iteration whose chain returned without deferring runs its continuation
-// where it stands, at once. For that the chain has to say which happened:
-// a function holding a conditional deferral returns a bool (an
-// `optional[ret]` when it returned a value), the push site returning true,
-// every other return false, and the owner dispatches on it -- the
-// continuation inline when false, the end of the iteration (`q!end`) when
-// true; a function with a deferral of its own in a callee tests the
-// callee's answer and returns it onward. Today the owner yields after every
-// call and the pass over the record runs every slot, the same result at a
-// record visit per iteration that pushed nothing.
-//
-// The expectation is the intended shape written by hand over today's
-// dump: `step` returning `(bool)1` at the push and `(bool)0` otherwise,
-// the owner's `callc step(..) !step_deferred_3(..)` dispatching on the
-// answer to an inline copy of the continuation or to `q!end`. Its exact
-// spelling is a guess; when the feature lands, read the dump and bless it
-// (BONSAI_UPDATE_EXPECT=1) rather than trust this file's letters.
+// The chain reports whether it deferred (the user, 10-25): the program of
+// correctness/llvm/defer-conditional-in-chain, whose deferred call sits
+// under a test *inside* the chain -- `step` calls `work` only `if x > 4.0`
+// and returns without it otherwise. The rule: a deferral ends the parallel
+// iteration only when the call is made, and an iteration whose chain
+// returned without deferring runs its continuation where it stands, at
+// once. For that the chain says which happened: a function holding a
+// conditional deferral returns a bool (the option of its value when it
+// returns one), `(bool)1` at its deferral (`defer _queue_q @1 ret (bool)1`)
+// and `(bool)0` at every other return, and the owner dispatches on it --
+// `callc step(..) q!deferred(..)`, then `dispatch` to the continuation
+// where it stands when false, or to `q!end` when true, where the record's
+// byte for the slot is set and the iteration ends. The pass over the
+// record (`q_rest`) runs the continuation's copy for the slots whose byte
+// is set and skips the rest. (Until 10-25 evening the owner yielded after
+// every call and the pass ran every slot; this expectation was written by
+// hand ahead of the feature, as a reminder that failed on purpose, and the
+// dump replaced it once it landed.)
 import stdlib/numerics;
 
 func work(x : Float, acc : reduce(+) Float) -> void {

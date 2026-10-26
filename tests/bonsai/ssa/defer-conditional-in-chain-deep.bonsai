@@ -1,0 +1,43 @@
+//! flags: -p ssa --dump-ssa-postschedule
+
+// The shape of a conditional deferral at the bottom of a chain two
+// functions deep (tests/bonsai/correctness/llvm/defer-conditional-in-chain-
+// deep runs it). What to read for: both `a` and `b` return bool now; `b`
+// answers `(bool)1` at its deferral (`defer _queue_q @1 ret (bool)1`) and
+// `(bool)0` where it deferred nothing; `a`'s tail call of `b` becomes
+// `callc b(..)` whose continuation returns the answer onward; and the
+// owner's `callc a(..) q!deferred(..)` dispatches on it as it would on a
+// chain one function deep.
+import stdlib/numerics;
+
+func work(x : Float, acc : reduce(+) Float) -> void {
+    acc += x * 0.5;
+    return;
+}
+
+func b(x : Float, acc : reduce(+) Float) -> void {
+    if x > 4.0 {
+        work(x, acc);
+    }
+    return;
+}
+
+func a(x : Float, acc : reduce(+) Float) -> void {
+    b(x, acc);
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        acc : reduce(+) Float = 0.0;
+        w = values[i] + 1.0;
+        a(values[i], acc);
+        out[i] = acc + w;
+    }
+    return;
+}
+
+schedule {
+    q = run.queue(root);
+    b.defer(work, q);
+}

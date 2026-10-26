@@ -5,15 +5,14 @@
 // `if x > 4.0`, returning without it otherwise. The owner's continuation,
 // `out[i] = acc + w`, is right either way: an iteration whose step pushed
 // reads `acc` whole in the pass over the record after the drain; one whose
-// step returned without pushing has nothing outstanding.
+// step returned without pushing runs it at once, where it stands.
 //
-// What this test pins is the result. The shape it should also have, not
-// built yet (apps/pbrt/PLAN.md, 10-25, "a conditional deferred call"): the
-// chain reports whether it deferred -- `step` returns a bool, or an
-// optional of its value -- and the owner runs the continuation at once when
-// it did not, yielding only when it did. Today the owner yields after every
-// call and the pass runs every slot, which is the same result at the cost
-// of a record visit for the iterations that pushed nothing.
+// The chain reports whether it deferred (the user, 10-25): `step` returns
+// a bool -- the option of its value, in defer-conditional-in-chain-value --
+// and the owner dispatches on it, the continuation inline when it did not
+// and the iteration's end when it did; tests/bonsai/ssa/defer-conditional-
+// in-chain shows the shape, -deep and -middle the chains two functions
+// deep with the test at either level.
 //
 // values 1..4: out = 0 + (v + 1) = 2, 3, 4, 5. values 5..8: v/2 + v + 1 =
 // 8.5, 10, 11.5, 13.

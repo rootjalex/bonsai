@@ -1,0 +1,43 @@
+//! flags: -p ssa --dump-ssa-postschedule
+
+// The shape of a conditional deferral inside a chain that returns a value
+// (tests/bonsai/correctness/llvm/defer-conditional-in-chain-value runs it).
+// What to read for: `step` returns `_option_q`, the option of its Float --
+// `{ value, set }` as src/Lower/Options.cpp lowers one -- answering the
+// empty option at its deferral (`defer _queue_q @1 ret @2`, `@2` built with
+// `set` false) and `some(-1)` where it deferred nothing; the owner's
+// `callc step(..) q!deferred(..)` reads `set` off the answer and
+// dispatches, the empty option to `q!end` (the record's byte set, the
+// iteration ended) and the other to the continuation where it stands with
+// the value taken out of the option; the deferred path's value reaches the
+// pass over the record through the result slot (`q_result`), written by
+// `step!after`, and the pass runs only the slots whose byte is set.
+import stdlib/numerics;
+
+func work(x : Float) -> Float {
+    return x * 0.5;
+}
+
+func step(x : Float, acc : reduce(+) Float) -> Float {
+    if x > 4.0 {
+        r = work(x);
+        acc += r;
+        return r + 1.0;
+    }
+    return -1.0;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        acc : reduce(+) Float = 0.0;
+        w = values[i] + 1.0;
+        s = step(values[i], acc);
+        out[i] = s + acc + w;
+    }
+    return;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(work, q);
+}

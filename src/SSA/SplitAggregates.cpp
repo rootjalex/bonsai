@@ -781,6 +781,9 @@ SplitResult split_aggregates(Function &func, const string &entry,
                        [&](Terminator::Defer &t) {
                            fix_whole(t.queue);
                            fix_whole(t.entry);
+                           if (t.answer) {
+                               fix_whole(t.answer);
+                           }
                        },
                        [&](Terminator::Join &t) {
                            for (auto &a : t.next.args) {

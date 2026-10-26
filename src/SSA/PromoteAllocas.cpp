@@ -115,6 +115,9 @@ vector<shared_ptr<Value>> terminator_uses(const Block &block) {
             [&](const Terminator::Defer &d) {
                 uses.push_back(d.queue);
                 uses.push_back(d.entry);
+                if (d.answer) {
+                    uses.push_back(d.answer);
+                }
             },
             [&](const Terminator::MultiCall &c) {
                 for (const auto &a : c.call.args) {

@@ -14,4 +14,5 @@ add_bonsai_tests(
     nested-traversal.bonsai
     sort.bonsai
     switch-merge.bonsai
+    unroll-let-names.bonsai
 )

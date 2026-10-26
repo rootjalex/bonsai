@@ -17,6 +17,8 @@ func run(values : f32[8], out : mut f32[8], gbuffer : bool) -> void {
     q!True_rec_seen_slots : mut bool[8]
     q!True_rec_hits_slots : mut i32[8]
     q!True_rec_p_slots : mut [[packed]] f32x3[8]
+    q!True_ran : mut u8[8]
+    let @104 = fill_bytes(q!True_ran, 0u, 8) in
     q!True_x_0 : mut f32[8]
     q!True_n_0 : mut i32[8]
     q!True__slot_0 : mut i32[8]
@@ -24,75 +26,125 @@ func run(values : f32[8], out : mut f32[8], gbuffer : bool) -> void {
     q!True_n_1 : mut i32[8]
     q!True__slot_1 : mut i32[8]
     q!True_queue : mut Queue_q!True[2]
-    let @84 = build<Queue_q!True>(0u, q!True_x_0, q!True_n_0, q!True__slot_0) in
-    q!True_queue[0u] = @84
-    let @86 = build<Queue_q!True>(0u, q!True_x_1, q!True_n_1, q!True__slot_1) in
-    q!True_queue[1u] = @86
+    let @105 = build<Queue_q!True>(0u, q!True_x_0, q!True_n_0, q!True__slot_0) in
+    q!True_queue[0u] = @105
+    let @107 = build<Queue_q!True>(0u, q!True_x_1, q!True_n_1, q!True__slot_1) in
+    q!True_queue[1u] = @107
     parfor i!True in [0:8:1] {
       let @42 = values[i!True] in
       let @44 = build<f32x3>(@42, 0f, 1f) in
-      let @127 = cast<[[packed]] f32x3>(@44) in
-      q!True_rec_p_slots[i!True] = @127
+      let @179 = cast<[[packed]] f32x3>(@44) in
+      q!True_rec_p_slots[i!True] = @179
       q!True_rec_hits_slots[i!True] = 0
       q!True_rec_seen_slots[i!True] = false
-      let @111 = i!True < 4 in
-      let @112 = i!True - 4 in
-      let @46 = select(@111, i!True, @112) in
-      step!True(@42, @46, (&q!True_rec_p_slots[i!True]), (&q!True_rec_hits_slots[i!True]), (&q!True_rec_seen_slots[i!True]), (&q!True_queue[0u]), i!True)
-      continue
+      let @163 = i!True < 4 in
+      let @164 = i!True - 4 in
+      let @46 = select(@163, i!True, @164) in
+      let @110 = step!True(@42, @46, (&q!True_rec_p_slots[i!True]), (&q!True_rec_hits_slots[i!True]), (&q!True_rec_seen_slots[i!True]), (&q!True_queue[0u]), i!True) in
+      let @111 = true in
+      let @113 = out in
+      let @114 = i!True in
+      let @112!arg_rec_p = (&q!True_rec_p_slots[i!True]) in
+      let @112!arg_rec_hits = (&q!True_rec_hits_slots[i!True]) in
+      let @112!arg_rec_seen = (&q!True_rec_seen_slots[i!True]) in
+      if (@110) {
+        q!True_ran[i!True] = 1u
+        continue
+      } else {
+        let gbuffer!True = true in
+        let @43!arg_rec_p = (&q!True_rec_p_slots[i!True]) in
+        let @43!arg_rec_hits = (&q!True_rec_hits_slots[i!True]) in
+        let @43!arg_rec_seen = (&q!True_rec_seen_slots[i!True]) in
+        let @180 = (*@43!arg_rec_seen) in
+        if (@180) {
+          let @43!arg!3_rec_p = (&q!True_rec_p_slots[i!True]) in
+          let @43!arg!3_rec_hits = (&q!True_rec_hits_slots[i!True]) in
+          let @43!arg!3_rec_seen = (&q!True_rec_seen_slots[i!True]) in
+          let @181 = (*@43!arg!3_rec_hits) in
+          let @52 = cast<f32>(@181) in
+          let @182 = (*@43!arg!3_rec_p) in
+          let @183 = cast<f32x3>(@182) in
+          let @54 = @183[0u] in
+          let @55 = @52 + @54 in
+          out[i!True] = @55
+        } else {
+          let @43!arg!2_rec_p = (&q!True_rec_p_slots[i!True]) in
+          let @43!arg!2_rec_hits = (&q!True_rec_hits_slots[i!True]) in
+          let @43!arg!2_rec_seen = (&q!True_rec_seen_slots[i!True]) in
+          let @184 = (*@43!arg!2_rec_hits) in
+          let @40 = cast<f32>(@184) in
+          out[i!True] = @40
+        }
+        continue
+      }
     }
     q!True!round = 0u
     while (!(q!True_queue[(*q!True!round) & 1u].count == 0u)) {
-      let @90 = (*q!True!round) & 1u in
-      let @92 = q!True_queue[(*q!True!round) & 1u].count in
-      let @94 = @90 ^ 1u in
-      q!True_queue[@94].count = 0u
+      let @117 = (*q!True!round) & 1u in
+      let @119 = q!True_queue[(*q!True!round) & 1u].count in
+      let @121 = @117 ^ 1u in
+      q!True_queue[@121].count = 0u
       if (gbuffer) {
-        parfor q!True in [0u:@92:1u] {
-          let @95 = (&q!True_queue[@94]) in
-          let @99 = q!True_queue[@90].x in
-          let @100 = @99[q!True] in
-          let @102 = q!True_queue[@90].n in
-          let @103 = @102[q!True] in
-          let @105 = q!True_queue[@90]._slot in
-          let @106 = @105[q!True] in
-          step!True(@100, @103, (&q!True_rec_p_slots[@106]), (&q!True_rec_hits_slots[@106]), (&q!True_rec_seen_slots[@106]), @95, @106)
+        parfor q!True in [0u:@119:1u] {
+          let @122 = (&q!True_queue[@121]) in
+          let @126 = q!True_queue[@117].x in
+          let @127 = @126[q!True] in
+          let @129 = q!True_queue[@117].n in
+          let @130 = @129[q!True] in
+          let @132 = q!True_queue[@117]._slot in
+          let @133 = @132[q!True] in
+          step!True(@127, @130, (&q!True_rec_p_slots[@133]), (&q!True_rec_hits_slots[@133]), (&q!True_rec_seen_slots[@133]), @122, @133)
           continue
         }
       }
-      let @89 = (*q!True!round) + 1u in
-      q!True!round = @89
+      let @116 = (*q!True!round) + 1u in
+      q!True!round = @116
     }
     parfor q_rest!True in [0:8:1] {
-      let gbuffer!True = true in
-      let i!True = q_rest!True in
-      let @43!arg_rec_p = (&q!True_rec_p_slots[q_rest!True]) in
-      let @43!arg_rec_hits = (&q!True_rec_hits_slots[q_rest!True]) in
-      let @43!arg_rec_seen = (&q!True_rec_seen_slots[q_rest!True]) in
-      let @122 = (*@43!arg_rec_seen) in
-      if (@122) {
-        let @43!arg!3_rec_p = (&q!True_rec_p_slots[q_rest!True]) in
-        let @43!arg!3_rec_hits = (&q!True_rec_hits_slots[q_rest!True]) in
-        let @43!arg!3_rec_seen = (&q!True_rec_seen_slots[q_rest!True]) in
-        let @123 = (*@43!arg!3_rec_hits) in
-        let @52 = cast<f32>(@123) in
-        let @124 = (*@43!arg!3_rec_p) in
-        let @125 = cast<f32x3>(@124) in
-        let @54 = @125[0u] in
-        let @55 = @52 + @54 in
-        out[i!True] = @55
-      } else {
-        let @43!arg!2_rec_p = (&q!True_rec_p_slots[q_rest!True]) in
-        let @43!arg!2_rec_hits = (&q!True_rec_hits_slots[q_rest!True]) in
-        let @43!arg!2_rec_seen = (&q!True_rec_seen_slots[q_rest!True]) in
-        let @126 = (*@43!arg!2_rec_hits) in
-        let @40 = cast<f32>(@126) in
-        out[i!True] = @40
+      let @160 = q!True_ran[q_rest!True] in
+      switch (@160) {
+      case 0: {
+        continue
+      } break;
+      default: {
+        let @148 = true in
+        let @150 = out in
+        let @151 = q_rest!True in
+        let @149!arg_rec_p = (&q!True_rec_p_slots[q_rest!True]) in
+        let @149!arg_rec_hits = (&q!True_rec_hits_slots[q_rest!True]) in
+        let @149!arg_rec_seen = (&q!True_rec_seen_slots[q_rest!True]) in
+        let @174 = (*@149!arg_rec_seen) in
+        if (@174) {
+          let @153 = out in
+          let @154 = q_rest!True in
+          let @152!arg_rec_p = (&q!True_rec_p_slots[q_rest!True]) in
+          let @152!arg_rec_hits = (&q!True_rec_hits_slots[q_rest!True]) in
+          let @152!arg_rec_seen = (&q!True_rec_seen_slots[q_rest!True]) in
+          let @175 = (*@152!arg_rec_hits) in
+          let @139 = cast<f32>(@175) in
+          let @176 = (*@152!arg_rec_p) in
+          let @177 = cast<f32x3>(@176) in
+          let @141 = @177[0u] in
+          let @142 = @139 + @141 in
+          @153[@154] = @142
+        } else {
+          let @156 = out in
+          let @157 = q_rest!True in
+          let @155!arg_rec_p = (&q!True_rec_p_slots[q_rest!True]) in
+          let @155!arg_rec_hits = (&q!True_rec_hits_slots[q_rest!True]) in
+          let @155!arg_rec_seen = (&q!True_rec_seen_slots[q_rest!True]) in
+          let @178 = (*@155!arg_rec_hits) in
+          let @146 = cast<f32>(@178) in
+          @156[@157] = @146
+        }
+        continue
       }
-      continue
+      }
     }
   } else {
     q!False_rec_hits_slots : mut i32[8]
+    q!False_ran : mut u8[8]
+    let @58 = fill_bytes(q!False_ran, 0u, 8) in
     q!False_x_0 : mut f32[8]
     q!False_n_0 : mut i32[8]
     q!False__slot_0 : mut i32[8]
@@ -100,48 +152,74 @@ func run(values : f32[8], out : mut f32[8], gbuffer : bool) -> void {
     q!False_n_1 : mut i32[8]
     q!False__slot_1 : mut i32[8]
     q!False_queue : mut Queue_q!False[2]
-    let @58 = build<Queue_q!False>(0u, q!False_x_0, q!False_n_0, q!False__slot_0) in
-    q!False_queue[0u] = @58
-    let @60 = build<Queue_q!False>(0u, q!False_x_1, q!False_n_1, q!False__slot_1) in
-    q!False_queue[1u] = @60
+    let @59 = build<Queue_q!False>(0u, q!False_x_0, q!False_n_0, q!False__slot_0) in
+    q!False_queue[0u] = @59
+    let @61 = build<Queue_q!False>(0u, q!False_x_1, q!False_n_1, q!False__slot_1) in
+    q!False_queue[1u] = @61
     parfor i!False in [0:8:1] {
       let @23 = values[i!False] in
       q!False_rec_hits_slots[i!False] = 0
-      let @109 = i!False < 4 in
-      let @110 = i!False - 4 in
-      let @27 = select(@109, i!False, @110) in
-      step!False(@23, @27, (&q!False_rec_hits_slots[i!False]), (&q!False_queue[0u]), i!False)
-      continue
+      let @161 = i!False < 4 in
+      let @162 = i!False - 4 in
+      let @27 = select(@161, i!False, @162) in
+      let @64 = step!False(@23, @27, (&q!False_rec_hits_slots[i!False]), (&q!False_queue[0u]), i!False) in
+      let @65 = false in
+      let @67 = out in
+      let @68 = i!False in
+      let @66!arg_rec_hits = (&q!False_rec_hits_slots[i!False]) in
+      if (@64) {
+        q!False_ran[i!False] = 1u
+        continue
+      } else {
+        let gbuffer!False = false in
+        let @24!arg_rec_hits = (&q!False_rec_hits_slots[i!False]) in
+        let @24!arg!2_rec_hits = (&q!False_rec_hits_slots[i!False]) in
+        let @196 = (*@24!arg!2_rec_hits) in
+        let @21 = cast<f32>(@196) in
+        out[i!False] = @21
+        continue
+      }
     }
     q!False!round = 0u
     while (!(q!False_queue[(*q!False!round) & 1u].count == 0u)) {
-      let @64 = (*q!False!round) & 1u in
-      let @66 = q!False_queue[(*q!False!round) & 1u].count in
-      let @68 = @64 ^ 1u in
-      q!False_queue[@68].count = 0u
-      parfor q!False in [0u:@66:1u] {
-        let @69 = (&q!False_queue[@68]) in
-        let @73 = q!False_queue[@64].x in
-        let @74 = @73[q!False] in
-        let @76 = q!False_queue[@64].n in
-        let @77 = @76[q!False] in
-        let @79 = q!False_queue[@64]._slot in
-        let @80 = @79[q!False] in
-        step!False(@74, @77, (&q!False_rec_hits_slots[@80]), @69, @80)
+      let @71 = (*q!False!round) & 1u in
+      let @73 = q!False_queue[(*q!False!round) & 1u].count in
+      let @75 = @71 ^ 1u in
+      q!False_queue[@75].count = 0u
+      parfor q!False in [0u:@73:1u] {
+        let @76 = (&q!False_queue[@75]) in
+        let @80 = q!False_queue[@71].x in
+        let @81 = @80[q!False] in
+        let @83 = q!False_queue[@71].n in
+        let @84 = @83[q!False] in
+        let @86 = q!False_queue[@71]._slot in
+        let @87 = @86[q!False] in
+        step!False(@81, @84, (&q!False_rec_hits_slots[@87]), @76, @87)
         continue
       }
-      let @63 = (*q!False!round) + 1u in
-      q!False!round = @63
+      let @70 = (*q!False!round) + 1u in
+      q!False!round = @70
     }
     parfor q_rest!False in [0:8:1] {
-      let gbuffer!False = false in
-      let i!False = q_rest!False in
-      let @24!arg_rec_hits = (&q!False_rec_hits_slots[q_rest!False]) in
-      let @24!arg!2_rec_hits = (&q!False_rec_hits_slots[q_rest!False]) in
-      let @137 = (*@24!arg!2_rec_hits) in
-      let @21 = cast<f32>(@137) in
-      out[i!False] = @21
-      continue
+      let @102 = q!False_ran[q_rest!False] in
+      switch (@102) {
+      case 0: {
+        continue
+      } break;
+      default: {
+        let @93 = false in
+        let @95 = out in
+        let @96 = q_rest!False in
+        let @94!arg_rec_hits = (&q!False_rec_hits_slots[q_rest!False]) in
+        let @98 = out in
+        let @99 = q_rest!False in
+        let @97!arg_rec_hits = (&q!False_rec_hits_slots[q_rest!False]) in
+        let @194 = (*@97!arg_rec_hits) in
+        let @91 = cast<f32>(@194) in
+        @98[@99] = @91
+        continue
+      }
+      }
     }
   }
   return
@@ -164,13 +242,13 @@ func step(x : f32, n : i32, rec : mut (Record*)) -> void {
   }
 }
 
-func step!False(x : f32, n : i32, rec_hits : mut (i32*), _queue_q!False : mut (Queue_q!False*), _slot_q!False : i32) -> void {
+func step!False(x : f32, n : i32, rec_hits : mut (i32*), _queue_q!False : mut (Queue_q!False*), _slot_q!False : i32) -> bool {
   let @9 = (*rec_hits) in
   let @2 = @9 + 1 in
   rec_hits = @2
   let @4 = n == 0 in
   if (@4) {
-    return
+    return false
   } else {
     let @6 = x * 0.5f in
     let @7 = n - 1 in
@@ -182,18 +260,18 @@ func step!False(x : f32, n : i32, rec_hits : mut (i32*), _queue_q!False : mut (Q
     @17[@12] = @7
     let @20 = (*_queue_q!False)._slot in
     @20[@12] = _slot_q!False
-    return
+    return true
   }
 }
 
-func step!True(x : f32, n : i32, rec_p : mut ([[packed]] f32x3*), rec_hits : mut (i32*), rec_seen : mut (bool*), _queue_q!True : mut (Queue_q!True*), _slot_q!True : i32) -> void {
+func step!True(x : f32, n : i32, rec_p : mut ([[packed]] f32x3*), rec_hits : mut (i32*), rec_seen : mut (bool*), _queue_q!True : mut (Queue_q!True*), _slot_q!True : i32) -> bool {
   let @9 = (*rec_hits) in
   let @2 = @9 + 1 in
   rec_hits = @2
   let @4 = n == 0 in
   if (@4) {
     rec_seen = true
-    return
+    return false
   } else {
     let @6 = x * 0.5f in
     let @7 = n - 1 in
@@ -205,7 +283,7 @@ func step!True(x : f32, n : i32, rec_p : mut ([[packed]] f32x3*), rec_hits : mut
     @17[@12] = @7
     let @20 = (*_queue_q!True)._slot in
     @20[@12] = _slot_q!True
-    return
+    return true
   }
 }
 

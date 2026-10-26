@@ -190,6 +190,13 @@ struct QueueSpec {
     // through the ray queue and are traced by nothing else (see the Convert
     // pass, which folds the two directives into one deferral).
     bool initial_push = false;
+    // The callees every other `defer` or `stage` of the schedule turns into
+    // pushes. A path of the chain that calls one of them defers, onto that
+    // other queue, so it is not a path that returns without deferring: a
+    // chain whose every path defers somewhere does not report
+    // (SSA/Defer.cpp chain_conditional; gate-drains-gang's `step`, which
+    // pushes onto one of two queues).
+    std::set<std::string> deferred_elsewhere;
     // Chain functions other than the callee whose calls to the callee are
     // pushes too: `f.defer(callee, q)` beside `callee.defer(callee, q)`, for
     // the function that makes the recursion's first call when that is not

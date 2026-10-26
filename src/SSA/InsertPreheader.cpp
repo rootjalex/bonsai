@@ -85,6 +85,9 @@ void rename_argument_in(const vector<shared_ptr<Block>> &blocks,
                        [&](Terminator::Defer &d) {
                            rename(d.queue);
                            rename(d.entry);
+                           if (d.answer) {
+                               rename(d.answer);
+                           }
                        },
                        [&](Terminator::MultiCall &c) {
                            for (const auto &a : c.call.args) {
@@ -229,6 +232,9 @@ void substitute_argument(Function &func, const string &region,
                        [&](Terminator::Defer &d) {
                            subst(d.queue);
                            subst(d.entry);
+                           if (d.answer) {
+                               subst(d.answer);
+                           }
                        },
                        [&](Terminator::MultiCall &c) {
                            for (auto &vs : c.varying) {

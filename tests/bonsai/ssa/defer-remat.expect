@@ -5,6 +5,8 @@ type Queue_sums = struct Queue_sums{ count : u32; n : i32[]; acc : i32[]; _slot 
 
 func run(out : mut i32[8]) -> void {
   sums!round : mut u32
+  sums_ran : mut u8[8]
+  let @2 = fill_bytes(sums_ran, 0u, 8) in
   sums_result : mut i32[8]
   sums_n_0 : mut i32[8]
   sums_acc_0 : mut i32[8]
@@ -13,42 +15,62 @@ func run(out : mut i32[8]) -> void {
   sums_acc_1 : mut i32[8]
   sums__slot_1 : mut i32[8]
   sums_queue : mut Queue_sums[2]
-  let @3 = build<Queue_sums>(0u, sums_n_0, sums_acc_0, sums__slot_0) in
-  sums_queue[0u] = @3
-  let @5 = build<Queue_sums>(0u, sums_n_1, sums_acc_1, sums__slot_1) in
-  sums_queue[1u] = @5
+  let @4 = build<Queue_sums>(0u, sums_n_0, sums_acc_0, sums__slot_0) in
+  sums_queue[0u] = @4
+  let @6 = build<Queue_sums>(0u, sums_n_1, sums_acc_1, sums__slot_1) in
+  sums_queue[1u] = @6
   parfor i in [0:8:1] {
-    tally(i, 0, 0, 0, (&sums_queue[0u]), (&sums_result[i]), i)
-    continue
+    let @9 = tally(i, 0, 0, 0, (&sums_queue[0u]), (&sums_result[i]), i) in
+    let @10 = out in
+    let @11 = i in
+    let @12 = @9.set in
+    let @13 = @9.value in
+    if (@12) {
+      let @0 = @13 in
+      out[i] = @0
+      continue
+    } else {
+      sums_ran[i] = 1u
+      continue
+    }
   }
   sums!round = 0u
   while (!(sums_queue[(*sums!round) & 1u].count == 0u)) {
-    let @9 = (*sums!round) & 1u in
-    let @11 = sums_queue[(*sums!round) & 1u].count in
-    let @13 = @9 ^ 1u in
-    sums_queue[@13].count = 0u
-    parfor sums in [0u:@11:1u] {
-      let @14 = (&sums_queue[@13]) in
-      let @18 = sums_queue[@9].n in
-      let @19 = @18[sums] in
-      let @21 = sums_queue[@9].acc in
-      let @22 = @21[sums] in
-      let @23 = 0 - @22 in
-      let @24 = @22 << 1 in
-      let @26 = sums_queue[@9]._slot in
-      let @27 = @26[sums] in
-      tally(@19, @22, @23, @24, @14, (&sums_result[@27]), @27)
+    let @16 = (*sums!round) & 1u in
+    let @18 = sums_queue[(*sums!round) & 1u].count in
+    let @20 = @16 ^ 1u in
+    sums_queue[@20].count = 0u
+    parfor sums in [0u:@18:1u] {
+      let @21 = (&sums_queue[@20]) in
+      let @25 = sums_queue[@16].n in
+      let @26 = @25[sums] in
+      let @28 = sums_queue[@16].acc in
+      let @29 = @28[sums] in
+      let @30 = 0 - @29 in
+      let @31 = @29 << 1 in
+      let @33 = sums_queue[@16]._slot in
+      let @34 = @33[sums] in
+      tally(@26, @29, @30, @31, @21, (&sums_result[@34]), @34)
       continue
     }
-    let @8 = (*sums!round) + 1u in
-    sums!round = @8
+    let @15 = (*sums!round) + 1u in
+    sums!round = @15
   }
   parfor sums_rest in [0:8:1] {
-    let @30 = sums_result[sums_rest] in
-    let @0 = @30 in
-    let i = sums_rest in
-    out[i] = @0
-    continue
+    let @41 = sums_result[sums_rest] in
+    let @43 = sums_ran[sums_rest] in
+    switch (@43) {
+    case 0: {
+      continue
+    } break;
+    default: {
+      let @37 = @41 in
+      let @38 = out in
+      let @39 = sums_rest in
+      @38[@39] = @37
+      continue
+    }
+    }
   }
   return
 }
@@ -120,27 +142,29 @@ func run2(out : mut i32[8]) -> void {
   return
 }
 
-func tally(n : i32, acc : i32, neg : i32, twice : i32, _queue_sums : mut (Queue_sums*), _result_sums : mut (i32*), _slot_sums : i32) -> void {
+func tally(n : i32, acc : i32, neg : i32, twice : i32, _queue_sums : mut (Queue_sums*), _result_sums : mut (i32*), _slot_sums : i32) -> _option_sums {
   let @0 = n <= 0 in
   if (@0) {
     let @1 = acc + neg in
     let @2 = @1 + twice in
     _result_sums = @2
-    return
+    let @8 = build<_option_sums>(@2, true) in
+    return @8
   } else {
     let _t0 = acc + n in
     let @4 = n - 1 in
     let @5 = 0 - _t0 in
     let @6 = _t0 << 1 in
-    let @8 = build<Entry_sums>(@4, _t0, _slot_sums) in
-    let @11 = atomic_add((&(*_queue_sums).count), 1u) in
-    let @13 = (*_queue_sums).n in
-    @13[@11] = @4
-    let @16 = (*_queue_sums).acc in
-    @16[@11] = _t0
-    let @19 = (*_queue_sums)._slot in
-    @19[@11] = _slot_sums
-    return
+    let @9 = build<Entry_sums>(@4, _t0, _slot_sums) in
+    let @10 = build<_option_sums>(undef, false) in
+    let @13 = atomic_add((&(*_queue_sums).count), 1u) in
+    let @15 = (*_queue_sums).n in
+    @15[@13] = @4
+    let @18 = (*_queue_sums).acc in
+    @18[@13] = _t0
+    let @21 = (*_queue_sums)._slot in
+    @21[@13] = _slot_sums
+    return @10
   }
 }
 

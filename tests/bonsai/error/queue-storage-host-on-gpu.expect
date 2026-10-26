@@ -4,4 +4,4 @@
 [internal] Error: src/SSA/QueueStorage.cpp:293
 
 --> !on_gpu
-sums_result (in Heap memory) is host memory, and the loop over i bound to GPUThread takes it as a capture: a kernel cannot address the host's memory. Put the queue in DeviceGlobal, Managed or an Extern memory of the device, or drain it on the CPU.
+sums_ran (in Heap memory) is host memory, and the loop over i bound to GPUThread takes it as a capture: a kernel cannot address the host's memory. Put the queue in DeviceGlobal, Managed or an Extern memory of the device, or drain it on the CPU.

@@ -17092,11 +17092,11 @@ built (the user, 10-25: the suite is not green while these stand).
 so that a test *inside* the chain -- `li` returning without having pushed
 -- runs the owner's continuation at once rather than in the pass; today
 the pass runs it for every slot, the same result
-(ssa/defer-conditional-in-chain, red). (2) An explicit `Defer <entry>
-<queue>` terminator in the SSA for the push that ends an iteration, which
-`lower_pushes` turns into the store and the yield; today the push is an
-instruction followed by a `Return` (ssa/defer-terminator, red) -- **built
-10-25 evening, see below**. (3) The
+(ssa/defer-conditional-in-chain, red) -- **built 10-25 night, see
+below**. (2) An explicit `Defer <entry> <queue>` terminator in the SSA for
+the push that ends an iteration, which `lower_pushes` turns into the store
+and the yield; today the push is an instruction followed by a `Return`
+(ssa/defer-terminator, red) -- **built 10-25 evening, see below**. (3) The
 GPU rest kernel binding every induced slot its continuation writes, not
 only those it reads (CodeGen_LLVM.cpp:1756, seen with a store to
 `visible.set` after the call under gpu-optix); the small form,
@@ -17300,3 +17300,54 @@ for its push and return; eight goldens move by value numbers alone, the
 push's name now drawn at the lowering. Built in a private worktree on the
 branch ajr/ssa-defer-terminator and fast-forwarded, since the tree does
 not compile between the variant's growth and the last visitor.
+
+**The chain reports whether it deferred, built (10-25 night; to-do 1).**
+The user's shape: `step` returns a bool -- `store (x, acc) q; return
+true;` at the deferral, `return false` otherwise -- and the owner writes
+`deferred = step(..); if !deferred { out[i] = acc + w; } else { yield; }`,
+the deferred ones getting the continuation after the drained call. Built
+as that (SSA/Defer.cpp `chain_conditional`, `reports`): a chain some path
+of which returns without calling into the chain or the deferred call --
+`step` calling `work` only `if x > 4.0`, a recursion's step ending its
+path -- reports; every function of it returns a bool, or the option of its
+value (`_option_<q> { value, set }`, as src/Lower/Options.cpp lowers one,
+`set` false for "deferred"); the deferral's terminator carries the answer
+(`defer _queue_q @1 ret (bool)1`, Terminator::Defer::answer, lowered as
+the return's value), every other return answers `false` or `some(value)`
+(and still writes the result slot, since the same return ends a path the
+drain runs), and a tail call into the chain returns the callee's answer
+onward -- through the empty blocks of a call under a test too
+(`is_tail_call` follows them). The owner's call becomes `callc step(..)
+q!deferred(..)`, which dispatches: "returned" to the continuation where it
+stands, with the value taken out of the option; "deferred" to `q!end`,
+which sets the slot's byte and ends the iteration; the pass over the
+record runs the continuation's copy (k0_rejoins) for the slots whose byte
+is set. The byte moves from the call to the dispatch. Not reporting: a
+chain whose every path defers somewhere -- onto this queue or onto one
+another directive defers or stages (QueueSpec::deferred_elsewhere, read
+off the schedule in Convert.cpp: gate-drains-gang's `step` pushes onto one
+of two queues) -- and the owner that makes the initial push, after which
+every slot holds an entry (render.bonsai's rays queue: unchanged). Tests:
+ssa and correctness/llvm defer-conditional-in-chain (the bool; the ssa
+reminder's hand-written dump replaced by the real one), -value (the
+option, the deferred value through the result slot), -deep (the test at
+the bottom of a chain two deep, the answer returned onward), -middle (the
+test in the middle, `b` always deferring); recursions report too, so
+twenty-odd deferral dumps changed shape.
+
+**Two defects found on the way.** (1) The record pass on the GPU read a
+field the device call had just written as its pre-call value
+(correctness/gpu defer-record-soa, defer-under-specialize,
+defer-store-after-call: zeros where the inline path ran). The root walk
+(SSA/Analysis.cpp roots_of) resolved a block argument to the instruction
+of its name and took any other argument for a root of its own; a slot
+address carried through a renamed argument -- the dispatch's, the copied
+continuation's, the SoA split's `!arg` -- was a root the kernel never
+wrote, so the loads through it were marked `!invariant.load`
+(launch_readonly) and LLVM folded them to the store before the call. Now
+an argument that is no instruction's follows what the jumps, dispatches,
+calls' continuations and joins into its block hand it (argument_sources);
+a loop body's arguments, the launch's captures, stay roots by name. This
+is to-do (3), reproduced and fixed; the rtcore PTX dumps are unchanged to
+the byte. (2) The JIT lacked the device byte fill (bonsai_cuda_fill_bytes_
+async), met by the first managed-memory test with a `ran` array.

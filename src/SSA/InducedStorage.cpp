@@ -861,7 +861,8 @@ class Splitter {
                        },
                        [&](const Terminator::Defer &d) {
                            found = found || refers(d.queue, name) ||
-                                   refers(d.entry, name);
+                                   refers(d.entry, name) ||
+                                   (d.answer && refers(d.answer, name));
                        },
                        [&](const Terminator::Join &j) {
                            for (const auto &v : j.next.args) {
@@ -1394,7 +1395,8 @@ class Splitter {
                            [&](const Terminator::Join &) {},
                            [&](const Terminator::Defer &d) {
                                found = found || refers(d.queue, name) ||
-                                       refers(d.entry, name);
+                                       refers(d.entry, name) ||
+                                       (d.answer && refers(d.answer, name));
                            },
                            [&](const Terminator::MultiCall &c) {
                                for (const auto &v : c.call.args) {

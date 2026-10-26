@@ -1,0 +1,238 @@
+; === ssa postschedule ===
+; --- a ---
+func a(x : f32, acc : (f32*), _queue_q : (Queue_q*), _slot_q : i32): 
+  callc b(x, acc, _queue_q, _slot_q) !b_call_cont_0()
+
+!b_call_cont_0(@0 : bool): // preds: a
+  ret @0
+
+; --- b ---
+func b(x : f32, acc : (f32*), _queue_q : (Queue_q*), _slot_q : i32): 
+  @0 = lt((f32)4, x)
+  dispatch @0 [!merge_1(), !then_0(x, acc, _slot_q, _queue_q)]
+
+!then_0(x : f32, acc : (f32*), _slot_q : i32, _queue_q : (Queue_q*)): // preds: b
+  @1 = make_struct<Entry_q>(_slot_q)
+  defer _queue_q @1 ret (bool)1
+
+!merge_1(): // preds: b
+  ret (bool)0
+
+; --- b!after ---
+func b!after(): 
+  jmp !merge_1!after()
+
+!merge_1!after(): // preds: b!after
+  ret
+
+; --- b!work!k ---
+func b!work!k(x : f32, acc : (f32*)): 
+  call work(x, acc) b!work!k!ran()
+
+b!work!k!ran(): // preds: b!work!k
+  call b!after() b!work!k!done()
+
+b!work!k!done(): // preds: b!work!k!ran
+  ret
+
+; --- run ---
+; storage q.acc : f32 as q_acc_slots
+; storage q.rest.w : f32 as q_rest_w
+; storage q.ran : u8 as q_ran
+func run(values : f32[8], out : f32[8]): 
+  q_acc_slots = alloca<f32[8]> scratch()
+  q_rest_w = alloca<f32[8]> scratch()
+  q_ran = alloca<u8[8]> scratch()
+  @6 = fill_bytes(q_ran, (u8)0, (i32)8)
+  q__slot = alloca<i32[8]> scratch()
+  q_queue = alloca<(Queue_q*)> scratch()
+  @7 = make_struct<Queue_q>((u32)0, q__slot)
+  store q_queue @7
+  parfor i (i32)0:(i32)8:(i32)1 !par_body_0(values, out, q_acc_slots, q_rest_w, q_queue, q_ran) q!drain(q_queue, values, q__slot, q_acc_slots, q_rest_w, out, q_ran)
+
+!par_body_0(i : i32, values : f32[8], out : f32[8], q_acc_slots : f32[8], q_rest_w : f32[8], q_queue : (Queue_q*), q_ran : u8[8]): // preds: run
+  @5 = gep(q_acc_slots, i)
+  store @5 (f32)0
+  _t22 = extract_idx(values, i)
+  w = add(_t22, (f32)1)
+  @8 = gep(q_rest_w, i)
+  store @8 w
+  callc a(_t22, @5, q_queue, i) q!deferred(@5, w, out, i, q_ran, i)
+
+!par_cont_1(): // preds: q_rest!exit
+  ret
+
+!a_call_cont_2(acc : (f32*), w : f32, out : f32[8], i : i32): // preds: q!deferred
+  @2 = load(acc)
+  @3 = add(@2, w)
+  @4 = gep(out, i)
+  store @4 @3
+  yield
+
+q!deferred(@9 : bool, @10 : (f32*), @11 : f32, @12 : f32[8], @13 : i32, q_ran : u8[8], i : i32): // preds: !par_body_0
+  dispatch @9 [!a_call_cont_2(@10, @11, @12, @13), q!end(q_ran, i)]
+
+q!end(q_ran : u8[8], i : i32): // preds: q!deferred
+  @14 = gep(q_ran, i)
+  store @14 (u8)1
+  yield
+
+q!drain(q_queue : (Queue_q*), values : f32[8], q__slot : i32[8], q_acc_slots : f32[8], q_rest_w : f32[8], out : f32[8], q_ran : u8[8]): // preds: run
+  @15 = load(q_queue)
+  @16 = load_field(@15, (u32)0)
+  parfor q (u32)0:@16:(u32)1 q!run(values, q__slot, q_acc_slots) q!exit(q_queue, q_acc_slots, q_rest_w, out, q_ran)
+
+q!run(q : u32, values : f32[8], q__slot : i32[8], q_acc_slots : f32[8]): // preds: q!drain
+  @17 = extract_idx(q__slot, q)
+  @18 = extract_idx(values, @17)
+  @19 = gep(q_acc_slots, @17)
+  call b!work!k(@18, @19) q!ran()
+
+q!ran(): // preds: q!run
+  yield
+
+q!exit(q_queue : (Queue_q*), q_acc_slots : f32[8], q_rest_w : f32[8], out : f32[8], q_ran : u8[8]): // preds: q!drain
+  @20 = field.ptr(q_queue, (u32)0)
+  store @20 (u32)0
+  jmp q_rest(q_acc_slots, q_rest_w, out, q_ran)
+
+!a_call_cont_2!rest(@24 : (f32*), @25 : f32, @26 : f32[8], @27 : i32): // preds: q_rest!run
+  @21 = load(@24)
+  @22 = add(@21, @25)
+  @23 = gep(@26, @27)
+  store @23 @22
+  yield
+
+q_rest(q_acc_slots : f32[8], q_rest_w : f32[8], out : f32[8], q_ran : u8[8]): // preds: q!exit
+  parfor q_rest (i32)0:(i32)8:(i32)1 q_rest!run(q_acc_slots, q_rest_w, out, q_ran) q_rest!exit()
+
+q_rest!run(q_rest : i32, q_acc_slots : f32[8], q_rest_w : f32[8], out : f32[8], q_ran : u8[8]): // preds: q_rest
+  @28 = gep(q_acc_slots, q_rest)
+  @29 = gep(q_rest_w, q_rest)
+  @30 = load(@29)
+  @31 = gep(q_ran, q_rest)
+  @32 = load(@31)
+  dispatch @32 [q_rest!skip(), !a_call_cont_2!rest(@28, @30, out, q_rest)]
+
+q_rest!exit(): // preds: q_rest
+  jmp !par_cont_1()
+
+q_rest!skip(): // preds: q_rest!run
+  yield
+
+; --- work ---
+func work(x : f32, acc : (f32*)): 
+  @0 = mul(x, (f32)0.5)
+  acc.add acc @0
+  ret
+
+type Entry_q = struct Entry_q{ _slot : i32 }
+type Float = f32
+type Half = f16
+type Queue_q = struct Queue_q{ count : u32; _slot : i32[] }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func a(x : f32, acc : mut (f32*), _queue_q : mut (Queue_q*), _slot_q : i32) -> bool {
+  let @0 = b(x, acc, _queue_q, _slot_q) in
+  return @0
+}
+
+func b(x : f32, acc : mut (f32*), _queue_q : mut (Queue_q*), _slot_q : i32) -> bool {
+  let @0 = 4f < x in
+  if (@0) {
+    let @1 = build<Entry_q>(_slot_q) in
+    let @4 = atomic_add((&(*_queue_q).count), 1u) in
+    let @6 = (*_queue_q)._slot in
+    @6[@4] = _slot_q
+    return true
+  } else {
+    return false
+  }
+}
+
+func b!after() -> void {
+  return
+}
+
+func b!work!k(x : f32, acc : mut (f32*)) -> void {
+  work(x, acc)
+  b!after()
+  return
+}
+
+func run(values : f32[8], out : mut f32[8]) -> void {
+  q_acc_slots : mut f32[8]
+  q_rest_w : mut f32[8]
+  q_ran : mut u8[8]
+  let @6 = fill_bytes(q_ran, 0u, 8) in
+  q__slot : mut i32[8]
+  q_queue : mut Queue_q
+  let @7 = build<Queue_q>(0u, q__slot) in
+  q_queue = @7
+  parfor i in [0:8:1] {
+    q_acc_slots[i] = 0f
+    let _t22 = values[i] in
+    let w = _t22 + 1f in
+    q_rest_w[i] = w
+    let @9 = a(_t22, (&q_acc_slots[i]), q_queue, i) in
+    let @10 = (&q_acc_slots[i]) in
+    let @11 = w in
+    let @12 = out in
+    let @13 = i in
+    if (@9) {
+      q_ran[i] = 1u
+      continue
+    } else {
+      let acc = (&q_acc_slots[i]) in
+      let @2 = (*acc) in
+      let @3 = @2 + w in
+      out[i] = @3
+      continue
+    }
+  }
+  let @15 = (*q_queue) in
+  let @16 = @15.count in
+  parfor q in [0u:@16:1u] {
+    let @17 = q__slot[q] in
+    let @18 = values[@17] in
+    b!work!k(@18, (&q_acc_slots[@17]))
+    continue
+  }
+  q_queue.count = 0u
+  parfor q_rest in [0:8:1] {
+    let @30 = q_rest_w[q_rest] in
+    let @32 = q_ran[q_rest] in
+    switch (@32) {
+    case 0: {
+      continue
+    } break;
+    default: {
+      let @24 = (&q_acc_slots[q_rest]) in
+      let @25 = @30 in
+      let @26 = out in
+      let @27 = q_rest in
+      let @21 = (*@24) in
+      let @22 = @21 + @25 in
+      @26[@27] = @22
+      continue
+    }
+    }
+  }
+  return
+}
+
+func work(x : f32, acc : mut (f32*)) -> void {
+  let @0 = x * 0.5f in
+  acc += @0
+  return
+}
+
+
+schedule {
+    q = run.queue(root);
+    b.defer(work, q)
+
+}

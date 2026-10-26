@@ -447,6 +447,9 @@ void substitute(Block &block, const string &name,
                    [&](Terminator::Defer &d) {
                        replace(d.queue);
                        replace(d.entry);
+                       if (d.answer) {
+                           replace(d.answer);
+                       }
                    },
                    [&](Terminator::Join &j) {
                        for (auto &a : j.next.args) {
@@ -571,6 +574,9 @@ void widen_argument(const Cfg &region, BlockId owner, const string &name,
                        [&](Terminator::Defer &t) {
                            retype(t.queue);
                            retype(t.entry);
+                           if (t.answer) {
+                               retype(t.answer);
+                           }
                        },
                        [&](Terminator::Join &t) {
                            for (auto &a : t.next.args) {

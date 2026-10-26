@@ -211,6 +211,9 @@ void edit_argument(Block &block, const string &name,
                    [&](Terminator::Defer &d) {
                        visit(d.queue);
                        visit(d.entry);
+                       if (d.answer) {
+                           visit(d.answer);
+                       }
                    },
                    [&](Terminator::Join &j) {
                        for (auto &a : j.next.args) {
@@ -343,13 +346,34 @@ struct CallSite {
 
 // Whether the call ending `block` is in tail position: its continuation does
 // nothing but return what the call returned, or return nothing after a call
-// whose result is dropped. The same test loopify() applies.
+// whose result is dropped -- directly, or through empty blocks that jump on
+// with nothing, as a call under a test is followed by the merge after the
+// test and then the return (`if c { g(..); } return;`). The same test
+// loopify() applies.
 bool is_tail_call(const Terminator::Call &call, const BlockMap &bmap) {
     const auto it = bmap.find(call.cont.name);
     internal_assert(it != bmap.end()) << call.cont.name;
     const Block &cont = *it->second;
-    const auto *returns = std::get_if<Terminator::Return>(&cont.terminator.data);
-    if (returns == nullptr || !cont.instrs.empty() || !call.cont.args.empty()) {
+    if (!cont.instrs.empty() || !call.cont.args.empty()) {
+        return false;
+    }
+    // The block that ends the way out: `cont` itself, or where its empty
+    // jumps lead, for a dropped result (a kept one is returned by `cont`).
+    const Block *last = &cont;
+    for (int hops = 0; hops < 64; hops++) {
+        const auto *jump = std::get_if<Terminator::Jump>(&last->terminator.data);
+        if (jump == nullptr || !jump->args.empty() || !call.drop) {
+            break;
+        }
+        const auto next = bmap.find(jump->name);
+        if (next == bmap.end() || !next->second->instrs.empty() ||
+            !next->second->args.empty()) {
+            break;
+        }
+        last = next->second.get();
+    }
+    const auto *returns = std::get_if<Terminator::Return>(&last->terminator.data);
+    if (returns == nullptr) {
         return false;
     }
     if (call.drop) {
@@ -557,8 +581,8 @@ clone_region(Function &func, const vector<shared_ptr<Block>> &region,
                     return Terminator::Join{clone_jump(j.next)};
                 },
                 [&](const Terminator::Defer &d) -> decltype(Terminator::data) {
-                    return Terminator::Defer{clone_value(d.queue),
-                                             clone_value(d.entry), d.yields};
+                    return Terminator::Defer{clone_value(d.queue), clone_value(d.entry),
+                                             d.yields, clone_value(d.answer)};
                 },
                 [&](const Terminator::MultiCall &c)
                     -> decltype(Terminator::data) {
@@ -1431,6 +1455,48 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         << ", which nothing waits for; a spawned function returns nothing "
         << "(the parser refuses the program)";
 
+    // Whether the chain can return to the owner without having deferred: a
+    // path from a chain function's entry to one of its returns through no
+    // call into the chain and no deferred call -- `step` calling `work` only
+    // `if x > 4.0`, or a recursion's step ending its path. Then the chain
+    // reports whether it deferred (`reports`, below) and the owner
+    // dispatches on the answer: the deferral ends the iteration only when
+    // the call is made, and an iteration whose chain returned without
+    // deferring runs its continuation where it stands (the user, 10-25).
+    bool chain_conditional = false;
+    for (const string &g : chain) {
+        if (spawned || chain_conditional) {
+            break;
+        }
+        const Cfg gcfg(*funcs.at(g));
+        vector<BlockId> work{gcfg.entry};
+        BlockSet seen(gcfg.size());
+        while (!work.empty() && !chain_conditional) {
+            const BlockId b = work.back();
+            work.pop_back();
+            if (b == NO_BLOCK || seen.contains(b)) {
+                continue;
+            }
+            seen.insert(b);
+            const Block &block = gcfg[b];
+            const Terminator::Jump *called = block.terminator.callee();
+            if (called != nullptr &&
+                (chain.contains(called->name) || called->name == callee_name ||
+                 queue.deferred_elsewhere.contains(called->name))) {
+                // Into the chain, the deferred call itself, or a call another
+                // directive defers: a push onto some queue, not a return
+                // without deferring.
+                continue;
+            }
+            if (std::holds_alternative<Terminator::Return>(block.terminator.data)) {
+                chain_conditional = true;
+            }
+            for (BlockId s : gcfg.succs[b]) {
+                work.push_back(s);
+            }
+        }
+    }
+
     //===----------------------------------------------------------------===//
     // The producer: the owner's call into the chain, and the loop around it
     //===----------------------------------------------------------------===//
@@ -1876,6 +1942,55 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             }
         }
     }
+    // The chain reports whether it deferred when it may not have, the owner
+    // calls into it (not the initial push, after which every slot holds an
+    // entry) and has a rest to run. The rest then runs where it stands when
+    // the answer is no, and its copy in the pass over the record runs for
+    // the slots that deferred (k0_rejoins), told apart by the record's byte,
+    // set at the owner's dispatch rather than at the call.
+    const bool reports =
+        chain_conditional && !spawned && !queue.initial_push && rest_pass;
+    if (reports) {
+        k0_rejoins = true;
+        call_on_every_iteration = false;
+    }
+    // The answer's type: a bool, or the option of the chain's value --
+    // `{ value, set }` as src/Lower/Options.cpp lowers one, `set` false for
+    // the empty option, which is the answer "deferred".
+    Type answer_t;
+    if (reports) {
+        if (returns_value) {
+            ir::Struct_t::Map option_fields;
+            option_fields.emplace_back("value", ret_type);
+            option_fields.emplace_back("set", Bool_t::make());
+            ir::Struct_t::DefMap option_defaults = {{"set", ir::BoolImm::make(false)}};
+            answer_t = Struct_t::make("_option_" + queue.name, option_fields,
+                                      option_defaults);
+        } else {
+            answer_t = Bool_t::make();
+        }
+    }
+    // What a chain function answers at its deferral -- `true`, or the empty
+    // option, made in `block` -- and at a return that deferred nothing --
+    // `false`, or `some(value)`.
+    const auto answer_deferred = [&](const shared_ptr<Block> &block) -> shared_ptr<Value> {
+        if (!returns_value) {
+            return std::make_shared<Value>(Constant{Bool_t::make(), true});
+        }
+        return block->make_instruction(
+            answer_t, Instruction::Op::MakeStruct,
+            {undef_value(ret_type),
+             std::make_shared<Value>(Constant{Bool_t::make(), false})});
+    };
+    const auto answer_returned = [&](const shared_ptr<Block> &block,
+                                     const shared_ptr<Value> &value) -> shared_ptr<Value> {
+        if (!returns_value) {
+            return std::make_shared<Value>(Constant{Bool_t::make(), false});
+        }
+        return block->make_instruction(
+            answer_t, Instruction::Op::MakeStruct,
+            {value, std::make_shared<Value>(Constant{Bool_t::make(), true})});
+    };
     for (const auto &block : k0) {
         const auto *callee = block->terminator.callee();
         internal_assert(spawned || callee == nullptr || !chain.contains(callee->name))
@@ -4465,13 +4580,16 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 Argument{fields[slot_groups[k].field].type, slot_groups[k].param});
         }
         if (!spawned) {
-            gf.ret_type = Void_t::make();
+            // Nothing comes back up a chain -- or, when the chain reports
+            // whether it deferred, the answer does.
+            gf.ret_type = reports ? answer_t : Void_t::make();
         }
     }
 
     // Every call from one chain function to another passes the queue and
     // the result slot on, and gives up the value it passed back: `return
-    // g(...)` becomes `g(...); return;`.
+    // g(...)` becomes `g(...); return;` -- or, when the chain reports,
+    // returns the callee's answer onward.
     set<const Block *> passthrough_returns;
     for (const auto &[callee, calls] : calls_into) {
         for (const CallSite &cs : calls) {
@@ -4494,6 +4612,27 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             }
             if (spawned) {
                 continue; // the queue goes down; the value comes up as it did
+            }
+            if (reports) {
+                // The answer comes back up: the continuation's first
+                // argument, which carried the value, carries it now -- or is
+                // made, where the call returned nothing -- and is returned.
+                shared_ptr<Value> answer;
+                if (!call.drop) {
+                    const string carried = cont->args.front().name;
+                    edit_argument(*cont, carried,
+                                  [&](Argument &a) { a.type = answer_t; });
+                    answer = cont->lookups.at(carried);
+                } else {
+                    call.drop = false;
+                    const Argument arg{answer_t, gf->get_unique_name()};
+                    cont->args.insert(cont->args.begin(), arg);
+                    answer = std::make_shared<Value>(arg);
+                    cont->lookups[arg.name] = answer;
+                }
+                cont->terminator.data = Terminator::Return{answer};
+                passthrough_returns.insert(cont.get());
+                continue;
             }
             if (!call.drop) {
                 call.drop = true;
@@ -4531,6 +4670,21 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 << g << " returns " << (ret->value ? "a value" : "nothing")
                 << " in " << block->name << " but is declared to return "
                 << ret_type;
+            if (reports) {
+                // Deferred nothing on this path. The owner's own call takes
+                // the value out of the answer and runs its rest at once; but
+                // the same return ends a path the drain runs -- a recursion
+                // whose later step ends it -- whose value the pass over the
+                // record reads from the slot, so the slot is written too.
+                if (result_via_chain) {
+                    block->make_side_effect(
+                        Instruction::Op::Store,
+                        {reach(block, result_of.at(g)), reach(block, ret->value)});
+                }
+                ret->value = answer_returned(
+                    block, ret->value ? reach(block, ret->value) : nullptr);
+                continue;
+            }
             if (result_via_chain) {
                 block->make_side_effect(
                     Instruction::Op::Store,
@@ -4567,8 +4721,12 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             const auto push_onto = [&](const shared_ptr<Block> &at,
                                        const shared_ptr<Value> &q, size_t which) {
                 if (ends) {
-                    at->terminator.data = Terminator::Defer{
-                        q, reach(at, entry), /*yields=*/fn.get() == O.get()};
+                    Terminator::Defer defer{q, reach(at, entry),
+                                            /*yields=*/fn.get() == O.get()};
+                    if (reports) {
+                        defer.answer = answer_deferred(at);
+                    }
+                    at->terminator.data = std::move(defer);
                     finish(at, nullptr, constant_u32(which));
                     return;
                 }
@@ -4913,7 +5071,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 Instruction::Op::Store,
                 {place, reach(producer.block, rv.def.value)});
         }
-        if (ran_array) {
+        // The record's byte: set at the call -- or, when the chain reports,
+        // at the owner's dispatch, for the iterations whose chain deferred.
+        if (ran_array && !reports) {
             auto place = producer.block->make_instruction(
                 Ptr_t::make(u8()), Instruction::Op::GEP,
                 {reach(producer.block, ran_array), producer_index});
@@ -4951,6 +5111,58 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 << " is deferred from " << queue.owner << ", which neither "
                 << "loops over the call nor writes a `join;` after it, so "
                 << "there is no place for the drain -- not built.";
+        } else if (reports) {
+            // The owner's call answers whether the chain deferred, and the
+            // iteration ends only then. `<q>!deferred` takes the answer and
+            // what the continuation was passed and dispatches: no -- the
+            // continuation where it stands, with the value out of the
+            // option; yes -- the record's byte set for this slot, and the
+            // iteration's end. The pass over the record runs the
+            // continuation's copy for the slots whose byte is set
+            // (k0_rejoins, above).
+            pcall.drop = false;
+            auto decide = fresh_block(prefix + "deferred");
+            auto answer = decide->add_argument(Argument{answer_t, O->get_unique_name()});
+            vector<shared_ptr<Value>> through;
+            for (const auto &arg : pcall.cont.args) {
+                through.push_back(decide->add_argument(
+                    Argument{arg->get_type(), O->get_unique_name()}));
+            }
+            decide->preds = {producer.block};
+            end = fresh_block(prefix + "end");
+            end->preds = {decide};
+            shared_ptr<Value> deferred = answer;
+            vector<shared_ptr<Value>> onward;
+            if (returns_value) {
+                // The option's fields, read off the value (LoadField, as
+                // take_apart reads a struct's parts).
+                deferred = decide->make_instruction(
+                    Bool_t::make(), Instruction::Op::LoadField, {answer, constant_u32(1)});
+                if (result_args == 1) {
+                    onward.push_back(decide->make_instruction(
+                        ret_type, Instruction::Op::LoadField, {answer, constant_u32(0)}));
+                }
+            }
+            onward.insert(onward.end(), through.begin(), through.end());
+            const Terminator::Jump inline_jump{k0_entry->name, std::move(onward)};
+            const Terminator::Jump end_jump{end->name, {}};
+            // A bool answers true for "deferred"; an option's `set` is false.
+            decide->terminator.data =
+                returns_value
+                    ? Terminator::Dispatch{deferred, {end_jump, inline_jump}}
+                    : Terminator::Dispatch{deferred, {inline_jump, end_jump}};
+            pcall.cont = Terminator::Jump{decide->name, pcall.cont.args};
+            k0_entry->preds = {decide};
+            // The byte, once `decide` has its terminator for the values to
+            // thread through.
+            if (ran_array) {
+                auto place = end->make_instruction(
+                    Ptr_t::make(u8()), Instruction::Op::GEP,
+                    {reach(end, ran_array), reach(end, producer_index)});
+                end->make_side_effect(Instruction::Op::Store,
+                                      {place, index_constant(u8(), 1)});
+            }
+            end->terminator.data = Terminator::Yield{};
         } else {
             end = fresh_block(prefix + "end");
             end->preds = {producer.block};
@@ -4964,7 +5176,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             end->terminator.data = Terminator::Yield{};
             pcall.cont = Terminator::Jump{end->name, {}};
         }
-        if (k0_entry) {
+        if (k0_entry && !reports) {
             k0_entry->preds.clear();
         }
 
@@ -5917,9 +6129,14 @@ void split_defer_terminators(Function &func) {
                                             {defer.queue, defer.entry});
         std::get<shared_ptr<Instruction>>(slot->data)->atomic = true;
         if (defer.yields) {
+            internal_assert(!defer.answer)
+                << "a deferral in " << block->name << " both ends an iteration "
+                << "and answers a caller";
             block->terminator.data = Terminator::Yield{};
         } else {
-            block->terminator.data = Terminator::Return{};
+            // The function's answer, when its chain reports whether it
+            // deferred: `true`, or the empty option of its value.
+            block->terminator.data = Terminator::Return{defer.answer};
         }
     }
 }

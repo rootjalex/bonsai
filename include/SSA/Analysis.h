@@ -625,8 +625,22 @@ struct Roots {
     std::set<std::string> names;
     bool unknown = false;
 };
+// What each block argument of `func` is handed, by the argument's name: the
+// values the jumps, dispatches, calls' continuations and joins into its
+// block pass at its position (a call's result is handed by nothing, and
+// has no entry; a loop body's arguments, the launch's captures, are left
+// out and stay roots by name, as the kernel's writes name them). For
+// roots_of to follow an argument that does not carry an instruction's name
+// -- a copied continuation's or a dispatch's fresh one -- back to what it
+// carries, rather than take the name for a root of its own (which a kernel
+// never writes, so that the loads through it would be marked invariant and
+// read the value from before a call that wrote it; 10-25).
+using ArgumentSources =
+    std::unordered_map<std::string, std::vector<std::shared_ptr<Value>>>;
+ArgumentSources argument_sources(const Function &func);
 Roots roots_of(const std::shared_ptr<Value> &v,
-               const std::unordered_map<std::string, const Instruction *> &defs);
+               const std::unordered_map<std::string, const Instruction *> &defs,
+               const ArgumentSources *sources = nullptr);
 
 // The roots a kernel body may write through: the launch-scoped half of the
 // wavefront's memory discipline. Within one launch every buffer has one

@@ -4,4 +4,4 @@
 [internal] Error: src/SSA/QueueStorage.cpp:299
 
 --> !use.entries || on_gpu
-sums_result (in DeviceGlobal memory) is device memory, and the loop over i, which runs on the host, takes it as a capture: only the device addresses its entries, the host only the header's count. Drain the queue on the GPU, or put it in Managed memory, which both address.
+sums_ran (in DeviceGlobal memory) is device memory, and the loop over i, which runs on the host, takes it as a capture: only the device addresses its entries, the host only the header's count. Drain the queue on the GPU, or put it in Managed memory, which both address.

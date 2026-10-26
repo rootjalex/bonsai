@@ -5,28 +5,32 @@ type Queue_tally = struct Queue_tally{ count : u32; k : i32[]; acc : i32[]; _slo
 
 extern func bonsai_cuda_round_guard(round : u32, count : (u32*)) -> u32;
 
-func climb(k : i32, acc : i32, _queue_tally : mut (Queue_tally*), _result_tally : mut (i32*), _slot_tally : i32) -> void {
+func climb(k : i32, acc : i32, _queue_tally : mut (Queue_tally*), _result_tally : mut (i32*), _slot_tally : i32) -> _option_tally {
   let @0 = k <= 0 in
   if (@0) {
     _result_tally = acc
-    return
+    let @4 = build<_option_tally>(acc, true) in
+    return @4
   } else {
     let @1 = k - 1 in
     let @2 = acc + k in
-    let @4 = build<Entry_tally>(@1, @2, _slot_tally) in
-    let @7 = atomic_add((&(*_queue_tally).count), 1u) in
-    let @9 = (*_queue_tally).k in
-    @9[@7] = @1
-    let @12 = (*_queue_tally).acc in
-    @12[@7] = @2
-    let @15 = (*_queue_tally)._slot in
-    @15[@7] = _slot_tally
-    return
+    let @5 = build<Entry_tally>(@1, @2, _slot_tally) in
+    let @6 = build<_option_tally>(undef, false) in
+    let @9 = atomic_add((&(*_queue_tally).count), 1u) in
+    let @11 = (*_queue_tally).k in
+    @11[@9] = @1
+    let @14 = (*_queue_tally).acc in
+    @14[@9] = @2
+    let @17 = (*_queue_tally)._slot in
+    @17[@9] = _slot_tally
+    return @6
   }
 }
 
 func run(out : mut i32[8]) -> void {
   sums!round : mut u32
+  sums_ran : mut u8[8]
+  let @2 = fill_bytes(sums_ran, 0u, 8) in
   sums_result : mut i32[8]
   sums_k_0 : mut i32[8]
   sums_acc_0 : mut i32[8]
@@ -35,60 +39,82 @@ func run(out : mut i32[8]) -> void {
   sums_acc_1 : mut i32[8]
   sums__slot_1 : mut i32[8]
   sums_queue : mut Queue_sums[2]
-  let @3 = build<Queue_sums>(0u, sums_k_0, sums_acc_0, sums__slot_0) in
-  sums_queue[0u] = @3
-  let @5 = build<Queue_sums>(0u, sums_k_1, sums_acc_1, sums__slot_1) in
-  sums_queue[1u] = @5
+  let @4 = build<Queue_sums>(0u, sums_k_0, sums_acc_0, sums__slot_0) in
+  sums_queue[0u] = @4
+  let @6 = build<Queue_sums>(0u, sums_k_1, sums_acc_1, sums__slot_1) in
+  sums_queue[1u] = @6
   parfor i in [0:8:1] {
-    walk(i, 0, (&sums_queue[0u]), (&sums_result[i]), i)
-    continue
+    let @9 = walk(i, 0, (&sums_queue[0u]), (&sums_result[i]), i) in
+    let @10 = out in
+    let @11 = i in
+    let @12 = @9.set in
+    let @13 = @9.value in
+    if (@12) {
+      let @0 = @13 in
+      out[i] = @0
+      continue
+    } else {
+      sums_ran[i] = 1u
+      continue
+    }
   }
   sums!round = 0u
   do {
-    let @9 = (*sums!round) & 1u in
-    let @35 = bonsai_cuda_round_guard((*sums!round), (&sums_queue[@9].count)) in
-    let @36 = @35 == 0u in
-    if (@36) {
+    let @16 = (*sums!round) & 1u in
+    let @48 = bonsai_cuda_round_guard((*sums!round), (&sums_queue[@16].count)) in
+    let @49 = @48 == 0u in
+    if (@49) {
       break
     } else {
-      let @13 = @9 ^ 1u in
-      sums_queue[@13].count = 0u
-      let @29 = cast<u32>(8) in
-      parfor sums in [0u:@29:1u] {
-        let @14 = (&sums_queue[@13]) in
-        let @32 = (&sums_queue[@9].count) in
-        let @33 = (*@32) in
-        let @34 = sums < @33 in
-        if (@34) {
-          let @18 = sums_queue[@9].k in
-          let @19 = @18[sums] in
-          let @21 = sums_queue[@9].acc in
-          let @22 = @21[sums] in
-          let @24 = sums_queue[@9]._slot in
-          let @25 = @24[sums] in
-          walk(@19, @22, @14, (&sums_result[@25]), @25)
+      let @20 = @16 ^ 1u in
+      sums_queue[@20].count = 0u
+      let @42 = cast<u32>(8) in
+      parfor sums in [0u:@42:1u] {
+        let @21 = (&sums_queue[@20]) in
+        let @45 = (&sums_queue[@16].count) in
+        let @46 = (*@45) in
+        let @47 = sums < @46 in
+        if (@47) {
+          let @25 = sums_queue[@16].k in
+          let @26 = @25[sums] in
+          let @28 = sums_queue[@16].acc in
+          let @29 = @28[sums] in
+          let @31 = sums_queue[@16]._slot in
+          let @32 = @31[sums] in
+          walk(@26, @29, @21, (&sums_result[@32]), @32)
           continue
         } else {
           continue
         }
       }
-      let @8 = (*sums!round) + 1u in
-      sums!round = @8
+      let @15 = (*sums!round) + 1u in
+      sums!round = @15
       continue
     }
   } while (true)
   parfor sums_rest in [0:8:1] {
-    let @28 = sums_result[sums_rest] in
-    let @0 = @28 in
-    let i = sums_rest in
-    out[i] = @0
-    continue
+    let @39 = sums_result[sums_rest] in
+    let @41 = sums_ran[sums_rest] in
+    switch (@41) {
+    case 0: {
+      continue
+    } break;
+    default: {
+      let @35 = @39 in
+      let @36 = out in
+      let @37 = sums_rest in
+      @36[@37] = @35
+      continue
+    }
+    }
   }
   return
 }
 
 func split_run(out : mut i32[64]) -> void {
   tally!round : mut u32
+  tally_ran : mut u8[64]
+  let @2 = fill_bytes(tally_ran, 0u, 64) in
   tally_result : mut i32[64]
   tally_k_0 : mut i32[64]
   tally_acc_0 : mut i32[64]
@@ -97,42 +123,53 @@ func split_run(out : mut i32[64]) -> void {
   tally_acc_1 : mut i32[64]
   tally__slot_1 : mut i32[64]
   tally_queue : mut Queue_tally[2]
-  let @3 = build<Queue_tally>(0u, tally_k_0, tally_acc_0, tally__slot_0) in
-  tally_queue[0u] = @3
-  let @5 = build<Queue_tally>(0u, tally_k_1, tally_acc_1, tally__slot_1) in
-  tally_queue[1u] = @5
+  let @4 = build<Queue_tally>(0u, tally_k_0, tally_acc_0, tally__slot_0) in
+  tally_queue[0u] = @4
+  let @6 = build<Queue_tally>(0u, tally_k_1, tally_acc_1, tally__slot_1) in
+  tally_queue[1u] = @6
   parfor i in [0:64:1] {
-    climb(i, 0, (&tally_queue[0u]), (&tally_result[i]), i)
-    continue
+    let @9 = climb(i, 0, (&tally_queue[0u]), (&tally_result[i]), i) in
+    let @10 = out in
+    let @11 = i in
+    let @12 = @9.set in
+    let @13 = @9.value in
+    if (@12) {
+      let @0 = @13 in
+      out[i] = @0
+      continue
+    } else {
+      tally_ran[i] = 1u
+      continue
+    }
   }
   tally!round = 0u
   do {
-    let @9 = (*tally!round) & 1u in
-    let @38 = bonsai_cuda_round_guard((*tally!round), (&tally_queue[@9].count)) in
-    let @39 = @38 == 0u in
-    if (@39) {
+    let @16 = (*tally!round) & 1u in
+    let @51 = bonsai_cuda_round_guard((*tally!round), (&tally_queue[@16].count)) in
+    let @52 = @51 == 0u in
+    if (@52) {
       break
     } else {
-      let @13 = @9 ^ 1u in
-      tally_queue[@13].count = 0u
-      let @32 = cast<u32>(64) in
-      parfor tally_blk in [0u:@32:16u] {
-        let @14 = (&tally_queue[@13]) in
-        let @35 = (&tally_queue[@9].count) in
+      let @20 = @16 ^ 1u in
+      tally_queue[@20].count = 0u
+      let @45 = cast<u32>(64) in
+      parfor tally_blk in [0u:@45:16u] {
+        let @21 = (&tally_queue[@20]) in
+        let @48 = (&tally_queue[@16].count) in
         parfor tally_thr in [0u:16u:1u] {
-          let @36 = (&tally_queue[@9].count) in
-          let @30 = tally_blk + tally_thr in
-          let @37 = (*@36) in
-          let @31 = @30 < @37 in
-          if (@31) {
-            let tally = @30 in
-            let @18 = tally_queue[@9].k in
-            let @19 = @18[tally] in
-            let @21 = tally_queue[@9].acc in
-            let @22 = @21[tally] in
-            let @24 = tally_queue[@9]._slot in
-            let @25 = @24[tally] in
-            climb(@19, @22, @14, (&tally_result[@25]), @25)
+          let @49 = (&tally_queue[@16].count) in
+          let @43 = tally_blk + tally_thr in
+          let @50 = (*@49) in
+          let @44 = @43 < @50 in
+          if (@44) {
+            let tally = @43 in
+            let @25 = tally_queue[@16].k in
+            let @26 = @25[tally] in
+            let @28 = tally_queue[@16].acc in
+            let @29 = @28[tally] in
+            let @31 = tally_queue[@16]._slot in
+            let @32 = @31[tally] in
+            climb(@26, @29, @21, (&tally_result[@32]), @32)
             continue
           } else {
             continue
@@ -140,38 +177,49 @@ func split_run(out : mut i32[64]) -> void {
         }
         continue
       }
-      let @8 = (*tally!round) + 1u in
-      tally!round = @8
+      let @15 = (*tally!round) + 1u in
+      tally!round = @15
       continue
     }
   } while (true)
   parfor tally_rest in [0:64:1] {
-    let @28 = tally_result[tally_rest] in
-    let @0 = @28 in
-    let i = tally_rest in
-    out[i] = @0
-    continue
+    let @39 = tally_result[tally_rest] in
+    let @41 = tally_ran[tally_rest] in
+    switch (@41) {
+    case 0: {
+      continue
+    } break;
+    default: {
+      let @35 = @39 in
+      let @36 = out in
+      let @37 = tally_rest in
+      @36[@37] = @35
+      continue
+    }
+    }
   }
   return
 }
 
-func walk(k : i32, acc : i32, _queue_sums : mut (Queue_sums*), _result_sums : mut (i32*), _slot_sums : i32) -> void {
+func walk(k : i32, acc : i32, _queue_sums : mut (Queue_sums*), _result_sums : mut (i32*), _slot_sums : i32) -> _option_sums {
   let @0 = k <= 0 in
   if (@0) {
     _result_sums = acc
-    return
+    let @4 = build<_option_sums>(acc, true) in
+    return @4
   } else {
     let @1 = k - 1 in
     let @2 = acc + k in
-    let @4 = build<Entry_sums>(@1, @2, _slot_sums) in
-    let @7 = atomic_add((&(*_queue_sums).count), 1u) in
-    let @9 = (*_queue_sums).k in
-    @9[@7] = @1
-    let @12 = (*_queue_sums).acc in
-    @12[@7] = @2
-    let @15 = (*_queue_sums)._slot in
-    @15[@7] = _slot_sums
-    return
+    let @5 = build<Entry_sums>(@1, @2, _slot_sums) in
+    let @6 = build<_option_sums>(undef, false) in
+    let @9 = atomic_add((&(*_queue_sums).count), 1u) in
+    let @11 = (*_queue_sums).k in
+    @11[@9] = @1
+    let @14 = (*_queue_sums).acc in
+    @14[@9] = @2
+    let @17 = (*_queue_sums)._slot in
+    @17[@9] = _slot_sums
+    return @6
   }
 }
 

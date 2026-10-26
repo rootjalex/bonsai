@@ -536,7 +536,8 @@ bool has_uses(const Function &func, const Instruction *of) {
                 },
                 [&](const Terminator::Join &j) { return in_jump(j.next); },
                 [&](const Terminator::Defer &d) {
-                    return is_of(d.queue) || is_of(d.entry);
+                    return is_of(d.queue) || is_of(d.entry) ||
+                           (d.answer && is_of(d.answer));
                 },
                 [&](const Terminator::MultiCall &c) {
                     if (in_jump(c.call) || in_jump(c.cont) ||
@@ -831,6 +832,9 @@ ReadPaths read_paths_through(const Function &func, const Functions *funcs,
                 [&](const Terminator::Defer &d) {
                     read(b, d.queue);
                     read(b, d.entry);
+                    if (d.answer) {
+                        read(b, d.answer);
+                    }
                 },
                 [&](const Terminator::MultiCall &c) {
                     for (const auto &arg : c.call.args) {
@@ -1712,6 +1716,12 @@ struct RootWalk {
     // memory roots at the cell's contents, `*(root)`, and a chain of such
     // loads could in principle cycle, so it is bounded.
     int loads = 0;
+    // What the block arguments are handed (argument_sources), for one whose
+    // name is no instruction's; null when the caller has no function to
+    // read them off. Visited by name, since a loop-carried argument is among
+    // its own sources.
+    const ArgumentSources *sources = nullptr;
+    std::set<string> args_visited;
 
     void walk(const shared_ptr<Value> &v, const string &suffix) {
         if (v == nullptr || std::holds_alternative<Constant>(v->data)) {
@@ -1720,8 +1730,22 @@ struct RootWalk {
         if (const auto *a = std::get_if<Argument>(&v->data)) {
             const auto found = defs.find(a->name);
             if (found == defs.end()) {
-                // An entry argument -- a capture -- or a loop's own index:
-                // the name is the root.
+                // An argument named after no instruction: what the jumps
+                // into its block hand it, when that is known -- a copied
+                // continuation's or a dispatch's argument carrying an
+                // address made elsewhere -- and otherwise an entry argument
+                // (a capture) or a loop's own index, whose name is the root.
+                if (sources != nullptr) {
+                    const auto handed = sources->find(a->name);
+                    if (handed != sources->end() && !handed->second.empty()) {
+                        if (args_visited.insert(a->name).second) {
+                            for (const auto &source : handed->second) {
+                                walk(source, suffix);
+                            }
+                        }
+                        return;
+                    }
+                }
                 result.names.insert(a->name + suffix);
                 return;
             }
@@ -1812,7 +1836,7 @@ struct RootWalk {
                 result.unknown = true;
                 return;
             }
-            RootWalk cell{defs, {}, visited, loads};
+            RootWalk cell{defs, {}, visited, loads, sources};
             cell.walk(in->operands[0], "");
             if (cell.result.unknown) {
                 result.unknown = true;
@@ -1834,10 +1858,60 @@ struct RootWalk {
 } // namespace
 
 Roots roots_of(const shared_ptr<Value> &v,
-               const std::unordered_map<string, const Instruction *> &defs) {
-    RootWalk walk{defs, {}, {}};
+               const std::unordered_map<string, const Instruction *> &defs,
+               const ArgumentSources *sources) {
+    RootWalk walk{defs, {}, {}, 0, sources};
     walk.walk(v, "");
     return walk.result;
+}
+
+ArgumentSources argument_sources(const Function &func) {
+    ArgumentSources sources;
+    const BlockMap bmap = make_block_map(func);
+    // The jump's argument `k` is handed to the target's argument `k +
+    // offset`: a call's continuation takes the call's value first, a loop's
+    // body its index.
+    const auto hand = [&](const Terminator::Jump &jump, size_t offset) {
+        const auto target = bmap.find(jump.name);
+        if (target == bmap.end()) {
+            return;
+        }
+        const auto &args = target->second->args;
+        for (size_t k = 0; k < jump.args.size() && k + offset < args.size(); k++) {
+            sources[args[k + offset].name].push_back(jump.args[k]);
+        }
+    };
+    for (const auto &block : func.blocks) {
+        std::visit(overloads{
+                       [&](const std::monostate &) {},
+                       [&](const Terminator::Jump &j) { hand(j, 0); },
+                       [&](const Terminator::Dispatch &d) {
+                           for (const auto &target : d.targets) {
+                               hand(target, 0);
+                           }
+                       },
+                       [&](const Terminator::Return &) {},
+                       [&](const Terminator::ParFor &p) {
+                           // A loop body's arguments are the launch's
+                           // captures, roots by name as the kernel's writes
+                           // name them; what the loop was handed for them is
+                           // the enclosing function's business, and may come
+                           // out of memory the walk cannot name. The
+                           // continuation's are left alone with them.
+                           (void)p;
+                       },
+                       [&](const Terminator::Yield &) {},
+                       [&](const Terminator::Call &c) { hand(c.cont, c.drop ? 0 : 1); },
+                       [&](const Terminator::MultiCall &c) {
+                           hand(c.cont, c.drop ? 0 : 1);
+                       },
+                       [&](const Terminator::Spawn &s) { hand(s.cont, 0); },
+                       [&](const Terminator::Join &j) { hand(j.next, 0); },
+                       [&](const Terminator::Defer &) {},
+                   },
+                   block->terminator.data);
+    }
+    return sources;
 }
 
 namespace {
@@ -1918,8 +1992,9 @@ bool KernelWrites::writes(const std::set<string> &roots) const {
 KernelWrites kernel_writes(const Function &func, const string &body_entry) {
     KernelWrites writes;
     const auto defs = instruction_names(func);
+    const ArgumentSources sources = argument_sources(func);
     const auto add = [&](const shared_ptr<Value> &v, const char *at) {
-        Roots roots = roots_of(v, defs);
+        Roots roots = roots_of(v, defs, &sources);
         if (roots.unknown && !writes.unknown) {
             writes.unknown = true;
             writes.why = at;
@@ -1931,7 +2006,7 @@ KernelWrites kernel_writes(const Function &func, const string &body_entry) {
     // call's or an effectful intrinsic's pointer writes the root AND its
     // contents.
     const auto add_through = [&](const shared_ptr<Value> &v, const char *at) {
-        Roots roots = roots_of(v, defs);
+        Roots roots = roots_of(v, defs, &sources);
         if (roots.unknown && !writes.unknown) {
             writes.unknown = true;
             writes.why = at;
@@ -2002,7 +2077,7 @@ KernelWrites kernel_writes(const Function &func, const string &body_entry) {
                     writes.unknown = true;
                     break;
                 }
-                Roots roots = roots_of(in->operands[0], defs);
+                Roots roots = roots_of(in->operands[0], defs, &sources);
                 if (roots.unknown && !writes.unknown) {
                     writes.unknown = true;
                     writes.why = "a push's queue";
@@ -2050,7 +2125,7 @@ KernelWrites kernel_writes(const Function &func, const string &body_entry) {
                        [&](const Terminator::Defer &d) {
                            // A deferral writes the queue as a push does: the
                            // header cell and the memory behind its fields.
-                           Roots roots = roots_of(d.queue, defs);
+                           Roots roots = roots_of(d.queue, defs, &sources);
                            if (roots.unknown && !writes.unknown) {
                                writes.unknown = true;
                                writes.why = "a deferral's queue";

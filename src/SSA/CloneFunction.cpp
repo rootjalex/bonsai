@@ -195,7 +195,8 @@ shared_ptr<Function> clone_function(const Function &func) {
                 },
                 [&](const Terminator::Defer &d) -> decltype(Terminator::data) {
                     return Terminator::Defer{clone_value(d.queue, instrs),
-                                             clone_value(d.entry, instrs), d.yields};
+                                             clone_value(d.entry, instrs), d.yields,
+                                             clone_value(d.answer, instrs)};
                 },
                 [&](const Terminator::MultiCall &c)
                     -> decltype(Terminator::data) {

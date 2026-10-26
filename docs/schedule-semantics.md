@@ -630,9 +630,19 @@ twice, once as written and once copied into the pass, and the record's
 byte per slot (`<q>_ran`, set at the call) tells the pass which iterations
 pushed (pbrt's camera kernel: a ray is pushed only when the lens gives one,
 and the film is written for every sample). A deferred call under a test
-*inside* the chain -- `f` returning without having called `g` -- runs `K`
-in the pass either way today; the chain reporting whether it deferred, so
-that the owner runs `K` at once when it did not, is not built yet.
+*inside* the chain -- `f` returning without having called `g`, or a
+recursion's step ending its path -- is told apart by the chain itself,
+which then *reports*: every function of the chain returns a bool, or the
+option of its value (`{ value, set }`, `set` false for "deferred"), the
+deferral answering `true` or the empty option and every other return
+`false` or `some(value)`, a tail call into the chain returning the
+callee's answer onward. The owner's call becomes `callc f(..) q!deferred`,
+which dispatches: "deferred" sets the slot's byte and ends the iteration,
+"returned" runs `K` where it stands with the value out of the option. The
+byte is then set at the dispatch rather than at the call. A chain whose
+every path defers somewhere -- onto this queue or onto another directive's
+(`QueueSpec::deferred_elsewhere`) -- does not report; nor does one whose
+owner makes the initial push, after which every slot holds an entry.
 
 *The rewrite* (SSA/Defer.cpp). Let `n` be the producer's trip count and
 `A` the stored part of the call's arguments, by the rules above.

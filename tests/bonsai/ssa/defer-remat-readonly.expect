@@ -4,6 +4,8 @@ type Row = struct Row{ a : i32; b : i32 }
 
 func run(table : Row[4], out : mut i32[8]) -> void {
   q!round : mut u32
+  q_ran : mut u8[8]
+  let @4 = fill_bytes(q_ran, 0u, 8) in
   q_result : mut i32[8]
   q_n_0 : mut i32[8]
   q_acc_0 : mut i32[8]
@@ -12,77 +14,99 @@ func run(table : Row[4], out : mut i32[8]) -> void {
   q_acc_1 : mut i32[8]
   q__slot_1 : mut i32[8]
   q_queue : mut Queue_q[2]
-  let @5 = build<Queue_q>(0u, q_n_0, q_acc_0, q__slot_0) in
-  q_queue[0u] = @5
-  let @7 = build<Queue_q>(0u, q_n_1, q_acc_1, q__slot_1) in
-  q_queue[1u] = @7
+  let @6 = build<Queue_q>(0u, q_n_0, q_acc_0, q__slot_0) in
+  q_queue[0u] = @6
+  let @8 = build<Queue_q>(0u, q_n_1, q_acc_1, q__slot_1) in
+  q_queue[1u] = @8
   parfor i in [0:8:1] {
-    let @34 = i < 4 in
-    let @35 = i - 4 in
-    let k = select(@34, i, @35) in
+    let @47 = i < 4 in
+    let @48 = i - 4 in
+    let k = select(@47, i, @48) in
     let @1 = table[k] in
-    tally(i, 0, @1, k, (&q_queue[0u]), (&q_result[i]), i)
-    continue
+    let @11 = tally(i, 0, @1, k, (&q_queue[0u]), (&q_result[i]), i) in
+    let @12 = out in
+    let @13 = i in
+    let @14 = @11.set in
+    let @15 = @11.value in
+    if (@14) {
+      let @2 = @15 in
+      out[i] = @2
+      continue
+    } else {
+      q_ran[i] = 1u
+      continue
+    }
   }
   q!round = 0u
   while (!(q_queue[(*q!round) & 1u].count == 0u)) {
-    let @11 = (*q!round) & 1u in
-    let @13 = q_queue[(*q!round) & 1u].count in
-    let @15 = @11 ^ 1u in
-    q_queue[@15].count = 0u
-    parfor q in [0u:@13:1u] {
-      let @16 = (&q_queue[@15]) in
-      let @20 = q_queue[@11].n in
-      let @21 = @20[q] in
-      let @23 = q_queue[@11].acc in
-      let @24 = @23[q] in
-      let @26 = q_queue[@11]._slot in
-      let @27 = @26[q] in
-      let @36 = @27 >> 31 in
-      let @37 = reinterpret_cast<u32>(@36) in
-      let @38 = @37 >> 30u in
-      let @39 = reinterpret_cast<i32>(@38) in
-      let @40 = @27 + @39 in
-      let @41 = @40 >> 2 in
-      let @42 = @41 * 4 in
-      let @28 = @27 - @42 in
-      let @29 = table[@28] in
-      tally(@21, @24, @29, @28, @16, (&q_result[@27]), @27)
+    let @18 = (*q!round) & 1u in
+    let @20 = q_queue[(*q!round) & 1u].count in
+    let @22 = @18 ^ 1u in
+    q_queue[@22].count = 0u
+    parfor q in [0u:@20:1u] {
+      let @23 = (&q_queue[@22]) in
+      let @27 = q_queue[@18].n in
+      let @28 = @27[q] in
+      let @30 = q_queue[@18].acc in
+      let @31 = @30[q] in
+      let @33 = q_queue[@18]._slot in
+      let @34 = @33[q] in
+      let @49 = @34 >> 31 in
+      let @50 = reinterpret_cast<u32>(@49) in
+      let @51 = @50 >> 30u in
+      let @52 = reinterpret_cast<i32>(@51) in
+      let @53 = @34 + @52 in
+      let @54 = @53 >> 2 in
+      let @55 = @54 * 4 in
+      let @35 = @34 - @55 in
+      let @36 = table[@35] in
+      tally(@28, @31, @36, @35, @23, (&q_result[@34]), @34)
       continue
     }
-    let @10 = (*q!round) + 1u in
-    q!round = @10
+    let @17 = (*q!round) + 1u in
+    q!round = @17
   }
   parfor q_rest in [0:8:1] {
-    let @33 = q_result[q_rest] in
-    let @2 = @33 in
-    let i = q_rest in
-    out[i] = @2
-    continue
+    let @44 = q_result[q_rest] in
+    let @46 = q_ran[q_rest] in
+    switch (@46) {
+    case 0: {
+      continue
+    } break;
+    default: {
+      let @40 = @44 in
+      let @41 = out in
+      let @42 = q_rest in
+      @41[@42] = @40
+      continue
+    }
+    }
   }
   return
 }
 
-func tally(n : i32, acc : i32, row : Row, k : i32, _queue_q : mut (Queue_q*), _result_q : mut (i32*), _slot_q : i32) -> void {
+func tally(n : i32, acc : i32, row : Row, k : i32, _queue_q : mut (Queue_q*), _result_q : mut (i32*), _slot_q : i32) -> _option_q {
   let @0 = n <= 0 in
   if (@0) {
     let @1 = row.a in
     let @2 = acc + @1 in
     _result_q = @2
-    return
+    let @7 = build<_option_q>(@2, true) in
+    return @7
   } else {
     let @3 = n - 1 in
     let @4 = row.b in
     let @5 = acc + @4 in
-    let @7 = build<Entry_q>(@3, @5, _slot_q) in
-    let @10 = atomic_add((&(*_queue_q).count), 1u) in
-    let @12 = (*_queue_q).n in
-    @12[@10] = @3
-    let @15 = (*_queue_q).acc in
-    @15[@10] = @5
-    let @18 = (*_queue_q)._slot in
-    @18[@10] = _slot_q
-    return
+    let @8 = build<Entry_q>(@3, @5, _slot_q) in
+    let @9 = build<_option_q>(undef, false) in
+    let @12 = atomic_add((&(*_queue_q).count), 1u) in
+    let @14 = (*_queue_q).n in
+    @14[@12] = @3
+    let @17 = (*_queue_q).acc in
+    @17[@12] = @5
+    let @20 = (*_queue_q)._slot in
+    @20[@12] = _slot_q
+    return @9
   }
 }
 

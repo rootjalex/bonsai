@@ -593,6 +593,9 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
                                [&](Terminator::Defer &t) {
                                    thread(t.queue);
                                    thread(t.entry);
+                                   if (t.answer) {
+                                       thread(t.answer);
+                                   }
                                },
                                [&](Terminator::Join &t) {
                                    for (auto &a : t.next.args) {

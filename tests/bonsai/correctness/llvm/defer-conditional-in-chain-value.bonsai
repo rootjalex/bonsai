@@ -1,0 +1,52 @@
+//! flags: -p ssa -b llvm -e
+
+// A deferred call under a test inside a chain that returns a value, run.
+// `step` returns a Float: on the path that defers it adds `work`'s value
+// into the reducer and returns one more than it, on the other it returns
+// -1 without calling. The chain therefore answers with an option of its
+// value (the user, 10-25): `some(-1.0)` when it deferred nothing, which
+// the owner takes apart and runs its continuation on at once, and the
+// empty option when it deferred, which ends the iteration -- the value then
+// reaches the owner's continuation through the record's result slot, in
+// the pass after the drain. tests/bonsai/ssa/defer-conditional-in-chain-
+// value shows the shape.
+//
+// values 1..4: s = -1, acc = 0, out = s + acc + (v + 1) = v: 1, 2, 3, 4.
+// values 5..8: r = v/2, acc = r, s = r + 1, out = 2v + 2: 12, 14, 16, 18.
+import stdlib/numerics;
+
+func work(x : Float) -> Float {
+    return x * 0.5;
+}
+
+func step(x : Float, acc : reduce(+) Float) -> Float {
+    if x > 4.0 {
+        r = work(x);
+        acc += r;
+        return r + 1.0;
+    }
+    return -1.0;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        acc : reduce(+) Float = 0.0;
+        w = values[i] + 1.0;
+        s = step(values[i], acc);
+        out[i] = s + acc + w;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(values, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    q = run.queue(root);
+    step.defer(work, q);
+}

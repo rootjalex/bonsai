@@ -1097,6 +1097,9 @@ void inline_call(FuncMap &funcs, const shared_ptr<Function> &caller,
                     [&](Terminator::Defer &d) {
                         rename_value(d.queue);
                         rename_value(d.entry);
+                        if (d.answer) {
+                            rename_value(d.answer);
+                        }
                     },
                     [&](Terminator::MultiCall &c) {
                         rename_jump(c.call);

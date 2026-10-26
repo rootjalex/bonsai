@@ -65,6 +65,9 @@ void for_each_value(Block &block, const F &fn) {
                    [&](Terminator::Defer &d) {
                        fn(d.queue);
                        fn(d.entry);
+                       if (d.answer) {
+                           fn(d.answer);
+                       }
                    },
                    [&](Terminator::Call &c) {
                        all(c.call.args);

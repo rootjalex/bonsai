@@ -92,6 +92,9 @@ void jit(const ir::Program &program, const CompilerOptions &options) {
         define("bonsai_cuda_copy_to_device", &bonsai_cuda_copy_to_device);
         define("bonsai_cuda_store_word_async", &bonsai_cuda_store_word_async);
         define("bonsai_cuda_store_async", &bonsai_cuda_store_async);
+        // A byte fill of a device-resident array (the record's `ran` bytes
+        // cleared as the owner's iteration starts; CodeGen_LLVM's fill_bytes).
+        define("bonsai_cuda_fill_bytes_async", &bonsai_cuda_fill_bytes_async);
         // The round loop's pipelined guard (SSA/RoundGuard.h): the count
         // tested between rounds, snapshotted on the stream.
         define("bonsai_cuda_round_guard", &bonsai_cuda_round_guard);

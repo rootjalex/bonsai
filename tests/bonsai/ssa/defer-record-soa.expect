@@ -13,6 +13,8 @@ func run(values : f32[8], out : mut f32[8]) -> void {
   q_rec_seen_slots : mut bool[8]
   q_rec_hits_slots : mut i32[8]
   q_rec_p_slots : mut [[packed]] f32x3[8]
+  q_ran : mut u8[8]
+  let @16 = fill_bytes(q_ran, 0u, 8) in
   q_x_0 : mut f32[8]
   q_n_0 : mut i32[8]
   q__slot_0 : mut i32[8]
@@ -20,70 +22,101 @@ func run(values : f32[8], out : mut f32[8]) -> void {
   q_n_1 : mut i32[8]
   q__slot_1 : mut i32[8]
   q_queue : mut Queue_q[2]
-  let @16 = build<Queue_q>(0u, q_x_0, q_n_0, q__slot_0) in
-  q_queue[0u] = @16
-  let @18 = build<Queue_q>(0u, q_x_1, q_n_1, q__slot_1) in
-  q_queue[1u] = @18
+  let @17 = build<Queue_q>(0u, q_x_0, q_n_0, q__slot_0) in
+  q_queue[0u] = @17
+  let @19 = build<Queue_q>(0u, q_x_1, q_n_1, q__slot_1) in
+  q_queue[1u] = @19
   parfor i in [0:8:1] {
     let _t22 = values[i] in
     let @1 = build<f32x3>(_t22, 0f, 1f) in
-    let @59 = cast<[[packed]] f32x3>(@1) in
-    q_rec_p_slots[i] = @59
+    let @79 = cast<[[packed]] f32x3>(@1) in
+    q_rec_p_slots[i] = @79
     q_rec_hits_slots[i] = 0
     q_rec_seen_slots[i] = false
-    let @41 = i < 4 in
-    let @42 = i - 4 in
-    let @3 = select(@41, i, @42) in
-    step(_t22, @3, (&q_rec_p_slots[i]), (&q_rec_hits_slots[i]), (&q_rec_seen_slots[i]), (&q_queue[0u]), i)
-    continue
+    let @61 = i < 4 in
+    let @62 = i - 4 in
+    let @3 = select(@61, i, @62) in
+    let @22 = step(_t22, @3, (&q_rec_p_slots[i]), (&q_rec_hits_slots[i]), (&q_rec_seen_slots[i]), (&q_queue[0u]), i) in
+    let @24 = out in
+    let @25 = i in
+    let @23!arg_rec_p = (&q_rec_p_slots[i]) in
+    let @23!arg_rec_hits = (&q_rec_hits_slots[i]) in
+    let @23!arg_rec_seen = (&q_rec_seen_slots[i]) in
+    if (@22) {
+      q_ran[i] = 1u
+      continue
+    } else {
+      let rec!arg_p = (&q_rec_p_slots[i]) in
+      let rec!arg_hits = (&q_rec_hits_slots[i]) in
+      let rec!arg_seen = (&q_rec_seen_slots[i]) in
+      let @80 = (*rec!arg_seen) in
+      let @81 = (*rec!arg_hits) in
+      let @8 = cast<f32>(@81) in
+      let @82 = (*rec!arg_p) in
+      let @83 = cast<f32x3>(@82) in
+      let @11 = @83[0u] in
+      let @12 = @8 + @11 in
+      let @13 = select(@80, @12, 0f) in
+      out[i] = @13
+      continue
+    }
   }
   q!round = 0u
   while (!(q_queue[(*q!round) & 1u].count == 0u)) {
-    let @22 = (*q!round) & 1u in
-    let @24 = q_queue[(*q!round) & 1u].count in
-    let @26 = @22 ^ 1u in
-    q_queue[@26].count = 0u
-    parfor q in [0u:@24:1u] {
-      let @27 = (&q_queue[@26]) in
-      let @31 = q_queue[@22].x in
-      let @32 = @31[q] in
-      let @34 = q_queue[@22].n in
-      let @35 = @34[q] in
-      let @37 = q_queue[@22]._slot in
+    let @28 = (*q!round) & 1u in
+    let @30 = q_queue[(*q!round) & 1u].count in
+    let @32 = @28 ^ 1u in
+    q_queue[@32].count = 0u
+    parfor q in [0u:@30:1u] {
+      let @33 = (&q_queue[@32]) in
+      let @37 = q_queue[@28].x in
       let @38 = @37[q] in
-      step(@32, @35, (&q_rec_p_slots[@38]), (&q_rec_hits_slots[@38]), (&q_rec_seen_slots[@38]), @27, @38)
+      let @40 = q_queue[@28].n in
+      let @41 = @40[q] in
+      let @43 = q_queue[@28]._slot in
+      let @44 = @43[q] in
+      step(@38, @41, (&q_rec_p_slots[@44]), (&q_rec_hits_slots[@44]), (&q_rec_seen_slots[@44]), @33, @44)
       continue
     }
-    let @21 = (*q!round) + 1u in
-    q!round = @21
+    let @27 = (*q!round) + 1u in
+    q!round = @27
   }
   parfor q_rest in [0:8:1] {
-    let i = q_rest in
-    let rec!arg_p = (&q_rec_p_slots[q_rest]) in
-    let rec!arg_hits = (&q_rec_hits_slots[q_rest]) in
-    let rec!arg_seen = (&q_rec_seen_slots[q_rest]) in
-    let @55 = (*rec!arg_seen) in
-    let @56 = (*rec!arg_hits) in
-    let @8 = cast<f32>(@56) in
-    let @57 = (*rec!arg_p) in
-    let @58 = cast<f32x3>(@57) in
-    let @11 = @58[0u] in
-    let @12 = @8 + @11 in
-    let @13 = select(@55, @12, 0f) in
-    out[i] = @13
-    continue
+    let @60 = q_ran[q_rest] in
+    switch (@60) {
+    case 0: {
+      continue
+    } break;
+    default: {
+      let @56 = out in
+      let @57 = q_rest in
+      let @55!arg_rec_p = (&q_rec_p_slots[q_rest]) in
+      let @55!arg_rec_hits = (&q_rec_hits_slots[q_rest]) in
+      let @55!arg_rec_seen = (&q_rec_seen_slots[q_rest]) in
+      let @75 = (*@55!arg_rec_seen) in
+      let @76 = (*@55!arg_rec_hits) in
+      let @49 = cast<f32>(@76) in
+      let @77 = (*@55!arg_rec_p) in
+      let @78 = cast<f32x3>(@77) in
+      let @51 = @78[0u] in
+      let @52 = @49 + @51 in
+      let @53 = select(@75, @52, 0f) in
+      @56[@57] = @53
+      continue
+    }
+    }
   }
   return
 }
 
-func step(x : f32, n : i32, rec_p : mut ([[packed]] f32x3*), rec_hits : mut (i32*), rec_seen : mut (bool*), _queue_q : mut (Queue_q*), _slot_q : i32) -> void {
+func step(x : f32, n : i32, rec_p : mut ([[packed]] f32x3*), rec_hits : mut (i32*), rec_seen : mut (bool*), _queue_q : mut (Queue_q*), _slot_q : i32) -> bool {
   let @9 = (*rec_hits) in
   let @2 = @9 + 1 in
   rec_hits = @2
   let @4 = n == 0 in
   if (@4) {
     rec_seen = true
-    return
+    return false
   } else {
     let @6 = x * 0.5f in
     let @7 = n - 1 in
@@ -95,7 +128,7 @@ func step(x : f32, n : i32, rec_p : mut ([[packed]] f32x3*), rec_hits : mut (i32
     @17[@12] = @7
     let @20 = (*_queue_q)._slot in
     @20[@12] = _slot_q
-    return
+    return true
   }
 }
 

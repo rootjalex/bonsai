@@ -4,6 +4,8 @@ add_bonsai_tests(
     accumulate-affine.bonsai
     defer-conditional-rejoin.bonsai
     defer-conditional-in-chain.bonsai
+    defer-conditional-in-chain-value.bonsai
+    defer-conditional-in-chain-deep.bonsai
     defer-terminator.bonsai
     demote-atomics-callee.bonsai
     demote-atomics-spawn-inline.bonsai

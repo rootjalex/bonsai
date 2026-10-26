@@ -408,6 +408,21 @@ struct Simplifier {
     // 0.99999994 (pbrt's OneMinusEpsilon), or -1.0 and -0.99999994, are one
     // constant (found 2026-10-07 while reading this key for apps/pbrt;
     // tests/bonsai/ssa/cse-constant-precision has the pair).
+    //
+    // An instruction is keyed by its identity, not its name. A name is one
+    // instruction's in a function as a rule, but not always: a `let`'s Set
+    // keeps the program's name in every copy a rewrite makes of its region
+    // (SSA/Defer.cpp clone_region, for the unroll, the inliner and the
+    // defer's own copies), so two Sets of one name may stand in one
+    // function, one per copy, each its own value. Keyed by name, the second
+    // unrolled child's `b$low - p` was found equal to the first's and the
+    // two children's sort keys were one value (2026-10-25, apps/rtq's cone
+    // hierarchy: the swap of the nearer child vanished; tests/bonsai/ssa/
+    // blocks/unroll-let-names.bonsai has the two Sets). The key is a text
+    // for the table's lifetime only, so the address serves.
+    static void key_instruction(std::ostringstream &os, const Instruction *i) {
+        os << '#' << static_cast<const void *>(i);
+    }
     void key_value(std::ostringstream &os, const ValuePtr &v) {
         if (const auto *c = std::get_if<Constant>(&v->data)) {
             if (const auto *d = std::get_if<double>(&c->data)) {
@@ -424,7 +439,7 @@ struct Simplifier {
             const Definition d = definitions->of(block->name, v);
             if (d.value != nullptr) {
                 if (const Instruction *i = def_of(d.value)) {
-                    os << i->name;
+                    key_instruction(os, i);
                     return;
                 }
                 if (std::holds_alternative<Argument>(d.value->data)) {
@@ -432,6 +447,10 @@ struct Simplifier {
                     return;
                 }
             }
+        }
+        if (const Instruction *i = def_of(v)) {
+            key_instruction(os, i);
+            return;
         }
         v->dump(os);
     }
@@ -2437,6 +2456,9 @@ UseCounts use_counts(const Function &func) {
                        [&](const Terminator::Defer &d) {
                            count(d.queue, uses);
                            count(d.entry, uses);
+                           if (d.answer) {
+                               count(d.answer, uses);
+                           }
                        },
                        [&](const Terminator::MultiCall &c) {
                            count(c.call, uses);
@@ -2643,6 +2665,9 @@ bool substitute_threaded_arguments(Function &func) {
                        [&](Terminator::Defer &d) {
                            sub(d.queue);
                            sub(d.entry);
+                           if (d.answer) {
+                               sub(d.answer);
+                           }
                        },
                        [&](Terminator::MultiCall &c) {
                            sub_jump(c.call);
