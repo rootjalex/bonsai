@@ -1173,6 +1173,55 @@ vector<string> copies_called(const FuncMap &funcs, const string &func_name,
     return vector<string>(copies.begin(), copies.end());
 }
 
+// Whether `call`'s continuation does nothing but answer for a chain that
+// reports whether it deferred (Function::OwnedQueue::Reporting): `func_name`
+// is a function an earlier deferral retyped to return the answer, and the
+// continuation is a lone `ret <constant>` -- the answer "deferred nothing",
+// or a `ret` of the option made of the call's value and a constant. A
+// deferral of the call replaces that answer with its own "deferred", so for
+// its purposes the call is in tail position: nothing of the function's runs
+// after it (SSA/Defer.cpp, the composition with a prior deferral).
+bool returns_chain_answer(const FuncMap &funcs, const string &func_name,
+                          const Terminator::Call &call, const BlockMap &bmap) {
+    bool answers = false;
+    for (const auto &[name, F] : funcs) {
+        for (const auto &[q, owned] : F->queue_sizes) {
+            if (owned.reporting && owned.reporting->functions.contains(func_name)) {
+                answers = true;
+            }
+        }
+    }
+    if (!answers || !call.cont.args.empty()) {
+        return false;
+    }
+    const Block &cont = *bmap.at(call.cont.name);
+    const auto *returns = std::get_if<Terminator::Return>(&cont.terminator.data);
+    if (returns == nullptr || returns->value == nullptr) {
+        return false;
+    }
+    if (cont.instrs.empty()) {
+        return call.drop && cont.args.empty() &&
+               std::holds_alternative<Constant>(returns->value->data);
+    }
+    if (cont.instrs.size() != 1 || cont.instrs[0]->op != Instruction::Op::MakeStruct) {
+        return false;
+    }
+    const auto *made = std::get_if<shared_ptr<Instruction>>(&returns->value->data);
+    if (made == nullptr || made->get() != cont.instrs[0].get()) {
+        return false;
+    }
+    for (const auto &operand : cont.instrs[0]->operands) {
+        if (std::holds_alternative<Constant>(operand->data)) {
+            continue;
+        }
+        const auto *a = std::get_if<Argument>(&operand->data);
+        if (a == nullptr || call.drop || cont.args.size() != 1 || a->name != cont.args[0].name) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool has_nontail_call(const FuncMap &funcs, const string &func_name,
                       const string &callee_name) {
     if (!funcs.contains(func_name) || !funcs.contains(callee_name)) {
@@ -1191,7 +1240,8 @@ bool has_nontail_call(const FuncMap &funcs, const string &func_name,
     // A spawned call is not found by one_call_site, which looks for Call
     // terminators: a spawn is deferred as it is, never with a rest.
     const auto &call = std::get<Terminator::Call>(site->terminator.data);
-    return !in_tail_position(call, make_block_map(func));
+    const BlockMap bmap = make_block_map(func);
+    return !in_tail_position(call, bmap) && !returns_chain_answer(funcs, func_name, call, bmap);
 }
 
 namespace {

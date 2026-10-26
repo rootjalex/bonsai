@@ -1,0 +1,72 @@
+//! flags: -p ssa -b llvm -e
+
+// A second deferral composing with the first on one function (the user,
+// 10-25: the second defer should understand that the function has already
+// been turned into a handler; built 10-26). `step` pushes onto
+// queue `a` for kind 0, onto queue `b` for kind 1, and returns without
+// deferring for kind 2. The first directive sees the chain return to the
+// owner without deferring and makes `step` report whether it deferred: the
+// owner's call dispatches on the answer, runs its continuation `out[i] =
+// out[i] + acc + w` where it stands for the slots that returned, and sets
+// the record's byte for the slots that deferred, which the pass over the
+// record after the drains runs. The second directive then finds `step`
+// already a handler -- it takes `a`'s queue and slot and returns the
+// answer -- and adds its own push, which answers "deferred" too; the owner's
+// dispatch, byte and pass are already there and serve both queues, with
+// `b`'s drain chained before the pass. Until 10-26 the second directive
+// rebuilt the owner's pass and died: `Two blocks named !step_call_cont_2!rest`.
+//
+// The continuation adds into `out`, so a slot whose continuation runs twice,
+// or never, or with the reducer incomplete comes out wrong rather than being
+// hidden by an idempotent store. out starts at 100, values 1..8, kind = i %
+// 3: kind 0 adds v/2, kind 1 adds 2v, kind 2 adds nothing; out[i] = 100 +
+// acc + (v + 1): 102.5, 107, 104, 107, 116, 107, 111.5, 125.
+import stdlib/numerics;
+
+func work_a(x : Float, acc : reduce(+) Float) -> void {
+    acc += x * 0.5;
+    return;
+}
+
+func work_b(x : Float, acc : reduce(+) Float) -> void {
+    acc += x * 2.0;
+    return;
+}
+
+func step(x : Float, kind : i32, acc : reduce(+) Float) -> void {
+    if kind == 0 {
+        work_a(x, acc);
+        return;
+    }
+    if kind == 1 {
+        work_b(x, acc);
+        return;
+    }
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        acc : reduce(+) Float = 0.0;
+        w = values[i] + 1.0;
+        step(values[i], i % 3, acc);
+        out[i] = out[i] + acc + w;
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+    out : mut array[Float, 8] = {100.0, 100.0, 100.0, 100.0,
+                                 100.0, 100.0, 100.0, 100.0};
+    run(values, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    a = run.queue(root);
+    step.defer(work_a, a);
+    b = run.queue(root);
+    step.defer(work_b, b);
+}

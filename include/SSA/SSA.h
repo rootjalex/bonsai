@@ -668,6 +668,45 @@ struct Function {
         std::string second_pass;
         std::string round_header;
         std::set<const Instruction *> stable_arrays;
+        // What the deferral built when its chain could return to the owner
+        // without deferring, so that the chain reports whether it deferred
+        // and the owner dispatches on the answer (SSA/Defer.cpp, `reports`).
+        // A later deferral through the same chain reads it: its push
+        // answers as the chain's others do, and it builds no dispatch of
+        // its own; and once no path of the chain can return without
+        // deferring any more, it undoes all of this, so that the program
+        // comes out as it would had the chain never reported (the user,
+        // 10-26). Empty for a chain that never reported, or reports no more.
+        struct Reporting {
+            // The owner's dispatch on the answer, `<q>!deferred`: the
+            // producer call's continuation. And `<q>!end`, the iteration's
+            // end for the slots that deferred, which sets the record's byte.
+            std::string decide, end;
+            // The pass's per-slot block `<q>_rest!run`, whose dispatch on
+            // the byte gates the rest, and the `<q>_rest!skip` it jumps to.
+            // Empty when the pass has no gate (no byte).
+            std::string pass_run, pass_skip;
+            // The rest the pass runs is a copy of the call's continuation
+            // when the reporting alone made it one (the original stays in
+            // the producer for the iterations whose chain returned without
+            // deferring): the copy's entry, and the original's, which the
+            // undo puts back in the pass. Empty when the continuation had to
+            // be copied regardless (it rejoins a path that skipped the call).
+            std::string rest_copy, rest_original;
+            // The record's byte array, when the reporting alone made it
+            // (every iteration of the producer's loop reaches the call):
+            // the allocation, and the fill that clears it. Null when the byte
+            // is needed regardless (a call under a test), and stays.
+            std::shared_ptr<Value> byte;
+            std::shared_ptr<Instruction> byte_fill;
+            // The chain functions on the owner's side, retyped to return the
+            // answer; the answer's type: a bool, or the option of the chain's
+            // value (`returns_value`), whose type is `value`.
+            std::set<std::string> functions;
+            Type answer, value;
+            bool returns_value = false;
+        };
+        std::optional<Reporting> reporting;
     };
     std::map<std::string, OwnedQueue> queue_sizes;
     // Every array a scheduling transform made in this function that the

@@ -52,6 +52,7 @@
 // `vol_path_step.defer(vol_medium_sample, medium_samples)`,
 // apps/pbrt/schedules/gpu-optix.bonsai).
 
+#include "SSA/Analysis.h"
 #include "SSA/Defer.h"
 #include "SSA/Rewrite.h"
 #include "SSA/SSA.h"
@@ -178,6 +179,17 @@ std::vector<std::string> copies_called(const FuncMap &funcs, const std::string &
 // to refuse, in its own words.
 bool has_nontail_call(const FuncMap &funcs, const std::string &func,
                       const std::string &callee);
+
+// Whether `call`'s continuation does nothing but answer for a chain that
+// reports whether it deferred (Function::OwnedQueue::Reporting): `func` is a
+// function an earlier deferral retyped to return the answer, and the
+// continuation is a lone `ret <constant>` -- the answer "deferred nothing" --
+// or a `ret` of the option made of the call's value and a constant. A
+// deferral of the call replaces that answer with its own "deferred", so for
+// its purposes the call is in tail position (has_nontail_call and the Defer
+// pass's own tail-position check both allow it).
+bool returns_chain_answer(const FuncMap &funcs, const std::string &func,
+                          const Terminator::Call &call, const BlockMap &bmap);
 
 // Whether every call to `callee` in `func` lies after `func`'s one call to
 // `staged` -- in the blocks that call's continuation reaches -- so that

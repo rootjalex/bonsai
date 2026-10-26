@@ -1,0 +1,60 @@
+//! flags: -p ssa --dump-ssa-postschedule
+
+// A second deferral composing with the first on one function whose chain
+// reports (the user, 10-25; built 10-26): the program of correctness/llvm/
+// defer-two-queues-and-a-return, where `step` pushes onto `a` for kind 0,
+// onto `b` for kind 1, and returns for kind 2. What to read for: `step`
+// returns bool and takes both queues and both slots; its two deferrals
+// answer `(bool)1` (`defer _queue_a @e ret (bool)1`, `defer _queue_b @e ret
+// (bool)1`) and its plain return answers `(bool)0`; the owner's call is one
+// `callc step(..) a!deferred(..)`, made by the first directive and left
+// alone by the second, dispatching to the continuation where it stands or
+// to `a!end`, which sets the record's byte; `b`'s drain is chained after
+// `a`'s and before the one pass over the record, `a_rest`, which runs the
+// continuation's copy for the slots whose byte is set -- those that
+// deferred onto either queue -- after both drains. One byte, one pass, one
+// dispatch: the second directive adds its push and its drain and nothing
+// else (SSA/Defer.cpp, the composition with a prior deferral; the call to
+// `work_b` followed by the chain's `ret (bool)0` counts as a tail call,
+// SSA/Stage.h returns_chain_answer). Until 10-26 the second directive
+// rebuilt the pass and died on a duplicate block name.
+import stdlib/numerics;
+
+func work_a(x : Float, acc : reduce(+) Float) -> void {
+    acc += x * 0.5;
+    return;
+}
+
+func work_b(x : Float, acc : reduce(+) Float) -> void {
+    acc += x * 2.0;
+    return;
+}
+
+func step(x : Float, kind : i32, acc : reduce(+) Float) -> void {
+    if kind == 0 {
+        work_a(x, acc);
+        return;
+    }
+    if kind == 1 {
+        work_b(x, acc);
+        return;
+    }
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        acc : reduce(+) Float = 0.0;
+        w = values[i] + 1.0;
+        step(values[i], i % 3, acc);
+        out[i] = out[i] + acc + w;
+    }
+    return;
+}
+
+schedule {
+    a = run.queue(root);
+    step.defer(work_a, a);
+    b = run.queue(root);
+    step.defer(work_b, b);
+}

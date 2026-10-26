@@ -1,0 +1,292 @@
+; === ssa postschedule ===
+; --- run ---
+; storage a.acc : f32 as a_acc_slots
+; storage a.rest.w : f32 as a_rest_w
+; storage a.ran : u8 as a_ran
+func run(values : f32[8], out : f32[8]): 
+  a_acc_slots = alloca<f32[8]> scratch()
+  a_rest_w = alloca<f32[8]> scratch()
+  a_ran = alloca<u8[8]> scratch()
+  @9 = fill_bytes(a_ran, (u8)0, (i32)8)
+  a__slot = alloca<i32[8]> scratch()
+  a_queue = alloca<(Queue_a*)> scratch()
+  @10 = make_struct<Queue_a>((u32)0, a__slot)
+  store a_queue @10
+  b__slot = alloca<i32[8]> scratch()
+  b_queue = alloca<(Queue_b*)> scratch()
+  @38 = make_struct<Queue_b>((u32)0, b__slot)
+  store b_queue @38
+  parfor i (i32)0:(i32)8:(i32)1 !par_body_0(values, out, a_acc_slots, a_rest_w, a_queue, a_ran, b_queue) a!drain(a_queue, values, a__slot, a_acc_slots, out, a_rest_w, a_ran, b_queue, b__slot)
+
+!par_body_0(i : i32, values : f32[8], out : f32[8], a_acc_slots : f32[8], a_rest_w : f32[8], a_queue : (Queue_a*), a_ran : u8[8], b_queue : (Queue_b*)): // preds: run
+  @8 = gep(a_acc_slots, i)
+  store @8 (f32)0
+  _t22 = extract_idx(values, i)
+  w = add(_t22, (f32)1)
+  @45 = mulhi(i, (i32)1431655766)
+  @46 = shr(@45, (i32)31)
+  @47 = reinterpret<u32>(@46)
+  @48 = shr(@47, (u32)31)
+  @49 = reinterpret<i32>(@48)
+  @50 = add(@45, @49)
+  @51 = mul(@50, (i32)3)
+  @2 = sub(i, @51)
+  @11 = gep(a_rest_w, i)
+  store @11 w
+  callc step(_t22, @2, @8, a_queue, i, b_queue, i) a!deferred(out, i, @8, w, a_ran, i)
+
+!par_cont_1(): // preds: a_rest!exit
+  ret
+
+!step_call_cont_2(out : f32[8], i : i32, acc : (f32*), w : f32): // preds: a!deferred
+  @3 = extract_idx(out, i)
+  @4 = load(acc)
+  @5 = add(@3, @4)
+  @6 = add(@5, w)
+  @7 = gep(out, i)
+  store @7 @6
+  yield
+
+a!deferred(@12 : bool, @13 : f32[8], @14 : i32, @15 : (f32*), @16 : f32, a_ran : u8[8], i : i32): // preds: !par_body_0
+  dispatch @12 [!step_call_cont_2(@13, @14, @15, @16), a!end(a_ran, i)]
+
+a!end(a_ran : u8[8], i : i32): // preds: a!deferred
+  @17 = gep(a_ran, i)
+  store @17 (u8)1
+  yield
+
+a!drain(a_queue : (Queue_a*), values : f32[8], a__slot : i32[8], a_acc_slots : f32[8], out : f32[8], a_rest_w : f32[8], a_ran : u8[8], b_queue : (Queue_b*), b__slot : i32[8]): // preds: run
+  @18 = load(a_queue)
+  @19 = load_field(@18, (u32)0)
+  parfor a (u32)0:@19:(u32)1 a!run(values, a__slot, a_acc_slots) a!exit(a_queue, out, a_acc_slots, a_rest_w, a_ran, b_queue, values, b__slot)
+
+a!run(a : u32, values : f32[8], a__slot : i32[8], a_acc_slots : f32[8]): // preds: a!drain
+  @20 = extract_idx(a__slot, a)
+  @21 = extract_idx(values, @20)
+  @22 = gep(a_acc_slots, @20)
+  call work_a(@21, @22) a!ran()
+
+a!ran(): // preds: a!run
+  yield
+
+a!exit(a_queue : (Queue_a*), out : f32[8], a_acc_slots : f32[8], a_rest_w : f32[8], a_ran : u8[8], b_queue : (Queue_b*), values : f32[8], b__slot : i32[8]): // preds: a!drain
+  @23 = field.ptr(a_queue, (u32)0)
+  store @23 (u32)0
+  jmp b!drain(b_queue, values, b__slot, a_acc_slots, out, a_rest_w, a_ran)
+
+!step_call_cont_2!rest(@29 : f32[8], @30 : i32, @31 : (f32*), @32 : f32): // preds: a_rest!run
+  @24 = extract_idx(@29, @30)
+  @25 = load(@31)
+  @26 = add(@24, @25)
+  @27 = add(@26, @32)
+  @28 = gep(@29, @30)
+  store @28 @27
+  yield
+
+a_rest(out : f32[8], a_acc_slots : f32[8], a_rest_w : f32[8], a_ran : u8[8]): // preds: b!exit
+  parfor a_rest (i32)0:(i32)8:(i32)1 a_rest!run(out, a_acc_slots, a_rest_w, a_ran) a_rest!exit()
+
+a_rest!run(a_rest : i32, out : f32[8], a_acc_slots : f32[8], a_rest_w : f32[8], a_ran : u8[8]): // preds: a_rest
+  @33 = gep(a_acc_slots, a_rest)
+  @34 = gep(a_rest_w, a_rest)
+  @35 = load(@34)
+  @36 = gep(a_ran, a_rest)
+  @37 = load(@36)
+  dispatch @37 [a_rest!skip(), !step_call_cont_2!rest(out, a_rest, @33, @35)]
+
+a_rest!exit(): // preds: a_rest
+  jmp !par_cont_1()
+
+a_rest!skip(): // preds: a_rest!run
+  yield
+
+b!drain(b_queue : (Queue_b*), values : f32[8], b__slot : i32[8], a_acc_slots : f32[8], out : f32[8], a_rest_w : f32[8], a_ran : u8[8]): // preds: a!exit
+  @39 = load(b_queue)
+  @40 = load_field(@39, (u32)0)
+  parfor b (u32)0:@40:(u32)1 b!run(values, b__slot, a_acc_slots) b!exit(b_queue, out, a_acc_slots, a_rest_w, a_ran)
+
+b!run(b : u32, values : f32[8], b__slot : i32[8], a_acc_slots : f32[8]): // preds: b!drain
+  @41 = extract_idx(b__slot, b)
+  @42 = extract_idx(values, @41)
+  @43 = gep(a_acc_slots, @41)
+  call work_b(@42, @43) b!ran()
+
+b!ran(): // preds: b!run
+  yield
+
+b!exit(b_queue : (Queue_b*), out : f32[8], a_acc_slots : f32[8], a_rest_w : f32[8], a_ran : u8[8]): // preds: b!drain
+  @44 = field.ptr(b_queue, (u32)0)
+  store @44 (u32)0
+  jmp a_rest(out, a_acc_slots, a_rest_w, a_ran)
+
+; --- step ---
+func step(x : f32, kind : i32, acc : (f32*), _queue_a : (Queue_a*), _slot_a : i32, _queue_b : (Queue_b*), _slot_b : i32): 
+  @0 = eq(kind, (i32)0)
+  dispatch @0 [!merge_1(kind, x, acc, _slot_b, _queue_b), !then_0(x, acc, _slot_a, _queue_a)]
+
+!then_0(x : f32, acc : (f32*), _slot_a : i32, _queue_a : (Queue_a*)): // preds: step
+  @2 = make_struct<Entry_a>(_slot_a)
+  defer _queue_a @2 ret (bool)1
+
+!merge_1(kind : i32, x : f32, acc : (f32*), _slot_b : i32, _queue_b : (Queue_b*)): // preds: step
+  @1 = eq(kind, (i32)1)
+  dispatch @1 [!merge_4(), !then_3(x, acc, _slot_b, _queue_b)]
+
+!then_3(x : f32, acc : (f32*), _slot_b : i32, _queue_b : (Queue_b*)): // preds: !merge_1
+  @3 = make_struct<Entry_b>(_slot_b)
+  defer _queue_b @3 ret (bool)1
+
+!merge_4(): // preds: !merge_1
+  ret (bool)0
+
+; --- work_a ---
+func work_a(x : f32, acc : (f32*)): 
+  @0 = mul(x, (f32)0.5)
+  acc.add acc @0
+  ret
+
+; --- work_b ---
+func work_b(x : f32, acc : (f32*)): 
+  @0 = mul(x, (f32)2)
+  acc.add acc @0
+  ret
+
+type Entry_a = struct Entry_a{ _slot : i32 }
+type Entry_b = struct Entry_b{ _slot : i32 }
+type Float = f32
+type Half = f16
+type Queue_a = struct Queue_a{ count : u32; _slot : i32[] }
+type Queue_b = struct Queue_b{ count : u32; _slot : i32[] }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func run(values : f32[8], out : mut f32[8]) -> void {
+  a_acc_slots : mut f32[8]
+  a_rest_w : mut f32[8]
+  a_ran : mut u8[8]
+  let @9 = fill_bytes(a_ran, 0u, 8) in
+  a__slot : mut i32[8]
+  a_queue : mut Queue_a
+  let @10 = build<Queue_a>(0u, a__slot) in
+  a_queue = @10
+  b__slot : mut i32[8]
+  b_queue : mut Queue_b
+  let @38 = build<Queue_b>(0u, b__slot) in
+  b_queue = @38
+  parfor i in [0:8:1] {
+    a_acc_slots[i] = 0f
+    let _t22 = values[i] in
+    let w = _t22 + 1f in
+    let @45 = mulhi(i, 1431655766) in
+    let @46 = @45 >> 31 in
+    let @47 = reinterpret_cast<u32>(@46) in
+    let @48 = @47 >> 31u in
+    let @49 = reinterpret_cast<i32>(@48) in
+    let @50 = @45 + @49 in
+    let @51 = @50 * 3 in
+    let @2 = i - @51 in
+    a_rest_w[i] = w
+    let @12 = step(_t22, @2, (&a_acc_slots[i]), a_queue, i, b_queue, i) in
+    let @13 = out in
+    let @14 = i in
+    let @15 = (&a_acc_slots[i]) in
+    let @16 = w in
+    if (@12) {
+      a_ran[i] = 1u
+      continue
+    } else {
+      let acc = (&a_acc_slots[i]) in
+      let @3 = out[i] in
+      let @4 = (*acc) in
+      let @5 = @3 + @4 in
+      let @6 = @5 + w in
+      out[i] = @6
+      continue
+    }
+  }
+  let @18 = (*a_queue) in
+  let @19 = @18.count in
+  parfor a in [0u:@19:1u] {
+    let @20 = a__slot[a] in
+    let @21 = values[@20] in
+    work_a(@21, (&a_acc_slots[@20]))
+    continue
+  }
+  a_queue.count = 0u
+  let @39 = (*b_queue) in
+  let @40 = @39.count in
+  parfor b in [0u:@40:1u] {
+    let @41 = b__slot[b] in
+    let @42 = values[@41] in
+    work_b(@42, (&a_acc_slots[@41]))
+    continue
+  }
+  b_queue.count = 0u
+  parfor a_rest in [0:8:1] {
+    let @35 = a_rest_w[a_rest] in
+    let @37 = a_ran[a_rest] in
+    switch (@37) {
+    case 0: {
+      continue
+    } break;
+    default: {
+      let @29 = out in
+      let @30 = a_rest in
+      let @31 = (&a_acc_slots[a_rest]) in
+      let @32 = @35 in
+      let @24 = @29[@30] in
+      let @25 = (*@31) in
+      let @26 = @24 + @25 in
+      let @27 = @26 + @32 in
+      @29[@30] = @27
+      continue
+    }
+    }
+  }
+  return
+}
+
+func step(x : f32, kind : i32, acc : mut (f32*), _queue_a : mut (Queue_a*), _slot_a : i32, _queue_b : mut (Queue_b*), _slot_b : i32) -> bool {
+  let @0 = kind == 0 in
+  if (@0) {
+    let @2 = build<Entry_a>(_slot_a) in
+    let @7 = atomic_add((&(*_queue_a).count), 1u) in
+    let @9 = (*_queue_a)._slot in
+    @9[@7] = _slot_a
+    return true
+  } else {
+    let @1 = kind == 1 in
+    if (@1) {
+      let @3 = build<Entry_b>(_slot_b) in
+      let @12 = atomic_add((&(*_queue_b).count), 1u) in
+      let @14 = (*_queue_b)._slot in
+      @14[@12] = _slot_b
+      return true
+    } else {
+      return false
+    }
+  }
+}
+
+func work_a(x : f32, acc : mut (f32*)) -> void {
+  let @0 = x * 0.5f in
+  acc += @0
+  return
+}
+
+func work_b(x : f32, acc : mut (f32*)) -> void {
+  let @0 = x * 2f in
+  acc += @0
+  return
+}
+
+
+schedule {
+    a = run.queue(root);
+    b = run.queue(root);
+    step.defer(work_a, a)
+        .defer(work_b, b)
+
+}

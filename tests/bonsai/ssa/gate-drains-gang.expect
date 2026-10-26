@@ -55,14 +55,14 @@ func run(values : f32[40], wet : bool, out : mut f32[40], surface_arms : u64) ->
   hits!Fuzz_s_payload_x : mut u32[40]
   hits!Fuzz__slot : mut i32[40]
   hits_queue : mut Queue_hits[2]
-  let @4 = build<Queue_hits>(0u, undef, hits!Matte_s_payload_x, hits!Matte__slot) in
-  hits_queue[0u] = @4
-  let @6 = build<Queue_hits>(0u, undef, hits!Fuzz_s_payload_x, hits!Fuzz__slot) in
-  hits_queue[1u] = @6
+  let @5 = build<Queue_hits>(0u, undef, hits!Matte_s_payload_x, hits!Matte__slot) in
+  hits_queue[0u] = @5
+  let @7 = build<Queue_hits>(0u, undef, hits!Fuzz_s_payload_x, hits!Fuzz__slot) in
+  hits_queue[1u] = @7
   mists__slot : mut i32[40]
   mists_queue : mut Queue_mists
-  let @43 = build<Queue_mists>(0u, mists__slot) in
-  mists_queue = @43
+  let @59 = build<Queue_mists>(0u, mists__slot) in
+  mists_queue = @59
   soaks_x : mut f32[40]
   soaks__slot : mut i32[40]
   soaks_queue : mut Queue_soaks
@@ -72,81 +72,81 @@ func run(values : f32[40], wet : bool, out : mut f32[40], surface_arms : u64) ->
     step(@0, wet, (&hits_total_slots[i]), hits_queue, i, mists_queue, i)
     continue
   }
-  let @9 = hits_queue[0u] in
-  let @10 = @9.count in
-  let @52 = build<Queue_soaks>(0u, soaks_x, soaks__slot) in
-  soaks_queue = @52
-  let @95 = surface_arms >> 0u in
-  let @96 = @95 & 1u in
-  let @97 = @96 != 0u in
-  if (@97) {
-    parfor hits_gang!Matte in [0u:@10:16u] {
-      let @62 = @10 in
-      let @85 = u32x16(@62) in
-      let @64 = ramp(hits_gang!Matte, 1u, 16) < @85 in
-      let @81 = reduce<any>(@64) in
-      if (@81) {
-        let @14 = hits_queue[0u].s_payload_x in
-        let @15 = masked_extract(@14[ramp(hits_gang!Matte, 1u, 16)], @64) in
-        let @83 = build<[[packed]] u32x1$v16>(@15) in
-        let @89 = u8x16(0u) in
-        let @94 = build<[[packed]] u8x3$v16>(@89, @89, @89) in
-        let @17 = build<Surface$v16>(undef, @94, @83) in
-        let @19 = hits_queue[0u]._slot in
-        let @20 = masked_extract(@19[ramp(hits_gang!Matte, 1u, 16)], @64) in
-        let @21 = masked_extract(values[@20], @64) in
-        shade!Matte$gang16_v0_v1_v2_v4$masked(@17, @21, (&hits_total_slots[@20]), soaks_queue, @20, @64)
+  let @15 = hits_queue[0u] in
+  let @16 = @15.count in
+  let @68 = build<Queue_soaks>(0u, soaks_x, soaks__slot) in
+  soaks_queue = @68
+  let @111 = surface_arms >> 0u in
+  let @112 = @111 & 1u in
+  let @113 = @112 != 0u in
+  if (@113) {
+    parfor hits_gang!Matte in [0u:@16:16u] {
+      let @78 = @16 in
+      let @101 = u32x16(@78) in
+      let @80 = ramp(hits_gang!Matte, 1u, 16) < @101 in
+      let @97 = reduce<any>(@80) in
+      if (@97) {
+        let @20 = hits_queue[0u].s_payload_x in
+        let @21 = masked_extract(@20[ramp(hits_gang!Matte, 1u, 16)], @80) in
+        let @99 = build<[[packed]] u32x1$v16>(@21) in
+        let @105 = u8x16(0u) in
+        let @110 = build<[[packed]] u8x3$v16>(@105, @105, @105) in
+        let @23 = build<Surface$v16>(undef, @110, @99) in
+        let @25 = hits_queue[0u]._slot in
+        let @26 = masked_extract(@25[ramp(hits_gang!Matte, 1u, 16)], @80) in
+        let @27 = masked_extract(values[@26], @80) in
+        shade!Matte$gang16_v0_v1_v2_v4$masked(@23, @27, (&hits_total_slots[@26]), soaks_queue, @26, @80)
       }
       continue
     }
   }
-  let @24 = hits_queue[1u] in
-  let @25 = @24.count in
-  let @98 = surface_arms >> 1u in
-  let @99 = @98 & 1u in
-  let @100 = @99 != 0u in
-  if (@100) {
-    parfor hits_gang!Fuzz in [0u:@25:16u] {
-      let @59 = @25 in
-      let @70 = u32x16(@59) in
-      let @61 = ramp(hits_gang!Fuzz, 1u, 16) < @70 in
-      let @66 = reduce<any>(@61) in
-      if (@66) {
-        let @29 = hits_queue[1u].s_payload_x in
-        let @30 = masked_extract(@29[ramp(hits_gang!Fuzz, 1u, 16)], @61) in
-        let @68 = build<[[packed]] u32x1$v16>(@30) in
-        let @74 = u8x16(0u) in
-        let @79 = build<[[packed]] u8x3$v16>(@74, @74, @74) in
-        let @32 = build<Surface$v16>(undef, @79, @68) in
-        let @34 = hits_queue[1u]._slot in
-        let @35 = masked_extract(@34[ramp(hits_gang!Fuzz, 1u, 16)], @61) in
-        let @36 = masked_extract(values[@35], @61) in
-        shade!Fuzz$gang16_v0_v1_v2_v4$masked(@32, @36, (&hits_total_slots[@35]), soaks_queue, @35, @61)
+  let @30 = hits_queue[1u] in
+  let @31 = @30.count in
+  let @114 = surface_arms >> 1u in
+  let @115 = @114 & 1u in
+  let @116 = @115 != 0u in
+  if (@116) {
+    parfor hits_gang!Fuzz in [0u:@31:16u] {
+      let @75 = @31 in
+      let @86 = u32x16(@75) in
+      let @77 = ramp(hits_gang!Fuzz, 1u, 16) < @86 in
+      let @82 = reduce<any>(@77) in
+      if (@82) {
+        let @35 = hits_queue[1u].s_payload_x in
+        let @36 = masked_extract(@35[ramp(hits_gang!Fuzz, 1u, 16)], @77) in
+        let @84 = build<[[packed]] u32x1$v16>(@36) in
+        let @90 = u8x16(0u) in
+        let @95 = build<[[packed]] u8x3$v16>(@90, @90, @90) in
+        let @38 = build<Surface$v16>(undef, @95, @84) in
+        let @40 = hits_queue[1u]._slot in
+        let @41 = masked_extract(@40[ramp(hits_gang!Fuzz, 1u, 16)], @77) in
+        let @42 = masked_extract(values[@41], @77) in
+        shade!Fuzz$gang16_v0_v1_v2_v4$masked(@38, @42, (&hits_total_slots[@41]), soaks_queue, @41, @77)
       }
       continue
     }
   }
   hits_queue[0u].count = 0u
   hits_queue[1u].count = 0u
-  let @44 = (*mists_queue) in
-  let @45 = @44.count in
+  let @60 = (*mists_queue) in
+  let @61 = @60.count in
   if (wet) {
-    parfor mists in [0u:@45:1u] {
-      let @46 = mists__slot[mists] in
-      let @47 = values[@46] in
-      mist(@47, (&hits_total_slots[@46]), soaks_queue, @46)
+    parfor mists in [0u:@61:1u] {
+      let @62 = mists__slot[mists] in
+      let @63 = values[@62] in
+      mist(@63, (&hits_total_slots[@62]), soaks_queue, @62)
       continue
     }
   }
-  let @53 = (*soaks_queue) in
-  let @54 = @53.count in
-  let @104 = wet || @100 in
-  let @108 = @104 || @97 in
-  if (@108) {
-    parfor soaks in [0u:@54:1u] {
-      let @55 = soaks_x[soaks] in
-      let @56 = soaks__slot[soaks] in
-      soak(@55, (&hits_total_slots[@56]))
+  let @69 = (*soaks_queue) in
+  let @70 = @69.count in
+  let @120 = wet || @116 in
+  let @124 = @120 || @113 in
+  if (@124) {
+    parfor soaks in [0u:@70:1u] {
+      let @71 = soaks_x[soaks] in
+      let @72 = soaks__slot[soaks] in
+      soak(@71, (&hits_total_slots[@72]))
       continue
     }
   }

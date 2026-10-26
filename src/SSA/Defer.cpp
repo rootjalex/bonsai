@@ -11,6 +11,7 @@
 #include "SSA/SSA.h"
 #include "SSA/Simplify.h"
 #include "SSA/Specialize.h"
+#include "SSA/Stage.h"
 #include "SSA/Storage.h"
 
 #include "IR/Expr.h"
@@ -1140,7 +1141,8 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             if (call == nullptr || call->call.name != callee_name) {
                 continue;
             }
-            internal_assert(is_tail_call(*call, gmap))
+            internal_assert(is_tail_call(*call, gmap) ||
+                            returns_chain_answer(funcs, g, *call, gmap))
                 << what << ": the call to " << callee_name << " in "
                 << block->name << " of " << g << " is not in tail position; "
                 << "a call pushed onto a queue has to be the last thing its "
@@ -1161,7 +1163,11 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
         const auto &site = sites[s];
         const auto &call = std::get<Terminator::Call>(site->terminator.data);
-        internal_assert(is_tail_call(call, fmap))
+        // (A continuation that only answers for a chain an earlier deferral
+        // made report is replaced by this deferral's own answer: in tail
+        // position for its purposes, SSA/Stage.h returns_chain_answer.)
+        internal_assert(is_tail_call(call, fmap) ||
+                        returns_chain_answer(funcs, func_name, call, fmap))
             << what << ": the call to " << callee_name << " in " << site->name
             << " is not in tail position -- " << func_name << " does more "
             << (call.drop ? "after the call" : "with its result")
@@ -1436,12 +1442,61 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
     }
 
+    // An earlier deferral through this chain whose chain reports whether it
+    // deferred (Function::OwnedQueue::Reporting, set below): the owner's
+    // call into the chain is then that deferral's dispatch on the answer,
+    // `<q>!deferred`, and this deferral composes with it rather than
+    // building a dispatch of its own -- its push answers "deferred" as the
+    // chain's other pushes do, its drain is chained after the earlier one's
+    // and before that deferral's pass, and the rest of the owner's iteration
+    // stays that pass's. The functions that deferral retyped to return the
+    // answer (`prior->functions`) keep their type here and are not rewritten
+    // again. And once this deferral leaves no path of the chain that
+    // returns without deferring, the reporting is undone at the end
+    // (undo_prior, below): the program comes out as it would had the chain
+    // never reported (the user, 10-26: the Defer pass undoes the "did I
+    // push?" reporting when all paths push).
+    string prior_queue;
+    std::optional<Function::OwnedQueue::Reporting> prior;
+    for (const auto &[h, calls] : calls_into) {
+        for (const CallSite &cs : calls) {
+            if (cs.caller != queue.owner) {
+                continue;
+            }
+            for (const auto &[qname, owned] : O->queue_sizes) {
+                if (owned.reporting && owned.reporting->decide == cs.call()->cont.name) {
+                    prior_queue = qname;
+                    prior = owned.reporting;
+                }
+            }
+        }
+    }
+    internal_assert(!prior || !queue.initial_push)
+        << what << ": the owner's own first push onto " << queue.name
+        << " through a chain that reports for " << prior_queue;
+    internal_assert(!prior || !prior->functions.contains(callee_name))
+        << what << ": " << callee_name << " is on the owner's side of "
+        << prior_queue << "'s deferral and reports for it; deferring it onto "
+        << queue.name << " too is not built";
+    const auto in_prior = [&](const string &g) {
+        return prior.has_value() && prior->functions.contains(g);
+    };
+    set<const Function *> prior_functions; // the same, by the functions themselves
+    if (prior) {
+        for (const string &g : prior->functions) {
+            prior_functions.insert(funcs.at(g).get());
+        }
+    }
+
     // What flows back up the chain is one type: the callee's return type.
     // For a spawned call nothing flows up: a spawned function returns
     // nothing, and reports through the reducers it is handed.
     const Type ret_type = C->ret_type;
     if (!spawned) {
         for (const string &g : chain) {
+            if (in_prior(g)) {
+                continue; // returns the earlier deferral's answer
+            }
             internal_assert(equals(funcs.at(g)->ret_type, ret_type))
                 << what << ": " << g << " returns " << funcs.at(g)->ret_type
                 << " where " << callee_name << " returns " << ret_type
@@ -1510,8 +1565,16 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     for (const string &g : owner_side) {
         owner_side_functions.insert(funcs.at(g).get());
     }
+    // With an earlier deferral's reporting in place, the functions it
+    // retyped are walked too, since a plain return left in any of them
+    // keeps the reporting needed; a call into one of them is a call into
+    // the chain for this walk, since its own paths are walked.
     bool chain_conditional = false;
-    for (const string &g : owner_side) {
+    set<string> walked = owner_side;
+    if (prior) {
+        walked.insert(prior->functions.begin(), prior->functions.end());
+    }
+    for (const string &g : walked) {
         if (spawned || chain_conditional) {
             break;
         }
@@ -1529,10 +1592,12 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             const Terminator::Jump *called = block.terminator.callee();
             if (called != nullptr &&
                 (chain.contains(called->name) || called->name == callee_name ||
+                 in_prior(called->name) ||
                  queue.deferred_elsewhere.contains(called->name))) {
-                // Into the chain, the deferred call itself, or a call another
-                // directive defers: a push onto some queue, not a return
-                // without deferring.
+                // Into the chain, the deferred call itself, a function of
+                // the reporting chain (walked itself), or a call a `stage`
+                // of the schedule cuts at: a push onto some queue, not a
+                // return without deferring.
                 continue;
             }
             if (std::holds_alternative<Terminator::Return>(block.terminator.data)) {
@@ -1543,6 +1608,11 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             }
         }
     }
+
+    // Whether this deferral undoes the earlier one's reporting: no path of
+    // the chain -- the earlier deferral's functions included -- returns
+    // without deferring once this deferral's calls are pushes.
+    const bool undo_prior = prior.has_value() && !chain_conditional;
 
     //===----------------------------------------------------------------===//
     // The producer: the owner's call into the chain, and the loop around it
@@ -1816,7 +1886,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     shared_ptr<Block> k0_entry;
     vector<shared_ptr<Block>> k0;
     size_t result_args = pcall.drop ? 0 : 1;
-    if (producers.size() == 1) {
+    // With an earlier deferral's dispatch as the call's continuation, the
+    // rest of the iteration is that deferral's pass's; this one has none.
+    if (producers.size() == 1 && !prior) {
         k0_entry = omap.at(pcall.cont.name);
         internal_assert(k0_entry->preds.size() == 1)
             << what << ": the continuation " << k0_entry->name << " of the call in "
@@ -1997,6 +2069,11 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // set at the owner's dispatch rather than at the call.
     const bool reports =
         chain_conditional && !spawned && !queue.initial_push && rest_pass;
+    // What the reporting alone makes, for a later deferral's undo: the
+    // record's byte, when every iteration reaches the call anyway, and the
+    // copy of the continuation, when it rejoins no other path.
+    const bool byte_for_reporting = reports && call_on_every_iteration;
+    const bool copy_for_reporting = reports && !k0_rejoins;
     if (reports) {
         k0_rejoins = true;
         call_on_every_iteration = false;
@@ -2037,6 +2114,17 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         return block->make_instruction(
             answer_t, Instruction::Op::MakeStruct,
             {value, std::make_shared<Value>(Constant{Bool_t::make(), true})});
+    };
+    // The answer "deferred" in the earlier deferral's terms, for a push this
+    // deferral makes in a function of its reporting chain.
+    const auto prior_answer_deferred = [&](const shared_ptr<Block> &block) -> shared_ptr<Value> {
+        if (!prior->returns_value) {
+            return std::make_shared<Value>(Constant{Bool_t::make(), true});
+        }
+        return block->make_instruction(
+            prior->answer, Instruction::Op::MakeStruct,
+            {undef_value(prior->value),
+             std::make_shared<Value>(Constant{Bool_t::make(), false})});
     };
     for (const auto &block : k0) {
         const auto *callee = block->terminator.callee();
@@ -3365,6 +3453,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // never begins the innermost iterations of its slots, and their bytes
     // would hold what the last owner iteration left.
     shared_ptr<Value> ran_array;
+    shared_ptr<Instruction> byte_fill; // the fill that clears it, for the undo
     if (rest_pass && !call_on_every_iteration) {
         ran_array = stored_in(header_memory,
                               scratch(queue.name,
@@ -3381,6 +3470,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
              reach(init_point, size)});
         std::get<shared_ptr<Instruction>>(cleared->data)->intrinsic =
             ir::Intrinsic::fill_bytes;
+        byte_fill = std::get<shared_ptr<Instruction>>(cleared->data);
     }
     // The iteration's index into the record, at the producer's call, and the
     // path's result slot there: the value the producer's continuation reads
@@ -4626,10 +4716,12 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             index_of[k][g] = entry.add_argument(
                 Argument{fields[slot_groups[k].field].type, slot_groups[k].param});
         }
-        if (!spawned) {
+        if (!spawned && !in_prior(g)) {
             // Nothing comes back up a chain -- or, when the chain reports
             // whether it deferred, the answer does, on the owner's side of
-            // the deferral; what the drain alone runs returns nothing.
+            // the deferral; what the drain alone runs returns nothing. (A
+            // function of an earlier deferral's reporting chain keeps the
+            // answer it returns for it.)
             gf.ret_type =
                 reports && owner_side.contains(g) ? answer_t : Void_t::make();
         }
@@ -4661,6 +4753,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             }
             if (spawned) {
                 continue; // the queue goes down; the value comes up as it did
+            }
+            if (in_prior(cs.caller)) {
+                continue; // returns the earlier deferral's answer onward already
             }
             if (reports && owner_side.contains(cs.caller)) {
                 // The answer comes back up: the continuation's first
@@ -4703,6 +4798,9 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     for (const string &g : chain) {
         if (spawned) {
             break; // the chain returns what it returned
+        }
+        if (in_prior(g)) {
+            continue; // its returns answer the earlier deferral's owner already
         }
         for (const auto &block : funcs.at(g)->blocks) {
             auto *ret = std::get_if<Terminator::Return>(&block->terminator.data);
@@ -4778,6 +4876,10 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                                             /*yields=*/fn.get() == O.get()};
                     if (reports && owner_side_functions.contains(fn.get())) {
                         defer.answer = answer_deferred(at);
+                    } else if (prior_functions.contains(fn.get())) {
+                        // A push in a function of the earlier deferral's
+                        // reporting chain answers "deferred" as its others do.
+                        defer.answer = prior_answer_deferred(at);
                     }
                     at->terminator.data = std::move(defer);
                     finish(at, nullptr, constant_u32(which));
@@ -5102,6 +5204,13 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
     // UpdateFilm reads pixelSampleState after the last bounce). What that
     // rest needs of the iteration is written into the record first.
     shared_ptr<Block> end; // where the producer's iteration ends now
+    // What a reporting chain's owner gets, kept for a later deferral's undo
+    // (Function::OwnedQueue::Reporting, at the end): the dispatch on the
+    // answer, the pass's gate on the byte and the copy of the continuation
+    // it runs, beside the original.
+    shared_ptr<Block> decide;
+    shared_ptr<Block> pass_run, pass_skip;
+    shared_ptr<Block> rest_copy_entry, rest_original_entry;
     if (producers.size() > 1) {
         // Each producer hands the queue down and goes on; nothing comes back
         // for it to act on: each is a drain whose iteration ends at its call
@@ -5147,7 +5256,17 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         // exists. The continuation the call had is the pass's now. A spawned
         // call's producer still has the call's value at once, and puts it
         // in the record for the pass.
-        if (join_block) {
+        if (prior && !undo_prior) {
+            // The owner's call stays the earlier deferral's dispatch on the
+            // answer: this deferral's pushes answer through it, and the
+            // iteration ends where that deferral ended it. Nothing of the
+            // call's shape is this deferral's to build.
+            internal_assert(producer_loop_block)
+                << "[unimplemented] " << what << ": " << queue.owner
+                << " makes the one call into a chain that reports for "
+                << prior_queue << " outside a loop; the drain of " << queue.name
+                << " has no iteration's end to follow.";
+        } else if (join_block) {
             // A spawned call's producer runs on in place to its `join;` and
             // is suspended there (join_block, above): the join's block goes
             // to `end`, and the call keeps its continuation and its value.
@@ -5174,7 +5293,7 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
             // continuation's copy for the slots whose byte is set
             // (k0_rejoins, above).
             pcall.drop = false;
-            auto decide = fresh_block(prefix + "deferred");
+            decide = fresh_block(prefix + "deferred");
             auto answer = decide->add_argument(Argument{answer_t, O->get_unique_name()});
             vector<shared_ptr<Value>> through;
             for (const auto &arg : pcall.cont.args) {
@@ -5910,6 +6029,8 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                     O->blocks.push_back(copies.at(block->name));
                 }
                 rest_entry = copies.at(k0_entry->name);
+                rest_copy_entry = rest_entry;
+                rest_original_entry = k0_entry;
                 // The copy's block arguments take fresh names too. A block's
                 // argument is named after the value it carries in, and
                 // clone_region keeps such names (the value is defined
@@ -6100,6 +6221,8 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
                 auto skip = fresh_block(rest_name + "!skip");
                 skip->terminator.data = Terminator::Yield{};
                 skip->preds = {run};
+                pass_run = run;
+                pass_skip = skip;
                 run->terminator.data = Terminator::Dispatch{
                     std::move(ran),
                     {Terminator::Jump{skip->name},
@@ -6120,11 +6243,148 @@ vector<Type> defer(FuncMap &funcs, const string &func_name,
         }
     }
 
+    // The reporting this deferral built, kept on the owner's queue for a
+    // later deferral through the chain to compose with and, once no path of
+    // the chain returns without deferring, to undo.
+    if (reports) {
+        auto &r = O->queue_sizes.at(queue.name).reporting.emplace();
+        r.decide = decide->name;
+        r.end = end->name;
+        if (pass_run) {
+            r.pass_run = pass_run->name;
+            r.pass_skip = pass_skip->name;
+        }
+        if (copy_for_reporting && rest_copy_entry) {
+            r.rest_copy = rest_copy_entry->name;
+            r.rest_original = rest_original_entry->name;
+        }
+        if (byte_for_reporting) {
+            r.byte = ran_array;
+            r.byte_fill = byte_fill;
+        }
+        r.functions = owner_side;
+        r.answer = answer_t;
+        r.value = ret_type;
+        r.returns_value = returns_value;
+    }
+
+    // The undo of the earlier deferral's reporting (undo_prior): every path
+    // of the chain now defers, so the chain's answer is always "deferred"
+    // and the owner's dispatch on it, the record's byte and the copy of the
+    // continuation are for nothing. The owner's call was made plain above
+    // (the branch that makes `<q>!end` and drops the value), which leaves
+    // the dispatch unreachable, and the byte's store with it; here the
+    // pass's gate on the byte goes, the pass runs the continuation itself
+    // rather than its copy, the byte's allocation and fill go, the chain's
+    // functions return nothing again, and every call that took the answer
+    // drops it. The dead block arguments the byte and the answer were
+    // threaded through are removed once the dead instructions are
+    // (remove_dead_arguments, after the simplify below).
+    if (undo_prior) {
+        const Function::OwnedQueue::Reporting &p = *prior;
+        const BlockMap umap = make_block_map(O);
+        internal_assert(!p.pass_run.empty())
+            << what << ": " << prior_queue << " reports with no gate on its pass";
+        const shared_ptr<Block> run = umap.at(p.pass_run);
+        auto *gate = std::get_if<Terminator::Dispatch>(&run->terminator.data);
+        internal_assert(gate != nullptr && gate->targets.size() == 2 &&
+                        gate->targets[0].name == p.pass_skip)
+            << what << ": " << p.pass_run << " of " << queue.owner
+            << " is not the dispatch on " << prior_queue << "'s byte";
+        Terminator::Jump rest = gate->targets[1];
+        // The byte's read the gate made, and its address: a load is not
+        // pure, so the simplifier would keep it, and the byte's argument
+        // with it, were it left.
+        if (const auto *ld = std::get_if<shared_ptr<Instruction>>(&gate->cond->data)) {
+            const shared_ptr<Instruction> load = *ld;
+            shared_ptr<Instruction> address;
+            if (!load->operands.empty()) {
+                if (const auto *g = std::get_if<shared_ptr<Instruction>>(&load->operands[0]->data)) {
+                    address = *g;
+                }
+            }
+            std::erase(run->instrs, load);
+            if (address) {
+                std::erase(run->instrs, address);
+            }
+        }
+        if (!p.rest_copy.empty()) {
+            internal_assert(rest.name == p.rest_copy)
+                << what << ": the pass of " << prior_queue << " runs " << rest.name
+                << ", not the copy " << p.rest_copy;
+            rest.name = p.rest_original;
+            // The original ended the producer's iteration; in the pass a
+            // return of the function's is a yield of the loop's, as the
+            // copy's were made.
+            for (const auto &block : region_from(*O, p.rest_original)) {
+                if (std::holds_alternative<Terminator::Return>(block->terminator.data)) {
+                    block->terminator.data = Terminator::Yield{};
+                }
+            }
+        }
+        run->terminator.data = std::move(rest);
+        const auto erase_instruction = [&](const shared_ptr<Instruction> &instr) {
+            for (const auto &block : O->blocks) {
+                std::erase(block->instrs, instr);
+            }
+        };
+        if (p.byte) {
+            if (const auto *alloc = std::get_if<shared_ptr<Instruction>>(&p.byte->data)) {
+                erase_instruction(*alloc);
+            }
+            if (p.byte_fill) {
+                erase_instruction(p.byte_fill);
+            }
+            std::erase_if(O->induced, [&](const Function::InducedStorage &s) {
+                return s.handle == prior_queue + ".ran";
+            });
+        }
+        for (const string &g : p.functions) {
+            Function &gf = *funcs.at(g);
+            gf.ret_type = Void_t::make();
+            for (const auto &block : gf.blocks) {
+                if (auto *ret = std::get_if<Terminator::Return>(&block->terminator.data)) {
+                    ret->value = nullptr;
+                } else if (auto *d = std::get_if<Terminator::Defer>(&block->terminator.data)) {
+                    d->answer = nullptr;
+                }
+            }
+        }
+        for (auto &[fname, f] : funcs) {
+            for (const auto &block : f->blocks) {
+                auto *c = std::get_if<Terminator::Call>(&block->terminator.data);
+                if (c == nullptr || c->drop || !p.functions.contains(c->call.name)) {
+                    continue;
+                }
+                // The answer came back as the continuation's first
+                // argument; nothing comes back now.
+                const BlockMap fmap = make_block_map(f);
+                const shared_ptr<Block> cont = fmap.at(c->cont.name);
+                internal_assert(!cont->args.empty())
+                    << what << ": " << fname << " takes " << c->call.name
+                    << "'s answer in " << cont->name << ", which has no argument";
+                c->drop = true;
+                cont->lookups.erase(cont->args.front().name);
+                cont->args.erase(cont->args.begin());
+            }
+        }
+        O->queue_sizes.at(prior_queue).reporting.reset();
+    }
+
     refresh_preds(*O);
     remove_unreachable_blocks(*O);
     // What was built by rule is looked at once: a field read twice, a
     // comparison of constants (see SSA/Simplify.h).
     simplify(*O);
+    if (undo_prior) {
+        remove_dead_arguments(*O);
+        simplify(*O);
+        for (const string &g : prior->functions) {
+            if (!chain.contains(g)) {
+                simplify(*funcs.at(g));
+            }
+        }
+    }
     for (const string &g : chain) {
         simplify(*funcs.at(g));
     }

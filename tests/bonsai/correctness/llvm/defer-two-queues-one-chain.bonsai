@@ -10,11 +10,13 @@
 // twice -- or once with the reducer incomplete -- comes out wrong instead of
 // being hidden by an idempotent store. Each deferred call is in tail
 // position, `work(..); return;`, so neither deferral carries a continuation
-// of `step`'s own. Today this composes because the first directive reads
-// the second off the schedule (QueueSpec::deferred_elsewhere: a call to
-// `work_b` counts as a push, so the chain does not report); the shape must
-// survive that shortcut's removal (defer-two-queues-and-a-return, the case
-// with a plain return besides, is where the composition is still missing).
+// of `step`'s own. Until 10-26 this composed because the first directive
+// read the second off the schedule (QueueSpec::deferred_elsewhere: a call
+// to `work_b` counted as a push, so the chain did not report); now the
+// first directive makes the chain report, and the second, leaving no path
+// that returns without deferring, undoes the reporting (SSA/Defer.cpp,
+// undo_prior) -- the same values either way (defer-two-queues-and-a-return
+// is the case with a plain return besides, where the reporting stays).
 //
 // out starts at 100. Even i (values 1, 3, 5, 7) are wet: acc = v/2. Odd i
 // (values 2, 4, 6, 8) are dry: acc = 2v. out[i] = 100 + acc + (v + 1):

@@ -7,6 +7,7 @@ add_bonsai_tests(
     defer-conditional-in-chain-value.bonsai
     defer-conditional-in-chain-deep.bonsai
     defer-two-queues-one-chain.bonsai
+    defer-two-queues-and-a-return.bonsai
     defer-answer-owner-side.bonsai
     defer-initial-push.bonsai
     defer-terminator.bonsai

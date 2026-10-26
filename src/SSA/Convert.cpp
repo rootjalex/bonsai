@@ -3297,18 +3297,19 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
                         for (size_t h = 1; h < holders.size(); h++) {
                             spec.also_from.push_back(holders[h]);
                         }
-                        // Every callee another directive defers or stages
+                        // Every callee a `stage` of the schedule cuts at
                         // (QueueSpec::deferred_elsewhere): a call to one is
                         // a push onto that queue, not a return without
-                        // deferring, for whether this chain reports.
+                        // deferring, for whether this chain reports. The
+                        // callees of the other `defer`s are no longer read
+                        // here (the user, 10-25: no shortcut): a second
+                        // deferral through a reporting chain composes with
+                        // the reporting it finds and undoes it once every
+                        // path defers (SSA/Defer.cpp, undo_prior).
                         for (const auto &[fn_name, ts] : transforms) {
                             for (const ir::Transform &t : ts) {
-                                if (const auto *other = std::get_if<ir::Defer>(&t);
-                                    other != nullptr && !other->callee.names.empty() &&
-                                    other->callee.names.back() != callee) {
-                                    spec.deferred_elsewhere.insert(other->callee.names.back());
-                                } else if (const auto *st = std::get_if<ir::Stage>(&t);
-                                           st != nullptr && !st->callee.names.empty()) {
+                                if (const auto *st = std::get_if<ir::Stage>(&t);
+                                    st != nullptr && !st->callee.names.empty()) {
                                     spec.deferred_elsewhere.insert(st->callee.names.back());
                                 }
                             }

@@ -9,10 +9,16 @@
 // dispatch, since no path can return to the owner without deferring; the
 // record keeps no `ran` byte; `b`'s drain is chained after `a`'s and before
 // the one pass over the record, `a_rest`, which runs the owner's
-// continuation for every slot once, after both drains. Today this shape
-// comes of the first directive reading the second off the schedule
-// (QueueSpec::deferred_elsewhere); it is the shape to keep when the second
-// directive composes with the first on its own.
+// continuation for every slot once, after both drains. Until 10-26 this
+// shape came of the first directive reading the second off the schedule
+// (QueueSpec::deferred_elsewhere, the shortcut); now the first directive
+// sees `step`'s plain return after `work_b` and makes the chain report,
+// and the second, finding the owner's call to be that dispatch and leaving
+// no path that returns without deferring, undoes the reporting
+// (SSA/Defer.cpp, undo_prior): the dispatch, the byte and the copied
+// continuation go, and the shape is this one. (The owner's loop body no
+// longer takes `out`, which only the continuation read: the undo's
+// dead-argument cleanup takes it with the byte.)
 import stdlib/numerics;
 
 func work_a(x : Float, acc : reduce(+) Float) -> void {

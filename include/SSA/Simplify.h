@@ -83,6 +83,19 @@ bool pure(const Instruction &in);
 // were read for the calls alone -- calls it for what it orphaned.
 void remove_dead(Function &func);
 
+// Removes every block argument nothing in its block reads -- not the entry
+// block's, which are the function's parameters -- and the value each jump
+// into the block passed for it, to a fixed point (a jump's operand may have
+// been the one use of the predecessor's own argument). A block reached by a
+// call's continuation keeps its first argument where the call's value lands
+// in it (Terminator::Call::drop false), and a loop's body keeps its index.
+// Not part of simplify(): a transform that leaves values threaded through
+// blocks for nothing -- the Defer pass undoing a chain's reporting, whose
+// byte and answer it had threaded into the owner's blocks -- calls it for
+// what it orphaned, after remove_dead() has taken the instructions that
+// read them.
+void remove_dead_arguments(Function &func);
+
 // Whether an instruction reads memory: a load through a pointer, or an
 // element read from an array -- which this form writes as extract_idx of the
 // array handle (or of the struct a dynamic array is lowered to), the same

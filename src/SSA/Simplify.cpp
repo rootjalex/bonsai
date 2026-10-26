@@ -2528,6 +2528,181 @@ void remove_dead(Function &func) {
     }
 }
 
+void remove_dead_arguments(Function &func) {
+    if (func.blocks.empty()) {
+        return;
+    }
+    for (;;) {
+        bool any = false;
+        for (size_t bi = 1; bi < func.blocks.size(); bi++) {
+            const std::shared_ptr<Block> &block = func.blocks[bi];
+            if (block->args.empty()) {
+                continue;
+            }
+            // The arguments the block reads: every operand of its
+            // instructions and its terminator that is an argument names
+            // one of its own (values from outside a block reach it as
+            // arguments; see Block::get_value).
+            std::set<std::string> read;
+            const auto note = [&](const ValuePtr &v) {
+                if (v == nullptr) {
+                    return;
+                }
+                if (const auto *a = std::get_if<Argument>(&v->data)) {
+                    read.insert(a->name);
+                }
+            };
+            const auto note_jump = [&](const Terminator::Jump &j) {
+                for (const auto &a : j.args) {
+                    note(a);
+                }
+            };
+            for (const auto &instr : block->instrs) {
+                for (const auto &o : instr->operands) {
+                    note(o);
+                }
+            }
+            std::visit(overloads{
+                           [](const std::monostate &) {},
+                           [&](const Terminator::Jump &j) { note_jump(j); },
+                           [&](const Terminator::Dispatch &d) {
+                               note(d.cond);
+                               for (const auto &t : d.targets) {
+                                   note_jump(t);
+                               }
+                           },
+                           [&](const Terminator::Return &r) { note(r.value); },
+                           [&](const Terminator::ParFor &p) {
+                               note(p.start);
+                               note(p.end);
+                               note(p.stride);
+                               note(p.capacity);
+                               note(p.queue_base);
+                               note(p.queue_slot);
+                               note(p.count_address);
+                               note_jump(p.body);
+                               note_jump(p.cont);
+                           },
+                           [](const Terminator::Yield &) {},
+                           [&](const Terminator::Call &c) {
+                               note_jump(c.call);
+                               note_jump(c.cont);
+                           },
+                           [&](const Terminator::Spawn &s) {
+                               note_jump(s.call);
+                               note_jump(s.cont);
+                           },
+                           [&](const Terminator::Join &j) { note_jump(j.next); },
+                           [&](const Terminator::Defer &d) {
+                               note(d.queue);
+                               note(d.entry);
+                               note(d.answer);
+                           },
+                           [&](const Terminator::MultiCall &m) {
+                               note_jump(m.call);
+                               note_jump(m.cont);
+                               for (const auto &vs : m.varying) {
+                                   for (const auto &v : vs) {
+                                       note(v);
+                                   }
+                               }
+                               for (const auto &k : m.keys) {
+                                   note(k);
+                               }
+                               for (const auto &k : m.conds) {
+                                   note(k);
+                               }
+                           },
+                       },
+                       block->terminator.data);
+            // The jumps into the block, each with where the block's
+            // arguments begin among what it passes: after the call's value
+            // for a call's continuation that takes one, after the index for
+            // a loop's body. A block some multi-call continues to is left
+            // alone.
+            struct Into {
+                Terminator::Jump *jump;
+                size_t offset;
+            };
+            std::vector<Into> into;
+            bool safe = true;
+            for (const auto &other : func.blocks) {
+                std::visit(overloads{
+                               [](std::monostate &) {},
+                               [&](Terminator::Jump &j) {
+                                   if (j.name == block->name) {
+                                       into.push_back({&j, 0});
+                                   }
+                               },
+                               [&](Terminator::Dispatch &d) {
+                                   for (auto &t : d.targets) {
+                                       if (t.name == block->name) {
+                                           into.push_back({&t, 0});
+                                       }
+                                   }
+                               },
+                               [](Terminator::Return &) {},
+                               [&](Terminator::ParFor &p) {
+                                   if (p.body.name == block->name) {
+                                       into.push_back({&p.body, 1});
+                                   }
+                                   if (p.cont.name == block->name) {
+                                       into.push_back({&p.cont, 0});
+                                   }
+                               },
+                               [](Terminator::Yield &) {},
+                               [&](Terminator::Call &c) {
+                                   if (c.cont.name == block->name) {
+                                       into.push_back({&c.cont, c.drop ? 0 : 1});
+                                   }
+                               },
+                               [&](Terminator::Spawn &s) {
+                                   if (s.cont.name == block->name) {
+                                       into.push_back({&s.cont, 0});
+                                   }
+                               },
+                               [&](Terminator::Join &j) {
+                                   if (j.next.name == block->name) {
+                                       into.push_back({&j.next, 0});
+                                   }
+                               },
+                               [](Terminator::Defer &) {},
+                               [&](Terminator::MultiCall &m) {
+                                   if (m.cont.name == block->name) {
+                                       safe = false;
+                                   }
+                               },
+                           },
+                           other->terminator.data);
+            }
+            size_t keep = 0;
+            for (const Into &in : into) {
+                if (in.jump->args.size() + in.offset != block->args.size()) {
+                    safe = false; // a jump this does not understand
+                }
+                keep = std::max(keep, in.offset);
+            }
+            if (!safe) {
+                continue;
+            }
+            for (size_t k = block->args.size(); k-- > keep;) {
+                if (read.contains(block->args[k].name)) {
+                    continue;
+                }
+                block->lookups.erase(block->args[k].name);
+                block->args.erase(block->args.begin() + k);
+                for (const Into &in : into) {
+                    in.jump->args.erase(in.jump->args.begin() + (k - in.offset));
+                }
+                any = true;
+            }
+        }
+        if (!any) {
+            return;
+        }
+    }
+}
+
 namespace {
 
 // The target a dispatch on the constant `v` takes, of `targets` of them:
