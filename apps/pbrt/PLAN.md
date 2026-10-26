@@ -17699,6 +17699,33 @@ and Lower/Trees.cpp taking a computed group as a run's element storage
 (`stored(tris, base + prim)` becoming arithmetic). The 10-19 range
 proposal is withdrawn.
 
+**Refined by the user ("make the GPU layout reference also take a holder
+as the second argument to a reference").** Not `holder` as a name in
+scope: the *reference* to an element of `tris` is the pair (holder,
+ordinal), since a triangle is unique only within its mesh -- the minimal
+bits naming a unique element, the rule references follow. pbrt's GPU
+reference is exactly the pair (`rec.mesh`, `optixGetPrimitiveIndex()`);
+its CPU reference is a row number into an array whose rows store the
+pair (`Triangle{meshIndex, triIndex}`). Two layouts of one reference:
+
+    group tris (h : Mesh, k : u32) { mesh = h.mesh; tri = k; };   // GPU: the pair, nothing stored
+    group tris[tCount] k : u32 { mesh : u32; tri : u32; };        // CPU: a row storing the pair
+
+What follows: the `group` index declaration takes a second component, the
+holder's reference, when the group is bound as a holder's set (general to
+every set a holder owns); the GPU side then needs no run -- no `base` in
+the hit record, no `first` in the Mesh arm -- since the record's holder
+and the primitive index are the reference as OptiX hands it over; a
+query's best-hit record carries the pair (two u32, minimal bits still)
+instead of the row and the holder it carries today; `stored(tris, ref)` in
+Lower/Trees.cpp is the computed fields of the pair, no load; the CPU
+layout keeps the row reference and the leaves' `range(tris, pOffset,
+nPrims)`. (b) is now: the two-component reference in the layout grammar,
+the computed group bound to a holder's set, trees/optix.bonsai written
+that way, and the tree lowering producing (holder, primitive index) as
+the reference and computing the element from it. To build after (a),
+when the user says go.
+
 **The composition built (10-26, landed as 190ffe86; apps/pbrt's gpu-optix
 schedule compiles and its render.o is byte for byte 99c5de0d's).** A
 deferral whose owner's call is an earlier deferral's
