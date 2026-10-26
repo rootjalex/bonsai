@@ -51,7 +51,10 @@ set -euo pipefail
 # ext_vector_type); RTQ_CPUS as above; RTQ_PAGES=4k maps the tree's storage
 # on plain pages instead of Embree's 2 MB ones (see rtq_hook.cpp, OsMemory);
 # RTQ_SKIP_CMAKE=1 runs the compiler as built, without rebuilding it first;
-# RTQ_METRICS=<file> compiles the program over that metrics file.
+# RTQ_METRICS=<file> compiles the program over that metrics file;
+# RTQ_KEEP=1 leaves the last schedule's rtq.bir, rtq.ll, rtq.h, rtq.o and
+# rtq.out under apps/rtq after the run, for reading the generated code and
+# profiling the driver (perf needs the binary the samples came from).
 if [[ "$(pwd)" == */apps/rtq ]]; then
   cd ../..
 fi
@@ -367,7 +370,9 @@ for SCHEDULE in "${SCHEDULE_LIST[@]}"; do
   K="$(packet_of "$SCHEDULE")"
   if [[ -n "$K" ]]; then PACKET=(--packet "$K"); fi
   numactl --physcpubind="$CPU" --membind="${NODE:-0}" ./$PREFIX/rtq.out "${PACKET[@]}" "$@" || STATUS=$?
-  rm -f $PREFIX/rtq.bir $PREFIX/rtq.ll $PREFIX/rtq.h $PREFIX/rtq.o $PREFIX/rtq.out
+  if [[ -z "${RTQ_KEEP:-}" ]]; then
+    rm -f $PREFIX/rtq.bir $PREFIX/rtq.ll $PREFIX/rtq.h $PREFIX/rtq.o $PREFIX/rtq.out
+  fi
 done
 rm -f $PREFIX/.rtq_hook-*.o
 exit $STATUS
