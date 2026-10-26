@@ -7429,3 +7429,98 @@ instructions a side on the comb) and the traversal counts (ours 17% fewer
 node visits on the comb, from the argmin's strict improvement against
 FCPW's `d2Min <= r2`); what remains is items 1-4, all in the LLVM
 lowering and the optimizer, none in the schedule or the layout.
+
+### The ray gap read from the machine, and closed (2026-10-26)
+
+The user, on the 10-26 table (rays over FCPW's scalar binary tree 0.80,
+0.85 and 0.84 geomean, pavilion 0.57-0.60): the microbenchmarks have to be
+at parity or better before any more time goes into the walks that are
+built from them. Read on pavilion's first hit (`fcpwb`, `--query
+intersect`, the scratch under scratch/rays-gap/; `compare.sh` gained
+`RTQ_KEEP=1`, which leaves rtq.ll and rtq.out behind for exactly this):
+
+- **Not instruction count.** `perf record` of cycles and instructions per
+  symbol, the driver's run counts taken into account (it runs FCPW's
+  primary rays three times -- the hits the secondary rays are generated
+  from, the warm-up, the timed run -- and ours twice): per run ours
+  retired 0.85x of FCPW's instructions in 2.0x its cycles. Our phase ran
+  at IPC 1.5, FCPW's at 2.5 (`perf stat -I 50`).
+- **Not memory, not branches.** Per symbol, L1 load misses and branch
+  misses: ours 1.3x FCPW's of each per run, and both about one per ray
+  -- a few dozen cycles of some four hundred a ray. The same tree bytes,
+  wrapped, in the same visit order.
+- **Not the vector form.** `vec3f` is LLVM's `<3 x float>` in scalar code
+  (item 1 above): a 12-byte box corner is a float load, a `<2 x float>`
+  load and a permute, and the node test had 13 shuffles in 79
+  instructions. LLVM's Scalarizer run on every function no vectorize
+  widened (an experiment, behind an environment variable in the worktree
+  and not committed) was worth 8-10% on the rays before the SLP
+  vectorizer, which re-pairs x and y and leaves z scalar -- clang's shape
+  for FCPW's Eigen code -- and 10% *worse* after it, fully scalar. Not a
+  general win, and not the gap; the user's reservation stands (ARM's and
+  the GPU's short vectors are their own question; NVPTX was excluded).
+- **Not the tie order.** The two-lane network kept the earlier child only
+  where it was strictly the smaller, so a tie -- every ray whose origin
+  lies in both children's boxes, most rays near the root of an interior
+  scene -- entered the right child first where FCPW enters the left
+  (`boxHits[2] < boxHits[0]`, strict). Fixed (compare_and_swap: the later
+  child strictly smaller swaps; the tie test
+  tests/bonsai/correctness/cpp/sort_tie_left_first): bmw's primary rays
+  went from 5 ties and 6 differ against FCPW to 1 tie and 0 differ, and no
+  rate moved.
+- **The dependence.** FCPW picks the nearer child with a branch, `if
+  (boxHits[2] < boxHits[0]) swap`, which the machine predicts and runs
+  ahead of: the next node's loads issue while this node's slab arithmetic
+  is in flight. Our swap was five selects -- three cmov in the machine code
+  -- so the next node's index was a value computed from the whole test,
+  loads to compares, and every node waited for the previous one's chain:
+  about forty cycles a node, serialized. The proof: the kept LLVM with the
+  swap rewritten by hand into a branch with two arms (scratch/rays-gap/
+  cmov/branch.ll, through llc) took pavilion's primary rays from 0.66x to
+  1.37x of FCPW and the diffuse rays from 0.67x to 1.33x, every ray
+  agreeing; the occlusion function, left as it was, stayed at 0.63x.
+
+The lowering (src/SSA/SortRecursion.cpp, `sort_two`): a run of two is
+sorted by a branch on its one comparison, a vote as before, between two
+arms that each hold the run in one order -- the calls as written, with
+their conditions, keys cleared -- meeting in one block before the run's
+continuation (a call's continuation has one predecessor, for the
+structuring of a recursion left recursive; a gang's region leaves for its
+landing from the arms, which Linearize.cpp's hops now carry as a list).
+Where each lane of a gang orders the run for itself -- the schedule
+vectorizes a loop of the traversal's function or of a caller of it, so
+that loopify's stack is per lane and its votes are dropped -- the network
+of selects stays, since a lane cannot branch: `sort_recursion` takes
+`per_lane` from the schedule (SSA/Convert.cpp reads the vectorize
+directives off the whole schedule, as it does for a queue's leaves).
+A gang that decides by the lanes' majority (vectorized, then sorted)
+branches on the uniform vote, Embree's shape too. Loopify needed one more
+fact: the arms' runs are lanes of the node's vectors read in order, which
+it took for a run in no order of its own and wrote with its compaction's
+convention (the right child first); `Terminator::MultiCall::ordered` says
+a sort fixed the order, and the lanes path keeps off it.
+
+Measured (five repeats, FCPW's rates matching the 10-26 table's, the lock
+held, scratch/rays-gap/table.csv; the two-child visit as a branch, the tie
+fix, nothing else), geomeans over the twelve meshes FCPW hits:
+
+| over                       | primary | diffuse | ao   | closest near | closest volume | silhouette near | silhouette volume |
+|----------------------------|---------|---------|------|--------------|----------------|-----------------|-------------------|
+| FCPW's binary tree (fcpwb) | 1.16    | 1.13    | 1.09 | 1.20         | 1.17           |                 |                   |
+| its normal cone hierarchy (fcpws) | 1.19 | 1.15 | 1.06 | 1.19       | 1.16           | 1.16            | 1.15              |
+
+The least cells: dragon's occlusion rays 1.00 (fcpwb) and landscape's
+1.00 (fcpws), crown's silhouettes 1.01 and 1.02, landscape's rays 1.06
+and 1.07; the greatest pavilion's primary rays 1.51 and ivy's silhouettes
+1.43 and 1.48. The 10-26 table had the rays at 0.80, 0.85 and 0.84 with
+pavilion at 0.57-0.60 and head and landscape under 0.75. The Embree and
+four-wide cells of pavilion, bmw and dragon, measured beside them as the
+audit of what the change must not touch, match the 10-26 table to the
+second decimal (the gang's runs go through the peel chain, which is
+unchanged; the Embree schedules have no sort of two). Tests: ssa/blocks/sort and sort-recursion
+(the branch where the selects were, pbrt's `if (dirIsNeg)` folded out of
+`cast(!c) < cast(c)`), the two-child goldens (child-volumes-sorted-two,
+-unrolled-two, unroll-let-names: the relooper's output of the unrolled
+visit fell from 7280 lines to 508), the vectorized sorted traversals
+unchanged in form (selects) with the tie fix's operand order, and
+sort_tie_left_first run.
