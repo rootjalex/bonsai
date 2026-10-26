@@ -7303,105 +7303,129 @@ same algorithm over the same bytes with the same arithmetic; what is left
 between the sides is the visit's code shape and the two orderings the user
 chose to keep, which these numbers can now be read against.
 
-### What is left between the sides, as code (2026-10-25, night)
+### What is left between the sides, as code (2026-10-25, night; corrected the same night)
 
 The user asked for the remaining codegen differences as pseudocode and
-what each would take to close. The same algorithm over the same bytes;
-these are the shapes the two compilers give it, read off the kept objects
-(scratch/binary here, scratch/cpu-gap in apps/wosx) and the sections above.
+what each would take to close. A first version of this section, written
+from the 10-24 reading of the comb's assembly, described the two-lane
+visit the sort's lowering made before that day's changes (apps/wosx/
+PLAN.md, "The binary node's visit made FCPW's": a two-lane run sorted as
+scalars, `unroll`, the simplifier's `fold_built_lanes`) and was wrong
+about what is there now. This one is read off the LLVM the compiler
+emits today for `fcpwb`'s trace_all and closest_all, against FCPW's
+bvh.inl.
 
-1. The two-child visit's decision: lanes and conditional moves against
-   branches. Ours, the sort's lowering over the two children as a two-lane
-   vector:
+What the two-child visit is now. The two boxes are read from the
+children's own rows and each tested on its own; the two keys are compared
+once, as floats; the near child, the far child, their keys and their hit
+conditions are chosen by five selects (the compare-and-swap; FCPW's `if
+(d1 < d0) swap`); a branch on the far child's hit pushes its index and key
+from registers onto the two stack arrays; a branch on the near child's
+hit enters it or pops. That is FCPW's visit up to the kept ruling (we
+enter the near child where FCPW pushes both and pops). No transpose of the
+two children's boxes remains, no sortable-integer key, no mask word, no
+lane select: the peel chain is for four lanes and up. Nothing of the sort
+is left to fix at two lanes.
 
-        lo, hi   = transpose(box[left], box[right])      # ~15 shuffles
-        t        = slab(lo, hi, ray)                      # both lanes
-        hit      = t <= tbest                             # k-mask
-        key      = sortable_int(t)                        # sar, and, xor a lane
-        near     = key[0] <= key[1] ? 0 : 1               # cmov
-        if popcount(hit) == 2:
-            stack[sp] = (child[1-near], key[1-near])      # two-lane store, reload at tzcnt
-            sp += 1
-        next     = popcount(hit) ? child[near] : pop()    # cmova chain
+What differs, in the order of its likely cost:
 
-   FCPW's (bvh.inl):
+1. `vec3f` is LLVM's `<3 x float>` in scalar code. A 12-byte, 4-aligned
+   vector load becomes `load float` + `load <2 x float>` + `insertelement`
+   + two `shufflevector`s; a scalar consumer of a component is an
+   `extractelement`; a vector rebuilt from scalars is three inserts; a
+   broadcast an insert and a shuffle. In the ray visit that is 8 loads, 4
+   inserts and 8 shuffles for the two boxes where Eigen's FCPW does twelve
+   scalar loads; per leaf triangle 6 loads, 3 inserts and 6 shuffles for
+   the corners and 6 extracts to feed the scalar fma chains after them
+   (the triangle test is scalar after a vector subtract); the hit normal 3
+   inserts, a splat and a vector divide. trace_all has 24 shuffles, 14
+   inserts and 18 extracts in 426 lines; closest_all 19, 12 and 34.
 
-        hit0 = overlap(box0, ray, d0); hit1 = overlap(box1, ray, d1)
-        if hit0 and hit1:
-            if d1 < d0: swap((0, d0), (1, d1))
-            push(far); push(near)                         # push both; kept: we enter near
-        elif hit0: push(0)
-        elif hit1: push(1)
-        next = pop()
+        ours:  lo = <load f, load <2 x f>, insert, shuffle, shuffle>
+               t  = (lo - o) * inv            # <3 x float>
+               d  = max(t[0], t[1]), ...      # extract, extract, ...
+        FCPW:  lx, ly, lz = three loads; tx = (lx - ox) * ix; ...
+               d  = max(max(tx, ty), tz)      # scalars throughout
 
-   What ours costs that FCPW's does not: the transposes assembling the two
-   boxes as per-axis two-lane vectors (the lowering of a `vector[vec3f, 2]`
-   built by component out of two rows); the float-to-sortable-int of each
-   key where FCPW compares two floats once; the push through memory of a
-   two-lane key picked by a data-dependent lane; the both-hit select always
-   evaluated where FCPW's sits in its both-hit branch; and the dependency
-   through the box tests' full latency on every visit where FCPW's branches
-   run ahead on coherent rays (pavilion's primary rays, 0.59). To close
-   it: (a) a two-lane case of the sort's lowering -- a compare-and-swap of
-   two scalar (key, index) pairs in registers, the far pair pushed from
-   registers, no lane select, no transposed store; (b) the two children's
-   boxes computed per child from their own rows -- six scalar loads and a
-   scalar slab test each -- rather than transposed into lanes, which is
-   the lowering of a component-built small vector in scalar (non-gang)
-   code; (c) keys compared as floats where the key is known non-negative
-   (`max(t, tnear)` with tnear clamped already is; `dot(v, v)` and
-   `max(.., 0)` squared need SSA/ConstantIntervals to say so), so the
-   sign-bit flip (`select(isneg, 0x7fffffff, 0) ^ key`, four a node on the
-   closest point) goes; (d) the visit's decision emitted as branches on
-   the hit count rather than selects -- a linearizer choice for a
-   two-element sort, which is a codegen question and, if it is to be
-   chosen per site, a schedule one the user has not asked for. (a)-(c) are
-   plain codegen, a day or two with the goldens; (d) is the one the user
-   decides. None is the schedule's: `sort` says the order, not the shape.
+   The fix: in non-gang code the LLVM backend lowers a geometric vector
+   (f32x3, f32x2, f32x4) as its scalars -- a vector type is for a gang's
+   lanes only, as Halide keeps vectors to the vectorized dimension -- so
+   that loads are scalar loads, components are values and reductions are
+   scalar chains; LLVM's SLP vectorizer re-packs isomorphic chains where
+   its cost model says so. CodeGen_LLVM_SSA's type and shuffle lowering;
+   the C++ backend's ext_vector types untouched. This is what clang makes
+   of Eigen's Vector3f, so it is the representation the reference is
+   measured with, not a tuning. Expected to be most of what remains on the
+   cache-resident meshes (comb, pavilion, head); to be measured, not
+   promised.
 
-2. The three-lane vectors in scalar code. A `vec3f` is a `<3 x float>` to
-   LLVM, so an origin, a direction, a corner is assembled in an xmm by
-   shuffles and reduced by shuffles (36 a visit: vpermt2ps, vinsertps,
-   vmovshdup) where Eigen's scalars load and multiply in place:
+2. LLVM's SLP vectorizer then packs the two children's per-axis reductions
+   into `<2 x float>` operations (`fcmp olt <2 x float>`, `select <2 x
+   i1>`), whose two-lane compares are k-mask registers on this AVX-512
+   machine, extracted lane by lane (`kshiftrb`, `kmovd`): the "mask
+   registers" the evening's reading saw are LLVM's, not the sort's.
+   Whether it still packs once the inputs are scalars (item 1) is to be
+   seen; if it does and the extraction stays, the function's vector-width
+   attributes are the lever, with a measurement.
 
-        ours:  v = <x, y, z> (vinsertps x3); d = dot(v, v) (vmulps, vmovshdup, vaddss, vpermilps, vaddss)
-        FCPW:  d = x*x + y*y + z*z (three vmulss/vfmadd231ss)
+3. The closest point's key computes the right child's distance twice on
+   the common path. The key is FCPW's far-corner rule, `select(distmin(
+   left) == 0 && distmin(right) == 0, distmax(child), distmin(child))`;
+   the `&&` is a short circuit, so `distmin(right)` is computed in the
+   `&&`'s right-hand arm when the left child contains the point, and
+   again, unconditionally, for the right child's own key after the merge
+   -- the LLVM has the two identical chains (subtract, max, max with zero,
+   squares, two fmas) in `!and_rhs_7` and `!and_merge_8`, and GVN leaves
+   them since the arm does not dominate the merge. A point inside the left
+   child's box is the usual case of a descent, so the walk pays a box
+   distance a visit for it. FCPW computes both overlaps once, before the
+   compare (bvh.inl findClosestPointFromNode, 1339-1343: `overlap(s,
+   d2Min, d2Max)` a child, `s.r2 = min(s.r2, d2Max)` between them, then
+   the far-corner test on the two d2Min). The carried bound is right on
+   our side -- the push stores distmin, not the key (closest_all's `%68`
+   selects `%53`/`%30`), so the far-corner key orders and never prunes.
+   The general fix is partial redundancy
+   elimination of a pure, read-only value computed in an arm and again
+   after the merge: hoist it to the branch (SSA/Simplify, or LLVM's
+   GVNHoist in our pipeline). The transcription could also write a
+   non-short-circuit `&`, since both operands are computed regardless; the
+   compiler should see it either way.
 
-   To close it: the LLVM backend lowers a small fixed vector (f32x3, f32x4)
-   in non-gang code as its scalars -- a struct of three floats, every
-   operation three scalar operations -- and leaves `<3 x float>` to the
-   gang's lane vectors only; LLVM's SLP vectorizer may then re-pack where
-   it pays. CodeGen_LLVM_SSA's type lowering and the shuffle lowering
-   (Halide-style shuffles become extracts and inserts, free on scalars).
-   Half a day; the comb (apps/wosx, 0.73) and pavilion are the meshes it
-   shows on.
+4. The leaf's eager index load: `pIndex` (offset 20 of the Triangle
+   object) is loaded with the three indices for every triangle tested;
+   FCPW's intersect reads it on a hit only. Opt/Sink refuses to move a
+   value past a statement holding a call (the record's); Opt/ValueClass
+   already knows a read-only load for a value; Sink's legality for such a
+   load across a call is the one check to add. A load and a live register
+   per triangle, on the line already fetched.
 
-3. The leaf's eager index load. Ours reads a triangle's `pIndex` (an edge's
-   `index`) with its indices, FCPW's intersect on a hit only:
+5. Not a difference of the compiler's making: the control flow. The scalar
+   schedules see no linearizer (Moll & Hack's partial linearization is the
+   vectorizer's, for gang code); the visit's decisions are branches, and
+   its selects are the swap's and the metric's value selects (`distmin`'s
+   infinity where the ray misses, the clamp at zero), which FCPW's clang
+   build makes of the same source. Whether a branch beats a select is the
+   predictor's question -- coherent primary rays favour branches, diffuse
+   rays and random walks the selects -- and LLVM carries heuristics both
+   ways; nothing general to change here.
 
-        ours:  i0, i1, i2, idx = load t; if hit(...): record(idx)
-        FCPW:  i0, i1, i2 = load t; if hit(...): record(load t.pIndex)
+6. Kept by the user's ruling, not to be closed: our silhouette node test's
+   order of conjuncts (the cone test before the running bound) and our
+   direct entry of the nearer child where FCPW pushes both and pops it.
 
-   One 4-byte load a triangle on the line already fetched. Opt/Sink does
-   not move a value past a statement holding a call (the record is under
-   one); Opt/ValueClass already knows a read-only load for a value, so the
-   sink's legality for such a load across a call is the one check to add.
-   An hour; measurable only in a cache-resident leaf loop.
-
-4. Kept by the user's ruling, not to be closed: our silhouette node test's
-   order of conjuncts (the cone test before the running bound, where FCPW
-   tests the bound first), and our direct entry of the nearer child where
-   FCPW pushes both and pops the nearer (item 1's `push(near); pop()`).
-
-5. The GPU. The two kernels are the same arithmetic (FFMA 248 against 233,
-   the same MUFU counts); the one systematic difference is the load path:
+7. The GPU. The two kernels are the same arithmetic (FFMA 248 against 233,
+   the same MUFU counts); the one systematic difference is the load path,
    ours `ld.global.nc` (LDG.E, the read-only cache) for the tree, FCPW's
-   Slang buffer pointers generic (LD.E) plus some global. It is in our
-   favour (1.1-1.4x), and the only open question is whether the profiler
-   confirms it -- the user's say-so, by their rule.
+   Slang buffer pointers generic (LD.E) plus some global. In our favour
+   (1.1-1.4x); the profiler would confirm it, with the user's say-so.
+
+Known-open beside these, general and not at two lanes: ConstantIntervals
+does not derive non-negativity for `dot(v, v)` or `max(.., 0)` squared,
+so the four-lane-and-up peel chain flips the closest-point keys' sign
+bits (`sort_lanes`, `key_range.sign_clear`).
 
 What the layout work did not change is the per-triangle leaf (about 130
 instructions a side on the comb) and the traversal counts (ours 17% fewer
 node visits on the comb, from the argmin's strict improvement against
-FCPW's `d2Min <= r2`); what remains is items 1-3, all in the LLVM
-lowering, none in the schedule or the layout.
+FCPW's `d2Min <= r2`); what remains is items 1-4, all in the LLVM
+lowering and the optimizer, none in the schedule or the layout.
