@@ -405,10 +405,10 @@ driver, the two sides' kernels told apart by symbol).
   -- the node rows as above, the triangles as FCPW's GPUTriangle rows (the
   corners stored, a tile of one with the program's edges derived), which
   is what FCPW's GPU reads; the tree `fcpwb-gpu` traverses, copied in by
-  `fcpw_bvh.h`'s `copy_fcpw_bvh`. Imported by apps/wosx's `fcpwb*`
-  schedules too, on the CPU as well for now (the leaf-layout bias
-  PLAN.md's "The machine code behind the table" describes, which the CPU
-  layout above removes for apps/rtq; apps/wosx's switch is pending).
+  `fcpw_bvh.h`'s `copy_fcpw_bvh`. Imported by apps/wosx's `fcpwb-gpu*`
+  schedules too; its CPU schedules import `fcpwb.bonsai` above (the
+  leaf-layout bias PLAN.md's "The machine code behind the table" describes
+  is removed for both apps since 2026-10-25).
 - `schedules/layouts/fcpws.bonsai`, `schedules/fcpws.bonsai`: FCPW's
   normal cone hierarchy in the bytes FCPW's CPU reads -- its SnchNode rows
   of sixty bytes (the box, the cone, the leaf's triangle and silhouette

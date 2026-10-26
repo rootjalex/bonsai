@@ -44,7 +44,8 @@ import apps/rtq/silhouette;
 // stop there), and the reflecting boundary's silhouette edges -- FCPW keeps
 // the edges in the same tree as the triangles, each leaf referencing its
 // triangles and its edges, and the layout reads the one node array as two
-// trees (schedules/layouts/fcpw_stars.bonsai).
+// trees (schedules/layouts/fcpw_stars.bonsai on the CPU, fcpw_stars_gpu.
+// bonsai on the GPU).
 extern absorbing : set[Triangle];
 extern reflecting : set[Triangle];
 

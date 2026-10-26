@@ -41,8 +41,8 @@
 // FCPW's CPU reads -- its Triangle objects and polygon soup, the corners
 // gathered by index at the leaf -- for the CPU comparison (schedules/
 // fcpwb.bonsai). Imported by apps/rtq's fcpwb-gpu.bonsai and by apps/wosx's
-// fcpwb* schedules (the walk on spheres against WoSX on its default tree;
-// its CPU schedules too for now, the switch to fcpwb.bonsai pending); the
+// fcpwb-gpu* schedules (the walk on spheres against WoSX's GPU solver on
+// its default tree; apps/wosx's CPU schedules import fcpwb.bonsai); the
 // drivers copy FCPW's tree in with apps/rtq/fcpw_bvh.h (copy_fcpw_bvh).
 schedule {
     tree[[Triangle]] BVH2 =

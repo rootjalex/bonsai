@@ -1,6 +1,7 @@
 // The traversals of WoSX's CPU walk on stars on its default trees: FCPW's
 // scalar BVH over the absorbing boundary and its normal cone hierarchy over
-// the reflecting one, in FCPW's bytes (layouts/fcpw_stars.bonsai), the walk
+// the reflecting one, in the bytes FCPW's CPU reads (layouts/fcpw_stars.
+// bonsai: FCPW's own arrays, wrapped by the driver), the walk
 // a loop, each of the three queries a traversal on a stack of FCPW's depth
 // with the two children tested at their parent and the nearer entered
 // first, a tie keeping the left child first, as FCPW's strict compares do.

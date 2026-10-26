@@ -1736,23 +1736,41 @@ gap" above compared with FCPW's (the `vec3f` loads and horizontal sums).
   or dropped once it is decided.
 - The two deferral schedules' variations above (1024 walks, a per-round
   sort on the card-wide queue).
-- The CPU comparison moved onto the bytes FCPW's CPU reads. The layout
-  extension landed on 2026-10-25 (compiler 75282086: a tile's derived
-  field reads another named group, by index or by address), and apps/rtq's
-  layouts/fcpwb.bonsai and fcpws.bonsai are now FCPW's own arrays wrapped
-  -- its node array, pointer arrays, Triangle and SilhouetteEdge objects
-  and polygon soup -- with the GPU rows in fcpwb_gpu.bonsai and
-  fcpws_gpu.bonsai (apps/rtq/PLAN.md, "Genuine apples-to-apples"). Every
-  fcpwb* schedule here still imports fcpwb_gpu, and layouts/fcpw_stars.
-  bonsai holds the GPU rows for its three trees, so WoSX's CPU is still
-  compared against a leaf that reads stored corners where its own gathers
-  through the soup (apps/rtq measured that layout worth 0.1-0.2x on the
-  closest point and the silhouette on head). To do: the CPU schedules
-  (fcpwb, fcpwb-threads, fcpwb-persistent, the packet ones, cpu/wost_fcpwb)
-  on the CPU-bytes layouts, a CPU form of fcpw_stars.bonsai, and
-  wosx_hook.cpp wrapping FCPW's arrays under WOSX_BINARY_BVH and
-  WOSX_STARS as apps/rtq's drivers do (rtq_bvh::wrap_fcpw_bvh,
-  rtq_snch::wrap_snch); the GPU schedules keep the GPU rows.
+- DONE 2026-10-25 (night): the CPU comparison moved onto the bytes FCPW's
+  CPU reads. The layout extension landed that day (compiler 75282086: a
+  tile's derived field reads another named group, by index or by address)
+  and apps/rtq's layouts/fcpwb.bonsai and fcpws.bonsai became FCPW's own
+  arrays wrapped (apps/rtq/PLAN.md, "Genuine apples-to-apples"); here the
+  CPU schedules follow: fcpwb, fcpwb-packet and fcpwb-packet-points import
+  apps/rtq's fcpwb (fcpwb-threads and fcpwb-persistent through fcpwb), and
+  cpu/wost_fcpwb imports layouts/fcpw_stars.bonsai, now the CPU bytes of
+  the walk on stars' three trees -- the absorbing boundary's BvhNode array,
+  Triangle pointers and objects and positions; the reflecting boundary's
+  SnchNode array (CPU field order), its pointers, objects and positions;
+  the silhouette edges' SnchNode array, SilhouetteEdge pointers and
+  objects, their ends gathered through the soup and the two face normals
+  derived as SilhouetteEdge::normal computes them -- with the GPU rows
+  moved to layouts/fcpw_stars_gpu.bonsai, which kernel/wost_fcpwb imports;
+  the -gpu schedules keep fcpwb_gpu as before. fcpw_stars_trees.h wraps
+  under `!WOSX_GPU` (wrap_absorbing checks every reference and index and
+  wraps through rtq_snch::wrap_const, wrap_reflecting through
+  rtq_snch::wrap_snch; Trees::buffers() hands the driver twelve buffers)
+  and copies the GPU rows under WOSX_GPU as before; wosx_hook.cpp defines
+  RTQ_FCPW_CPU_BYTES when not WOSX_GPU, wraps FCPW's binary tree through
+  rtq_bvh::wrap_fcpw_bvh under WOSX_BINARY_BVH, builds its buffer list as
+  a vector and refuses to run when the generated `_sides` count and the
+  list disagree. Checked on head (repeats 1, the machine not quiet):
+  fcpwb 0.64x with every statistic agreeing (walks ended 741276 against
+  740408, mean length 13.72/13.70, rms 1.39e-01 both, z -0.31), down from
+  0.94 on the GPU rows as apps/rtq's leaf-heavy queries fell by what the
+  stored corners gave them; wost-fcpwb 0.98x (ended 736866/736829, length
+  77.82/77.66, z 1.07) against 0.91 on the GPU rows (a single repeat each,
+  so the direction is not yet established); fcpwb-gpu-defer and
+  wost-fcpwb-gpu build and agree as before (the GPU section untouched).
+  Still to do: the CPU tables remeasured quiet (`benchmark.sh` and
+  `--stars`) so that the CPU columns of the figures read against the bytes
+  WoSX reads, and the fcpwb2 schedules, which are WoSX's own tree and
+  untouched.
 - The walk on stars' silhouette query ignores its `min_r2` where FCPW's
   traversal stops once a silhouette within the shell's inner radius is
   found (`squaredMinRadius >= s.r2`, at the leaf and per edge): with a

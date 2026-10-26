@@ -1,6 +1,7 @@
 // The traversals of WoSX's GPU walk on stars on its default trees: FCPW's
 // scalar BVH over the absorbing boundary and its normal cone hierarchy over
-// the reflecting one, in FCPW's bytes (layouts/fcpw_stars.bonsai), the walk
+// the reflecting one, in the rows FCPW's GPU reads (layouts/fcpw_stars_gpu.
+// bonsai; layouts/fcpw_stars.bonsai is the CPU schedules' bytes), the walk
 // a loop, each of the three queries a traversal on a stack of FCPW's depth
 // with the two children tested at their parent and the nearer entered
 // first, a tie keeping the left child first (bvh.slang: `if
@@ -14,7 +15,7 @@
 // The leaf's Voronoi arms of the closest-point test are skipped where the
 // point is not in them. The GPU schedules (wost-fcpwb-gpu*.bonsai) import
 // this file for the traversals and add how the walks are run.
-import apps/wosx/schedules/layouts/fcpw_stars;
+import apps/wosx/schedules/layouts/fcpw_stars_gpu;
 
 // Each traversal's two children's tests are written out (`unroll`), as
 // bvh.slang writes them, one after the other off each child's own row.

@@ -1,35 +1,34 @@
-// The walk on stars' three sets in FCPW's bytes, for the comparison against
-// WoSX on WoSX's default trees (FCPW_USE_ENOKI off, FCPW's scalar binary
-// BVHs; the trees FCPW puts on a GPU).
+// The walk on stars' three sets in the bytes FCPW's CPU reads, for the CPU
+// comparison against WoSX on WoSX's default trees (FCPW_USE_ENOKI off,
+// FCPW's scalar binary BVHs): FCPW's own arrays, wrapped where they lie by
+// the driver (apps/wosx/fcpw_stars_trees.h, wrap_absorbing and
+// rtq_snch::wrap_snch, built without WOSX_GPU), nothing copied.
+// fcpw_stars_gpu.bonsai is the same three sets in the rows FCPW's GPU
+// reads, for the GPU schedules.
 //
-// The absorbing boundary's triangles are the walk on spheres' tree
-// (apps/rtq/schedules/layouts/fcpwb_gpu.bonsai says what the rows are):
-// FCPW's BvhNode rows and its GPUTriangle rows -- FCPW's GPU bytes, on the
-// CPU too for now; apps/rtq's fcpwb.bonsai and fcpws.bonsai are these trees
-// in the bytes FCPW's CPU reads, and this layout's switch to them is
-// pending. The reflecting boundary is one FCPW tree with
-// normal cones, fcpw::Bvh<3, SnchNode<3>, Triangle, SilhouetteEdge> --
-// each node a box, a cone (axis, half angle, radius) and two reference
-// ranges, the leaf's triangles and the leaf's silhouette edges, which FCPW
-// transfers to a GPU as GPUSnchNode rows of sixty bytes
-// (fcpw/gpu/bvh_interop_structures.h, extractSnchNodes) beside the
-// GPUTriangle rows and the GPUEdge rows (two corners, two adjacent
-// normals, the index, whether the edge has one adjacent face: fifty-six
-// bytes, extractSilhouetteEdges). The program's two reflecting sets, the
-// triangles the rays stop at and the silhouette edges the star radius is
-// found among, are two trees over the one node array: the driver hands the
-// same node rows to both layouts, each reading the leaf's range that is
-// its own.
+// The absorbing boundary's triangles are the walk on spheres' tree as
+// apps/rtq/schedules/layouts/fcpwb.bonsai reads it: FCPW's BvhNode rows, its
+// primitive pointer array, its Triangle objects reached by address (a `ptr
+// group`) and the polygon soup's positions, the tile storing the pointer
+// and deriving the corners through the object's indices as FCPW's leaf
+// gathers them. The reflecting boundary is one FCPW tree with normal cones
+// (fcpw::Bvh<3, SnchNode<3>, Triangle, SilhouetteEdge>), read as two trees
+// over its one node array as apps/rtq/schedules/layouts/fcpws.bonsai reads
+// it: the triangles the rays stop at and the silhouette edges the star
+// radius is found among, each leaf referencing its range of both; the
+// SnchNode row in FCPW's CPU field order; the edge tile storing the
+// SilhouetteEdge pointer and deriving the ends and -- for the two-face case
+// alone, where FCPW's SilhouetteEdge::normal computes them -- the two unit
+// face normals from the positions, Eigen's cross and guarded normalize. A
+// program's group names are one namespace, so each layout's groups carry
+// the set's letter.
 //
 // The node's cone is the children's to test, as the box is: the parent
 // holds its children's boxes and cones logically, read out of the
 // children's own rows (fcpwb.bonsai says why), and the tree's bounding
 // element is apps/rtq's ConeBox (elements.bonsai), whose metrics do FCPW's
 // cone test for the silhouette query and the box test alone for the rays
-// (metrics/fcpw_scalar.bonsai). The GPU rows' counts and offsets are
-// unsigned words, read here as the signed words the CPU node has, the same
-// bits. apps/rtq/schedules/layouts/fcpws_gpu.bonsai is the reflecting pair
-// alone, under apps/rtq's names, for its own GPU comparison on this tree.
+// (metrics/fcpw_scalar.bonsai).
 schedule {
     tree[[Triangle]] ABVH2 =
     | Interior(children : array[ABVH2, 2], lo hi : vector[vec3f, 2])
@@ -38,22 +37,38 @@ schedule {
     absorbing : ABVH2;
 
     layout absorbing {
-        // FCPW: GPUTriangle, one row a triangle.
+        // FCPW: PolygonSoup::positions, 12 bytes each.
+        avCount : u32;
+        indirect group apositions[avCount] {
+            p : vec3f;
+        };
+        // FCPW: the Triangle objects, 32 bytes each, by address.
+        aoCount : u32;
+        ptr group aobjects[aoCount] {
+            vptr : u64;
+            i0 : i32;
+            i1 : i32;
+            i2 : i32;
+            pIndex : i32;
+            soup : u64;
+        };
+        // FCPW: Bvh::primitives, a Triangle* per reference.
         aCount : u32;
         indirect group aprims[aCount] {
             group[1] {
-                pa : vec3f;
-                pb : vec3f;
-                pc : vec3f;
-                primitiveIndex : u32;
+                tri : u64;
+                t = aobjects[tri];
+                pa = apositions[t.i0].p;
+                pb = apositions[t.i1].p;
+                pc = apositions[t.i2].p;
                 v0 = pa;
                 e1 = pa - pb;
                 e2 = pc - pa;
                 geomID = 0u;
-                primID = primitiveIndex;
+                primID = cast[[u32]](t.pIndex);
             };
         };
-        // FCPW: BvhNode / GPUBvhNode.
+        // FCPW: BvhNode<3>.
         aNodes : u32;
         group[aNodes] anode : u32 {
             low : vec3f;
@@ -88,21 +103,35 @@ schedule {
     reflecting : SNCH;
 
     layout reflecting {
+        rvCount : u32;
+        indirect group rpositions[rvCount] {
+            p : vec3f;
+        };
+        roCount : u32;
+        ptr group robjects[roCount] {
+            vptr : u64;
+            i0 : i32;
+            i1 : i32;
+            i2 : i32;
+            pIndex : i32;
+            soup : u64;
+        };
         rCount : u32;
         indirect group rprims[rCount] {
             group[1] {
-                pa : vec3f;
-                pb : vec3f;
-                pc : vec3f;
-                primitiveIndex : u32;
+                tri : u64;
+                t = robjects[tri];
+                pa = rpositions[t.i0].p;
+                pb = rpositions[t.i1].p;
+                pc = rpositions[t.i2].p;
                 v0 = pa;
                 e1 = pa - pb;
                 e2 = pc - pa;
                 geomID = 0u;
-                primID = primitiveIndex;
+                primID = cast[[u32]](t.pIndex);
             };
         };
-        // FCPW: SnchNode / GPUSnchNode.
+        // FCPW: SnchNode<3>, in its CPU field order.
         rNodes : u32;
         group[rNodes] rnode : u32 {
             low : vec3f;
@@ -110,11 +139,11 @@ schedule {
             cone_axis : vec3f;
             cone_half_angle : f32;
             cone_radius : f32;
-            nPrimitives : i32;
             offset : i32;
-            nSilhouettes : i32;
             silhouetteOffset : i32;
-            switch nPrimitives {
+            nReferences : i32;
+            nSilhouettes : i32;
+            switch nReferences {
                 0 => Interior {
                     left = rnode + 1u;
                     right = rnode + cast[[u32]](offset);
@@ -132,7 +161,7 @@ schedule {
                     radius = vector[f32, 2]{this[left].cone_radius, this[right].cone_radius};
                 };
                 _ => Leaf {
-                    data = range(rprims, cast[[u32]](offset), cast[[u32]](nPrimitives));
+                    data = range(rprims, cast[[u32]](offset), cast[[u32]](nReferences));
                 };
             };
         };
@@ -147,22 +176,48 @@ schedule {
     silhouettes : SNCHE;
 
     layout silhouettes {
-        // FCPW: GPUEdge, one row an edge.
+        // FCPW: PolygonSoup::positions again, the reflecting soup's.
+        evCount : u32;
+        indirect group epositions[evCount] {
+            p : vec3f;
+        };
+        // FCPW: the SilhouetteEdge objects, 40 bytes each, by address.
+        eoCount : u32;
+        ptr group edge_objects[eoCount] {
+            vptr : u64;
+            i0 : i32;
+            i1 : i32;
+            i2 : i32;
+            i3 : i32;
+            pIndex : i32;
+            32;
+            soup : u64;
+        };
+        // FCPW: Bvh::silhouetteRefs, a SilhouetteEdge* per reference.
         eCount : u32;
         indirect group edges[eCount] {
             group[1] {
-                a : vec3f;
-                b : vec3f;
-                na : vec3f;
-                nb : vec3f;
-                edgeIndex : u32;
-                hasOneAdjacentFace : u32;
-                pa = a;
-                pb = b;
-                n0 = na;
-                n1 = nb;
-                index = edgeIndex;
-                one_face = hasOneAdjacentFace;
+                edge : u64;
+                e = edge_objects[edge];
+                pa = epositions[e.i1].p;
+                pb = epositions[e.i2].p;
+                index = cast[[u32]](e.pIndex);
+                one_face = select(e.i3 == -1 || e.i0 == -1, 1u, 0u);
+                // FCPW: SilhouetteEdge::normal(0) and normal(1), as
+                // apps/rtq/schedules/layouts/fcpws.bonsai derives them. Read
+                // only where one_face is 0.
+                c3 = epositions[e.i3].p;
+                c0 = epositions[e.i0].p;
+                u0 = pb - pa;
+                w0 = c3 - pa;
+                x0 = vec3f{u0.y * w0.z - u0.z * w0.y, u0.z * w0.x - u0.x * w0.z, u0.x * w0.y - u0.y * w0.x};
+                z0 = fma(x0.x, x0.x, fma(x0.y, x0.y, x0.z * x0.z));
+                n0 = select(z0 > 0.0, x0 / sqrt(z0), x0);
+                u1 = pa - pb;
+                w1 = c0 - pb;
+                x1 = vec3f{u1.y * w1.z - u1.z * w1.y, u1.z * w1.x - u1.x * w1.z, u1.x * w1.y - u1.y * w1.x};
+                z1 = fma(x1.x, x1.x, fma(x1.y, x1.y, x1.z * x1.z));
+                n1 = select(z1 > 0.0, x1 / sqrt(z1), x1);
             };
         };
         sNodes : u32;
@@ -172,11 +227,11 @@ schedule {
             cone_axis : vec3f;
             cone_half_angle : f32;
             cone_radius : f32;
-            nPrimitives : i32;
             offset : i32;
-            nSilhouettes : i32;
             silhouetteOffset : i32;
-            switch nPrimitives {
+            nReferences : i32;
+            nSilhouettes : i32;
+            switch nReferences {
                 0 => Interior {
                     left = snode + 1u;
                     right = snode + cast[[u32]](offset);

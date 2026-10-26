@@ -90,15 +90,20 @@
 
 // The tree the schedule declared: FCPW's vectorized Mbvh in apps/rtq's
 // layouts (the default); FCPW's scalar binary BVH -- WoSX's default,
-// FCPW_USE_ENOKI off -- in apps/rtq/schedules/layouts/fcpwb_gpu.bonsai (its
-// GPU bytes, on the CPU too for now; apps/rtq's fcpwb.bonsai is its CPU
-// bytes, the switch pending) when built with WOSX_BINARY_BVH (compare.sh,
-// for the schedules named fcpwb*);
-// or the same binary tree with each node holding its children's boxes, as
-// FCPW's traversal reads it, in layouts/fcpwb2.bonsai when built with
-// WOSX_BINARY_BVH2 (the schedules named fcpwb2*, the GPU comparison's). The
-// walk on stars' three trees (layouts/fcpw_stars.bonsai) when built with
-// WOSX_STARS.
+// FCPW_USE_ENOKI off -- when built with WOSX_BINARY_BVH (compare.sh, for
+// the schedules named fcpwb*): on the CPU in the bytes FCPW's CPU reads,
+// its own arrays wrapped (apps/rtq/schedules/layouts/fcpwb.bonsai, the
+// driver built without WOSX_GPU; RTQ_FCPW_CPU_BYTES picks that section of
+// apps/rtq/fcpw_bvh.h), on the GPU in the rows FCPW's GPU reads, copied in
+// (fcpwb_gpu.bonsai); or the same binary tree with each node holding its
+// children's boxes, as FCPW's traversal reads it, in layouts/fcpwb2.bonsai
+// when built with WOSX_BINARY_BVH2 (the schedules named fcpwb2*, the GPU
+// comparison's). The walk on stars' three trees (layouts/fcpw_stars.bonsai
+// on the CPU, fcpw_stars_gpu.bonsai on the GPU, chosen by WOSX_GPU in
+// fcpw_stars_trees.h) when built with WOSX_STARS.
+#if !defined(WOSX_GPU)
+#define RTQ_FCPW_CPU_BYTES
+#endif
 #if defined(WOSX_STARS)
 #include "apps/wosx/fcpw_stars_trees.h"
 #elif defined(WOSX_BINARY_BVH)
@@ -595,30 +600,40 @@ int main(int argc, char **argv) {
 
     // Our side: the same tree in the layout. (Not const: a schedule on the
     // GPU stages the tree's buffers to the device, which marks them.)
+    // The tree's buffers, in the order the generated header takes the
+    // layouts' groups (its `_sides` table names them), to be staged where
+    // the schedule reads them.
 #if defined(WOSX_STARS)
     wosx_stars::Trees trees;
+#if defined(WOSX_GPU)
     wosx_stars::copy_absorbing(handler.scene, trees);
     wosx_stars::copy_reflecting(reflecting_handler.scene, trees);
+#else
+    wosx_stars::wrap_absorbing(handler.scene, trees);
+    wosx_stars::wrap_reflecting(reflecting_handler.scene, trees);
+#endif
     trees.point();
     wosx_stars::describe(trees);
-    // In the order the generated header takes the sets: the silhouette edges'
-    // layout (apps/rtq/silhouette.bonsai declares the set, imported before
-    // the walk's own two), then the absorbing and the reflecting triangles'.
-    bonsai_buffer *tree_buffers[6] = {&trees.edges.buffer, &trees.reflecting_nodes.buffer,
-                                      &trees.absorbing_triangles.buffer, &trees.absorbing_nodes.buffer,
-                                      &trees.reflecting_triangles.buffer, &trees.reflecting_nodes.buffer};
+    const std::vector<bonsai_buffer *> tree_buffers = trees.buffers();
 #elif defined(WOSX_BINARY_BVH)
+#if defined(WOSX_GPU)
     rtq_bvh::Tree tree = rtq_bvh::copy_fcpw_bvh(handler.scene);
     rtq_bvh::describe(tree);
-    bonsai_buffer *tree_buffers[2] = {&tree.prims_buffer, &tree.nodes_buffer};
+    const std::vector<bonsai_buffer *> tree_buffers = {&tree.prims_buffer, &tree.nodes_buffer};
+#else
+    rtq_bvh::Tree tree = rtq_bvh::wrap_fcpw_bvh(handler.scene);
+    rtq_bvh::describe(tree);
+    const std::vector<bonsai_buffer *> tree_buffers = {&tree.positions_buffer, &tree.objects_buffer,
+                                                       &tree.prims_buffer, &tree.nodes_buffer};
+#endif
 #elif defined(WOSX_BINARY_BVH2)
     wosx_bvh2::Tree tree = wosx_bvh2::copy_fcpw_bvh2(handler.scene);
     wosx_bvh2::describe(tree);
-    bonsai_buffer *tree_buffers[2] = {&tree.prims_buffer, &tree.nodes_buffer};
+    const std::vector<bonsai_buffer *> tree_buffers = {&tree.prims_buffer, &tree.nodes_buffer};
 #else
     rtq::FcpwTree tree = rtq::copy_fcpw_tree(handler.scene);
     rtq::describe(tree);
-    bonsai_buffer *tree_buffers[2] = {&tree.packets_buffer, &tree.nodes_buffer};
+    const std::vector<bonsai_buffer *> tree_buffers = {&tree.packets_buffer, &tree.nodes_buffer};
 #endif
 
     std::vector<Sample> samples = sample_points(boundary, queries, side, epsilon);
@@ -879,12 +894,15 @@ int main(int argc, char **argv) {
     problem.lo = float3{boundary.lo.x(), boundary.lo.y(), boundary.lo.z()};
     problem.hi = float3{boundary.hi.x(), boundary.hi.y(), boundary.hi.z()};
     problem.query_bound = query_bound;
-    bonsai_buffer *buffers[] = {&b_points,       &b_dists,         &b_solution,     &b_mean_steps,
-                                &b_walks_ended,  tree_buffers[0],  tree_buffers[1], tree_buffers[2],
-                                tree_buffers[3], tree_buffers[4],  tree_buffers[5]};
+    std::vector<bonsai_buffer *> buffers = {&b_points, &b_dists, &b_solution, &b_mean_steps,
+                                            &b_walks_ended};
+    buffers.insert(buffers.end(), tree_buffers.begin(), tree_buffers.end());
     const uint8_t *sides = solve_stars_sides;
-    static_assert(sizeof(solve_stars_sides) == sizeof(buffers) / sizeof(buffers[0]),
-                  "solve_stars takes these eleven buffers, in this order");
+    if (sizeof(solve_stars_sides) != buffers.size()) {
+        std::cerr << "solve_stars takes " << sizeof(solve_stars_sides) << " buffers and the driver has "
+                  << buffers.size() << ": the layouts' groups and this list disagree\n";
+        return 1;
+    }
     const auto solve = [&] {
         solve_stars(n, &b_points, &b_dists, problem, walks, seed, &b_solution, &b_mean_steps,
                     &b_walks_ended, trees.silhouettes, trees.absorbing, trees.reflecting);
@@ -896,11 +914,15 @@ int main(int argc, char **argv) {
     problem.lo = float3{boundary.lo.x(), boundary.lo.y(), boundary.lo.z()};
     problem.hi = float3{boundary.hi.x(), boundary.hi.y(), boundary.hi.z()};
     problem.query_bound = query_bound;
-    bonsai_buffer *buffers[] = {&b_points,     &b_dists,         &b_solution,     &b_mean_steps,
-                                &b_walks_ended, tree_buffers[0], tree_buffers[1]};
+    std::vector<bonsai_buffer *> buffers = {&b_points, &b_dists, &b_solution, &b_mean_steps,
+                                            &b_walks_ended};
+    buffers.insert(buffers.end(), tree_buffers.begin(), tree_buffers.end());
     const uint8_t *sides = solve_all_sides;
-    static_assert(sizeof(solve_all_sides) == sizeof(buffers) / sizeof(buffers[0]),
-                  "solve_all takes these seven buffers, in this order");
+    if (sizeof(solve_all_sides) != buffers.size()) {
+        std::cerr << "solve_all takes " << sizeof(solve_all_sides) << " buffers and the driver has "
+                  << buffers.size() << ": the layout's groups and this list disagree\n";
+        return 1;
+    }
     const auto solve = [&] {
         solve_all(n, &b_points, &b_dists, problem, walks, seed, &b_solution, &b_mean_steps,
                   &b_walks_ended, tree.layout);
@@ -913,7 +935,7 @@ int main(int argc, char **argv) {
     const double t_bonsai = timed(
         repeats,
         [&] {
-            bonsai_buffer_stage_all(buffers, sides, sizeof(buffers) / sizeof(buffers[0]));
+            bonsai_buffer_stage_all(buffers.data(), sides, buffers.size());
             bonsai_buffer_implicit_copies(0);
         },
         solve);

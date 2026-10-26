@@ -7229,18 +7229,29 @@ correctness/llvm); goldens of some sixty tests moved (lets reordered and
 renamed, builds split, constants folded through split fields, the any-hit
 accept a select), each diff read before blessing.
 
-A compiler bug found on the way, left open: a `let a = b` alias of a
-lane-indexed per-child value inside the children loop (`b$low = _t67129`,
-`_t67129 = build<f32x3x2>(...)[children]`), surviving to the SSA conversion
-and the unroll, made both children's sort keys one SSA value -- the swap
-vanished, the silhouette query's tie pattern changed and it ran 25% slower
-on head. SSA/SSA.cpp's make_instruction renames an instruction when a let
-copies it ("a program's name stays"), and after the unroll's clone_region
-something resolves the two copies' names to one instruction. The split no
-longer leaves such aliases (and Opt/NarrowLoads's propagate_copies never
-did), so no program reaches it today; apps/rtq/scratch/binary/
-alias_probe.bonsai is the start of a reproduction (its alias was
-propagated away, so it does not yet reproduce).
+A compiler bug found on the way, and fixed (2026-10-25, late): a `let a =
+b` alias of a lane-indexed per-child value inside the children loop
+(`b$low = _t67129`, `_t67129 = build<f32x3x2>(...)[children]`), surviving
+to the SSA conversion and the unroll, made both children's sort keys one
+SSA value -- the swap vanished, the silhouette query's tie pattern changed
+and it ran 25% slower on head. The cause: a `let` whose value is a block
+argument is a Set instruction carrying the program's name, and SSA/Defer.
+cpp's clone_region keeps a Set's name in every copy by design (the
+relooper binds the name; the defer rewrite finds a copied continuation's
+values by it -- suffixing them broke every defer test), so an unrolled
+children loop has two same-named Sets in dominating blocks; and the SSA
+simplifier's value numbering (SSA/Simplify.cpp key_value) keyed an
+operand by its NAME, so the second copy's `b$low - p` was numbered as the
+first's. The fix: key_value keys an instruction by its identity
+(key_instruction, the address, the key being a text for the table's
+lifetime only). Tests unroll-let-names at the three levels (ssa/blocks,
+backends/llvm, correctness/cpp) pin the shape -- two same-named Sets per
+copy, two distinct keys, the swap present; the collision form itself (a
+Set not behind a call) cannot be written in the source language, since
+Opt/CSE's copy propagation removes every `let a = b` and a call result's
+Set sits in a continuation the numbering walk does not cross, which is
+why only a pass's alias ever produced it. Opt/NarrowLoads's bare-variable
+substitution stays as the pass's own hygiene, not as the fix.
 
 Head, the check before the sweep (repeats 3, the machine quiet, FCPW's
 own arrays): rays 0.67/0.79/0.84 over the binary tree and 0.65/0.77/0.82
@@ -7291,3 +7302,106 @@ column is the sinking's; it is the layout's. Both tables are now of the
 same algorithm over the same bytes with the same arithmetic; what is left
 between the sides is the visit's code shape and the two orderings the user
 chose to keep, which these numbers can now be read against.
+
+### What is left between the sides, as code (2026-10-25, night)
+
+The user asked for the remaining codegen differences as pseudocode and
+what each would take to close. The same algorithm over the same bytes;
+these are the shapes the two compilers give it, read off the kept objects
+(scratch/binary here, scratch/cpu-gap in apps/wosx) and the sections above.
+
+1. The two-child visit's decision: lanes and conditional moves against
+   branches. Ours, the sort's lowering over the two children as a two-lane
+   vector:
+
+        lo, hi   = transpose(box[left], box[right])      # ~15 shuffles
+        t        = slab(lo, hi, ray)                      # both lanes
+        hit      = t <= tbest                             # k-mask
+        key      = sortable_int(t)                        # sar, and, xor a lane
+        near     = key[0] <= key[1] ? 0 : 1               # cmov
+        if popcount(hit) == 2:
+            stack[sp] = (child[1-near], key[1-near])      # two-lane store, reload at tzcnt
+            sp += 1
+        next     = popcount(hit) ? child[near] : pop()    # cmova chain
+
+   FCPW's (bvh.inl):
+
+        hit0 = overlap(box0, ray, d0); hit1 = overlap(box1, ray, d1)
+        if hit0 and hit1:
+            if d1 < d0: swap((0, d0), (1, d1))
+            push(far); push(near)                         # push both; kept: we enter near
+        elif hit0: push(0)
+        elif hit1: push(1)
+        next = pop()
+
+   What ours costs that FCPW's does not: the transposes assembling the two
+   boxes as per-axis two-lane vectors (the lowering of a `vector[vec3f, 2]`
+   built by component out of two rows); the float-to-sortable-int of each
+   key where FCPW compares two floats once; the push through memory of a
+   two-lane key picked by a data-dependent lane; the both-hit select always
+   evaluated where FCPW's sits in its both-hit branch; and the dependency
+   through the box tests' full latency on every visit where FCPW's branches
+   run ahead on coherent rays (pavilion's primary rays, 0.59). To close
+   it: (a) a two-lane case of the sort's lowering -- a compare-and-swap of
+   two scalar (key, index) pairs in registers, the far pair pushed from
+   registers, no lane select, no transposed store; (b) the two children's
+   boxes computed per child from their own rows -- six scalar loads and a
+   scalar slab test each -- rather than transposed into lanes, which is
+   the lowering of a component-built small vector in scalar (non-gang)
+   code; (c) keys compared as floats where the key is known non-negative
+   (`max(t, tnear)` with tnear clamped already is; `dot(v, v)` and
+   `max(.., 0)` squared need SSA/ConstantIntervals to say so), so the
+   sign-bit flip (`select(isneg, 0x7fffffff, 0) ^ key`, four a node on the
+   closest point) goes; (d) the visit's decision emitted as branches on
+   the hit count rather than selects -- a linearizer choice for a
+   two-element sort, which is a codegen question and, if it is to be
+   chosen per site, a schedule one the user has not asked for. (a)-(c) are
+   plain codegen, a day or two with the goldens; (d) is the one the user
+   decides. None is the schedule's: `sort` says the order, not the shape.
+
+2. The three-lane vectors in scalar code. A `vec3f` is a `<3 x float>` to
+   LLVM, so an origin, a direction, a corner is assembled in an xmm by
+   shuffles and reduced by shuffles (36 a visit: vpermt2ps, vinsertps,
+   vmovshdup) where Eigen's scalars load and multiply in place:
+
+        ours:  v = <x, y, z> (vinsertps x3); d = dot(v, v) (vmulps, vmovshdup, vaddss, vpermilps, vaddss)
+        FCPW:  d = x*x + y*y + z*z (three vmulss/vfmadd231ss)
+
+   To close it: the LLVM backend lowers a small fixed vector (f32x3, f32x4)
+   in non-gang code as its scalars -- a struct of three floats, every
+   operation three scalar operations -- and leaves `<3 x float>` to the
+   gang's lane vectors only; LLVM's SLP vectorizer may then re-pack where
+   it pays. CodeGen_LLVM_SSA's type lowering and the shuffle lowering
+   (Halide-style shuffles become extracts and inserts, free on scalars).
+   Half a day; the comb (apps/wosx, 0.73) and pavilion are the meshes it
+   shows on.
+
+3. The leaf's eager index load. Ours reads a triangle's `pIndex` (an edge's
+   `index`) with its indices, FCPW's intersect on a hit only:
+
+        ours:  i0, i1, i2, idx = load t; if hit(...): record(idx)
+        FCPW:  i0, i1, i2 = load t; if hit(...): record(load t.pIndex)
+
+   One 4-byte load a triangle on the line already fetched. Opt/Sink does
+   not move a value past a statement holding a call (the record is under
+   one); Opt/ValueClass already knows a read-only load for a value, so the
+   sink's legality for such a load across a call is the one check to add.
+   An hour; measurable only in a cache-resident leaf loop.
+
+4. Kept by the user's ruling, not to be closed: our silhouette node test's
+   order of conjuncts (the cone test before the running bound, where FCPW
+   tests the bound first), and our direct entry of the nearer child where
+   FCPW pushes both and pops the nearer (item 1's `push(near); pop()`).
+
+5. The GPU. The two kernels are the same arithmetic (FFMA 248 against 233,
+   the same MUFU counts); the one systematic difference is the load path:
+   ours `ld.global.nc` (LDG.E, the read-only cache) for the tree, FCPW's
+   Slang buffer pointers generic (LD.E) plus some global. It is in our
+   favour (1.1-1.4x), and the only open question is whether the profiler
+   confirms it -- the user's say-so, by their rule.
+
+What the layout work did not change is the per-triangle leaf (about 130
+instructions a side on the comb) and the traversal counts (ours 17% fewer
+node visits on the comb, from the argmin's strict improvement against
+FCPW's `d2Min <= r2`); what remains is items 1-3, all in the LLVM
+lowering, none in the schedule or the layout.

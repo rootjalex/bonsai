@@ -84,7 +84,8 @@ the domain's hemisphere, and where it does not goes to the star's surface
 as the walk on spheres would. Three queries a step, over three sets --
 the absorbing triangles on FCPW's scalar BVH, the reflecting triangles
 and their silhouette edges on the one normal cone hierarchy, read as two
-trees (`schedules/layouts/fcpw_stars.bonsai`) -- where the walk on spheres
+trees (`schedules/layouts/fcpw_stars.bonsai` on the CPU, FCPW's own arrays
+wrapped; `fcpw_stars_gpu.bonsai` on the GPU) -- where the walk on spheres
 has one query over one set. The driver splits each mesh at the slice the
 sample points lie on, the lower half absorbing with the Dirichlet data,
 the upper half reflecting with zero flux, has WoSX's two boundary
@@ -393,19 +394,21 @@ in question (PLAN.md, the persistent schedule).
   run it with `--schedule fcpw4w16,fcpw4w16-packet`.
   `schedules/fcpw4w16-packet-points.bonsai`: the same packet over the
   sample points instead, each lane's walks a loop inside.
-- `apps/rtq/schedules/layouts/fcpwb_gpu.bonsai` (apps/rtq's, imported
-  here by every `fcpwb*` schedule, the CPU ones included for now): WoSX's
-  default tree, FCPW's scalar binary BVH (FCPW_USE_ENOKI off; the one tree
-  FCPW puts on a GPU), in FCPW's GPU bytes: its 32-byte node rows, and its
-  triangles as FCPW's own GPU rows (GPUTriangle: three corners and an
-  index, 40 bytes, a tile of one element each with the program's edges
-  derived), written by the driver (`apps/rtq/fcpw_bvh.h`) as FCPW's GPU
-  transfer writes them. On the CPU that is a gather and an indirection
-  fewer a triangle than WoSX's own leaf pays, which reads the corners
-  through FCPW's Triangle objects and polygon soup; apps/rtq's
-  `layouts/fcpwb.bonsai` is the tree in those bytes, FCPW's own arrays
-  wrapped, and switching this driver's CPU comparison to it is pending
-  (apps/rtq/PLAN.md, 2026-10-25). The node is
+- `apps/rtq/schedules/layouts/fcpwb.bonsai` and `fcpwb_gpu.bonsai`
+  (apps/rtq's; the first imported here by the CPU `fcpwb*` schedules, the
+  second by the `fcpwb-gpu*` ones): WoSX's default tree, FCPW's scalar
+  binary BVH (FCPW_USE_ENOKI off; the one tree FCPW puts on a GPU). The
+  CPU layout is FCPW's own arrays wrapped where they lie -- its 32-byte
+  node rows, its primitive pointers, its Triangle objects and its polygon
+  soup, the corners gathered through the object's indices at the leaf as
+  WoSX's own leaf gathers them (`apps/rtq/fcpw_bvh.h`'s `wrap_fcpw_bvh`,
+  under RTQ_FCPW_CPU_BYTES). The GPU layout is FCPW's GPU bytes: the node
+  rows and the triangles as FCPW's GPU rows (GPUTriangle: three corners
+  and an index, 40 bytes, a tile of one element each with the program's
+  edges derived), written by the driver (`copy_fcpw_bvh`) as FCPW's GPU
+  transfer writes them. Until 2026-10-25 the CPU comparison read the GPU
+  rows too, a gather and an indirection fewer a triangle than WoSX's leaf
+  pays (apps/rtq/PLAN.md, "Genuine apples-to-apples"). The node is
   declared bounding its children, as FCPW traverses it, and the layout
   reads the children's boxes out of the children's own rows
   (`this[left].low.x`...), so the parent holds them logically while its
@@ -468,16 +471,25 @@ in question (PLAN.md, the persistent schedule).
   `schedules/fcpw4w16-gpu.bonsai`: the same kernel over FCPW's four-wide
   tree, which FCPW cannot put on a GPU.
 - `schedules/layouts/fcpw_stars.bonsai`: the walk on stars' three sets in
-  FCPW's bytes -- the absorbing triangles on FCPW's scalar BVH (fcpwb's
-  rows), the reflecting triangles and the silhouette edges on FCPW's one
-  normal cone hierarchy, its 60-byte GPUSnchNode rows (the box, the cone's
-  axis, half angle and radius, the leaf's triangle range and its edge
-  range) handed to two layouts that each read the leaf's range that is
-  theirs, the edges as FCPW's 56-byte GPUEdge rows; the parent holds its
-  children's boxes and cones logically, read from the children's rows, as
-  for fcpwb. `fcpw_stars_trees.h` copies FCPW's trees into them, the rows
-  as FCPW's own GPU transfer writes them (extractSnchNodes,
-  extractTriangles, extractSilhouetteEdges), without its GPU header.
+  the bytes FCPW's CPU reads -- the absorbing triangles on FCPW's scalar
+  BVH as apps/rtq's `fcpwb.bonsai` reads it (FCPW's node array, its
+  primitive pointers, its Triangle objects by address, its polygon soup,
+  the corners gathered through the object's indices at the leaf), the
+  reflecting triangles and the silhouette edges on FCPW's one normal cone
+  hierarchy as apps/rtq's `fcpws.bonsai` reads it (SnchNode rows in FCPW's
+  CPU order handed to two layouts that each read the leaf's range that is
+  theirs; the edges as FCPW's SilhouetteEdge objects by address, their two
+  face normals derived from the positions for the two-face case as FCPW
+  recomputes them); the parent holds its children's boxes and cones
+  logically, read from the children's rows, as for fcpwb.
+  `fcpw_stars_trees.h` wraps FCPW's own arrays for it, nothing copied.
+  `schedules/layouts/fcpw_stars_gpu.bonsai`: the same three sets in the
+  rows FCPW's GPU reads -- 60-byte GPUSnchNode rows, GPUTriangle rows with
+  the corners stored, 56-byte GPUEdge rows with the normals stored -- for
+  the GPU schedules (`kernel/wost_fcpwb.bonsai`); `fcpw_stars_trees.h`
+  copies FCPW's trees into them as FCPW's own GPU transfer writes them
+  (extractSnchNodes, extractTriangles, extractSilhouetteEdges), without
+  its GPU header.
   `schedules/cpu/wost_fcpwb.bonsai`: the three traversals in FCPW's CPU
   order (the closest point by the box's distance and, for two children
   holding the point, the far corner's; the silhouette query by the box's

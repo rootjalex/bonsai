@@ -25,8 +25,9 @@
 // query and the box test alone for the rays and the points
 // (metrics/fcpw_scalar.bonsai). The GPU rows' counts and offsets are
 // unsigned words, read here as the signed words the CPU node has, the same
-// bits. apps/wosx/schedules/layouts/fcpw_stars.bonsai is this twice over
-// with the walk on stars' names beside its absorbing tree.
+// bits. apps/wosx/schedules/layouts/fcpw_stars_gpu.bonsai is this twice
+// over with the walk on stars' names beside its absorbing tree (and its
+// fcpw_stars.bonsai is fcpws.bonsai twice over, for the CPU).
 schedule {
     tree[[Triangle]] SNCH =
     | Interior(children : array[SNCH, 2], lo hi axis : vector[vec3f, 2],
