@@ -17350,3 +17350,192 @@ a loop body's arguments, the launch's captures, stay roots by name. This
 is to-do (3), reproduced and fixed; the rtcore PTX dumps are unchanged to
 the byte. (2) The JIT lacked the device byte fill (bonsai_cuda_fill_bytes_
 async), met by the first managed-memory test with a `ran` array.
+
+## The night of 10-25: the GPU schedule refused since 4e5419ee, the answer kept to the owner's side, and the evening's asks (10-25, 22:00 - 10-26)
+
+**The regression.** The verification run's first compile died at 22:17:
+`vol_path_step!False.stage(vol_ray_samples, rays!False, samples!False):
+vol_path_step!False returns bool; a function on a drained chain returns
+nothing` (Stage.cpp). 4e5419ee made every function of a chain report
+whether it deferred as soon as *any* function of the chain could return
+without deferring, and counted a return anywhere on the chain -- and the
+trace kernel's step and the functions under it that push the next ray
+(vol_route, vol_surface, vol_medium_scatter, vol_exit) end paths with
+plain returns. So the whole rays chain was made to return bool, and the
+stage on the same queue refused the step. apps/pbrt's gpu-optix schedule
+had not compiled since that commit; it was not compiled after it, which
+it should have been (the suite has no shape like the renderer's: a
+non-owner function making the first push over a recursion cut by a
+stage). Fixed in 629761b6, Defer.cpp alone: only the owner's side of the
+chain can return to the owner -- the functions on a call path from the
+owner's call that crosses no deferred call (`owner_side`: the camera
+function that makes the first push; a recursion's step when the owner
+runs the first step itself). What lies below a deferred call runs from
+the drain alone; a return there ends an entry's path, not the owner's
+call, and it answers nothing and goes on returning nothing. The walk for
+a conditional return, the answer type, the passthrough of a callee's
+answer, the answer at a return and the answer on a Defer terminator are
+each confined to that side. The camera chain is back to its pre-4e5419ee
+shape (integrator_li!VolPath!False called with rays!False!end as its
+continuation, no callc, no option) and the schedule compiles. Tests: ssa
+and correctness/llvm defer-answer-owner-side (the renderer's shape: a
+camera function making the first push, a step cut by a stage on its own
+queue, a route function that pushes the next step or ends the path --
+refused at HEAD with Stage's message); ssa/round-hoist-split's
+expectation is its 2df66fc7 one again, to the byte. Rule from it: a
+change to Defer.cpp, Stage.cpp or the queue passes compiles the
+renderer's gpu-optix schedule before it is committed.
+
+**The verification (the 24 never-compared scenes at 16 spp).** Restarted
+22:44 under the fixed compiler; `pbrt --gpu` itself segfaulted on
+hair/hair-actual-bsdf (the reference side: pbrt-v4/build/pbrt, its log
+nothing past the banner and the outfile warning), and gpu_compare.sh then
+exited, so the other 23 scenes did not run. Two things to do: read
+pbrt's crash (run it on the scene alone; pbrt's GPU path renders curves
+as bilinear patches and this is the first curve scene we have put through
+it -- if pbrt cannot render the hair scenes on the GPU, the reference for
+them is `pbrt --wavefront` on the CPU, the same integrator, which
+gpu_compare.sh does not take yet); and gpu_compare.sh should go on after
+a reference-side failure with a row that says so, as heatmap.sh in effect
+does by calling it once per scene. The run resumes after bonsai-ac's
+tables (below): `bash apps/pbrt/gpu_compare.sh --resume --spp 16
+--schedules gpu-optix --scenes "..." --out apps/pbrt/gpu-compare-out-verify`,
+the hair scenes last or with the CPU reference.
+
+**The sweep.** The user asked for it tonight. Started 22:52 as
+`HEATMAP_CUTOFF=25200 heatmap.sh --spp "16 64 128" --out
+compare-out-heatmap8` (PLAN "The full sweep": every converting scene at
+16/64/128; heatmap7's 29 scenes x 4 counts took 10.5 h, three counts
+should take five to six) and stopped at 22:56, at the user's decision
+relayed by bonsai-ac: their rtq and wosx rerun has the machine tonight
+(eleven hours from ~23:02; no builds from anyone meanwhile, worktrees
+included, since their single-thread cells are pinned and their idle check
+aborts a table after ten busy minutes). Resume after their 'done'
+(~10:00-11:00 10-26) with the same command plus `--resume`; then
+`HEATMAP_TABLE=.../compare-out-heatmap8/table.tsv bash apps/pbrt/plots.sh`
+(the 256 row is then unmeasured until a later night).
+
+**Ask 1 -- "There should be no shortcut".** The user, on the two-queue
+item of the evening's status: the second defer should understand that
+the function has already been turned into a defer-handler, so there is no
+regular return and the continuation runs only in the queues' passes; make
+a test with the right shape that currently fails. The shortcut is
+QueueSpec::deferred_elsewhere (Convert.cpp reads every directive's callee
+off the schedule, and a call to one counts as a push, so the first
+directive never reports when another queue is in play). Where every path
+of the function defers -- `step` pushing onto `a` when wet and onto `b`
+otherwise, each in tail position -- the two directives compose today by
+that shortcut, and the shape is right: `step` takes both queues and
+returns nothing, the owner's call ends its iteration (`b!end`), no byte,
+`b`'s drain chained after `a`'s and before the one pass over the record,
+which runs the owner's continuation once per slot after both drains
+(tests ssa and correctness/llvm defer-two-queues-one-chain, 629761b6,
+pinned as the shape to keep). Where a plain return stands besides --
+`step` pushing onto `a` for kind 0, onto `b` for kind 1 and returning
+for kind 2 -- the first directive reports and the second dies: `Two
+blocks named !step_call_cont_2!rest` (it rebuilds the owner's pass). The
+red tests, in the worktree apps/pbrt/scratch/wt-mq (branch
+ajr/ssa-multi-queue), not on ajr/ssa: ssa and correctness/llvm
+defer-two-queues-and-a-return, the ssa expectation hand-written over the
+one-queue dump (a guess at the spelling, to be blessed from the real dump
+when the feature lands). The shape they pin:
+
+    step(x, kind, acc, queue_a, slot_a, queue_b, slot_b) -> bool:
+        kind == 0:  defer onto a   ret true      # the first directive's push
+        kind == 1:  defer onto b   ret true      # the second's: answers too
+        else:       ret false                    # deferred nothing
+    owner:  deferred = step(..);                 # one dispatch, the first's
+            if !deferred { continuation here } else { ran[i] = 1; end }
+    drains: a's, then b's (chained), then the one pass over ran[]
+
+The design, to build: (i) the second directive recognizes that the
+owner-side chain already answers -- by a mark the first leaves on the
+functions it retyped (`Function::answers_for`, the queue's name), not by
+pattern-matching the owner's `callc`; (ii) it threads its queue and slot
+down as today, turns its site into `defer _queue_b e ret true`, chains
+its drain before the existing pass, and builds no dispatch, byte or pass
+of its own; (iii) then, if no path of the owner-side chain can return
+without deferring any more, the reporting is undone -- the owner's
+`callc f(..) q!deferred(..)` becomes `call f(..) q!end()` with `q!end` a
+yield, the byte's fill, store and gate go, and the chain's functions
+return nothing again -- so that the every-path case comes out as today
+without the shortcut; (iv) deferred_elsewhere goes from Convert.cpp. (iii)
+is the heavy part: the byte is threaded through the owner's blocks as an
+argument, so its removal wants a dead-block-argument cleanup, which the
+simplifier may already have (to check). Separate and still open: a second
+*continuation* of one function (`f!after exists already; f is staged
+twice`, `f!g!k exists already; the call is deferred twice`) -- two
+deferrals that each cut `f` -- is refused and stays refused until there is
+a reason to have it.
+
+**Ask 2 -- "What is the owner's own first push? Is something broken?"**
+Nothing was broken in the program: with `run.defer(step, q)` beside
+`step.defer(step, q)` the owner's call pushes the first entry instead of
+running the first step (QueueSpec::initial_push), and the lowered program
+was the same either way. What was odd was the SSA: every other push that
+ends an iteration had become the `defer q entry [yield]` terminator in
+2df66fc7, and this one was still `@n = push q entry` followed by `jmp
+q!end` with `q!end` holding the yield. Built in the worktree (Defer.cpp,
+the initial_push call of push_entry: `ends` when the owner loops over the
+call, so the push is `defer q entry yield` and the `end` block goes; a
+lone call's owner keeps the instruction and the jump to the drain, since
+nothing of its ends there). Test ssa/defer-initial-push (red on ajr/ssa:
+its expectation is today's dump with the terminator in place of the
+push-and-jump, the `q!end` block gone and the drain's names one lower).
+It found a real bug: Simplify.cpp's resolve_uses -- "points every use in
+the function at what its value became" -- had an empty Defer visitor, so
+when value numbering merged the owner's `gep(q_queue, 0)` with the entry
+block's and dropped the one in the loop body, the Defer terminator kept
+the dropped value and the lowering failed (`Var: @10 not in current block,
+and current block is entry!`); fixed in the worktree (the visitor resolves
+queue, entry and answer). Untested until a build is allowed (10-26);
+Simplify.cpp is a shared file, bonsai-ac to be told before it lands.
+
+**Ask 3 -- copies.** pbrt makes them: RayWorkItem, EscapedRayWorkItem,
+HitAreaLightWorkItem and ShadowRayWorkItem (wavefront/workitems.h) each
+carry depth, lambda, pixelIndex, beta, r_u, r_l and prevIntrCtx again;
+the reload by slot was our own idea to beat pbrt's entry sizes, not a
+fidelity matter, and stays optional.
+
+**Ask 4 -- the hit chain, for approval.** Six dependent loads from the
+hit to the material against pbrt's four (the 10-24 reading). The plan in
+two parts. (a) The parts of the chain that are constant per hit-group
+record -- the shape arm and the mesh row -- hoisted into the OptiX
+hit-group record (the SBT) by partial evaluation in Lower/Trees.cpp: the
+closest-hit program reads them off its record instead of following the
+primitive index to the arm and the arm to the mesh; two loads gone,
+matching pbrt's per-record `TriangleMeshRecord`. (b) The per-hit range
+lookup, which needs "The triangle range as a set the type describes"
+(the 10-19 proposal above): the range a set whose type carries its
+bounds, so the index into the mesh needs no lookup. (a) alone needs a
+build and a GPU image check -- after the machine is free; (b) is the
+language change proposed on 10-19 and waits for the user's yes.
+
+**Ask 5 -- the NaN pixels (kroken, watercolor at 128/256 spp; portal
+lights suspected), the plan, uninvasive first.** (1) Narrow the sample:
+bisect `--spp` down (256, 128, 64, ... the first count that shows it, with
+`--seed` fixed) and `--maxdepth` down, both already switches; a NaN that
+appears only past some depth points at a bounce's term, one that needs
+many samples at a rare sampling event. (2) Narrow the scene: copies of
+the .pbrt with the `portal` parameter removed from the infinite light,
+then the light's image swapped for a constant spectrum, then the media
+dropped -- three renders, no code. (3) Catch the first NaN where it is
+made: the scalar CPU schedule with the FP-invalid trap raised in the
+driver under an environment variable (feenableexcept(FE_INVALID) in
+render_hook.cpp before the render; a driver change only), under gdb: the
+first operation that makes a NaN stops with the generated function's name
+and the pbrt source it mirrors. (4) Read pbrt's own handling for the
+candidates (1)-(3) point at: PortalImageInfiniteLight's PDF for a
+direction outside the portal (zero, and the MIS weight it divides into),
+the ratio r_l / r_u at a zero pdf, and that pbrt's wavefront drops a NaN
+sample at the film (RGBFilm::AddSample's `!L.HasNaNs()` test is the CPU
+integrator's; the GPU path has none) -- whichever it is, ours should do
+what pbrt's does at that point. (5) Only if (1)-(4) do not find it: a
+`--pixel x y` switch to the driver, one pixel's samples alone, the
+invasive route.
+
+**Tomorrow, in order (10-26, after bonsai-ac's 'done').** Build the
+worktree; run ssa/defer-initial-push and the suite; if green, commit the
+initial-push change with the Simplify fix (telling bonsai-ac first) and
+fast-forward; then the verification with pbrt's hair crash read first,
+then the sweep's resume, then the hit chain (a) if approved.
