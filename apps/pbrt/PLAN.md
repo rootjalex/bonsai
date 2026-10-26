@@ -17612,7 +17612,25 @@ scratchpad):** the verification of the 24 scenes at 16 spp with
 wavefront), then `heatmap.sh --resume` for the two zero-day frames the
 sweep skipped (against the CPU wavefront too, 65 885 meshes at 128 spp on
 the CPU: minutes per cell), then plots.sh with HEATMAP_TABLE at heatmap8.
-Results below when they are in.
+
+**Results (10:57).** The verification: all 24 scenes `ok: the image
+matches pbrt` at 16 spp -- the eleven hair scenes and bunny-fur against the
+CPU wavefront (no speedup, pbrt --gpu having none; ours 0.33 s to 2.5 s a
+frame), the other twelve against pbrt --gpu at 1.66x (dragon_50) to 2.56x
+(watercolor camera-8); sanmiguel's six views 1.70x to 2.50x, dambreak1
+1.89x, sportscar-area-lights 1.81x, lte-orb-blue-agat-spec 1.95x,
+dragon_250 1.80x. watercolor/camera-8 has 2 non-finite pixels in our
+image at 16 spp, the first at (969, 279), none in pbrt's: the NaN of ask 5
+reproduces at 16 spp on this scene, which makes the bisection of (1)
+cheap -- start there. The sweep: nothing to add, since zero-day is out of
+the list (the user, 10-26: a scene pbrt --gpu cannot render is not in the
+heatmap; ae080ef1), and the wrapper's `heatmap.sh --resume` was refused
+(`unknown argument`: heatmap.sh resumes by default, the flag was my slip,
+nothing lost). plots.sh drew pbrt-gpu-heatmap.pdf and .txt from heatmap8:
+30 scenes x 16/64/128, 0 blank, 0 not matching; gpu-optix over pbrt --gpu
+geomean 1.80x over the 90 cells, 1.99x at 16 spp, 1.73x at 64, 1.68x at
+128; least 1.20x (landscape view-0 at 128 spp), the lower quartile 1.57x,
+median 1.80x. The 256 spp row stays unmeasured until a night allows it.
 
 **Still waiting on the user (asked 10-25, restated 10-26 10:00 in plain
 pseudocode):** (1) two queues through one function -- undo the "did I
