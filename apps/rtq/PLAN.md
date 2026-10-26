@@ -7088,3 +7088,73 @@ barycentric within 1e-5 of an edge, one side hitting and the other
 missing, both ways -- and on sportscar two silhouette edges of 146599, on
 crown and landscape one, classify differently through the GPU's `acos`,
 `asin` and `atan2`.
+
+### The machine code behind the table (2026-10-25, evening)
+
+The user's questions: why the first hit fell so far behind on the CPU
+when the three older figures had it level or ahead; whether the CPU cells
+are one thread; why the GPU is ahead everywhere; and whether `acos`, `asin`
+and `atan2` compile the same on both GPU sides. Read off the objects
+(apps/rtq/scratch/binary: ours-trace_all.asm, fcpw-ray-subtree.asm; the
+PTX and SASS of our four kernels and of FCPW's closestSilhouettePoint,
+FCPW's compiled with slangc -target cuda and nvcc, ptxas -v and cuobjdump
+on both).
+
+A different reference program, not a worse tree. The older figures are
+against FCPW's vectorized Mbvh -- four-wide nodes, sixteen-triangle
+leaves, enoki's AVX-512 kernels -- with our schedule vectorizing the same
+loops; this one is against FCPW's scalar build, a binary BVH of 32-byte
+nodes and leaves of at most four triangles, Eigen scalars one box and one
+triangle at a time, and a later checkout. Both sides one pinned thread on
+the CPU (cpu 11, a plain loop each), one query a thread in blocks of 256
+on the GPU.
+
+The CPU ray visit. Static size is not it: our whole trace_all is 287
+instructions, visit, leaf and record; FCPW's subtree loop alone is 423
+with a call per triangle. The structures differ. FCPW decides the two
+children's hits, their order and the push with branches (48 branches, no
+cmov, 8 compares in the loop), which the predictor runs ahead of on
+coherent rays; ours decides them through mask registers and conditional
+moves (vcmpleps, kandw, kmovd twice, kshiftrb, vblendmps; four cmova, one
+of them the next node), a data dependency through the box tests' full
+latency on every visit. Beside it, 36 shuffles to handle the three-lane
+vectors (vpermt2ps 7, vinsertps 8, vmovshdup 4) where Eigen loads scalars,
+and the wide metric's "proper box" compare kept in the scalar metric
+(vinsertps twice, vcmpleps, kandw a visit) for a box that is never the
+inverted empty slot here. Primary rays on a cache-resident mesh are where
+a dependency chain shows undiluted: pavilion 0.59. The leaf goes the other
+way: FCPW's CPU reads each triangle's corners through the soup's indices
+and dispatches `intersect` virtually (the subtree loop's six indirect
+calls), ours reads FCPW's own 40-byte GPU rows inlined -- a layout
+advantage on our side for the CPU comparison, to be said plainly: the
+fcpwb layout is FCPW's GPU bytes, not its CPU soup, and the exactly
+matching CPU layout would read through the soup, which the layout
+language does not express (apps/wosx/PLAN.md, the layout extension). That
+is why the leaf-heavy queries, closest point and silhouette, are ahead
+while the node-heavy rays are behind. The branch-against-mask reading is
+a hypothesis from the code; the measurement that decides it is perf stat
+on pavilion's primary rays on both sides (cycles, instructions, branch
+misses), and the experiment that fixes it, if it holds, is a visit whose
+decision is branchy -- a codegen or schedule question for the user, no
+change made.
+
+The GPU. The two silhouette kernels are nearly the same arithmetic: FFMA
+233 against 248, MUFU.RCP 21 against 21, MUFU.RSQ 11 against 11, eighteen
+pi/2 constants and seven copysigns each, 1232 against 1168 SASS
+instructions, no spills (ours 64 registers and a 512-byte stack, FCPW's 52
+and 256). The one systematic difference is the loads: FCPW's tree reads
+are 38 generic-address loads (LD.E, Slang's buffer pointers) and 21
+global; ours 43 read-only global loads (LDG.E from `ld.global.nc`), the
+texture-cache path. No branch predictor on a GPU, so the visit structure
+that costs on the CPU costs nothing there. The load path is the likely
+source of the 1.1-1.4x; confirming it is a profiler on the two kernels,
+which the user's rule reserves to their say-so.
+
+acos, asin, atan2: the same algorithms in single precision on both GPU
+sides -- FCPW through Slang's CUDA prelude (`::acosf`, `::asinf`, the
+float overload of `atan2`; slang-rhi's NVRTC path passes no fast-math
+flag), ours through libdevice's `__nv_acosf`, `__nv_asinf`, `__nv_atan2f`
+inlined (CodeGen_PTX::codegen_math_call; --fast-math would switch only
+sin, cos, exp, log and pow to their approximate forms, as nvcc's
+--use_fast_math does, and compare.sh does not pass it). The SASS counts
+above are the evidence. On the CPU both sides call glibc's.
