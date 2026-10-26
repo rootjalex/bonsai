@@ -17632,9 +17632,87 @@ geomean 1.80x over the 90 cells, 1.99x at 16 spp, 1.73x at 64, 1.68x at
 128; least 1.20x (landscape view-0 at 128 spp), the lower quartile 1.57x,
 median 1.80x. The 256 spp row stays unmeasured until a night allows it.
 
-**Still waiting on the user (asked 10-25, restated 10-26 10:00 in plain
-pseudocode):** (1) two queues through one function -- undo the "did I
-push?" reporting when the second deferral removes the last plain return
-(proposed: yes); (2) the hit chain -- (a) the arm and mesh row hoisted
-into the OptiX hit record, (b) the triangle range as a set the type
-describes; (3) the NaN pixels plan's order. Nothing of these is built.
+**The user's answers (10-26, ~11:00).** (1) Yes: the Defer pass undoes the
+"did I push?" reporting when all paths push (built below). (2) The hit
+chain: (a) approved as what it is, a change to the lowering of the OptiX
+hit program alone; (b) not understood as first put -- and then, on the
+question "why was the tris array built in the first place, if pbrt
+doesn't have that?", answered from pbrt's source (below). (3) The NaN plan
+is fine for debugging; it runs after the above. Also: a scene pbrt --gpu
+cannot render is not in the heatmap (ae080ef1).
+
+**The tris array, from pbrt's source (the user's question, 10-26).** pbrt
+has two data structures for a mesh's triangles, one per path. The CPU
+path has exactly our rows: `Triangle::CreateTriangles` (shapes.cpp:272)
+allocates one `Triangle` object per triangle, and the class is two ints,
+`{meshIndex, triIndex}` (shapes.h:839, :1188), 8 bytes, with a
+SimplePrimitive or GeometricPrimitive per triangle on top and the BVH over
+those. The GPU path has no per-triangle object: `TriangleMeshRecord {mesh,
+material, alphaTexture, areaLights, mediumInterface}` is the hit-group
+record per mesh (gpu/optix/optix.h:26), and the closest-hit program names
+the triangle by `rec.mesh` and `optixGetPrimitiveIndex()` (optix.cu:192).
+So render_hook.cpp's `tris.push_back(Triangle{m, k})` loop is pbrt's
+CreateTriangles loop, byte for byte -- not invented data -- but the
+program fixes that one representation (`Mesh(mesh, tris : set[Triangle])`,
+the rows the driver fills) where pbrt's GPU path shows the
+representation-free statement: a triangle is (its mesh, its index), and a
+mesh's triangles are the indices 0 to n-1. The right specification is the
+one both pbrt paths agree on, stated in the program and left to the layout
+to store or not: `Mesh(mesh : u32, count : u32)` with `geometry` mapping
+`|i| triangle_geometric(Triangle{mesh, i})` over `0:count` -- the range as
+a set value (the 10-19 proposal), with which a software-tree layout may
+still store rows as pbrt's CPU does and the OptiX layout stores nothing
+as pbrt's GPU does. Part (a) is pbrt's per-mesh record exactly: the mesh
+row already holds material, alpha, media and first light, the record's
+fields. Awaiting the user's word on the range as a set value before any
+of (b) is built.
+
+**The composition built (10-26, landed as 190ffe86; apps/pbrt's gpu-optix
+schedule compiles and its render.o is byte for byte 99c5de0d's).** A
+deferral whose owner's call is an earlier deferral's
+`<q>!deferred` dispatch -- found through Function::OwnedQueue::Reporting,
+which a reporting deferral now leaves on the owner's queue: the dispatch
+and end blocks, the pass's gate blocks, the copied continuation and its
+original, the byte's allocation and fill when the reporting alone made
+them, the retyped functions, the answer type -- composes with it: it
+leaves the call alone, makes its pushes in those functions answer
+"deferred" in the earlier answer's terms, chains its drain after the
+earlier one's and before that pass, and builds no dispatch, byte or pass
+of its own (its `k0` is empty: the rest of the iteration is the earlier
+pass's). Its tail-position check, and Convert's choice between defer and
+defer_continuation (has_nontail_call), accept a call followed only by the
+chain's answer -- `work_b(..); ret (bool)0`, or the option of the call's
+value -- as a tail call (SSA/Stage.h returns_chain_answer): the deferral
+replaces that answer with its own, so nothing of the function's runs after
+the call. The walk for a plain return covers the earlier deferral's
+functions too and treats a call into one of them as a call into the chain.
+When it finds none (undo_prior), the reporting is undone at the end of the
+pass: the owner's call is made plain by the ordinary branch (a fresh
+`<q2>!end`, the dispatch and the byte's store unreachable), the pass's
+gate on the byte becomes the jump it guarded, aimed at the original
+continuation instead of its copy (whose returns become yields), the byte's
+load and address, allocation, fill and induced-storage registration go,
+the chain's functions are retyped to void with their Defer answers and
+answering returns cleared, every call that took the answer drops it (its
+continuation's first argument removed), and the block arguments that
+carried the byte and the answer for nothing are removed by a new
+simplifier utility, remove_dead_arguments (Simplify.h; not part of
+simplify(), which has no such pass -- the Defer undo calls it after the
+dead instructions are gone). QueueSpec::deferred_elsewhere no longer reads
+the schedule's other `defer`s: the every-path case now goes first
+directive reports, second undoes, and comes out as the pinned shape, less
+one dead `out` argument of the owner's loop body that the cleanup takes
+with the byte (ssa/defer-two-queues-one-chain re-blessed: that argument
+and renumbering; gate-drains-gang the same route, renumbering only). The
+set still holds the `stage`s' callees: the Stage pass refuses a reporting
+chain ("a function on a drained chain returns nothing") and does not
+compose with one, so a `stage` after a `defer` on the owner's side of its
+chain would otherwise make the chain report and then be refused -- the
+remaining shortcut, to go when Stage composes as Defer now does. Tests:
+ssa + correctness/llvm defer-two-queues-and-a-return (the reporting kept:
+`defer _queue_a @e ret (bool)1`, `defer _queue_b @e ret (bool)1`, `ret
+(bool)0`, one `callc step(..) a!deferred(..)`, `a!end` setting the byte,
+b's drain between a's and the gated pass; values 102.5, 107, 104, 107, 116,
+107, 111.5, 125) and defer-two-queues-one-chain (the undo); the two error
+tests' expectations changed by the assert's line and text only. Suite 1884
+green in the worktree.
