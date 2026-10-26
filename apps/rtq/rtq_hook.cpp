@@ -1588,7 +1588,11 @@ bool packets_native(RTCDevice device) {
 Hit miss_hit() {
     Hit h{};
     h.primID = kNoHit;
-    h.d = kInf;
+#ifdef RTQ_FCPW
+    h.d = kInf; // FCPW's Interaction: d
+#else
+    h.t = kInf; // Embree's RTCRayHit: tfar
+#endif
     return h;
 }
 
