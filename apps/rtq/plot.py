@@ -15,14 +15,9 @@ on that cell: the y axis reads Speedup, the legend says over which
 reference each colour is, and the line at 1 is the reference. lte-orb is
 left out by default (--exclude names the meshes left out): FCPW's triangle
 test finds no hit at all on that small-unit mesh, so its ao, diffuse and
-point batches are empty and the mesh says nothing about the comparison. A
-fourth figure, the packets, is drawn when the CSV has rows of the packet
-schedule (`packet16`; --packet names another): three bars a mesh, the
-program's rays in gangs of sixteen over Embree's rtcIntersect16 (primary
-and diffuse rays) and rtcOccluded16 (ambient-occlusion rays), the ray sets
-by hatching, both sides over the same BVH8 and the same sixteen consecutive
-rays a packet. Two more, the queries apps/wosx's walks make over FCPW's
-scalar trees, are drawn when the CSV has their rows: `rtq-fcpwb-fcpws-cpu`,
+point batches are empty and the mesh says nothing about the comparison.
+Two more, the queries apps/wosx's walks make over FCPW's scalar trees, are
+drawn when the CSV has their rows: `rtq-fcpwb-fcpws-cpu`,
 bonsai over FCPW's scalar build, and `rtq-fcpwb-fcpws-gpu`, bonsai over
 FCPW's GPUScene, seven bars a mesh -- the first hit, the any hit and the
 closest point over FCPW's binary BVH (`fcpwb`, `fcpwb-gpu`) and the closest
@@ -62,7 +57,6 @@ import argparse
 import csv
 import math
 import os
-import re
 import sys
 
 import matplotlib
@@ -91,10 +85,6 @@ FIGURES = [
     ("anyhit", "any", ["ao"], "Any hit"),
     ("closestpoint", "closest", ["near", "volume"], "Closest point"),
 ]
-# The packet figure's bars: the same three sets under the same queries, one
-# figure, since the packet comparison is one comparison (Embree's
-# rtcIntersect<K> and rtcOccluded<K> against the rays in gangs of K).
-PACKET_SETS = [("nearest", "primary"), ("nearest", "diffuse"), ("any", "ao")]
 # The two figures of the queries apps/wosx's walks make, over FCPW's scalar
 # trees (the build WoSX ships): one for the CPU, bonsai over FCPW's scalar
 # build, one for the GPU, bonsai over FCPW's GPUScene. Seven bars a mesh,
@@ -159,18 +149,6 @@ def tuned_over_matching(rows, reference, matching, tuned, query):
     return {k: over[k] / base[k] for k in over if k in base and base[k] > 0}
 
 
-def packet_cells(rows, schedule):
-    """The packet schedule's cells against Embree's packets, keyed by (mesh,
-    rays): the ray sets are distinct across the two queries, so one map
-    holds the nearest hit's primary and diffuse cells and the any hit's ao."""
-    out = {}
-    for query, rays in PACKET_SETS:
-        for key, v in cells(rows, "embree", schedule, query).items():
-            if key[1] == rays:
-                out[key] = v
-    return out
-
-
 def callbacks_per_query(rows, meshes, schedule, rays):
     """The mean over the plotted meshes of the triangles Embree handed its
     rtcPointQuery callback per query (the CSV's callbacks_per_query), for
@@ -182,13 +160,12 @@ def callbacks_per_query(rows, meshes, schedule, rays):
     return sum(values) / len(values) if values else None
 
 
-def geomeans(rows, schedules, exclude, tuned, packet=None):
+def geomeans(rows, schedules, exclude, tuned):
     """The geometric mean of each figure's bars over the plotted meshes, per
     reference and ray or point set: the one number per cell kind the
     comparison is judged by (the user's rule of 2026-10-07: every geomean a
     win, no single cell more than 3% under its reference). Printed as a
-    table, with the cells under 0.97 named, since a geomean can hide one.
-    The packet schedule's cells, when there are any, follow the same way."""
+    table, with the cells under 0.97 named, since a geomean can hide one."""
     meshes, _ = meshes_by_triangles(rows, exclude)
     refs = [("embree", schedules["embree"]), ("fcpw", schedules["fcpw"])]
     what = "tuned over matching" if tuned else "bonsai over the reference"
@@ -213,10 +190,6 @@ def geomeans(rows, schedules, exclude, tuned, packet=None):
                     else cells(rows, ref, sched, query))
             for rays in sets:
                 row(ref, sched, query, rays, data)
-    if packet and not tuned:
-        data = packet_cells(rows, packet)
-        for query, rays in PACKET_SETS:
-            row("embree", packet, query, rays, data)
 
 
 def new_figure():
@@ -353,56 +326,6 @@ def notes_for(name, rows, meshes, schedules, tuned):
             "the gains over FCPW",
         ]
     return notes
-
-
-def draw_packet(rows, schedule, out_dir, formats, exclude):
-    """The packet figure: the program's rays in gangs of K over Embree's
-    packets of K, three bars a mesh (primary and diffuse rays under the
-    nearest hit, ambient-occlusion rays under the any hit), Embree's colour,
-    the sets by hatching; the line at 1 is Embree's packet kernel."""
-    data = packet_cells(rows, schedule)
-    if not data:
-        print(f"packet: no rows for {schedule}; skipped", file=sys.stderr)
-        return
-    meshes, tris = meshes_by_triangles(rows, exclude)
-    # The packet's width is the digits after `packet` in the schedule's name;
-    # a suffix (packet16-anyhit, the any hit alone in gangs) is not part of it.
-    width_match = re.match(r"packet(\d+)", schedule)
-    k = width_match.group(1) if width_match else "K"
-    n = len(PACKET_SETS)
-    width = 0.8 / n
-    fig, ax = new_figure()
-    top = 1.0
-    for i, mesh in enumerate(meshes):
-        for j, (_, rays) in enumerate(PACKET_SETS):
-            v = data.get((mesh, rays))
-            if v is None:
-                continue
-            x = i - 0.4 + width * (j + 0.5)
-            ax.bar(x, v, width, color=COLOUR["embree"], hatch=HATCH[rays],
-                   edgecolor=EDGE, linewidth=0.4)
-            top = max(top, v)
-    ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=0.8, zorder=3)
-    mesh_ticks(ax, meshes)
-    ax.set_ylim(0, top * 1.08)
-    ax.set_ylabel("Speedup")
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.yaxis.grid(True, linewidth=0.4, alpha=0.5)
-    ax.set_axisbelow(True)
-    handles = [Patch(facecolor=COLOUR["embree"], edgecolor=EDGE, linewidth=0.4,
-                     label=f"over Embree's packets of {k}")]
-    handles += [Patch(facecolor="white", edgecolor=EDGE, linewidth=0.4,
-                      hatch=HATCH[rays], label=LABEL[rays]) for _, rays in PACKET_SETS]
-    legend_above(ax, handles)
-    path = save(fig, out_dir, "rtq-packet", formats)
-    print(write_summary(
-        path, f"Speedup over Embree's packets of {k} (rtcIntersect{k}, rtcOccluded{k}), "
-              f"{len(meshes)} meshes",
-        [("every mesh", [(f"{LABEL[rays]} ({query})", series(data, meshes, rays))
-                         for query, rays in PACKET_SETS])],
-        ["the program's rays in gangs of sixteen against Embree's packet kernels, both sides "
-         "over the same BVH8 and the same sixteen consecutive rays a packet"]))
 
 
 def scalar_cells(rows, reference, schedules):
@@ -579,8 +502,6 @@ def main():
     p.add_argument("--fcpw", default="fcpw4w16", help="FCPW's matching schedule (default fcpw4w16)")
     p.add_argument("--embree-tuned", default="tuned", help="Embree's tuned schedule (default tuned)")
     p.add_argument("--fcpw-tuned", default="fcpw4w16t", help="FCPW's tuned schedule (default fcpw4w16t)")
-    p.add_argument("--packet", default="packet16",
-                   help="the packet schedule, against Embree's packets of its width (default packet16)")
     p.add_argument("--format", default="pdf,png", help="comma-separated formats (default pdf,png)")
     p.add_argument("--exclude", default="lte-orb",
                    help="comma-separated meshes left out (default lte-orb, which FCPW finds no hit on)")
@@ -593,11 +514,10 @@ def main():
     draw(rows, schedules, a.out, "-tuned" if a.tuned else "", a.format.split(","),
          exclude, tuned)
     if not a.tuned:
-        draw_packet(rows, a.packet, a.out, a.format.split(","), exclude)
         draw_scalar(rows, a.out, a.format.split(","), exclude)
         meshes, tris = meshes_by_triangles(rows, exclude)
         mesh_table(rows, meshes, tris, schedules, a.out, exclude)
-    geomeans(rows, schedules, exclude, tuned, None if a.tuned else a.packet)
+    geomeans(rows, schedules, exclude, tuned)
     if not a.tuned:
         scalar_geomeans(rows, exclude)
 

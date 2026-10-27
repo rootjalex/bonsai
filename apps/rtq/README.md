@@ -458,12 +458,9 @@ driver, the two sides' kernels told apart by symbol).
   its own default tree: Embree's BVH8 (`embree`) and FCPW's four-wide Mbvh
   with sixteen-lane leaves (`fcpw4w16` -- FCPW's default branching, the
   tree its author calls the better tested, and the leaf width its build
-  picks on an AVX-512 machine); `--embree`, `--fcpw` name others. A
-  fourth figure, `rtq-packet`, is drawn when the CSV has the packet
-  schedule's rows (`packet16`; `--packet` names another): three bars a
-  mesh, the gangs of sixteen over Embree's packets of sixteen, primary and
-  diffuse rays under the nearest hit and ambient-occlusion rays under the
-  any hit.
+  picks on an AVX-512 machine); `--embree`, `--fcpw` name others. (The
+  packet schedule's rows, `packet16` against Embree's packets, fold into
+  the CSV and the geomeans but have no figure of their own since 10-26.)
 - `results/`, `plots/`: the measured data -- one CSV, one row per measured
   cell (date, commit, reference, schedule, mesh, query, ray set, both rates,
   the speedup, the agreement) -- and the figures drawn from it. Generated,
