@@ -1835,11 +1835,18 @@ hidden; and fewer bytes: 2.25G against 2.58G load instructions fetching
 test needs, not the row), the stack's traffic 0.6-0.7x theirs (108M
 against 156M local stores). Lanes active per instruction are about three
 on both sides (2.83 against 3.10), as read on 10-24: the lead is registers
-and bytes, not instructions or lanes. The walk on stars' profile is still
-owed: head's and dragon's stars kernels run 1.4 and 9.8 s a launch, and
-Nsight Compute's replay of WoSX's trips the display watchdog
-(CUDA_ERROR_LAUNCH_TIMEOUT in slang-rhi's cuEventRecord); comb (3 ms) or
-crown (0.24 s) will do.
+and bytes, not instructions or lanes. The walk on stars reads the same
+way (comb, the one stars case short enough for the profiler: head's and
+dragon's stars kernels run 1.4 and 9.8 s a launch and Nsight Compute's
+replay of WoSX's trips the display watchdog, CUDA_ERROR_LAUNCH_TIMEOUT in
+slang-rhi's cuEventRecord; results/ncu/comb-wost-fcpwb-gpu.*,
+results/nsys/comb-wost-fcpwb-gpu.*): 1.33x on the table, kernel-only 2.06
+against 2.90-3.08 ms under nsys (1.4x), ncu 2.48 against 3.41. Ours: 73
+registers to their 120 (34.5% occupancy to 23.6%, 1.75 eligible warps a
+cycle to 0.73, issue slots 69% to 48%), 10% fewer load instructions
+fetching 19% fewer sectors, the stack's traffic a third to a half of theirs
+(6.6M against 12.2M local stores, 11.6M against 33.0M sectors), 5% more
+warp instructions (1.85G against 1.77G), 4.5 against 5.0 lanes active.
 
 ### Next
 
