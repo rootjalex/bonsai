@@ -1848,6 +1848,71 @@ fetching 19% fewer sectors, the stack's traffic a third to a half of theirs
 (6.6M against 12.2M local stores, 11.6M against 33.0M sectors), 5% more
 warp instructions (1.85G against 1.77G), 4.5 against 5.0 lanes active.
 
+**The comb loss at the instruction level** (Nsight Compute's source page,
+`--page source --print-source sass`: every SASS instruction's warp-level
+and thread-level executions; results/ncu/*-source-{ours,wosx}.csv). Per
+lane we run 1.9% more instructions than WoSX (3.29G against 3.23G
+thread-level), the same node visits (29.5M against 29.6M child-offset
+loads), fewer loads (313M against 461M) and half the stack traffic; the
+27% more warp instructions are lanes, 3.68 active a warp instruction
+against 4.58. Two causes. (1) Float min and max were lowered as a compare
+and a select -- std::max's rule, kept for x86's maxss -- which NVPTX
+cannot fold to max.f32 (its NaN rule is maxnum's), so a box test's twelve
+clamps were a setp and a selp each: 240M compares and selects against
+WoSX's 122M plus 60M FMNMX. Fixed in aa4dbaaa: device code lowers them to
+llvm.maxnum and llvm.minnum, one FMNMX each, as Slang's min() and max()
+and CUDA's fminf and fmaxf are. pbrt's device code writes std::max, which
+nvcc keeps a compare and a select, so pbrt --gpu and ours differ where a
+NaN leads a max or a min and nowhere else; apps/pbrt's GPU compare is
+being rerun to see whether any image notices. The GPU tables here are to
+be remeasured under it. (2) The traversal body is in the kernel three
+times, as the 10-08 reading found it in the CPU code (above: then a
+matter of code size and stack slots; on a warp it is lanes). The walk's
+recursion has three traversal call sites once loopify
+has made it a loop -- the step's closest_within in the loop body, and the
+two `return terminal(...)` exits (at eps and at max-steps), each lowered
+where it stands, inside the loop's region before its join -- and LLVM
+inlines `_recloop_func1` at all three. A lane whose walk ends runs its
+terminal query at once while the warp's other lanes idle: 1.22M node
+visits at 1.6-1.8 active lanes, against WoSX's terminal query after its
+loop for every ended lane together, 340k at 5.2 lanes -- about 180M of
+the 188M excess warp instructions. The same shape is in the walk on stars
+(terminal_stars at the exits), not in rtq (no recursion), possibly in
+pbrt's megakernels (a loopified path step's exits). Proposed, not built:
+loopify's exits carry their arguments to one block after the loop -- its
+post-dominator, where a warp reconverges -- and the exit's tail call runs
+there, once; identical calls on several exits merge, different ones
+dispatch on an exit tag. The meaning is the same on every target (after
+an exit the loop runs no more code), the work never more, the exit code
+in one copy. Awaiting the go-ahead.
+
+The CPU tables, measured the same day (12:19-14:08, `benchmark.sh` on
+build-rtq's compiler: six schedules on 19 meshes, 115 cells) against the
+10-26 table cell by cell (the before copy,
+results/wosx-results.before-2026-10-27-tie.csv). WoSX reproduces to 0.2%
+in every schedule's geomean. The packet family did not move (fcpw4w16
+1.194 to 1.195, -threads 1.251 to 1.243, -persistent 1.327 to 1.328). The
+binary-tree family gained on every mesh, our side alone: fcpwb 1.023 to
+1.178 (our rate x1.15 in geomean), fcpwb-threads 1.103 to 1.194 (x1.09),
+fcpwb-persistent 1.158 to 1.275 (x1.10); comb, under parity in all three
+on 10-26 (0.81, 0.97, 0.99), is 1.32, 1.31 and 1.30 (our rate x1.62 on
+fcpwb), and no cell is under 0.97 any more (the least, fcpwb-threads on
+dragon, 1.06). The commits between the two tables that touch the binary
+tree and not the packet one: the two-child tie order 96229693 (the CPU's
+sort is the same sort), `[[packed]] vec3f` 858c6d45 and the
+reference-exact records c7fc94d7. Which gives what is not separated here:
+comb's x1.62 has the tie's signature (the GPU's comb moved the other way
+under the same order, above -- there the longer walks end a persistent
+kernel late, a cost a CPU thread does not pay), the 5-15% on every mesh
+the bytes'; an A/B at each commit would say. One note on the run: the
+compiler in build-rtq was rebuilt at 12:24 while the table ran, against
+the rule; the whale and car cells that overlapped it reproduce their
+10-26 rates to 0.5% on both sides (each cell keeps the best of its
+repeats), and the rebuilt change (aa4dbaaa, the device's min and max) is
+device-only, so the table stands. The figures are redrawn:
+plots/wosx-cpu-fcpw4w16-speedup.*, plots/wosx-cpu-fcpwb-speedup.* and
+their .txt.
+
 ### Next
 
 - The other binary-tree schedules measured again with the unrolled visit
