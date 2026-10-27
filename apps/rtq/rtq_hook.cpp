@@ -175,56 +175,75 @@ struct RefSilhouette {
     Vec3 p{0, 0, 0};
 };
 
-RefSilhouette as_ref(const SilhouetteHit &h) {
+RefSilhouette as_ref(const SilhouetteHitRecord &h) {
     RefSilhouette r;
     r.edge = h.index;
     r.d = h.d;
-    r.p = Vec3{h.p.x, h.p.y, h.p.z};
+    r.p = Vec3{h.p[0], h.p[1], h.p[2]};
     return r;
 }
 #endif
 
+// The program's answers are the reference's records, to the byte
+// (metrics/*.bonsai: HitRecord is FCPW's GPUInteraction or Embree's RTCHit,
+// ClosestHitRecord FCPW's interaction or the Embree tutorial's callback
+// record), read into the comparison's form here. A hit record is read with
+// its ray: Embree's hit has no distance of its own, rtcIntersect1 leaving
+// it in the ray's tfar, which the program shortens as rtcIntersect1 does
+// (metrics/embree.bonsai, ray_written).
 #ifdef RTQ_FCPW
-RefHit as_ref(const Hit &h) {
+RefHit as_ref(const HitRecord &h, const RayRecord &) {
     RefHit r;
-    r.prim = h.primID;
+    r.prim = h.index;
     r.t = h.d;
-    r.u = h.u;
-    r.v = h.v;
-    r.ng = Vec3{h.n.x, h.n.y, h.n.z};
-    r.p = Vec3{h.p.x, h.p.y, h.p.z};
+    r.u = h.uv[0];
+    r.v = h.uv[1];
+    r.ng = Vec3{h.n[0], h.n[1], h.n[2]};
+    r.p = Vec3{h.p[0], h.p[1], h.p[2]};
     return r;
 }
 
-RefClosest as_ref(const ClosestHit &c) {
+RefClosest as_ref(const ClosestHitRecord &c) {
     RefClosest r;
-    r.prim = c.primID;
+    r.prim = c.index;
     r.d = c.d;
-    r.p = Vec3{c.p.x, c.p.y, c.p.z};
-    r.u = c.u;
-    r.v = c.v;
+    r.p = Vec3{c.p[0], c.p[1], c.p[2]};
+    r.u = c.uv[0];
+    r.v = c.uv[1];
     return r;
 }
 #else
-RefHit as_ref(const Hit &h) {
+RefHit as_ref(const HitRecord &h, const RayRecord &ray) {
     RefHit r;
     r.prim = h.primID;
-    r.t = h.t;
+    r.t = ray.tfar;
     r.u = h.u;
     r.v = h.v;
-    r.ng = Vec3{h.ng.x, h.ng.y, h.ng.z};
+    r.ng = Vec3{h.ng[0], h.ng[1], h.ng[2]};
     return r;
 }
 
-RefClosest as_ref(const ClosestHit &c) {
+RefClosest as_ref(const ClosestHitRecord &c) {
     RefClosest r;
     r.prim = c.primID;
     r.d = c.d;
-    r.p = Vec3{c.p.x, c.p.y, c.p.z};
+    r.p = Vec3{c.p[0], c.p[1], c.p[2]};
     return r;
 }
 #endif
-float3 to_float3(Vec3 v) { return float3{v.x, v.y, v.z}; }
+
+// The batch's geometry out of either reference's record: FCPW's are
+// twelve-byte float3s, Embree's the four-lane vectors its kernels load,
+// with tnear and time in the fourth lanes (metrics/embree.bonsai).
+#ifdef RTQ_FCPW
+Vec3 origin(const RayRecord &r) { return Vec3{r.o[0], r.o[1], r.o[2]}; }
+Vec3 direction(const RayRecord &r) { return Vec3{r.d[0], r.d[1], r.d[2]}; }
+Vec3 center(const PointRecord &p) { return Vec3{p.c[0], p.c[1], p.c[2]}; }
+#else
+Vec3 origin(const RayRecord &r) { return Vec3{r.org.x, r.org.y, r.org.z}; }
+Vec3 direction(const RayRecord &r) { return Vec3{r.dir.x, r.dir.y, r.dir.z}; }
+Vec3 center(const PointRecord &p) { return Vec3{p.p.x, p.p.y, p.p.z}; }
+#endif
 
 #ifndef RTQ_FCPW
 
@@ -1069,19 +1088,51 @@ struct Rng {
     float uniform() { return float(next() >> 8) * (1.0f / 16777216.0f); }
 };
 
-Ray make_ray(Vec3 o, Vec3 d, float tfar) {
-    Ray r;
-    r.o = to_float3(o);
-    r.tnear = 0.0f;
-    r.d = to_float3(d);
+// A batch's ray as the reference's record (metrics/*.bonsai, RayRecord: the
+// bytes FCPW's GPURay or Embree's RTCRay has). FCPW's GPURay carries the
+// reciprocal direction its constructor computes on the host before the
+// upload, 1/d per component (fcpw/gpu/bvh_interop_structures.h), so the
+// driver computes it here, off the clock, as that constructor does; Embree's
+// RTCRay carries tnear, time, mask, id and flags, set as to_rayhit sets
+// Embree's own.
+RayRecord make_ray(Vec3 o, Vec3 d, float tfar) {
+    RayRecord r{};
+#ifdef RTQ_FCPW
+    r.o = {o.x, o.y, o.z};
+    r.d = {d.x, d.y, d.z};
+    r.dinv = {1.0f / d.x, 1.0f / d.y, 1.0f / d.z};
+#else
+    r.org = decltype(r.org){o.x, o.y, o.z, 0.0f}; // tnear in the fourth lane
+    r.dir = decltype(r.dir){d.x, d.y, d.z, 0.0f};  // time in the fourth lane
+    r.mask = ~0u;
+    r.id = 0;
+    r.flags = 0;
+#endif
     r.tfar = tfar;
     return r;
+}
+
+// A query point as the reference's record (PointRecord): FCPW's bounding
+// sphere about it with the largest float for its squared radius, the
+// unbounded query (reference_closest); Embree's RTCPointQuery with time
+// zero and an infinite radius, as the tutorial's queries begin
+// (embree_queries).
+PointRecord make_point(Vec3 p) {
+    PointRecord q{};
+#ifdef RTQ_FCPW
+    q.c = {p.x, p.y, p.z};
+    q.r2 = std::numeric_limits<float>::max();
+#else
+    q.p = decltype(q.p){p.x, p.y, p.z, 0.0f}; // time in the fourth lane
+    q.radius = kInf;
+#endif
+    return q;
 }
 
 // Primary rays: a pinhole camera a scene diagonal and a half from the
 // mesh's centre, looking at it from above and to the right, over a square
 // image of `side` by `side` pixels.
-std::vector<Ray> primary_rays(const Mesh &mesh, uint32_t side) {
+std::vector<RayRecord> primary_rays(const Mesh &mesh, uint32_t side) {
     const Vec3 centre = (mesh.lo + mesh.hi) * 0.5f;
     const float diagonal = length(mesh.hi - mesh.lo);
     const Vec3 eye = centre + normalize(Vec3{0.5f, 0.35f, 1.0f}) * (1.5f * diagonal);
@@ -1089,7 +1140,7 @@ std::vector<Ray> primary_rays(const Mesh &mesh, uint32_t side) {
     const Vec3 right = normalize(cross(forward, Vec3{0.0f, 1.0f, 0.0f}));
     const Vec3 up = cross(right, forward);
     const float tan_half = std::tan(0.5f * 40.0f * 3.14159265f / 180.0f);
-    std::vector<Ray> rays;
+    std::vector<RayRecord> rays;
     rays.reserve(size_t(side) * side);
     for (uint32_t y = 0; y < side; y++) {
         for (uint32_t x = 0; x < side; x++) {
@@ -1127,21 +1178,21 @@ struct PrimaryHit {
 // the hit point along the hemisphere about the geometric normal facing the
 // camera, `reach` scene diagonals long -- a tenth for ambient occlusion,
 // unbounded for a diffuse bounce.
-std::vector<Ray> secondary_rays(const std::vector<Ray> &primary,
+std::vector<RayRecord> secondary_rays(const std::vector<RayRecord> &primary,
                                 const std::vector<PrimaryHit> &hits,
                                 const Mesh &mesh, float reach, uint64_t seed) {
     const float diagonal = length(mesh.hi - mesh.lo);
     Rng rng;
     rng.state += seed;
-    std::vector<Ray> rays;
+    std::vector<RayRecord> rays;
     rays.reserve(primary.size());
     for (size_t i = 0; i < primary.size(); i++) {
         const PrimaryHit &h = hits[i];
         if (!h.hit) {
             continue;
         }
-        const Vec3 o{primary[i].o.x, primary[i].o.y, primary[i].o.z};
-        const Vec3 d{primary[i].d.x, primary[i].d.y, primary[i].d.z};
+        const Vec3 o = origin(primary[i]);
+        const Vec3 d = direction(primary[i]);
         Vec3 n = normalize(h.n);
         if (dot(n, d) > 0) {
             n = n * -1.0f;
@@ -1162,27 +1213,27 @@ std::vector<Ray> secondary_rays(const std::vector<Ray> &primary,
 // facing the camera by a random distance of up to a tenth of the scene's
 // diagonal -- points about the surface, which is what a distance field or a
 // walk on spheres asks about.
-std::vector<Point> near_points(const std::vector<Ray> &primary,
+std::vector<PointRecord> near_points(const std::vector<RayRecord> &primary,
                                const std::vector<PrimaryHit> &hits, const Mesh &mesh,
                                uint64_t seed) {
     const float diagonal = length(mesh.hi - mesh.lo);
     Rng rng;
     rng.state += seed;
-    std::vector<Point> points;
+    std::vector<PointRecord> points;
     points.reserve(primary.size());
     for (size_t i = 0; i < primary.size(); i++) {
         const PrimaryHit &h = hits[i];
         if (!h.hit) {
             continue;
         }
-        const Vec3 o{primary[i].o.x, primary[i].o.y, primary[i].o.z};
-        const Vec3 d{primary[i].d.x, primary[i].d.y, primary[i].d.z};
+        const Vec3 o = origin(primary[i]);
+        const Vec3 d = direction(primary[i]);
         Vec3 n = normalize(h.n);
         if (dot(n, d) > 0) {
             n = n * -1.0f;
         }
         const Vec3 p = o + d * h.t + n * (rng.uniform() * 0.1f * diagonal);
-        points.push_back(Point{to_float3(p)});
+        points.push_back(make_point(p));
     }
     return points;
 }
@@ -1190,18 +1241,18 @@ std::vector<Point> near_points(const std::vector<Ray> &primary,
 // Query points anywhere: `count` points uniform in the mesh's box grown by
 // a tenth of its extent on every side, most of them far from every
 // triangle.
-std::vector<Point> volume_points(const Mesh &mesh, size_t count, uint64_t seed) {
+std::vector<PointRecord> volume_points(const Mesh &mesh, size_t count, uint64_t seed) {
     const Vec3 extent = mesh.hi - mesh.lo;
     const Vec3 lo = mesh.lo - extent * 0.1f;
     const Vec3 span = extent * 1.2f;
     Rng rng;
     rng.state += seed;
-    std::vector<Point> points;
+    std::vector<PointRecord> points;
     points.reserve(count);
     for (size_t i = 0; i < count; i++) {
         const Vec3 p{lo.x + span.x * rng.uniform(), lo.y + span.y * rng.uniform(),
                      lo.z + span.z * rng.uniform()};
-        points.push_back(Point{to_float3(p)});
+        points.push_back(make_point(p));
     }
     return points;
 }
@@ -1212,20 +1263,20 @@ std::vector<Point> volume_points(const Mesh &mesh, size_t count, uint64_t seed) 
 
 #ifndef RTQ_FCPW
 
-RTCRayHit to_rayhit(const Ray &r) {
+RTCRayHit to_rayhit(const RayRecord &r) {
     RTCRayHit rh;
-    rh.ray.org_x = r.o.x;
-    rh.ray.org_y = r.o.y;
-    rh.ray.org_z = r.o.z;
-    rh.ray.tnear = r.tnear;
-    rh.ray.dir_x = r.d.x;
-    rh.ray.dir_y = r.d.y;
-    rh.ray.dir_z = r.d.z;
-    rh.ray.time = 0.0f;
+    rh.ray.org_x = r.org.x;
+    rh.ray.org_y = r.org.y;
+    rh.ray.org_z = r.org.z;
+    rh.ray.tnear = r.org.w;
+    rh.ray.dir_x = r.dir.x;
+    rh.ray.dir_y = r.dir.y;
+    rh.ray.dir_z = r.dir.z;
+    rh.ray.time = r.dir.w;
     rh.ray.tfar = r.tfar;
-    rh.ray.mask = ~0u;
-    rh.ray.id = 0;
-    rh.ray.flags = 0;
+    rh.ray.mask = r.mask;
+    rh.ray.id = r.id;
+    rh.ray.flags = r.flags;
     rh.hit.geomID = RTC_INVALID_GEOMETRY_ID;
     rh.hit.primID = RTC_INVALID_GEOMETRY_ID;
     rh.hit.instID[0] = RTC_INVALID_GEOMETRY_ID;
@@ -1240,14 +1291,14 @@ RTCRayHit to_rayhit(const Ray &r) {
 // first 16-byte load of it wait on the stores (a load across several fresh
 // narrow stores is not forwarded), which cost its kernel 9% of its cycles
 // on primary rays and is the driver's doing, not the traversal's.
-void embree_rayhits(const std::vector<Ray> &rays, std::vector<RTCRayHit> &hits) {
+void embree_rayhits(const std::vector<RayRecord> &rays, std::vector<RTCRayHit> &hits) {
     hits.resize(rays.size());
     for (size_t i = 0; i < rays.size(); i++) {
         hits[i] = to_rayhit(rays[i]);
     }
 }
 
-void reset_rayhits(const std::vector<Ray> &rays, std::vector<RTCRayHit> &hits) {
+void reset_rayhits(const std::vector<RayRecord> &rays, std::vector<RTCRayHit> &hits) {
     for (size_t i = 0; i < rays.size(); i++) {
         hits[i].ray.tfar = rays[i].tfar;
         hits[i].hit.geomID = RTC_INVALID_GEOMETRY_ID;
@@ -1261,14 +1312,14 @@ void embree_intersect(RTCScene scene, std::vector<RTCRayHit> &hits) {
     }
 }
 
-void embree_rays(const std::vector<Ray> &rays, std::vector<RTCRay> &out) {
+void embree_rays(const std::vector<RayRecord> &rays, std::vector<RTCRay> &out) {
     out.resize(rays.size());
     for (size_t i = 0; i < rays.size(); i++) {
         out[i] = to_rayhit(rays[i]).ray;
     }
 }
 
-void reset_rays(const std::vector<Ray> &rays, std::vector<RTCRay> &out) {
+void reset_rays(const std::vector<RayRecord> &rays, std::vector<RTCRay> &out) {
     for (size_t i = 0; i < rays.size(); i++) {
         out[i].tfar = rays[i].tfar;
     }
@@ -1409,25 +1460,25 @@ struct alignas(64) RayPacket {
 // lane past the batch's end: the mask is what turns a lane off, and the
 // lane's fields are left as a ray Embree would find valid should it look.
 template <typename RayK>
-void write_lane(RayK &ray, int l, const Ray *r) {
-    const Ray off{float3{0.0f, 0.0f, 0.0f}, 0.0f, float3{0.0f, 0.0f, 1.0f}, 0.0f};
-    const Ray &src = r != nullptr ? *r : off;
-    ray.org_x[l] = src.o.x;
-    ray.org_y[l] = src.o.y;
-    ray.org_z[l] = src.o.z;
-    ray.tnear[l] = src.tnear;
-    ray.dir_x[l] = src.d.x;
-    ray.dir_y[l] = src.d.y;
-    ray.dir_z[l] = src.d.z;
-    ray.time[l] = 0.0f;
+void write_lane(RayK &ray, int l, const RayRecord *r) {
+    const RayRecord off = make_ray(Vec3{0.0f, 0.0f, 0.0f}, Vec3{0.0f, 0.0f, 1.0f}, 0.0f);
+    const RayRecord &src = r != nullptr ? *r : off;
+    ray.org_x[l] = src.org.x;
+    ray.org_y[l] = src.org.y;
+    ray.org_z[l] = src.org.z;
+    ray.tnear[l] = src.org.w;
+    ray.dir_x[l] = src.dir.x;
+    ray.dir_y[l] = src.dir.y;
+    ray.dir_z[l] = src.dir.z;
+    ray.time[l] = src.dir.w;
     ray.tfar[l] = src.tfar;
-    ray.mask[l] = ~0u;
-    ray.id[l] = 0;
-    ray.flags[l] = 0;
+    ray.mask[l] = src.mask;
+    ray.id[l] = src.id;
+    ray.flags[l] = src.flags;
 }
 
 template <int K>
-void embree_rayhit_packets(const std::vector<Ray> &rays,
+void embree_rayhit_packets(const std::vector<RayRecord> &rays,
                            std::vector<RayHitPacket<K>> &packets) {
     const size_t n = (rays.size() + K - 1) / K;
     packets.assign(n, RayHitPacket<K>{});
@@ -1446,7 +1497,7 @@ void embree_rayhit_packets(const std::vector<Ray> &rays,
 }
 
 template <int K>
-void reset_rayhit_packets(const std::vector<Ray> &rays,
+void reset_rayhit_packets(const std::vector<RayRecord> &rays,
                           std::vector<RayHitPacket<K>> &packets) {
     for (size_t i = 0; i < rays.size(); i++) {
         RayHitPacket<K> &pk = packets[i / K];
@@ -1484,7 +1535,7 @@ void records_of_packets(const std::vector<RayHitPacket<K>> &packets, size_t coun
 }
 
 template <int K>
-void embree_ray_packets(const std::vector<Ray> &rays, std::vector<RayPacket<K>> &packets) {
+void embree_ray_packets(const std::vector<RayRecord> &rays, std::vector<RayPacket<K>> &packets) {
     const size_t n = (rays.size() + K - 1) / K;
     packets.assign(n, RayPacket<K>{});
     for (size_t p = 0; p < n; p++) {
@@ -1499,7 +1550,7 @@ void embree_ray_packets(const std::vector<Ray> &rays, std::vector<RayPacket<K>> 
 }
 
 template <int K>
-void reset_ray_packets(const std::vector<Ray> &rays, std::vector<RayPacket<K>> &packets) {
+void reset_ray_packets(const std::vector<RayRecord> &rays, std::vector<RayPacket<K>> &packets) {
     for (size_t i = 0; i < rays.size(); i++) {
         packets[i / K].ray.tfar[i % K] = rays[i].tfar;
     }
@@ -1529,7 +1580,7 @@ void blocked_of_packets(const std::vector<RayPacket<K>> &packets, size_t count,
 // single-ray calls leave them (a null argument struct, RTC_RAY_QUERY_FLAG_
 // INCOHERENT); with it, the one flag is set.
 template <int K>
-double reference_intersect_packets(RTCScene scene, const std::vector<Ray> &rays, int repeats,
+double reference_intersect_packets(RTCScene scene, const std::vector<RayRecord> &rays, int repeats,
                                    std::vector<RefHit> &records) {
     std::vector<RayHitPacket<K>> packets;
     embree_rayhit_packets<K>(rays, packets);
@@ -1545,7 +1596,7 @@ double reference_intersect_packets(RTCScene scene, const std::vector<Ray> &rays,
 }
 
 template <int K>
-double reference_occluded_packets(RTCScene scene, const std::vector<Ray> &rays, int repeats,
+double reference_occluded_packets(RTCScene scene, const std::vector<RayRecord> &rays, int repeats,
                                   std::vector<uint32_t> &blocked) {
     std::vector<RayPacket<K>> packets;
     embree_ray_packets<K>(rays, packets);
@@ -1585,33 +1636,42 @@ bool packets_native(RTCDevice device) {
 // sets geomID invalid and FCPW constructs its Interaction -- since the
 // program writes only hits (rtq.bonsai says why). Made off the clock, as
 // the references' structs are.
-Hit miss_hit() {
-    Hit h{};
-    h.primID = kNoHit;
+HitRecord miss_hit() {
+    HitRecord h{};
 #ifdef RTQ_FCPW
-    h.d = kInf; // FCPW's Interaction: d
+    h.index = kNoHit; // FCPW's GPUInteraction: index FCPW_GPU_UINT_MAX, d
+    h.d = kInf;
 #else
-    h.t = kInf; // Embree's RTCRayHit: tfar
+    h.primID = kNoHit; // Embree's RTCHit: the invalid ids, as to_rayhit sets them
+    h.geomID = kNoHit;
+    h.instID = kNoHit;
 #endif
     return h;
 }
 
-ClosestHit miss_closest() {
-    ClosestHit c{};
+ClosestHitRecord miss_closest() {
+    ClosestHitRecord c{};
+#ifdef RTQ_FCPW
+    c.index = kNoHit;
+#else
     c.primID = kNoHit;
+#endif
     c.d = kInf;
     return c;
 }
 
 // The program over a batch: the exported parfor, a plain loop, over records
 // the caller initialized (the GPU form of each, under RTQ_GPU, is below the
-// timer).
-void bonsai_intersect(const Tree &tree, const std::vector<Ray> &rays,
-                      std::vector<Hit> &hits) {
+// timer). The rays and the points are the batch's working copies: the
+// program writes into them what the reference's kernel writes into its own
+// (rtq.bonsai: Embree's tfar and radius), and they are reset between runs
+// off the clock as the reference's structs are.
+void bonsai_intersect(const Tree &tree, std::vector<RayRecord> &rays,
+                      std::vector<HitRecord> &hits) {
     trace_all(uint32_t(rays.size()), rays.data(), hits.data(), tree.layout);
 }
 
-void bonsai_occluded(const Tree &tree, const std::vector<Ray> &rays,
+void bonsai_occluded(const Tree &tree, const std::vector<RayRecord> &rays,
                      std::vector<uint32_t> &blocked) {
     occluded_all(uint32_t(rays.size()), rays.data(), blocked.data(),
                  tree.layout);
@@ -1720,14 +1780,14 @@ bool closest_point_callback(RTCPointQueryFunctionArguments *args) {
 // starts as the rays' are: the point, time zero, and the radius infinite,
 // as the tutorial's queries begin -- the whole mesh in range, the radius
 // shrinking to each closer triangle found.
-void embree_queries(const std::vector<Point> &points, std::vector<RTCPointQuery> &out) {
+void embree_queries(const std::vector<PointRecord> &points, std::vector<RTCPointQuery> &out) {
     out.resize(points.size());
     for (size_t i = 0; i < points.size(); i++) {
         out[i].x = points[i].p.x;
         out[i].y = points[i].p.y;
         out[i].z = points[i].p.z;
-        out[i].time = 0.0f;
-        out[i].radius = kInf;
+        out[i].time = points[i].p.w;
+        out[i].radius = points[i].radius;
     }
 }
 
@@ -1758,8 +1818,8 @@ uint64_t embree_closest(RTCScene scene, const Mesh &mesh, std::vector<RTCPointQu
 
 #endif // !RTQ_FCPW
 
-void bonsai_closest(const Tree &tree, const std::vector<Point> &points,
-                    std::vector<ClosestHit> &hits) {
+void bonsai_closest(const Tree &tree, std::vector<PointRecord> &points,
+                    std::vector<ClosestHitRecord> &hits) {
     closest_all(uint32_t(points.size()), points.data(), hits.data(), tree.layout);
 }
 
@@ -1769,34 +1829,38 @@ void bonsai_closest(const Tree &tree, const std::vector<Point> &points,
 //===----------------------------------------------------------------------===//
 
 // The silhouette queries about a set of points: a sphere of the given
-// radius about each (FCPW's BoundingSphere: the center and the squared
-// radius the search begins at), no minimum radius -- so both sides find the
-// exact closest, where WoSX's walk hands FCPW its reflecting shell and FCPW
-// stops at the first silhouette within it -- WoSX's precision, and the
-// normals flipped as WoSX hands them for a single-sided problem (FCPW's own
-// convention has them flipped).
-std::vector<SilhouetteQuery> silhouette_queries(const std::vector<Point> &points, float radius) {
-    std::vector<SilhouetteQuery> out(points.size());
+// radius about each (FCPW's GPUBoundingSphere: the center and the squared
+// radius the search begins at) and the normals flipped as WoSX hands them
+// for a single-sided problem (FCPW's own convention has them flipped) --
+// the record FCPW's kernel takes per query (SilhouetteQueryRecord). The
+// minimum radius and the precision are the batch's, passed once as FCPW's
+// kernel takes them: no minimum radius, so both sides find the exact
+// closest, where WoSX's walk hands FCPW its reflecting shell and FCPW stops
+// at the first silhouette within it; WoSX's precision.
+constexpr float kSilhouetteMinR2 = 0.0f;
+
+std::vector<SilhouetteQueryRecord> silhouette_queries(const std::vector<PointRecord> &points,
+                                                      float radius) {
+    std::vector<SilhouetteQueryRecord> out(points.size());
     for (size_t i = 0; i < points.size(); i++) {
-        out[i].c = points[i].p;
+        out[i].c = points[i].c;
         out[i].r2 = radius * radius;
-        out[i].min_r2 = 0.0f;
-        out[i].precision = kSilhouettePrecision;
         out[i].flip = 1u;
     }
     return out;
 }
 
-SilhouetteHit miss_silhouette() {
-    SilhouetteHit s{};
+SilhouetteHitRecord miss_silhouette() {
+    SilhouetteHitRecord s{};
     s.index = kNoHit;
     s.d = kInf;
     return s;
 }
 
-void bonsai_silhouette(const Tree &tree, const std::vector<SilhouetteQuery> &queries,
-                       std::vector<SilhouetteHit> &hits) {
-    silhouette_all(uint32_t(queries.size()), queries.data(), hits.data(), tree.silhouettes);
+void bonsai_silhouette(const Tree &tree, const std::vector<SilhouetteQueryRecord> &queries,
+                       std::vector<SilhouetteHitRecord> &hits) {
+    silhouette_all(uint32_t(queries.size()), queries.data(), kSilhouetteMinR2,
+                   kSilhouettePrecision, hits.data(), tree.silhouettes);
 }
 #endif
 
@@ -1866,31 +1930,44 @@ double timed(int repeats, F &&f) {
 #ifndef RTQ_GPU
 
 // The records set to the miss record before each run, off the clock, as the
-// references' structs are reset between runs off it.
-double time_bonsai_intersect(const Tree &tree, const std::vector<Ray> &rays, int repeats,
-                             std::vector<Hit> &hits) {
+// references' structs are reset between runs off it; the rays and the
+// points the program writes into (`worked`) are copied from the batch
+// before each run the same way, as reset_rayhits and reset_queries restore
+// Embree's tfar and radius, and are what the comparison reads the hits
+// with (as_ref).
+double time_bonsai_intersect(const Tree &tree, const std::vector<RayRecord> &rays, int repeats,
+                             std::vector<HitRecord> &hits, std::vector<RayRecord> &worked) {
     return timed(
-        repeats, [&] { hits.assign(rays.size(), miss_hit()); },
-        [&] { bonsai_intersect(tree, rays, hits); });
+        repeats,
+        [&] {
+            hits.assign(rays.size(), miss_hit());
+            worked = rays;
+        },
+        [&] { bonsai_intersect(tree, worked, hits); });
 }
 
-double time_bonsai_occluded(const Tree &tree, const std::vector<Ray> &rays, int repeats,
+double time_bonsai_occluded(const Tree &tree, const std::vector<RayRecord> &rays, int repeats,
                             std::vector<uint32_t> &blocked) {
     return timed(
         repeats, [&] { blocked.assign(rays.size(), 0u); },
         [&] { bonsai_occluded(tree, rays, blocked); });
 }
 
-double time_bonsai_closest(const Tree &tree, const std::vector<Point> &points, int repeats,
-                           std::vector<ClosestHit> &hits) {
+double time_bonsai_closest(const Tree &tree, const std::vector<PointRecord> &points, int repeats,
+                           std::vector<ClosestHitRecord> &hits,
+                           std::vector<PointRecord> &worked) {
     return timed(
-        repeats, [&] { hits.assign(points.size(), miss_closest()); },
-        [&] { bonsai_closest(tree, points, hits); });
+        repeats,
+        [&] {
+            hits.assign(points.size(), miss_closest());
+            worked = points;
+        },
+        [&] { bonsai_closest(tree, worked, hits); });
 }
 
 #ifdef RTQ_FCPW_SNCH
-double time_bonsai_silhouette(const Tree &tree, const std::vector<SilhouetteQuery> &queries,
-                              int repeats, std::vector<SilhouetteHit> &hits) {
+double time_bonsai_silhouette(const Tree &tree, const std::vector<SilhouetteQueryRecord> &queries,
+                              int repeats, std::vector<SilhouetteHitRecord> &hits) {
     return timed(
         repeats, [&] { hits.assign(queries.size(), miss_silhouette()); },
         [&] { bonsai_silhouette(tree, queries, hits); });
@@ -1926,16 +2003,20 @@ double time_staged(const std::vector<In> &in, std::vector<Out> &out, bonsai_buff
     return seconds;
 }
 
-double time_bonsai_intersect(const Tree &tree, const std::vector<Ray> &rays, int repeats,
-                             std::vector<Hit> &hits) {
+// The GPU comparisons are FCPW's, whose kernel writes nothing into its rays
+// or its spheres (metrics/fcpw*.bonsai), so the batch itself is staged and
+// `worked` is the batch.
+double time_bonsai_intersect(const Tree &tree, const std::vector<RayRecord> &rays, int repeats,
+                             std::vector<HitRecord> &hits, std::vector<RayRecord> &worked) {
     hits.assign(rays.size(), miss_hit());
+    worked = rays;
     return time_staged(rays, hits, tree.layout.group0_prims, tree.layout.group1_index,
                        trace_all_sides, repeats, [&](bonsai_buffer *in, bonsai_buffer *out) {
                            trace_all(uint32_t(rays.size()), in, out, tree.layout);
                        });
 }
 
-double time_bonsai_occluded(const Tree &tree, const std::vector<Ray> &rays, int repeats,
+double time_bonsai_occluded(const Tree &tree, const std::vector<RayRecord> &rays, int repeats,
                             std::vector<uint32_t> &blocked) {
     blocked.assign(rays.size(), 0u);
     return time_staged(rays, blocked, tree.layout.group0_prims, tree.layout.group1_index,
@@ -1944,9 +2025,11 @@ double time_bonsai_occluded(const Tree &tree, const std::vector<Ray> &rays, int 
                        });
 }
 
-double time_bonsai_closest(const Tree &tree, const std::vector<Point> &points, int repeats,
-                           std::vector<ClosestHit> &hits) {
+double time_bonsai_closest(const Tree &tree, const std::vector<PointRecord> &points, int repeats,
+                           std::vector<ClosestHitRecord> &hits,
+                           std::vector<PointRecord> &worked) {
     hits.assign(points.size(), miss_closest());
+    worked = points;
     return time_staged(points, hits, tree.layout.group0_prims, tree.layout.group1_index,
                        closest_all_sides, repeats, [&](bonsai_buffer *in, bonsai_buffer *out) {
                            closest_all(uint32_t(points.size()), in, out, tree.layout);
@@ -1954,13 +2037,14 @@ double time_bonsai_closest(const Tree &tree, const std::vector<Point> &points, i
 }
 
 #ifdef RTQ_FCPW_SNCH
-double time_bonsai_silhouette(const Tree &tree, const std::vector<SilhouetteQuery> &queries,
-                              int repeats, std::vector<SilhouetteHit> &hits) {
+double time_bonsai_silhouette(const Tree &tree, const std::vector<SilhouetteQueryRecord> &queries,
+                              int repeats, std::vector<SilhouetteHitRecord> &hits) {
     hits.assign(queries.size(), miss_silhouette());
     return time_staged(queries, hits, tree.silhouettes.group0_edges, tree.silhouettes.group1_snode,
                        silhouette_all_sides, repeats,
                        [&](bonsai_buffer *in, bonsai_buffer *out) {
-                           silhouette_all(uint32_t(queries.size()), in, out, tree.silhouettes);
+                           silhouette_all(uint32_t(queries.size()), in, kSilhouetteMinR2,
+                                          kSilhouettePrecision, out, tree.silhouettes);
                        });
 }
 #endif
@@ -1974,7 +2058,7 @@ double time_bonsai_silhouette(const Tree &tree, const std::vector<SilhouetteQuer
 // where the ray meets the plane, which say whether it lies in the triangle
 // (`u >= 0 && v >= 0 && u + v <= 1`): what tells a hit one side found and the
 // other missed from a false hit, when a difference is explained.
-double distance_to(const Mesh &mesh, const Ray &r, uint32_t prim, double *u = nullptr,
+double distance_to(const Mesh &mesh, const RayRecord &r, uint32_t prim, double *u = nullptr,
                    double *v = nullptr) {
     if (prim == kNoHit) {
         return std::numeric_limits<double>::infinity();
@@ -1984,14 +2068,15 @@ double distance_to(const Mesh &mesh, const Ray &r, uint32_t prim, double *u = nu
     const Vec3 p2 = mesh.vertices[mesh.indices[3 * prim + 2]];
     const double e1[3] = {p1.x - p0.x, p1.y - p0.y, p1.z - p0.z};
     const double e2[3] = {p2.x - p0.x, p2.y - p0.y, p2.z - p0.z};
-    const double d[3] = {r.d.x, r.d.y, r.d.z};
+    const Vec3 ro = origin(r), rd = direction(r);
+    const double d[3] = {rd.x, rd.y, rd.z};
     const double pv[3] = {d[1] * e2[2] - d[2] * e2[1], d[2] * e2[0] - d[0] * e2[2],
                           d[0] * e2[1] - d[1] * e2[0]};
     const double det = e1[0] * pv[0] + e1[1] * pv[1] + e1[2] * pv[2];
     if (det == 0.0) {
         return std::numeric_limits<double>::infinity();
     }
-    const double tv[3] = {r.o.x - p0.x, r.o.y - p0.y, r.o.z - p0.z};
+    const double tv[3] = {ro.x - p0.x, ro.y - p0.y, ro.z - p0.z};
     const double qv[3] = {tv[1] * e1[2] - tv[2] * e1[1], tv[2] * e1[0] - tv[0] * e1[2],
                           tv[0] * e1[1] - tv[1] * e1[0]};
     if (u != nullptr) {
@@ -2052,14 +2137,15 @@ struct Agreement {
     Deviation dev;
 };
 
-Agreement compare_hits(const Mesh &mesh, const std::vector<Ray> &rays,
-                       const std::vector<RefHit> &reference, const std::vector<Hit> &ours) {
+Agreement compare_hits(const Mesh &mesh, const std::vector<RayRecord> &rays,
+                       const std::vector<RefHit> &reference, const std::vector<HitRecord> &ours,
+                       const std::vector<RayRecord> &worked) {
     const double diagonal = length(mesh.hi - mesh.lo);
     Agreement a;
     a.rays = rays.size();
     for (size_t i = 0; i < rays.size(); i++) {
         const RefHit &er = reference[i];
-        const RefHit br = as_ref(ours[i]);
+        const RefHit br = as_ref(ours[i], worked[i]);
         const uint32_t e = er.prim;
         const uint32_t b = br.prim;
         a.embree_hits += e != kNoHit;
@@ -2085,13 +2171,13 @@ Agreement compare_hits(const Mesh &mesh, const std::vector<Ray> &rays,
                 double ue = 0, ve = 0, ub = 0, vb = 0;
                 distance_to(mesh, rays[i], e, &ue, &ve);
                 distance_to(mesh, rays[i], b, &ub, &vb);
+                const Vec3 o = origin(rays[i]), d = direction(rays[i]);
                 std::fprintf(stderr,
                              "  ray %zu from (%g %g %g) along (%g %g %g), tfar %g: %s "
                              "triangle %d at t %g (u %g v %g), bonsai triangle %d at t %g "
                              "(u %g v %g)\n",
-                             i, rays[i].o.x, rays[i].o.y, rays[i].o.z, rays[i].d.x,
-                             rays[i].d.y, rays[i].d.z, rays[i].tfar, kReference, int(e), te,
-                             ue, ve, int(b), tb, ub, vb);
+                             i, o.x, o.y, o.z, d.x, d.y, d.z, rays[i].tfar, kReference, int(e),
+                             te, ue, ve, int(b), tb, ub, vb);
             }
             a.differ++;
         }
@@ -2120,7 +2206,7 @@ Agreement compare_occluded(const std::vector<uint32_t> &reference,
 // closest point lies on an edge or a vertex that two triangles share is as
 // close to both, and which of them is answered is the arithmetic's last
 // bits -- the common case for the closest point, not the rare one.
-double distance_to(const Mesh &mesh, const Point &pt, uint32_t prim) {
+double distance_to(const Mesh &mesh, const PointRecord &pt, uint32_t prim) {
     if (prim == kNoHit) {
         return std::numeric_limits<double>::infinity();
     }
@@ -2128,7 +2214,8 @@ double distance_to(const Mesh &mesh, const Point &pt, uint32_t prim) {
     const Vec3 pb = mesh.vertices[mesh.indices[3 * prim + 1]];
     const Vec3 pc = mesh.vertices[mesh.indices[3 * prim + 2]];
     const double a[3] = {pa.x, pa.y, pa.z}, b[3] = {pb.x, pb.y, pb.z},
-                 c[3] = {pc.x, pc.y, pc.z}, p[3] = {pt.p.x, pt.p.y, pt.p.z};
+                 c[3] = {pc.x, pc.y, pc.z},
+                 p[3] = {center(pt).x, center(pt).y, center(pt).z};
     double ab[3], ac[3], ap[3], bp[3], cp[3];
     for (int k = 0; k < 3; k++) {
         ab[k] = b[k] - a[k];
@@ -2209,9 +2296,9 @@ double distance_to(const Mesh &mesh, const Point &pt, uint32_t prim) {
 // differs in its last bits, and a point that lands within a hair of the
 // surface has a distance whose last bits are most of it, so the test is
 // against the scene's scale, not the distance's.
-Agreement compare_closest(const Mesh &mesh, const std::vector<Point> &points,
+Agreement compare_closest(const Mesh &mesh, const std::vector<PointRecord> &points,
                           const std::vector<RefClosest> &reference,
-                          const std::vector<ClosestHit> &ours) {
+                          const std::vector<ClosestHitRecord> &ours) {
     const double diagonal = length(mesh.hi - mesh.lo);
     Agreement a;
     a.rays = points.size();
@@ -2242,7 +2329,8 @@ Agreement compare_closest(const Mesh &mesh, const std::vector<Point> &points,
                 std::fprintf(stderr,
                              "  point %zu (%g %g %g): %s triangle %d at %g (its record %g), "
                              "bonsai triangle %d at %g (its record %g)\n",
-                             i, points[i].p.x, points[i].p.y, points[i].p.z, kReference,
+                             i, center(points[i]).x, center(points[i]).y, center(points[i]).z,
+                             kReference,
                              int(e), de, er.d, int(b), db, br.d);
             }
             a.differ++;
@@ -2265,9 +2353,9 @@ void deviate(Deviation &d, const RefSilhouette &e, const RefSilhouette &b, doubl
 // list to recompute it from); anything else differs, one side finding a
 // silhouette the other did not included -- with no minimum radius both
 // search to the exact closest.
-Agreement compare_silhouette(const Mesh &mesh, const std::vector<SilhouetteQuery> &queries,
+Agreement compare_silhouette(const Mesh &mesh, const std::vector<SilhouetteQueryRecord> &queries,
                              const std::vector<RefSilhouette> &reference,
-                             const std::vector<SilhouetteHit> &ours) {
+                             const std::vector<SilhouetteHitRecord> &ours) {
     const double diagonal = length(mesh.hi - mesh.lo);
     Agreement a;
     a.rays = queries.size();
@@ -2293,7 +2381,7 @@ Agreement compare_silhouette(const Mesh &mesh, const std::vector<SilhouetteQuery
                 std::fprintf(stderr,
                              "  query %zu (%g %g %g) radius %g: %s edge %d at %g, bonsai "
                              "edge %d at %g\n",
-                             i, queries[i].c.x, queries[i].c.y, queries[i].c.z,
+                             i, queries[i].c[0], queries[i].c[1], queries[i].c[2],
                              std::sqrt(queries[i].r2), kReference, int(e), er.d, int(b), br.d);
             }
             a.differ++;
@@ -2317,7 +2405,7 @@ Agreement compare_silhouette(const Mesh &mesh, const std::vector<SilhouetteQuery
 #ifndef RTQ_FCPW
 
 std::vector<PrimaryHit> reference_primary_hits(const Reference &ref, const Mesh &,
-                                               const std::vector<Ray> &rays) {
+                                               const std::vector<RayRecord> &rays) {
     std::vector<RTCRayHit> hits;
     embree_rayhits(rays, hits);
     embree_intersect(ref.scene, hits);
@@ -2334,7 +2422,7 @@ std::vector<PrimaryHit> reference_primary_hits(const Reference &ref, const Mesh 
 
 // Single rays through rtcIntersect1, or, under `--packet K`, packets of K
 // through rtcIntersect<K> (see "Embree's ray packets" above).
-double reference_intersect(const Reference &ref, const std::vector<Ray> &rays, int repeats,
+double reference_intersect(const Reference &ref, const std::vector<RayRecord> &rays, int repeats,
                            std::vector<RefHit> &records) {
     switch (packet_size) {
     case 4:
@@ -2354,7 +2442,7 @@ double reference_intersect(const Reference &ref, const std::vector<Ray> &rays, i
     return seconds;
 }
 
-double reference_occluded(const Reference &ref, const std::vector<Ray> &rays, int repeats,
+double reference_occluded(const Reference &ref, const std::vector<RayRecord> &rays, int repeats,
                           std::vector<uint32_t> &blocked) {
     switch (packet_size) {
     case 4:
@@ -2378,7 +2466,7 @@ double reference_occluded(const Reference &ref, const std::vector<Ray> &rays, in
 // `callbacks_per_query`: the triangles Embree's traversal handed its
 // callback, per query -- its leaf work, which the table reports.
 double reference_closest(const Reference &ref, const Mesh &mesh,
-                         const std::vector<Point> &points, int repeats,
+                         const std::vector<PointRecord> &points, int repeats,
                          std::vector<RefClosest> &records, double &callbacks_per_query) {
     std::vector<RTCPointQuery> queries;
     std::vector<ClosestResult> results;
@@ -2401,13 +2489,13 @@ double reference_closest(const Reference &ref, const Mesh &mesh,
 
 // FCPW's ray: an origin, a direction and tMax; it has no tnear, which the
 // rays here have at zero.
-fcpw::Ray<3> to_fcpw(const Ray &r) {
-    return fcpw::Ray<3>(fcpw::Vector3(r.o.x, r.o.y, r.o.z), fcpw::Vector3(r.d.x, r.d.y, r.d.z),
-                        r.tfar);
+fcpw::Ray<3> to_fcpw(const RayRecord &r) {
+    return fcpw::Ray<3>(fcpw::Vector3(r.o[0], r.o[1], r.o[2]),
+                        fcpw::Vector3(r.d[0], r.d[1], r.d[2]), r.tfar);
 }
 
 std::vector<PrimaryHit> reference_primary_hits(const Reference &ref, const Mesh &mesh,
-                                               const std::vector<Ray> &rays) {
+                                               const std::vector<RayRecord> &rays) {
     std::vector<PrimaryHit> out(rays.size());
     for (size_t i = 0; i < rays.size(); i++) {
         fcpw::Ray<3> ray = to_fcpw(rays[i]);
@@ -2433,11 +2521,11 @@ std::vector<PrimaryHit> reference_primary_hits(const Reference &ref, const Mesh 
 // triangle's id); with `checkForOcclusion` it says only whether anything
 // was hit. The rays and the interactions are made before the clock and
 // reset between runs off it, as Embree's structs are.
-double reference_intersect(const Reference &ref, const std::vector<Ray> &rays, int repeats,
+double reference_intersect(const Reference &ref, const std::vector<RayRecord> &rays, int repeats,
                            std::vector<RefHit> &records) {
     std::vector<fcpw::Ray<3>> fcpw_rays;
     fcpw_rays.reserve(rays.size());
-    for (const Ray &r : rays) {
+    for (const RayRecord &r : rays) {
         fcpw_rays.push_back(to_fcpw(r));
     }
     std::vector<fcpw::Interaction<3>> its(rays.size());
@@ -2471,11 +2559,11 @@ double reference_intersect(const Reference &ref, const std::vector<Ray> &rays, i
     return seconds;
 }
 
-double reference_occluded(const Reference &ref, const std::vector<Ray> &rays, int repeats,
+double reference_occluded(const Reference &ref, const std::vector<RayRecord> &rays, int repeats,
                           std::vector<uint32_t> &blocked) {
     std::vector<fcpw::Ray<3>> fcpw_rays;
     fcpw_rays.reserve(rays.size());
-    for (const Ray &r : rays) {
+    for (const RayRecord &r : rays) {
         fcpw_rays.push_back(to_fcpw(r));
     }
     std::vector<fcpw::Interaction<3>> its(rays.size());
@@ -2502,13 +2590,13 @@ double reference_occluded(const Reference &ref, const std::vector<Ray> &rays, in
 // FCPW user makes; the interaction's primitiveIndex is the triangle's id.
 // FCPW's leaf is its own vectorized code, no callback, so nothing is
 // counted here.
-double reference_closest(const Reference &ref, const Mesh &, const std::vector<Point> &points,
+double reference_closest(const Reference &ref, const Mesh &, const std::vector<PointRecord> &points,
                          int repeats, std::vector<RefClosest> &records,
                          double &callbacks_per_query) {
     std::vector<fcpw::Vector3> queries;
     queries.reserve(points.size());
-    for (const Point &p : points) {
-        queries.emplace_back(p.p.x, p.p.y, p.p.z);
+    for (const PointRecord &p : points) {
+        queries.emplace_back(p.c[0], p.c[1], p.c[2]);
     }
     std::vector<fcpw::Interaction<3>> its(points.size());
     std::vector<uint8_t> found(points.size());
@@ -2547,12 +2635,12 @@ double reference_closest(const Reference &ref, const Mesh &, const std::vector<P
 // Point), the Interaction filled with the distance, the point on the edge
 // and the edge's index. The interactions are reset between runs off the
 // clock, as the point query's are.
-double reference_silhouette(const Reference &ref, const std::vector<SilhouetteQuery> &queries,
+double reference_silhouette(const Reference &ref, const std::vector<SilhouetteQueryRecord> &queries,
                             int repeats, std::vector<RefSilhouette> &records) {
     std::vector<fcpw::Vector3> centers;
     centers.reserve(queries.size());
-    for (const SilhouetteQuery &q : queries) {
-        centers.emplace_back(q.c.x, q.c.y, q.c.z);
+    for (const SilhouetteQueryRecord &q : queries) {
+        centers.emplace_back(q.c[0], q.c[1], q.c[2]);
     }
     std::vector<fcpw::Interaction<3>> its(queries.size());
     std::vector<uint8_t> found(queries.size());
@@ -2565,9 +2653,10 @@ double reference_silhouette(const Reference &ref, const std::vector<SilhouetteQu
         },
         [&] {
             for (size_t i = 0; i < queries.size(); i++) {
-                const SilhouetteQuery &q = queries[i];
+                const SilhouetteQueryRecord &q = queries[i];
                 found[i] = ref.scene.findClosestSilhouettePoint(centers[i], its[i], q.flip != 0,
-                                                                q.min_r2, q.r2, q.precision)
+                                                                kSilhouetteMinR2, q.r2,
+                                                                kSilhouettePrecision)
                                ? 1
                                : 0;
             }
@@ -2597,13 +2686,13 @@ double reference_silhouette(const Reference &ref, const std::vector<SilhouetteQu
 // the same word as kNoHit), the distance, the point, the normal, uv. A
 // miss leaves the interaction as allocated, so the buffer needs no reset
 // between runs. The thread count is FCPW's, groups of 256.
-fcpw::float3 to_gpu(float3 v) { return fcpw::float3{v.x, v.y, v.z}; }
+fcpw::float3 to_gpu(const std::array<float, 3> &v) { return fcpw::float3{v[0], v[1], v[2]}; }
 
-double reference_intersect_gpu(const Reference &ref, const std::vector<Ray> &rays, int repeats,
+double reference_intersect_gpu(const Reference &ref, const std::vector<RayRecord> &rays, int repeats,
                                bool occlusion, std::vector<fcpw::GPUInteraction> &its) {
     std::vector<fcpw::GPURay> gpu_rays;
     gpu_rays.reserve(rays.size());
-    for (const Ray &r : rays) {
+    for (const RayRecord &r : rays) {
         gpu_rays.emplace_back(to_gpu(r.o), to_gpu(r.d), r.tfar);
     }
     fcpw::GPURunRayIntersectionQuery run;
@@ -2616,7 +2705,7 @@ double reference_intersect_gpu(const Reference &ref, const std::vector<Ray> &ray
     return seconds;
 }
 
-double reference_intersect(const Reference &ref, const std::vector<Ray> &rays, int repeats,
+double reference_intersect(const Reference &ref, const std::vector<RayRecord> &rays, int repeats,
                            std::vector<RefHit> &records) {
     std::vector<fcpw::GPUInteraction> its;
     const double seconds = reference_intersect_gpu(ref, rays, repeats, /*occlusion=*/false, its);
@@ -2638,7 +2727,7 @@ double reference_intersect(const Reference &ref, const std::vector<Ray> &rays, i
 
 // bvh.slang's intersect under checkForOcclusion writes the first hit's
 // index and stops; a miss leaves the index at FCPW_GPU_UINT_MAX.
-double reference_occluded(const Reference &ref, const std::vector<Ray> &rays, int repeats,
+double reference_occluded(const Reference &ref, const std::vector<RayRecord> &rays, int repeats,
                           std::vector<uint32_t> &blocked) {
     std::vector<fcpw::GPUInteraction> its;
     const double seconds = reference_intersect_gpu(ref, rays, repeats, /*occlusion=*/true, its);
@@ -2652,13 +2741,13 @@ double reference_occluded(const Reference &ref, const std::vector<Ray> &rays, in
 // FCPW: GPUScene::findClosestPoints over spheres of the largest float, the
 // unbounded query (bvh.cs.slang closestPoint; recordNormals off, as the
 // CPU query leaves the normal).
-double reference_closest(const Reference &ref, const Mesh &, const std::vector<Point> &points,
+double reference_closest(const Reference &ref, const Mesh &, const std::vector<PointRecord> &points,
                          int repeats, std::vector<RefClosest> &records,
                          double &callbacks_per_query) {
     std::vector<fcpw::GPUBoundingSphere> spheres;
     spheres.reserve(points.size());
-    for (const Point &p : points) {
-        spheres.emplace_back(to_gpu(p.p), fcpw::maxFloat);
+    for (const PointRecord &p : points) {
+        spheres.emplace_back(to_gpu(p.c), p.r2);
     }
     fcpw::GPURunClosestPointQuery run;
     run.allocate(ref.gpu.context, spheres);
@@ -2688,20 +2777,20 @@ double reference_closest(const Reference &ref, const Mesh &, const std::vector<P
 // FCPW: GPUScene::findClosestSilhouettePoints (bvh.cs.slang
 // closestSilhouettePoint): the spheres, each query's normal flip as a word,
 // the one minimum radius and precision of the batch.
-double reference_silhouette(const Reference &ref, const std::vector<SilhouetteQuery> &queries,
+double reference_silhouette(const Reference &ref, const std::vector<SilhouetteQueryRecord> &queries,
                             int repeats, std::vector<RefSilhouette> &records) {
     std::vector<fcpw::GPUBoundingSphere> spheres;
     std::vector<uint32_t> flips;
     spheres.reserve(queries.size());
     flips.reserve(queries.size());
-    for (const SilhouetteQuery &q : queries) {
+    for (const SilhouetteQueryRecord &q : queries) {
         spheres.emplace_back(to_gpu(q.c), q.r2);
         flips.push_back(q.flip);
     }
     fcpw::GPURunClosestSilhouettePointQuery run;
     run.allocate(ref.gpu.context, spheres, flips);
-    run.squaredMinRadius = queries.empty() ? 0.0f : queries.front().min_r2;
-    run.precision = queries.empty() ? kSilhouettePrecision : queries.front().precision;
+    run.squaredMinRadius = kSilhouetteMinR2;
+    run.precision = kSilhouettePrecision;
     const double seconds = timed(repeats, [&] {
         ref.gpu.dispatch(ref.gpu.silhouette_shader, run, uint32_t(queries.size()));
     });
@@ -2854,14 +2943,14 @@ int main(int argc, char **argv) {
 #endif
 
     // The ray sets: the camera's, then from what the reference saw.
-    const std::vector<Ray> primary = primary_rays(mesh, side);
+    const std::vector<RayRecord> primary = primary_rays(mesh, side);
     const std::vector<PrimaryHit> primary_hits = reference_primary_hits(ref, mesh, primary);
-    const std::vector<Ray> ao = secondary_rays(primary, primary_hits, mesh, 0.1f, 1);
-    const std::vector<Ray> diffuse = secondary_rays(primary, primary_hits, mesh, 0.0f, 2);
+    const std::vector<RayRecord> ao = secondary_rays(primary, primary_hits, mesh, 0.1f, 1);
+    const std::vector<RayRecord> diffuse = secondary_rays(primary, primary_hits, mesh, 0.0f, 2);
 
     struct Batch {
         const char *name;
-        const std::vector<Ray> *rays;
+        const std::vector<RayRecord> *rays;
     };
     const Batch batches[3] = {{"primary", &primary}, {"ao", &ao}, {"diffuse", &diffuse}};
 
@@ -2870,12 +2959,13 @@ int main(int argc, char **argv) {
                 rate_column.c_str(), "bonsai Mr/s", "speedup", "agreement");
     bool all_agree = true;
     for (const Batch &batch : batches) {
-        const std::vector<Ray> &rays = *batch.rays;
+        const std::vector<RayRecord> &rays = *batch.rays;
         if (rays.empty() || (!only_batch.empty() && only_batch != batch.name)) {
             continue;
         }
         std::vector<RefHit> ref_hits;
-        std::vector<Hit> our_hits;
+        std::vector<HitRecord> our_hits;
+        std::vector<RayRecord> worked;
         std::vector<uint32_t> ref_blocked, our_blocked;
 
         // Aila and Laine's three sets, each with the query it is for (the
@@ -2893,8 +2983,8 @@ int main(int argc, char **argv) {
 
         if (run_intersect) {
             const double te = reference_intersect(ref, rays, repeats, ref_hits);
-            const double tb = time_bonsai_intersect(tree, rays, repeats, our_hits);
-            const Agreement hit = compare_hits(mesh, rays, ref_hits, our_hits);
+            const double tb = time_bonsai_intersect(tree, rays, repeats, our_hits, worked);
+            const Agreement hit = compare_hits(mesh, rays, ref_hits, our_hits, worked);
             std::printf("%-10s %-10s %10zu %12.2f %12.2f %9.2fx  %zu same, %zu ties, %zu "
                         "differ (%s hits %zu, bonsai %zu; records within t %.1e, n %.1e, "
                         "uv %.1e, p %.1e)\n",
@@ -2921,26 +3011,27 @@ int main(int argc, char **argv) {
     // The point sets, for the closest-point query: about the surface the
     // camera saw, and anywhere in the box, as many of each as there were
     // primary hits.
-    const std::vector<Point> near = near_points(primary, primary_hits, mesh, 3);
-    const std::vector<Point> volume = volume_points(mesh, near.size(), 4);
+    const std::vector<PointRecord> near = near_points(primary, primary_hits, mesh, 3);
+    const std::vector<PointRecord> volume = volume_points(mesh, near.size(), 4);
     struct PointBatch {
         const char *name;
-        const std::vector<Point> *points;
+        const std::vector<PointRecord> *points;
     };
     const PointBatch point_batches[2] = {{"near", &near}, {"volume", &volume}};
     for (const PointBatch &batch : point_batches) {
-        const std::vector<Point> &points = *batch.points;
+        const std::vector<PointRecord> &points = *batch.points;
         if (points.empty() || (!only_batch.empty() && only_batch != batch.name) ||
             (!only_query.empty() && only_query != "closest" && only_query != "silhouette")) {
             continue;
         }
         if (only_query.empty() || only_query == "closest") {
             std::vector<RefClosest> ref_closest;
-            std::vector<ClosestHit> ours;
+            std::vector<ClosestHitRecord> ours;
+            std::vector<PointRecord> worked;
             double callbacks_per_query = 0;
             const double te =
                 reference_closest(ref, mesh, points, repeats, ref_closest, callbacks_per_query);
-            const double tb = time_bonsai_closest(tree, points, repeats, ours);
+            const double tb = time_bonsai_closest(tree, points, repeats, ours, worked);
             const Agreement c = compare_closest(mesh, points, ref_closest, ours);
             std::printf("%-10s %-10s %10zu %12.2f %12.2f %9.2fx  %zu same, %zu ties, %zu "
                         "differ (%s found %zu, bonsai %zu; ties agree to %.1e of the "
@@ -2962,10 +3053,10 @@ int main(int argc, char **argv) {
         // of this benchmark's kind finds a silhouette for some of the points
         // and none for the rest -- both of the query's paths.
         if (only_query.empty() || only_query == "silhouette") {
-            const std::vector<SilhouetteQuery> queries =
+            const std::vector<SilhouetteQueryRecord> queries =
                 silhouette_queries(points, 0.1f * length(mesh.hi - mesh.lo));
             std::vector<RefSilhouette> ref_sil;
-            std::vector<SilhouetteHit> our_sil;
+            std::vector<SilhouetteHitRecord> our_sil;
             const double te = reference_silhouette(ref, queries, repeats, ref_sil);
             const double tb = time_bonsai_silhouette(tree, queries, repeats, our_sil);
             const Agreement s = compare_silhouette(mesh, queries, ref_sil, our_sil);

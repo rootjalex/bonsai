@@ -64,7 +64,7 @@ func zero_fix(d : vec3f) -> vec3f {
 // reciprocal with `rcp_safe`, `rcp(zero_fix(d))` over the three components
 // padded to four, and so does this.
 func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
-    rdir = rcp_embree_vec3(zero_fix(r.d));
+    rdir = r.dinv;
     org_rdir = r.o * rdir;
     dirIsNeg = rdir < 0.0;
     near = select(dirIsNeg, b.high, b.low);
@@ -295,3 +295,89 @@ func closest_record(q : Point, tri : Triangle) -> ClosestHit {
 }
 
 func no_closest() -> ClosestHit = ClosestHit{4294967295u, inf, vec3f{0.0, 0.0, 0.0}};
+
+// The batch records, Embree's to the byte (the user's rule, 2026-10-26: a
+// comparison matches its reference's records as it matches its algorithm
+// and its tree). RTCRay: org, tnear, dir, time, tfar, mask, id, flags --
+// forty-eight bytes, what rtcIntersect1 reads; time, mask, id and flags
+// carried as the driver's RTCRayHit sets them and read by nothing here.
+// The reciprocal direction is Embree's own, `rcp_safe` over the direction
+// as rtcIntersect1 takes it at entry, inside the timed call (ray_of). RTCHit:
+// Ng, u, v, primID, geomID, instID -- thirty-two bytes, written on a hit,
+// geomID the one geometry's 0 and instID the invalid id of a hit under no
+// instance, as Embree writes them. Embree has no record for the closest
+// point -- rtcPointQuery hands a callback the triangles -- so that record is
+// the callback's own, primID, distance, point, as the driver's reference
+// callback keeps. RTCPointQuery: x, y, z, time, radius.
+//
+// The records are read as Embree reads its own. RTCRay is `RTC_ALIGN(16)`,
+// and Embree's kernels hold it as two `Vec3ff` -- "3 floats for ray origin,
+// 1 float for tnear" and "3 floats for ray direction, 1 float for time"
+// (kernels/common/ray.h) -- each one aligned sixteen-byte load; so the
+// record says `org : vec4f` and `dir : vec4f`, the fourth lane tnear and
+// time, which is the same forty-eight bytes at Embree's alignment, and
+// `ray_of` takes the three lanes and the fourth as Embree's TravRay does.
+// RTCPointQuery is `RTC_ALIGN(16)` too, twenty bytes of fields in a
+// thirty-two-byte stride; `p : vec4f` holds x, y, z and time, the radius
+// follows, and the twelve bytes of tail padding are Embree's own. (FCPW's
+// records are Slang float3s, twelve bytes aligned to four, read a float at
+// a time; theirs say `[[packed]] vec3f`, metrics/fcpw*.bonsai.) RTCHit's
+// fields are written a scalar at a time on both sides (Embree's
+// intersector epilog stores Ng.x, Ng.y, Ng.z, u, v and the ids
+// separately), so its alignment of sixteen against this record's four
+// changes no store; the bytes are the same thirty-two.
+element RayRecord {
+    org : vec4f;
+    dir : vec4f;
+    tfar : Float;
+    mask : u32;
+    id : u32;
+    flags : u32;
+}
+
+func ray_of(rec : RayRecord) -> Ray {
+    o = vec3f{rec.org.x, rec.org.y, rec.org.z};
+    d = vec3f{rec.dir.x, rec.dir.y, rec.dir.z};
+    return Ray{o, rec.org.w, d, rec.tfar, rcp_embree_vec3(zero_fix(d))};
+}
+
+element HitRecord {
+    ng : [[packed]] vec3f;
+    u : Float;
+    v : Float;
+    primID : u32;
+    geomID : u32;
+    instID : u32;
+}
+
+func record_of_hit(h : Hit) -> HitRecord = HitRecord{h.ng, h.u, h.v, h.primID, 0u, 4294967295u};
+
+element ClosestHitRecord {
+    primID : u32;
+    d : Float;
+    p : [[packed]] vec3f;
+}
+
+func record_of_closest(c : ClosestHit) -> ClosestHitRecord = ClosestHitRecord{c.primID, c.d, c.p};
+
+element PointRecord {
+    p : vec4f;
+    radius : Float;
+}
+
+func point_of(rec : PointRecord) -> Point = Point{vec3f{rec.p.x, rec.p.y, rec.p.z}};
+
+// What Embree's kernels write besides the answer (rtq.bonsai's exports call
+// these after writing the hit): rtcIntersect1 shortens the ray's tfar to
+// the hit's distance, and rtcPointQuery's callback -- the tutorial's,
+// closest_point_callback in the driver -- shrinks the query's radius to the
+// distance it found, which is what bounds the rest of its traversal.
+func ray_written(n : u32, rays : mut array[RayRecord, n], i : u32, h : Hit) {
+    rays[i].tfar = h.t;
+    return;
+}
+
+func point_written(n : u32, points : mut array[PointRecord, n], i : u32, c : ClosestHit) {
+    points[i].radius = c.d;
+    return;
+}

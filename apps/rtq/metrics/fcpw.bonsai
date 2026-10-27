@@ -58,7 +58,7 @@ func rcp_fcpw(m : Float) -> Float {
 // FCPW's.
 func intersectsp_ray_aabb(r : Ray, b : AABB) -> option[FInterval] {
     proper = b.low.x <= b.high.x;
-    rinvD = vec3f{1.0, 1.0, 1.0} / r.d;
+    rinvD = r.dinv;
     t0 = (b.low - r.o) * rinvD;
     t1 = (b.high - r.o) * rinvD;
     tNear = min(t0, t1);
@@ -327,3 +327,69 @@ func closest_record(q : Point, tri : Triangle) -> ClosestHit {
 }
 
 func no_closest() -> ClosestHit = ClosestHit{4294967295u, inf, vec3f{0.0, 0.0, 0.0}, 0.0, 0.0};
+
+// The batch records, FCPW's to the byte (the user's rule, 2026-10-26: a
+// comparison matches its reference's records as it matches its algorithm
+// and its tree). GPURay: origin, direction, the reciprocal direction FCPW's
+// constructor computes on the host before the upload, tMax -- forty bytes,
+// the driver filling dinv as that constructor does, off the clock.
+// GPUInteraction: point, normal, uv, distance, index -- forty bytes,
+// written whole on a hit; the closest point leaves the normal as it was
+// allocated, zero, and so does ours. GPUBoundingSphere: center and squared
+// radius, sixteen bytes, the radius infinite for the closest point. A
+// vector field is `[[packed]] vec3f`, the vector's storage form
+// (Vector_t::packed): twelve bytes aligned to four, as Slang's float3 is,
+// where the vector the program computes with takes sixteen; a read of the
+// field is the computing vector and a value built into one is converted
+// (the parser's unpacked_read and packed_write), so the exported loops
+// (rtq.bonsai) convert at the boundary by reading one record and building
+// the other, and the program computes on vec3f as before.
+element RayRecord {
+    o : [[packed]] vec3f;
+    d : [[packed]] vec3f;
+    dinv : [[packed]] vec3f;
+    tfar : Float;
+}
+
+func ray_of(rec : RayRecord) -> Ray = Ray{rec.o, 0.0, rec.d, rec.tfar, rec.dinv};
+
+element HitRecord {
+    p : [[packed]] vec3f;
+    n : [[packed]] vec3f;
+    uv : [[packed]] vec2f;
+    d : Float;
+    index : u32;
+}
+
+func record_of_hit(h : Hit) -> HitRecord =
+    HitRecord{h.p, h.n, vec2f{h.u, h.v}, h.d, h.primID};
+
+element ClosestHitRecord {
+    p : [[packed]] vec3f;
+    n : [[packed]] vec3f;
+    uv : [[packed]] vec2f;
+    d : Float;
+    index : u32;
+}
+
+func record_of_closest(c : ClosestHit) -> ClosestHitRecord =
+    ClosestHitRecord{c.p, vec3f{0.0, 0.0, 0.0}, vec2f{c.u, c.v}, c.d, c.primID};
+
+element PointRecord {
+    c : [[packed]] vec3f;
+    r2 : Float;
+}
+
+func point_of(rec : PointRecord) -> Point = Point{rec.c};
+
+// FCPW's GPU kernels write nothing back into the ray or the sphere: the ray
+// is a copy in registers (bvh.slang's intersect shortens its own tMax), and
+// only the interaction is written. So nothing here (rtq.bonsai's exports
+// call these after writing the hit; Embree's shorten tfar and the radius).
+func ray_written(n : u32, rays : mut array[RayRecord, n], i : u32, h : Hit) {
+    return;
+}
+
+func point_written(n : u32, points : mut array[PointRecord, n], i : u32, c : ClosestHit) {
+    return;
+}

@@ -94,7 +94,7 @@ func terminal_stars(x : vec3f, steps : u32) -> option[Outcome] {
 // (queries.bonsai, `clamped`), so that the compiler knows the entry
 // distances non-negative.
 func clamped_ray(r : Ray) -> Ray = Ray{r.o, select(r.tnear > 0.0, r.tnear, 0.0), r.d,
-                                      select(r.tfar > 0.0, r.tfar, 0.0)};
+                                      select(r.tfar > 0.0, r.tfar, 0.0), r.dinv};
 
 func hit_reflecting(r0 : Ray) -> option[(Triangle, Hit)] {
     r = clamped_ray(r0);
@@ -176,7 +176,9 @@ func walk_stars(x : vec3f, n : vec3f, on_boundary : bool, dist : Float, moved : 
     if on_boundary {
         origin = offset_along(x, -n);
     }
-    hit = hit_reflecting(Ray{origin, 0.0, dir, radius});
+    // The reciprocal direction as FCPW's Ray constructor takes it in
+    // WoSX's walk, true divisions, here in the walk as there.
+    hit = hit_reflecting(Ray{origin, 0.0, dir, radius, vec3f{1.0, 1.0, 1.0} / dir});
     y : mut vec3f = origin + dir * radius;
     ny : mut vec3f = n;
     on_y : mut bool = false;

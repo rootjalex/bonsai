@@ -23,7 +23,7 @@
 // what is above zero stays, everything else -- negative, negative zero, not
 // a number -- is zero.
 func clamped(r : Ray) -> Ray = Ray{r.o, select(r.tnear > 0.0, r.tnear, 0.0), r.d,
-                                  select(r.tfar > 0.0, r.tfar, 0.0)};
+                                  select(r.tfar > 0.0, r.tfar, 0.0), r.dinv};
 
 // Embree: rtcIntersect1; FCPW: Scene::intersect -- the nearest triangle the
 // ray hits, if any, with the reference's record of the hit. The map

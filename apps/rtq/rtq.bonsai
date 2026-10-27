@@ -59,32 +59,47 @@ import apps/rtq/queries;
 // rays are a parfor, which a schedule may spread over the cores or bind to
 // a GPU's threads; the CPU comparison's schedule leaves it unbound, a plain
 // loop, since the measurement is single-threaded on both sides.
-func [[export]] trace_all(n : u32, rays : array[Ray, n], hits : mut array[Hit, n]) {
+// The batches as the reference's records (RayRecord, HitRecord, ...: each
+// metric declares its reference's, to the byte), converted to the program's
+// values at the boundary (ray_of, record_of_hit, point_of, record_of_closest).
+// What the reference's kernel writes besides the answer is written too,
+// and only that: rtcIntersect1 shortens its ray's tfar to the hit and
+// rtcPointQuery's callback shrinks its query's radius, while FCPW's GPU
+// kernel writes nothing back into its ray or its sphere (the metric file's
+// `ray_written` and `point_written`: Embree's write the field, FCPW's are
+// empty). The blocked word is the one word each reference writes for an
+// occluded ray -- Embree its tfar, set to -inf; FCPW's GPU the
+// interaction's index, the first hit's -- four bytes either way, so one
+// flag word here stands for both.
+func [[export]] trace_all(n : u32, rays : mut array[RayRecord, n], hits : mut array[HitRecord, n]) {
     parfor i in 0u:n {
-        h = trace(rays[i]);
+        h = trace(ray_of(rays[i]));
         if h {
             found = *h;
-            hits[i] = found[1];
+            hits[i] = record_of_hit(found[1]);
+            ray_written(n, rays, i, found[1]);
         }
     }
     return;
 }
 
-func [[export]] occluded_all(n : u32, rays : array[Ray, n], hits : mut array[u32, n]) {
+func [[export]] occluded_all(n : u32, rays : array[RayRecord, n], hits : mut array[u32, n]) {
     parfor i in 0u:n {
-        if occluded(rays[i]) {
+        if occluded(ray_of(rays[i])) {
             hits[i] = 1u;
         }
     }
     return;
 }
 
-func [[export]] closest_all(n : u32, points : array[Point, n], hits : mut array[ClosestHit, n]) {
+func [[export]] closest_all(n : u32, points : mut array[PointRecord, n],
+                            hits : mut array[ClosestHitRecord, n]) {
     parfor i in 0u:n {
-        h = closest(points[i]);
+        h = closest(point_of(points[i]));
         if h {
             found = *h;
-            hits[i] = found[1];
+            hits[i] = record_of_closest(found[1]);
+            point_written(n, points, i, found[1]);
         }
     }
     return;

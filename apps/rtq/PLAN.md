@@ -7471,7 +7471,13 @@ intersect`, the scratch under scratch/rays-gap/; `compare.sh` gained
 - **The dependence.** FCPW picks the nearer child with a branch, `if
   (boxHits[2] < boxHits[0]) swap`, which the machine predicts and runs
   ahead of: the next node's loads issue while this node's slab arithmetic
-  is in flight. Our swap was five selects -- three cmov in the machine code
+  is in flight. ('The machine code behind the table' above had seen
+  exactly this on 2025-10-25 -- FCPW's 48 branches and no cmov against our
+  four cmova, "one of them the next node, a data dependency through the
+  box tests' full latency on every visit" -- and the night's correction
+  then set it aside as not an item, if-conversion being the linearizer's
+  and the scalar schedules seeing none. The selects were the sort's own,
+  and the dependence was the whole gap.) Our swap was five selects -- three cmov in the machine code
   -- so the next node's index was a value computed from the whole test,
   loads to compares, and every node waited for the previous one's chain:
   about forty cycles a node, serialized. The proof: the kept LLVM with the
@@ -7512,7 +7518,46 @@ fix, nothing else), geomeans over the twelve meshes FCPW hits:
 The least cells: dragon's occlusion rays 1.00 (fcpwb) and landscape's
 1.00 (fcpws), crown's silhouettes 1.01 and 1.02, landscape's rays 1.06
 and 1.07; the greatest pavilion's primary rays 1.51 and ivy's silhouettes
-1.43 and 1.48. The 10-26 table had the rays at 0.80, 0.85 and 0.84 with
+1.43 and 1.48.
+
+**The GPU, the same afternoon.** The lowering reaches the GPU kernels
+too (a schedule's `bind(i_thr, GPUThread)` recursion is scalar code per
+thread), and the GPU table remeasured with the branch lost 3-5% on every
+query but the occlusion rays (fcpwb-gpu primary 1.19 to 1.15, closest
+near 1.16 to 1.10; FCPW's rates within 0.4%): a GPU thread is a lane of
+its warp, and where the threads of a warp disagree on the order the branch
+runs both arms under masks, which the selects never did. So `per_lane`
+also holds for a function a loop bound to GPUThread, GPUBlock, OptixThread
+or RTCore reaches (Convert.cpp's `lane_runs`), and the GPU kernels keep the
+network of selects; the table remeasured once more below.
+
+**Landscape's first hit on the GPU (the user's question).** 0.91x this
+morning, 0.92x with the branch, the one GPU cell under 1. The mesh is a
+slab 0.9 thick and 1240 by 1640 across, 1.9M triangles; 87,454 of the
+1,048,576 primary rays hit it, so 92% leave after a few node tests and
+both kernels run at 12 billion rays a second, 80-90 microseconds a
+launch, where per-ray fixed work is the cost and traversal is not (the
+deeper meshes are 1.1-1.5x ours). Read off the SASS of both (scratch/
+rays-gap/gpu/: ours out of the driver binary's embedded PTX through
+ptxas and cuobjdump, FCPW's `rayIntersection` through `slangc -target cuda
+-D FCPW_BVH_TYPE=2` and nvcc, both sm_120): the kernels are the same size
+and shape -- 688 instructions against 616, 61 registers against 55, the
+same 512-byte stack, the same twelve MUFU (nine reciprocals, three
+rsqrt), 53 branches against 50, 20 selects each. What differs per ray is
+the record: FCPW's `GPURay` is 40 bytes, origin, direction, the
+reciprocal direction and tMax, ten 32-bit loads, with the reciprocals
+computed by its constructor on the host before the upload, off the clock;
+ours is the program's `Ray`, 64 bytes with 16-byte `vec3f` fields,
+sixteen loads of the eight words that matter and a 64-byte line fetched
+for 32 bytes of payload, and a `Hit` of 64 bytes against FCPW's 40-byte
+`GPUInteraction`, both written on a hit only. Over a million rays that is
+67 against 41 megabytes read per launch, 800 against 540 GB/s on a card
+that can do 1,790, with latency the rest. FCPW reads its buffers through
+generic loads (LD.E, twenty of them) where ours go through the read-only
+path (LDG.E.CONSTANT), in our favour on the other meshes. The record's
+layout is the exported ABI's, not the layout language's: closing this cell
+means a packed input record for the query batch, a layout question for the
+user, not a codegen one. The 10-26 table had the rays at 0.80, 0.85 and 0.84 with
 pavilion at 0.57-0.60 and head and landscape under 0.75. The Embree and
 four-wide cells of pavilion, bmw and dragon, measured beside them as the
 audit of what the change must not touch, match the 10-26 table to the
@@ -7524,3 +7569,152 @@ unchanged; the Embree schedules have no sort of two). Tests: ssa/blocks/sort and
 visit fell from 7280 lines to 508), the vectorized sorted traversals
 unchanged in form (selects) with the tie fix's operand order, and
 sort_tie_left_first run.
+
+### The records, the reference's to the byte (2026-10-26, afternoon)
+
+The user, on the landscape reading above ("why do we have larger
+ray/answer records?? We need this to be an apples-to-apples comparison"),
+and the rule that came with it: when we compare to Embree we match Embree,
+when we compare to FCPW we match FCPW -- the system compared to, exactly,
+for the algorithm and the layout, and for the base comparison the schedule
+too. The records a batch is handed and hands back are part of the layout,
+and ours were the program's: a `Ray` of 64 bytes with 16-byte `vec3f`
+fields where FCPW's GPURay is 40, a `Hit` of 64 against its 40, and no
+reciprocal direction carried where FCPW's constructor computes one on the
+host, off the clock.
+
+**What a batch is now.** Each metric file declares its reference's records
+to the byte, and rtq.bonsai's and snch.bonsai's exports take and return
+those, converted at the boundary (`ray_of`, `point_of`, `query_of` read a
+record into the program's Ray, Point and SilhouetteQuery; `record_of_hit`,
+`record_of_closest`, `record_of_silhouette` build the record from the
+answer; the program computes on `vec3f` as before):
+
+- FCPW (metrics/fcpw.bonsai and fcpw_scalar.bonsai, FCPW's GPU structs on
+  both targets, fcpw/gpu/bvh_interop_structures.h): `RayRecord` is GPURay
+  -- origin, direction, the reciprocal direction, tMax -- 40 bytes;
+  `HitRecord`, `ClosestHitRecord` and `SilhouetteHitRecord` are
+  GPUInteraction -- point, normal, uv, distance, index -- 40 bytes, written
+  whole on a hit, the fields a query does not compute left zero as FCPW
+  leaves them; `PointRecord` is GPUBoundingSphere -- center, squared radius
+  -- 16 bytes; `SilhouetteQueryRecord` the sphere and WoSX's flip word, 20
+  bytes, with the minimum radius and the precision passed once for the
+  batch, as FCPW's kernel takes them.
+- Embree (metrics/embree.bonsai): `RayRecord` is RTCRay -- org, tnear,
+  dir, time, tfar, mask, id, flags -- 48 bytes, read as Embree reads it:
+  RTCRay is `RTC_ALIGN(16)` and Embree's kernels hold it as two `Vec3ff`,
+  "3 floats for ray origin, 1 float for tnear" and "3 floats for ray
+  direction, 1 float for time" (kernels/common/ray.h), each one aligned
+  sixteen-byte load, so the record says `org : vec4f` and `dir : vec4f`
+  with tnear and time in the fourth lanes. (A first form with `[[packed]]
+  vec3f` fields and scalar tnear and time was the same bytes at alignment
+  four, loaded a float at a time -- eight loads and six inserts a ray where
+  Embree makes two loads -- and cost Embree's first hit 5% geomean, 11-12%
+  on zero-day and crown, where a ray is thirty cycles and the record's
+  loads are a tenth of it.) `HitRecord` is RTCHit -- Ng, u, v, primID,
+  geomID, instID -- 32 bytes, geomID the one geometry's 0 and instID the
+  invalid id, as Embree writes a hit under no instance; `PointRecord` is
+  RTCPointQuery -- x, y, z, time, radius, `RTC_ALIGN(16)`, twenty bytes of
+  fields in a thirty-two-byte stride -- `p : vec4f` (x, y, z, time) and the
+  radius, the twelve bytes of tail padding Embree's own; `ClosestHitRecord`
+  is the driver's callback record, primID, distance, point, 20 bytes,
+  Embree having no record for a point query's answer.
+
+**The reciprocal direction, each side's own.** FCPW's GPURay constructor
+computes dInv on the host before the upload, off the clock, and the kernel
+reads it; the driver's `make_ray` does the same for FCPW's record, the
+`Ray` element carries `dinv`, and the slab test reads it (elements.bonsai,
+metrics/fcpw*.bonsai). Embree computes `rcp_safe` of the direction inside
+rtcIntersect1, so for Embree's record `ray_of` computes it inside the timed
+call.
+
+**What is written besides the answer, and only that.** rtcIntersect1
+shortens its ray's tfar to the hit and the tutorial's callback shrinks its
+query's radius to the distance found; FCPW's GPU kernel writes nothing into
+its ray or its sphere (the ray is a copy in registers, bvh.slang's
+`intersect` shortening its own tMax). The metric says which (`ray_written`,
+`point_written`: Embree's write the field, FCPW's are empty), and the
+exports call them after the hit is written. For an occluded ray Embree
+writes its tfar, set to -inf, and FCPW's GPU writes the interaction's index,
+the first hit's -- four bytes either way -- so the one flag word of
+`occluded_all` stands for both.
+
+**The field type that made it possible: `[[packed]] vec3f`** (compiler
+commit 858c6d45). The vector's storage form (Vector_t::packed, what a layout
+row's `vec3f` has been since the layouts: twelve bytes aligned to four,
+where the vector the program computes with takes sixteen), now writable as
+a type in an element; the parser converts a read of such a field to the
+computing vector and a value built or assigned into one to the storage
+form, as Lower/Layouts.cpp has done for rows. Two other routes were tried
+and are wrong: `array[f32, 3]` as the field (the user's first suggestion)
+is a pointer in the LLVM struct where the generated header prints
+`float[3]` -- every array is a pointer to the LLVM backend (CPP.cpp's own
+note on Array_t), so the two sides would have disagreed about the record;
+and `element [[packed]]`, which lands a 40-byte record by accident (16 + 4
++ 16 + 4), is C's packed -- one-byte alignment, under which NVPTX loads a
+record a byte at a time where Slang's float3 loads floats. The records are
+ordinary elements of packed vectors and scalars, aligned to four, no
+padding; the generated headers spell the field `std::array<float, 3>`, and
+the driver's static assertions against the generated headers give 40, 40,
+40, 16 and 20 for FCPW's and 48, 32, 20, 20 for Embree's.
+
+**The driver** (rtq_hook.cpp): the batches are the records, made by
+`make_ray` and `make_point` per reference; the rays and points the program
+writes into are the batch's working copies, reset off the clock between
+runs as reset_rayhits and reset_queries restore Embree's own tfar and
+radius; a hit record is read with its ray (`as_ref`), Embree's distance
+being the ray's tfar; the silhouette batch's minimum radius and precision
+are the two constants both sides take.
+
+**What remains different, and is kept on record.** Embree's RTCRayHit
+holds the hit beside its ray, one 80-byte record, where ours are two arrays
+of 48 and 32: the same bytes read and written per ray, in two streams
+rather than one; and RTCHit is aligned to sixteen where our 32-byte
+HitRecord is aligned to four, which changes no store, both sides writing
+Ng, u, v and the ids a scalar at a time. FCPW's CPU `Interaction` is larger
+than its GPU one (it carries pointers and indices the GPU struct does not)
+and its CPU `intersect` writes tMax into its own ray copy; our record is
+the GPU one on both targets, so against FCPW's CPU trees we write 40 bytes
+a hit where it writes its Interaction. The occluded word means tfar on one
+side and an index on the other, four bytes on both.
+
+Every configuration agrees with its reference on head, one repeat, before
+the tables (embree, fcpwb, fcpws, fcpw4w16, fcpwb-gpu, fcpws-gpu: every ray
+up to ties); the two wosx programs compile against the Ray that carries
+dinv.
+
+**Measured** (2026-10-26: the six schedules 17:05-17:40, the Embree rows
+again 18:32-18:39 with the two-vector record; five repeats, the harness's
+own lock -- benchmark.sh resumes from the logs it finds, so the six kinds'
+logs were deleted first and the old ones kept in
+results/logs/before-2026-10-26-records/, the CSV as
+rtq-results.before-2026-10-26-records.csv), geomeans over the twelve
+meshes, before the records and with them; the references' own rates within
+1% of before throughout:
+
+| over                              | primary                  | diffuse | ao   | closest near | closest volume | silhouette near | silhouette volume |
+|-----------------------------------|--------------------------|---------|------|--------------|----------------|-----------------|-------------------|
+| FCPW's GPUScene, binary (fcpwb-gpu) | 1.19 -> 1.34 (landscape 0.92 -> 1.58) | 1.37 -> 1.37 | 1.35 -> 1.36 | 1.15 -> 1.17 | 1.08 -> 1.11 | | |
+| FCPW's GPUScene, SNCH (fcpws-gpu)   | 1.12 -> 1.23 (landscape 0.99 -> 1.34) | 1.27 -> 1.29 | 1.27 -> 1.29 | 1.11 -> 1.12 | 1.10 -> 1.12 | 1.22 -> 1.22 | 1.25 -> 1.25 |
+| FCPW's scalar build, binary (fcpwb) | 1.13 -> 1.10 | 1.13 -> 1.10 | 1.09 -> 1.16 | 1.20 -> 1.20 | 1.17 -> 1.17 | | |
+| its normal cone hierarchy (fcpws)   | 1.18 -> 1.19 | 1.14 -> 1.14 | 1.06 -> 1.06 | 1.18 -> 1.19 | 1.16 -> 1.16 | 1.16 -> 1.15 | 1.15 -> 1.13 |
+| FCPW's four-wide Mbvh (fcpw4w16)    | 1.58 -> 1.62 | 1.64 -> 1.63 | 1.91 -> 1.91 | 1.17 -> 1.17 | 1.18 -> 1.19 | | |
+| Embree's BVH8 (embree)              | 1.05 -> 1.03 | 1.05 -> 1.06 | 1.03 -> 1.02 | 2.35 -> 2.36 | 2.93 -> 2.94 | | |
+
+What moved, in our rates: the GPU first hit +13% over the binary tree and
++10% over the cone hierarchy, the 40-byte ray with its reciprocal
+precomputed against the 64-byte Ray with three divisions in the kernel
+(landscape +75%, sportscar +35%, villa +20%, dambreak +16%: the meshes
+most rays miss, where the record was the cost); the binary tree's
+occlusion rays on the CPU +7%, the same 40 bytes and no hit to write; its
+first hit -2%, the record's three vectors read a float at a time, as FCPW
+reads its Eigen vectors, where the program's own Ray was two 16-byte
+loads -- the cost FCPW pays, now paid on both sides; Embree's first hit
+-3% (zero-day 1.12 -> 1.00, crown 1.10 -> 1.03), the tfar written back on
+every hit and RTCRay's 48 bytes against the Ray's 40, the diffuse and
+occlusion rays and both references' closest points within 1%. The
+four-aligned Embree record measured in between put the first hit at 1.00
+with zero-day and crown at 0.88: the load form, not the bytes. The
+figures: apps/rtq/plots/rtq-fcpwb-fcpws-cpu and -gpu, rtq-firsthit,
+rtq-anyhit, rtq-closestpoint (the packet figure is gone at the user's
+word, 18:00; the packet16 rows still fold into the CSV).

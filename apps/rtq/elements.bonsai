@@ -16,11 +16,25 @@ import stdlib/numerics;
 // `tnear < t <= tfar` (triangle_intersector_moeller.h), and a box where its
 // slab interval meets [tnear, tfar]. FCPW's Ray has an origin, a direction
 // and tMax, its segment beginning at zero.
+// The ray the program computes with. `dinv` is the reciprocal direction
+// the slab tests use, one per ray: both references take it once per ray
+// before any node is tested -- Embree's rtcIntersect1 as `rcp_safe(dir)`
+// at its entry, inside the timed call; FCPW's Ray constructor on the host,
+// before the upload, so that its kernels never divide -- and each metric's
+// `ray_of` takes it the way its reference does (embree.bonsai computes it,
+// the FCPW metrics copy it from the record the driver filled). This is the
+// value, not the record: the records a kernel reads and writes are the
+// reference's own, to the byte, declared beside each metric (RayRecord,
+// HitRecord, ...) and converted here at the exported boundary -- the C
+// ABI's `vec3f` is sixteen bytes where both references' vectors are
+// twelve, and a 64-byte Ray against FCPW's 40-byte GPURay was the whole of
+// landscape's first-hit gap on the GPU (apps/rtq/PLAN.md, 2026-10-26).
 element Ray {
     o : vec3f;
     tnear : Float;
     d : vec3f;
     tfar : Float;
+    dinv : vec3f;
 }
 
 // Embree: TriangleM<M>, one of its M slots. A vertex, the two edges Embree

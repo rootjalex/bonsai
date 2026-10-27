@@ -18,13 +18,18 @@
 import apps/rtq/rtq;
 import apps/rtq/silhouette;
 
-func [[export]] silhouette_all(n : u32, queries : array[SilhouetteQuery, n],
-                               hits : mut array[SilhouetteHit, n]) {
+// The batch as FCPW's records (metrics/fcpw_scalar.bonsai: the query a
+// GPUBoundingSphere and WoSX's flip word, its minimum radius and precision
+// once for the batch as FCPW's kernel takes them, the answer a
+// GPUInteraction), converted at the boundary.
+func [[export]] silhouette_all(n : u32, queries : array[SilhouetteQueryRecord, n],
+                               min_r2 : Float, precision : Float,
+                               hits : mut array[SilhouetteHitRecord, n]) {
     parfor i in 0u:n {
-        h = closest_silhouette(queries[i]);
+        h = closest_silhouette(query_of(queries[i], min_r2, precision));
         if h {
             found = *h;
-            hits[i] = found[1];
+            hits[i] = record_of_silhouette(found[1]);
         }
     }
     return;
