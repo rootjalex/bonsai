@@ -18002,6 +18002,51 @@ one shorter than pbrt's.
 *CPU:* scalar and wavefront-volpath render.o byte-identical (the CPU
 schedules have no hit-group record; the hoist runs only where one is read).
 
+**The GPU figures redone overnight on bonsai-ac's a582c9fd (the user,
+10-26 23:20: "make sure it didn't break PBRT, ideally it improves it; the
+GPU plots redone and checked for regressions").** a582c9fd keeps a thread
+phase's `barrier.sync 0` only where something is ordered: every wavefront
+kernel goes from two barriers to none, the pixel-loop kernels from three to
+one, the OptiX programs had none. Before the night: the 176 gpu and ptx
+tests pass with it; the three-scene compare against the hoist run
+(gpu-compare-out-barrier vs -hoist) gives byte-identical images and kernel
+27.54->27.52, 118.01->117.98, 730.76->726.65 ms. The night (00:07-04:01,
+the scratchpad's start_night_barrier.sh, one lock): heatmap.sh over the 30
+scenes at 16/64/128 into compare-out-heatmap9; the three sweeps behind
+pbrt-gpu-sweep redone into gpu-compare-out-b, -sort-b, -explore-b; plots.sh
+from them (its run variables now name these); and `compare_runs.py` (new,
+apps/pbrt: two tables cell by cell -- kernel and wall ratios, lost
+verdicts, the .pfm images byte for byte; README) on each old/new pair:
+
+- *No regression anywhere.* Every rendered image is byte-identical to the
+  previous run's -- all 87 heatmap cells both runs share and every sweep
+  cell -- and no verdict changed. (The barrier changes no arithmetic; an
+  image that differed would have been the first thing to look at.)
+- *Heatmap, heatmap8 (629761b6, 10-25 night) -> heatmap9:* gpu-optix
+  kernel geomean 0.9886x, wall 0.9914x, 174 of 174 cells within 3%;
+  pbrt --gpu 0.9999x (a quiet night). The figure's geomean 1.80x -> 1.82x,
+  its least 1.20x -> 1.23x (view-0 0.972x at every spp, bistro_vespa
+  0.975x at 64). This spans the day's commits (record, tris word, hoist:
+  all within noise on their own) and the barrier.
+- *Sweeps, the 10-24 tables -> the -b runs:* kernel geomeans gpu-optix
+  0.987-0.989x (and -b128, -b512, -sort36 alike), -fused 0.994x, -sort
+  0.959x, -mega 0.977x, -mega-ser 0.939x, and one up: -mega-ser-ray 1.027x
+  -- killeroo-gold 1.10x at all three sample counts, book 1.015x,
+  killeroo-simple 1.025x, ganesha and sanmiguel 0.995x. Wall: the
+  wavefronts 0.89x -- the host side's gain since 10-24 (the initial push
+  as a terminator, the owner-side answer), already in heatmap8 -- the
+  megakernels 0.94-0.97x. No commit of mine since 10-24 touches a
+  megakernel's kernels, so mk-ser's 6% down and mk-ser-ray's up on the small
+  scenes look like the barrier's: an A/B of gpu-optix-mega-ser-ray on
+  killeroo-gold between 1e5e8696 and a582c9fd is the next measurement
+  (pending bonsai-ac's morning window on the card). The figure:
+  wf 1.85x -> 2.08x, mk-ser 0.88x -> 0.95x, mk-ser-ray 1.02x -> 1.00x.
+
+What the barrier is worth to pbrt's own schedule, then: about one percent of
+kernel time on the matching wavefront, the join's barrier being a small
+share of drains that are mostly memory latency; several percent on the
+megakernels, whose pixel loop ran three.
+
 **`sort` on a call outside a ray tracing kernel is refused (the user,
 10-26, after asking which pbrt schedules sort a queue and which apply
 SER).** One directive, `f.sort(g, |args| key)`, means one thing -- the

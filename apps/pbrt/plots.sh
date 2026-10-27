@@ -32,8 +32,8 @@ set -euo pipefail
 PREFIX=$(cd "$(dirname "$0")" && pwd)
 OUT="$PREFIX/plots"
 CPU_CSVS="${CPU_CSVS:-$PREFIX/cpu-compare-out/cpu-results.csv $PREFIX/cpu-compare-out-sortfix/cpu-results.csv}"
-GPU_TABLES="${GPU_TABLES:-$PREFIX/gpu-compare-out/table.tsv $PREFIX/gpu-compare-out-sort/table.tsv $PREFIX/gpu-compare-out-explore/table.tsv}"
-HEATMAP_TABLE="${HEATMAP_TABLE:-$PREFIX/compare-out-heatmap7/table.tsv}"
+GPU_TABLES="${GPU_TABLES:-$PREFIX/gpu-compare-out-b/table.tsv $PREFIX/gpu-compare-out-sort-b/table.tsv $PREFIX/gpu-compare-out-explore-b/table.tsv}"
+HEATMAP_TABLE="${HEATMAP_TABLE:-$PREFIX/compare-out-heatmap9/table.tsv}"
 png=0
 [[ "${1:-}" == "--png" ]] && png=1
 

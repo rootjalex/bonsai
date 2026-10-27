@@ -121,6 +121,16 @@ before it.
   sorted before the trace -- so `scalar` is mk-b-s-ps,
   `wavefront-thread-packet` is wf-t-v-ps and `wavefront-thread-packet-sort`
   is wf-t-v-ps-sort (the table is in the script).
+- `compare_runs.py OLD_TABLE NEW_TABLE [--images] [--threshold 0.03]`: two
+  runs of `gpu_compare.sh` or `heatmap.sh` cell by cell -- the kernel and
+  wall times as new/old ratios, a verdict that matched pbrt before and does
+  not now, and with `--images` the rendered .pfm against the old one byte
+  for byte (a compiler change that is not meant to change what is computed
+  leaves every image identical) -- with a summary of the cells slower,
+  faster and within the threshold and the geometric mean of the kernel
+  ratio per side. Exit status 1 on a verdict regression or a differing
+  image, for a wrapper to read. What an overnight redo of the figures is
+  checked with.
 - `plots.sh [--png]`: every figure of this directory, drawn into `plots/`
   under its one fixed name from the runs that are the current
   measurements (the user, 10-24: no guessing what is what). `plots/` holds
