@@ -34,6 +34,9 @@ OUT="$PREFIX/plots"
 CPU_CSVS="${CPU_CSVS:-$PREFIX/cpu-compare-out/cpu-results.csv $PREFIX/cpu-compare-out-sortfix/cpu-results.csv}"
 GPU_TABLES="${GPU_TABLES:-$PREFIX/gpu-compare-out-b/table.tsv $PREFIX/gpu-compare-out-sort-b/table.tsv $PREFIX/gpu-compare-out-explore-b/table.tsv}"
 HEATMAP_TABLE="${HEATMAP_TABLE:-$PREFIX/compare-out-heatmap9/table.tsv}"
+# The GPU sweep's sides, in drawing order (plot_gpu_wavefront.py's SIDES
+# names them): the megakernel family, then the wavefront's.
+GPU_SIDES="${GPU_SIDES:-gpu-optix-mega,gpu-optix-mega-pass,gpu-optix-mega-flat,gpu-optix-mega-ser,gpu-optix-mega-ser-flat,gpu-optix,gpu-optix-sort}"
 png=0
 [[ "${1:-}" == "--png" ]] && png=1
 
@@ -46,7 +49,12 @@ formats=(pdf)
 (( png )) && formats+=(png)
 for ext in "${formats[@]}"; do
   python3 "$PREFIX/plot_cpu_wavefront.py" $CPU_CSVS -o "$OUT/pbrt-cpu-sweep.$ext"
-  python3 "$PREFIX/plot_gpu_wavefront.py" $GPU_TABLES -o "$OUT/pbrt-gpu-sweep.$ext"
+  # The paper's four GPU sides (10-24) and the three megakernel shapes of
+  # 10-27 (the user: the GPU figures other than the heatmap gain them):
+  # seven, within the ramp's nine; the exploration sides the tables also
+  # hold (wf-b128, wf-b512, wf-fused, wf-sort36, mk-ser-ray) are drawn by
+  # naming them in GPU_SIDES.
+  python3 "$PREFIX/plot_gpu_wavefront.py" $GPU_TABLES --sides "$GPU_SIDES" -o "$OUT/pbrt-gpu-sweep.$ext"
   python3 "$PREFIX/plot_gpu_heatmap.py" "$OUT/pbrt-gpu-heatmap.$ext" "$HEATMAP_TABLE" --sort geometry
 done
 ls -la "$OUT"

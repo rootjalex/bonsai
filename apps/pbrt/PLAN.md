@@ -18368,3 +18368,12 @@ megakernel sides -- gpu-optix-mega-flat and -mega-ser-flat -- which
 needs the five-scene, three-spp sweep (about 2 h of card); and the full
 pbrt redo (CPU and GPU) owed anyway once the loopify exit rewrite lands
 on top of aa4dbaaa's min/max change, into which that sweep would fold.
+
+The user's answers (10-27 16:00): the GPU figures other than the heatmap
+gain the extra megakernel schedules -- so plot_gpu_wavefront.py knows
+mk-pass, mk-flat and mk-ser-flat, and plots.sh names the paper figure's
+seven sides (GPU_SIDES: the paper's four of 10-24 and these three),
+since the exploration's five beside them would be twelve for a ramp of
+nine; the sides' sweep is the redo's, under one compiler. (3), the
+profiler on ganesha, is approved; (2), the direct callables, under
+consideration ("probably fine"); (1) explained and awaiting the word.

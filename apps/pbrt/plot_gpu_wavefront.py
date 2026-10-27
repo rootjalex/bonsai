@@ -36,7 +36,14 @@ with the ray queue sorted by the two-point Morton key before each trace
 (`Bonsai wf-sort`, gpu-optix-sort). Every side traces through OptiX: the
 user's rule for the GPU is to compare techniques on the ray tracing
 hardware alone, the software traversals (gpu.bonsai, gpu-wavefront.bonsai)
-having never won a cell. `--sides` names a subset in its own order. The
+having never won a cell. Since 10-27 the megakernel has three more shapes
+in the figure (the user: the GPU figures other than the heatmap gain
+them): one thread per path with a launch per sample (`Bonsai mk-pass`,
+gpu-optix-mega-pass), the same as one launch per frame (`Bonsai mk-flat`,
+gpu-optix-mega-flat), and that launch with the reordering (`Bonsai
+mk-ser-flat`, gpu-optix-mega-ser-flat); plots.sh names these seven as
+the paper figure's sides (GPU_SIDES), the exploration's five below being
+one more than the ramp holds beside them. `--sides` names a subset in its own order. The
 colours are classes of the CPU figure's YlGnBu ramp spread evenly over the
 sides drawn, in drawing order, so that neighbours differ in lightness: four
 sides take the classes 1, 3, 5 and 7 (the paper figure), up to seven sides
@@ -71,10 +78,20 @@ Y_LABEL = "Speedup"
 # number of sides drawn.
 SIDES = [
     ("gpu-optix-mega", "mk"),
+    # The megakernel's shapes of 10-27 (PLAN, 'the megakernel against
+    # Dr.Jit's'): one thread per path with a launch per sample
+    # (`reorder(p, s)`), the same collapsed into one launch per frame
+    # (`collapse(s, p, ps)`), and that launch with the SER sort before the
+    # material stage. The user (10-27): the GPU figures other than the
+    # heatmap gain them.
+    ("gpu-optix-mega-pass", "mk-pass"),
+    ("gpu-optix-mega-flat", "mk-flat"),
     ("gpu-optix-mega-ser", "mk-ser"),
+    ("gpu-optix-mega-ser-flat", "mk-ser-flat"),
     # The exploration of 10-24 (apps/pbrt/schedules/gpu-optix-*.bonsai):
     # variants of the megakernel and the wavefront, drawn when a table has
-    # them or `--sides` asks; more than nine sides exceed the ramp.
+    # them or `--sides` asks; more than nine sides exceed the ramp, which
+    # is why plots.sh names the paper's sides (GPU_SIDES).
     ("gpu-optix-mega-ser-ray", "mk-ser-ray"),
     ("gpu-optix", "wf"),
     ("gpu-optix-b128", "wf-b128"),
@@ -88,7 +105,10 @@ SIDES = [
 # the figure (plot_cpu_wavefront.COMPARISONS explains).
 COMPARISONS = [
     ("wf", "mk", "pbrt's wavefront schedule, matched, against the OptiX megakernel"),
+    ("mk-pass", "mk", "one thread per path and a launch per sample instead of a pixel's samples in turn"),
+    ("mk-flat", "mk-pass", "the sample and pixel loops collapsed into one launch per frame"),
     ("mk-ser", "mk", "shader execution reordering before the material stage"),
+    ("mk-ser-flat", "mk-flat", "shader execution reordering before the material stage, on the flat launch"),
     ("mk-ser-ray", "mk-ser", "reordering keyed by the ray instead of the material"),
     ("wf-b128", "wf", "bands of 128 pixel rows instead of the matching band size"),
     ("wf-b512", "wf", "bands of 512 pixel rows instead of the matching band size"),
@@ -103,7 +123,9 @@ CAUSES = [
     "  the best schedule data-dependent? (10-24)' -- the band sizes, the fused wavefront and the",
     "  reorder keys; 'The fused wavefront's trade read off the profiles (10-24)' -- fusing costs",
     "  a fifth to a third where the trace is cheap and nothing on sanmiguel, whose two-level",
-    "  trace is latency-bound. REPORT.md 10-23..10-24 has each run's numbers.",
+    "  trace is latency-bound. REPORT.md 10-23..10-24 has each run's numbers. 'The megakernel",
+    "  against Dr.Jit's (10-27)' -- a pixel's samples in turn cost 1.74x against one thread per",
+    "  path, one launch per frame 2-6% more, the SER sort 1.14-1.46x on the flat launch.",
 ]
 
 
