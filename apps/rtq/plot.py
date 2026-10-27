@@ -74,7 +74,20 @@ from figure_style import TEXT_WIDTH, YLGNBU, lean_labels, paper_style, write_sum
 EDGE = "#333333"  # every bar's thin edge, as apps/pbrt's figures
 COLOUR = {"embree": YLGNBU[1], "fcpw": YLGNBU[5]}
 NAME = {"embree": "Embree", "fcpw": "FCPW"}
-HATCH = {"primary": "", "ao": "///", "diffuse": "xxx", "near": "", "volume": "///"}
+# One hatch per set, no two alike, so that a set reads the same in every
+# figure and the legend has no two swatches the same (the user, 10-26: the
+# ambient-occlusion and in-volume bars had shared one).
+HATCH = {"primary": "", "ao": "///", "diffuse": "xxx", "near": "...", "volume": "\\\\\\"}
+
+
+def hatch_colour(face):
+    """The colour a bar's hatch and edge are drawn in: the dark edge on a
+    light bar, white on a dark one. A hatch is drawn in the patch's edge
+    colour, and the dark grey of the light bars vanished on the ramp's two
+    dark blues, where the two silhouette sets read as one bar (the user,
+    10-26); white on the light yellow would vanish the same way."""
+    r, g, b = matplotlib.colors.to_rgb(face)
+    return "white" if 0.299 * r + 0.587 * g + 0.114 * b < 0.55 else EDGE
 # The legend's words for the sets; the caption says they are rays or points.
 LABEL = {"primary": "primary", "ao": "ambient occlusion", "diffuse": "diffuse",
          "near": "near surface", "volume": "in volume"}
@@ -365,7 +378,7 @@ def draw_scalar(rows, out_dir, formats, exclude):
                     continue
                 x = i - 0.4 + width * (j + 0.5)
                 ax.bar(x, v, width, color=QUERY_COLOUR[kind], hatch=HATCH[rays],
-                       edgecolor=EDGE, linewidth=0.4)
+                       edgecolor=hatch_colour(QUERY_COLOUR[kind]), linewidth=0.4)
                 top = max(top, v)
         ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=0.8, zorder=3)
         mesh_ticks(ax, meshes)
@@ -460,7 +473,7 @@ def draw(rows, schedules, out_dir, suffix, formats, exclude, tuned):
                         continue
                     x = i - 0.4 + width * (j * len(refs) + k + 0.5)
                     ax.bar(x, v, width, color=COLOUR[ref], hatch=HATCH[rays],
-                           edgecolor=EDGE, linewidth=0.4)
+                           edgecolor=hatch_colour(COLOUR[ref]), linewidth=0.4)
                     top = max(top, v)
         ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=0.8, zorder=3)
         mesh_ticks(ax, meshes)
