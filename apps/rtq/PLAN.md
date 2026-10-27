@@ -7874,3 +7874,57 @@ What it says, against the three suspects:
   only 1.16x, since both sides issue at the same 30% and wait the same 6.5
   cycles on memory: the rays are short, half a wave per multiprocessor,
   and the kernel is latency-bound at a tail no occupancy fills.
+
+### The barrier, removed where nothing is ordered (2026-10-26, night)
+
+The user's ruling: barriers belong between sequenced thread loops of one
+block body, and around code only the leader runs; nowhere else. Who
+emitted them: CodeGen_PTX's own `emit_bound_parfor`, a `barrier()` before
+and at the join of every loop bound to GPUThread since the first PTX
+backend (bd1f5442, 09-21), LLVM only lowering the intrinsic; nothing in the
+IR asks for one, the block body of `trace_all` being one thread loop whose
+continuation yields. The rule now (CodeGen_PTX.cpp, `phase_barrier_pending`
+and `phase_is_followed`): a phase begins with a barrier only if a phase came
+before it in the body and nothing has ordered the block since -- a leader
+effect in between brought its own (after_once_effect) and cleared the need
+-- and ends with one only if block-level code follows that may read what
+the threads wrote (anything in the continuation but a yield, a return, or
+another thread loop directly, which puts the one barrier between them
+itself). Tests, written red first and counting the PTX's `barrier.sync`
+lines (tests/bonsai/backends/ptx/thread-phase-*.bonsai): one phase alone,
+0 (was 2); two phases in sequence, 1 (was 4); a leader store then a phase,
+1 (was 3); a phase then a leader store reading the threads' writes, 2 (was
+3). Eight PTX goldens moved by exactly their dropped barriers and what
+follows from them (the intrinsic call and its attribute group gone, two
+kernels now inferred `nosync willreturn memory(argmem: write)`).
+
+pbrt's gpu-optix schedule compiled with both compilers (apps/pbrt/scratch/
+barrier-check/, the embedded PTX read kernel by kernel): every one of its
+wavefront kernels -- the material drains, the sample, medium, emissive,
+escaped and exit kernels, the queue kernels -- had the pair and nothing
+else, 2 to 0, 118 kernels; the pixel-loop kernels had a leader effect's
+barrier beside the pair, 3 to 1; the OptiX programs have none either way;
+230 barriers to 28 in all, no other line of PTX changed (the kernels are
+two lines shorter each). bonsai-f9 runs pbrt's GPU tests and the
+three-scene compare on the commit before building on it (same images
+expected; the kernel milliseconds telling what the join's barrier cost the
+drains).
+
+Measured (23:05-23:10, five repeats, the GPU tables alone; before-copies
+rtq-results.before-2026-10-26-barrier.csv and logs/before-2026-10-26-
+barrier/), geomeans over twelve meshes, before the rule and with it, FCPW's
+own rates within 0.8% of before throughout:
+
+| over FCPW's GPUScene | primary | diffuse | ao | closest near | closest volume | silhouette near | silhouette volume |
+|---|---|---|---|---|---|---|---|
+| binary tree (fcpwb-gpu) | 1.36 -> 1.44 | 1.37 -> 1.44 | 1.36 -> 1.43 | 1.17 -> 1.23 | 1.11 -> 1.16 | | |
+| cone hierarchy (fcpws-gpu) | 1.25 -> 1.33 | 1.29 -> 1.33 | 1.29 -> 1.33 | 1.12 -> 1.17 | 1.12 -> 1.15 | 1.22 -> 1.29 | 1.25 -> 1.33 |
+
+Our rates moved +3% to +7% geomean on every query (first hit +6.5%, any
+hit +5%, closest point +5%, silhouettes +6% and +7%), every mesh but two
+cells within noise (sportscar's primary rays -5%, landscape's over the
+cone hierarchy -3%; bmw's and villa's first hit +15-17%). Less than the
+stall share Nsight Compute showed (a quarter to a third of the issue
+cycles): a warp parked at the join was a slot another block's warp could
+partly fill, so the counter overstated what the barrier cost in time.
+Every ray agrees as before.
