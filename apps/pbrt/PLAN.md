@@ -18377,3 +18377,13 @@ since the exploration's five beside them would be twelve for a ramp of
 nine; the sides' sweep is the redo's, under one compiler. (3), the
 profiler on ganesha, is approved; (2), the direct callables, under
 consideration ("probably fine"); (1) explained and awaiting the word.
+
+A retest for bonsai-ac's aa4dbaaa (float min and max on the device as
+PTX's min.f32/max.f32, where pbrt's std::max keeps a leading NaN), run
+15:48-16:20 through the worktree at ajr/ssa's head 9c191640:
+gpu-optix and gpu-optix-mega-ser on the figure's five scenes at 16 and
+64 spp (gpu-compare-out-minmax), compare_runs.py --images against the
+night's run b -- all twenty images byte-identical, kernel times within
+2.5% (the wavefront within 0.5% everywhere; the megakernel's +2.4% on
+sanmiguel and +1.4% on ganesha are its run-to-run), every verdict kept.
+The min/max change is invisible in pbrt's images, as expected.
