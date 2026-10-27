@@ -17922,6 +17922,86 @@ the kernel time within noise -- 27.51 -> 27.59, 118.32 -> 118.30, 729.77 ->
 the point was the layout's honesty. CPU render.o byte-identical for scalar
 and wavefront-volpath.
 
+**The mesh row into the record (the user, 10-26 evening: "start with the
+mesh row"), built as partial evaluation of the hit programs with the
+record as the static input (SSA/RecordHoist.h).** What a hit program
+computes from the record alone -- the mesh row's fields at the record's
+mesh, which pbrt's TriangleMeshRecord holds and ours loaded from `meshes`
+first -- is computed once per record by the driver and read off the
+record. A binding-time analysis over every function that reads the record
+(the closest-hit, any-hit and intersection programs, the hit-side trace
+variants) gives each value one of three times: the launch's (parameters,
+constants), the record's (its fields, and what is computed from them and
+from read-only storage at such indices), the hit's (the primitive index,
+the ray, anything written, and what depends on them). The residual program
+replaces each record-time *load* the hit needs -- directly, or through
+record-time arithmetic, which stays in the program over the field -- by a
+read of a new record field `_<arm>_h<n>`, the arm being the one whose
+fields the load's address reads (a record over the tree's own elements is
+never filled, so a load reading no arm field stays); the generating
+extension is the filler (bonsai_rt_record_fill), which computes the field's
+slice in that arm from the arm's record values and the arrays, zeros in the
+other arms, the arrays added to its parameters under the programs' names.
+The analysis sees through the calls a program makes: a call whose argument
+carries a record part (the triangle built from the record's mesh and the
+primitive index; a shape's payload packing both) is copied into the program
+first (SSA/Rewrite.h's inline_call, after the hit continuations are split
+and before the allocas are promoted), the simplification after each copy
+folding the packing. Only loads are hoisted, never arithmetic, and a struct
+read field by field hoists the fields read, not the row: the first renderer
+compile carried `first_light < 0` as a bool field beside first_light, the
+second a whole TriangleMesh row per arm, and the rule settled on loads,
+field-wise. One computation is one field however many programs make it. Tests: ssa/blocks/record-hoist (the final SSA: the filler's Mesh
+arm computing `mesh_first_index[mesh]` and `mesh_first_vertex[mesh]` and
+building the record with them, the two arrays threaded to the arm as
+parameters; the inlined triangle fetch reading fields 4 and 5 of the
+threaded record before the indices), backends/ptx/rtcore-holder-reference
+re-blessed (record read at bytes 0, 4, 16, 20; no mesh-array loads in the
+hit programs), correctness/gpu/rtcore-holder-reference's driver passing the
+two arrays to the filler. Suite 1896/1896 beside them.
+BONSAI_EXPLAIN_RECORD_HOIST=1 prints what each program inlines, hoists and
+keeps.
+
+*apps/pbrt.* The record is base, holder, tag, the two mesh indices and,
+per held arm (Mesh, Placed), the five fields of the mesh row that
+triangle_geometric reads -- first_light, material, alpha, medium_inside,
+medium_outside -- sixty bytes; the filler takes `meshes`, which
+render_hook.cpp passes and stages with the rest. Not hoisted in the
+renderer: the triangle's own vertex fetch (first_index, first_vertex). The
+intersection test runs after the own and held sides merge their Triangle
+(`_rt_e1`), and on the own side the mesh index is the hit's, so the row
+read inside the test is hit-time; it stays one dependent load, as pbrt's
+is (its record holds the mesh pointer and loads the struct through it).
+Specializing the test per side -- the own side's triangle is never a mesh
+triangle in a pbrt scene, but the compiler cannot know it -- is the step
+after this one, worth taking only if a profile says the mesh row's load is
+on the hit's critical path.
+
+*GPU (gpu-compare-out-hoist against gpu-compare-out-tris, 16 spp, least of
+3):*
+
+    scene              before      after              pbrt --gpu
+    killeroo-simple    27.59 ms    27.54 ms  (-0.2%)   49.47 / 49.44
+    pavilion-day      118.30 ms   118.01 ms  (-0.2%)  179.11 / 178.78
+    kroken camera-1   729.20 ms   730.76 ms  (+0.2%) 1725.98 / 1736.37
+
+The final images are byte-identical to the previous run's on all three.
+The gbuffer's radiance AOV differs in two pixels on pavilion and kroken
+(whole floats, not low bits), and so does kroken's normal AOV in one; two
+renders of one build differ in the same way (11 bytes of pavilion's
+radiance AOV, the image identical), so the AOVs are written in a
+run-dependent order -- a race or a last-writer-wins among the samples of a
+pixel, pre-existing, to fix in the driver's AOV accumulation (open). The
+hoist removed the mesh row's load from the material and light lookups of
+every held hit; at 16 spp on these scenes that load was not on the
+critical path, as the holder change before it was not. The dependent-load
+chain for a held hit is now: record -> (mesh row, for the vertices) ->
+indices -> positions, pbrt's; and record -> material/light/media directly,
+one shorter than pbrt's.
+
+*CPU:* scalar and wavefront-volpath render.o byte-identical (the CPU
+schedules have no hit-group record; the hoist runs only where one is read).
+
 **`sort` on a call outside a ray tracing kernel is refused (the user,
 10-26, after asking which pbrt schedules sort a queue and which apply
 SER).** One directive, `f.sort(g, |args| key)`, means one thing -- the
