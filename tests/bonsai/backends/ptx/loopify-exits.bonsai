@@ -1,0 +1,51 @@
+//! flags: -p ssa -b ptx
+
+// tests/bonsai/ssa/loopify-exits' recursion run by the threads of a GPU
+// block: one walk per thread, each leaving the loop at its own iteration
+// and by its own exit. What to read for, in the PTX: ONE copy of `finish`'s
+// arithmetic after the loop, where the ssa test shows the two exits folded
+// into one arm; and the empty inline asm (`// begin inline asm` / `// end
+// inline asm` with nothing between) at the block every exit jumps to -- the
+// reconvergence point, ir::Intrinsic::reconverge, which is what keeps LLVM
+// from sending each exit straight to its arm of the dispatch, so that ptxas
+// sees a loop with one exit and puts the warp's convergence barrier there.
+// Without it a lane ran its exit's code as soon as it left the loop, with
+// the warp's other lanes idle: the walk's terminal query at under two lanes
+// a warp against WoSX's five (apps/wosx/PLAN.md, 2026-10-27).
+func finish(x : f32, n : i32) -> f32 {
+    return x * 0.5 + cast[[f32]](n);
+}
+
+func step(i : i32, x : f32, limit : f32) -> f32 {
+    if i <= 0 {
+        return finish(x, i);
+    }
+    y = x * 1.5;
+    if y > limit {
+        return 0.0;
+    }
+    if y > limit * 0.5 {
+        return finish(y, i);
+    }
+    return step(i - 1, y, limit);
+}
+
+func run(out : mut array[f32, 8], a : array[f32, 8]) -> void {
+    parfor t in 0:8 {
+        out[t] = step(cast[[i32]](t) + 1, a[t], 4.0);
+    }
+    return;
+}
+
+func main() -> i32 {
+    a : array[f32, 8] = {1.0, 10.0, 0.5, 2.0, 1.0, 3.0, 0.25, 1.0};
+    out : mut array[f32, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(out, a);
+    print(out);
+    return 0;
+}
+
+schedule {
+    step.loopify();
+    run.bind(t, GPUThread);
+}

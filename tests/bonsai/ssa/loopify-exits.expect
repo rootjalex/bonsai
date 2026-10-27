@@ -1,0 +1,107 @@
+func finish(x : f32, n : i32) -> f32 {
+  let @0 = x * 0.5f in
+  let @1 = cast<f32>(n) in
+  let @2 = @0 + @1 in
+  return @2
+}
+
+func main() -> i32 {
+  let @0 = step(3, 1f, 100f) in
+  print(@0)
+  let @1 = step(5, 1f, 4f) in
+  print(@1)
+  let @2 = step(5, 10f, 4f) in
+  print(@2)
+  let @3 = twice(3, 1f) in
+  print(@3)
+  let @4 = twice(5, 60f) in
+  print(@4)
+  return 0
+}
+
+func step(i : i32, x : f32, limit : f32) -> f32 {
+  i!loop : mut i32
+  x!loop : mut f32
+  which : mut u32
+  x!loop!0 : mut f32
+  i!loop!0 : mut i32
+  i!loop = i
+  x!loop = x
+  do {
+    let @0 = (*i!loop) <= 0 in
+    if (@0) {
+      which = 0u
+      x!loop!0 = (*x!loop)
+      i!loop!0 = (*i!loop)
+    } else {
+      let y = (*x!loop) * 1.5f in
+      let @5 = limit < y in
+      if (@5) {
+        which = 1u
+        x!loop!0 = undef
+        i!loop!0 = undef
+      } else {
+        let @6 = limit * 0.5f in
+        let @7 = @6 < y in
+        if (@7) {
+          which = 0u
+          x!loop!0 = y
+          i!loop!0 = (*i!loop)
+        } else {
+          let @11 = (*i!loop) - 1 in
+          i!loop = @11
+          x!loop = y
+          continue
+        }
+      }
+    }
+    break
+  } while (true)
+  let _effect0 = reconverge() in
+  switch ((*which)) {
+  case 0: { // if of step
+    x!loop = (*x!loop!0)
+    i!loop = (*i!loop!0)
+    let @1 = (*x!loop) * 0.5f in
+    let @2 = cast<f32>((*i!loop)) in
+    let @3 = @1 + @2 in
+    return @3
+  } break;
+  default: { // if of step
+    return 0f
+  }
+  }
+}
+
+func twice(i : i32, x : f32) -> f32 {
+  i!loop : mut i32
+  x!loop : mut f32
+  i!loop = i
+  x!loop = x
+  while (!((*i!loop) <= 0)) {
+    let y = (*x!loop) * 1.5f in
+    let @5 = 100f < y in
+    if (@5) {
+      x!loop = y
+      let @1 = (*x!loop) * 0.5f in
+      let @2 = cast<f32>((*i!loop)) in
+      let @3 = @1 + @2 in
+      return @3
+    } else {
+      let @9 = (*i!loop) - 1 in
+      i!loop = @9
+      x!loop = y
+    }
+  }
+  let @1 = (*x!loop) * 0.5f in
+  let @2 = cast<f32>((*i!loop)) in
+  let @3 = @1 + @2 in
+  return @3
+}
+
+
+schedule {
+    step.loopify()
+    twice.loopify()
+
+}

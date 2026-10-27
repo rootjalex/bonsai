@@ -1280,7 +1280,8 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
                          op == OpType::rt_sbt_record ||
                          op == OpType::rt_sbt_element ||
                          op == OpType::rt_launch_iteration ||
-                         op == OpType::rt_ignore_hit;
+                         op == OpType::rt_ignore_hit ||
+                         op == OpType::reconverge;
     internal_assert(nullary ||
                     (!args.empty() && std::all_of(args.cbegin(), args.cend(),
                                                   [](const auto &arg) {
@@ -1395,6 +1396,13 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             internal_assert(args.size() == 1);
             internal_assert(args[0].type().is<Vector_t>());
             node->type = args[0].type().element_of();
+            break;
+        }
+        case Intrinsic::reconverge: {
+            // A point in the control flow, not a computation: nothing in,
+            // nothing out (see the enumerator).
+            internal_assert(args.empty()) << "reconverge takes nothing";
+            node->type = Void_t::make();
             break;
         }
         case Intrinsic::prefetch: {
@@ -2257,6 +2265,7 @@ Expr PtrTo::make(Expr expr) {
 bool Intrinsic::has_effects(OpType op) {
     switch (op) {
     case Intrinsic::prefetch:
+    case Intrinsic::reconverge:
     case Intrinsic::rand:
     case Intrinsic::rt_trace:
     case Intrinsic::rt_report_hit:

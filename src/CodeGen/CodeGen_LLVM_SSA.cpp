@@ -883,11 +883,13 @@ struct CodeGen_LLVM::SSALowering {
             return;
         }
         if (instr->op == Instruction::Op::Intrinsic &&
-            instr->intrinsic == Intrinsic::prefetch) {
-            // An effect with no value and no name (see SSA/Convert.cpp):
+            (instr->intrinsic == Intrinsic::prefetch ||
+             instr->intrinsic == Intrinsic::reconverge)) {
+            // An effect with no value and no name (see SSA/Convert.cpp, and
+            // loopify's exit funnel in SSA/Rewrite.cpp for the second):
             // made here, bound to nothing.
             internal_assert(instr->name.empty())
-                << "A prefetch bound to a name: " << instr->name;
+                << "An effect bound to a name: " << instr->name;
             cg.codegen_effect(value_of(*instr));
             return;
         }

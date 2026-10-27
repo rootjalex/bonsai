@@ -636,6 +636,24 @@ struct Intrinsic : ExprNode<Intrinsic> {
         // and fcpw.bonsai), which round differently in a third of all
         // inputs -- rather than the compiler picking one for everybody.
         rcp_approx,
+        // `reconverge()`: a point the lanes of a warp (or a gang) come back
+        // together at -- the one block every exit of a loop arrives at, where
+        // what follows runs once for every lane that left the loop rather
+        // than once per group of lanes that left together (SSA/Rewrite.cpp,
+        // loopify's exit funnel). Computes nothing and has an effect, so
+        // that it is a statement kept in its place, like a prefetch; and the
+        // effect is on the control flow around it: no pass may duplicate it
+        // or thread an edge past it, since an exit sent straight to its arm
+        // runs the arm as soon as the lane leaves, which is what this is
+        // there to prevent. The host lowers it to nothing (a CPU thread has
+        // nothing to reconverge with; LLVM then threads the funnel back
+        // into the exits, which on a CPU costs nothing); device code lowers
+        // it to an empty convergent, non-duplicable inline asm, the one
+        // thing LLVM's jump threading and SimplifyCFG leave standing, so
+        // that ptxas sees a loop with one exit and places the warp's
+        // convergence barrier there. Made by the compiler alone: a program
+        // cannot write it.
+        reconverge,
         round,
         sin,
         sinh,

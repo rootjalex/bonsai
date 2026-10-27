@@ -133,6 +133,10 @@ struct ExitTarget {
         // The value is the same on every iteration and on every edge, so it
         // can be handed over as it is rather than captured per lane.
         shared_ptr<Value> invariant;
+        // Set once an edge has passed a value the loop changes, or one that
+        // differs from another edge's: the slot is tracked whatever the
+        // edges after that one pass, and `invariant` stays null.
+        bool tracked = false;
         // Otherwise, the name of the header argument tracking it.
         string tracker;
         Type type;
@@ -675,15 +679,40 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
                     << "taking " << dest.args.size();
                 for (size_t j = 0; j < jump->args.size(); j++) {
                     const Value &v = *jump->args[j];
+                    ExitTarget::Slot &slot = t.slots[j];
+                    if (slot.tracked) {
+                        continue;
+                    }
+                    // An undefined value passed along an edge says nothing
+                    // about the slot: no lane that takes the edge reads it
+                    // (the exit funnel a loopify builds hands every slot but
+                    // the taken arm's one, SSA/Rewrite.cpp), so it neither
+                    // fixes the slot nor makes it differ. A slot that is
+                    // undefined on every edge is handed the undefined value.
+                    if (const auto *c = std::get_if<Constant>(&v.data);
+                        c != nullptr &&
+                        std::holds_alternative<Undefined>(c->data)) {
+                        if (slot.invariant == nullptr) {
+                            slot.invariant = jump->args[j];
+                        }
+                        continue;
+                    }
+                    const bool placeholder =
+                        slot.invariant != nullptr &&
+                        std::holds_alternative<Constant>(slot.invariant->data) &&
+                        std::holds_alternative<Undefined>(
+                            std::get<Constant>(slot.invariant->data).data);
                     // A value the loop does not change is the same whichever
                     // iteration a lane leaves on, so it can be handed to the
-                    // destination as it is.
+                    // destination as it is -- if every edge that defines the
+                    // slot passes that one value.
                     const bool fixed = loop_invariant(v);
-                    if (fixed && (t.slots[j].invariant == nullptr ||
-                                  same_value(*t.slots[j].invariant, v))) {
-                        t.slots[j].invariant = jump->args[j];
+                    if (fixed && (slot.invariant == nullptr || placeholder ||
+                                  same_value(*slot.invariant, v))) {
+                        slot.invariant = jump->args[j];
                     } else {
-                        t.slots[j].invariant = nullptr;
+                        slot.invariant = nullptr;
+                        slot.tracked = true;
                     }
                 }
             }

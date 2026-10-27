@@ -41,6 +41,7 @@ add_bonsai_tests(
     reduce-param.bonsai
     demote-atomics-spawn.bonsai
     demote-atomics-loopify.bonsai
+    loopify-exits.bonsai
     blocks.bonsai
     blocks-threads.bonsai
     thread-phase-alone.bonsai

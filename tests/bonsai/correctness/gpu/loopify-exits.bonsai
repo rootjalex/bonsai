@@ -1,0 +1,51 @@
+//! flags: -p ssa -b llvm -e
+
+// tests/bonsai/backends/ptx/loopify-exits' program, run on the card: eight
+// threads, each a walk of its own length ending by its own exit -- out of
+// steps (threads 0 and 2), past half the limit (3, 4, 6, 7), past the limit
+// (1 and 5) -- all leaving the loop into one block and dispatched from there
+// to the exits' code (funnel_exits in SSA/Rewrite.cpp), each with its own
+// values. The eight answers are the recursion's: thread 0 1 -> 1.5, then
+// finish(1.5, 0) = 0.75; thread 2 0.5 -> 0.75 -> 1.125 -> 1.6875, finish =
+// 0.84375; thread 3 2 -> 3 past half of 4, finish(3, 4) = 5.5; thread 4
+// 1 -> 1.5 -> 2.25, finish(2.25, 4) = 5.125; thread 6 0.25 doubled by 1.5
+// six times to 2.84765625, finish(2.84765625, 2) = 3.423828125; thread 7
+// 1 -> 1.5 -> 2.25, finish(2.25, 7) = 8.125; threads 1 and 5 past the limit
+// at once, 0.
+func finish(x : f32, n : i32) -> f32 {
+    return x * 0.5 + cast[[f32]](n);
+}
+
+func step(i : i32, x : f32, limit : f32) -> f32 {
+    if i <= 0 {
+        return finish(x, i);
+    }
+    y = x * 1.5;
+    if y > limit {
+        return 0.0;
+    }
+    if y > limit * 0.5 {
+        return finish(y, i);
+    }
+    return step(i - 1, y, limit);
+}
+
+func run(out : mut array[f32, 8], a : array[f32, 8]) -> void {
+    parfor t in 0:8 {
+        out[t] = step(cast[[i32]](t) + 1, a[t], 4.0);
+    }
+    return;
+}
+
+func main() -> i32 {
+    a : array[f32, 8] = {1.0, 10.0, 0.5, 2.0, 1.0, 3.0, 0.25, 1.0};
+    out : mut array[f32, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(out, a);
+    print(out);
+    return 0;
+}
+
+schedule {
+    step.loopify();
+    run.bind(t, GPUThread);
+}

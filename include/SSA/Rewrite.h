@@ -101,6 +101,15 @@ void collapse(FuncMap &funcs, std::string func, std::string outer,
 // is copied into `func` at its call (inline_call), until every call back
 // is a call of `func` itself. What a loop needs on hardware that allows no
 // recursion (the RT cores' programs), and what pbrt's megakernel is.
+// The loop's exits -- the recursion's other returns -- are brought together
+// after it: every edge out of the loop goes to one block, `<func>!exit`,
+// carrying which exit was taken and that exit's arguments, which
+// reconverges (ir::Intrinsic::reconverge) and dispatches to the exits' code;
+// exits whose code is the same code, a `return g(...)` written at two ways
+// out with `g` copied in at each, become one arm. On a warp the code of an
+// exit then runs once for every lane that left the loop, after they have all
+// left, instead of as each lane leaves with the others idle (funnel_exits in
+// SSA/Rewrite.cpp, which says why and what it costs).
 // `size` puts a branching recursion on a stack instead (SSA/QueueRecursion.h).
 // `variant` is the arm of a specialize the directive was written on
 // (`occluded[True].loopify(561)`: the suffix `!True`), and then only the

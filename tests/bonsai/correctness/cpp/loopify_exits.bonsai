@@ -1,0 +1,40 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/loopify_exits
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_loopify_exits.cpp -I. -o tests/bonsai/correctness/cpp/main_loopify_exits.o, clang++ tests/bonsai/correctness/cpp/main_loopify_exits.o tests/bonsai/correctness/cpp/loopify_exits.o -o tests/bonsai/correctness/cpp/loopify_exits, ./tests/bonsai/correctness/cpp/loopify_exits, rm tests/bonsai/correctness/cpp/loopify_exits, rm tests/bonsai/correctness/cpp/main_loopify_exits.o, rm tests/bonsai/correctness/cpp/loopify_exits.h, rm tests/bonsai/correctness/cpp/loopify_exits.o
+
+// tests/bonsai/ssa/loopify-exits' recursion through the C++ backend, which
+// is what apps/wosx's CPU binaries are built with: a loopified recursion
+// whose exits were brought together after the loop (funnel_exits in
+// SSA/Rewrite.cpp) prints as a `do { ... break; } while (true)`, a
+// `reconverge()` that is a statement doing nothing in C++ (`((void)0)`, the
+// void `let` it is bound to declared as nothing), and a `switch` on which
+// exit was taken -- and computes what the recursion computed, by every
+// exit: the eight walks of tests/bonsai/correctness/gpu/loopify-exits, run
+// one after another here.
+func finish(x : f32, n : i32) -> f32 {
+    return x * 0.5 + cast[[f32]](n);
+}
+
+func step(i : i32, x : f32, limit : f32) -> f32 {
+    if i <= 0 {
+        return finish(x, i);
+    }
+    y = x * 1.5;
+    if y > limit {
+        return 0.0;
+    }
+    if y > limit * 0.5 {
+        return finish(y, i);
+    }
+    return step(i - 1, y, limit);
+}
+
+func [[export]] walks(a : array[f32, 8], out : mut array[f32, 8]) {
+    parfor t in 0:8 {
+        out[t] = step(cast[[i32]](t) + 1, a[t], 4.0);
+    }
+    return;
+}
+
+schedule {
+    step.loopify();
+}

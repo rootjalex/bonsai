@@ -1251,6 +1251,8 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "rand";
     case Intrinsic::rcp_approx:
         return "rcp_approx";
+    case Intrinsic::reconverge:
+        return "reconverge";
     case Intrinsic::round:
         return "round";
     case Intrinsic::sin:

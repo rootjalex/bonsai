@@ -1,0 +1,60 @@
+//! flags: -p ssa
+
+// The exits of a loopified recursion brought together after the loop
+// (funnel_exits in SSA/Rewrite.cpp). `step` has three ways out besides its
+// tail call: out of steps and past half the limit both `return finish(...)`,
+// past the limit returns a constant. `finish` is copied in at both of its
+// calls before the schedule runs, so the two exits are two copies of the same
+// code, as a walk's two `return terminal(...)` are.
+//
+// What to read for: every `return` inside the `while (true)` has become an
+// assignment of `which` and of that exit's arguments followed by a `break`;
+// after the loop, one `reconverge()` and one `switch (which)` with TWO arms,
+// not three -- the two copies of `finish` folded into one, entered from
+// either exit with that exit's values -- and the slots an exit does not fill
+// are `undef` on its edge. `twice` has nothing but the two `finish` exits:
+// folded into one they are the loop's one way out, so it gets no funnel --
+// no `which`, no `reconverge()`, no switch -- just the one `finish` after
+// the loop, handed each exit's values on its `break`.
+func finish(x : f32, n : i32) -> f32 {
+    return x * 0.5 + cast[[f32]](n);
+}
+
+func step(i : i32, x : f32, limit : f32) -> f32 {
+    if i <= 0 {
+        return finish(x, i);
+    }
+    y = x * 1.5;
+    if y > limit {
+        return 0.0;
+    }
+    if y > limit * 0.5 {
+        return finish(y, i);
+    }
+    return step(i - 1, y, limit);
+}
+
+func twice(i : i32, x : f32) -> f32 {
+    if i <= 0 {
+        return finish(x, i);
+    }
+    y = x * 1.5;
+    if y > 100.0 {
+        return finish(y, i);
+    }
+    return twice(i - 1, y);
+}
+
+func main() -> i32 {
+    print(step(3, 1.0, 100.0));
+    print(step(5, 1.0, 4.0));
+    print(step(5, 10.0, 4.0));
+    print(twice(3, 1.0));
+    print(twice(5, 60.0));
+    return 0;
+}
+
+schedule {
+    step.loopify();
+    twice.loopify();
+}

@@ -3929,6 +3929,45 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         value = reciprocal_approx(codegen_expr(node->args[0]), "rcp");
         return;
     }
+    case Intrinsic::reconverge: {
+        // A reconvergence point (ir::Intrinsic::reconverge): on the device,
+        // an empty inline asm that is `convergent` and `noduplicate` -- no
+        // instruction in the PTX, only the two comment lines ptxas ignores
+        // -- which is what keeps LLVM's jump threading and SimplifyCFG from
+        // sending each exit of the loop straight to its arm of the dispatch
+        // that follows (a block with a convergent or non-duplicable call is
+        // one neither pass clones or threads through: JumpThreading's
+        // getJumpThreadDuplicationCost, SimplifyCFG's
+        // blockIsSimpleEnoughToThreadThrough). With every exit still
+        // arriving here, the loop has one exit in the PTX's graph, and
+        // ptxas puts the warp's convergence barrier (BSSY/BSYNC) at it: a
+        // lane that leaves the loop waits here for the warp's other lanes,
+        // and the exit's work runs once with all of them. A bare
+        // llvm.experimental.convergence.anchor would say the same and is
+        // removed as dead before it can, having no use. On the host there is
+        // nothing to wait for and nothing is emitted; LLVM then threads the
+        // funnel back into the exits, which costs a CPU nothing.
+        internal_assert(node->args.empty()) << "reconverge takes nothing";
+        if (device_code()) {
+            llvm::FunctionType *fn_ty =
+                llvm::FunctionType::get(void_t, /*isVarArg=*/false);
+            llvm::InlineAsm *ia = llvm::InlineAsm::get(
+                fn_ty, "", "", /*hasSideEffects=*/true);
+            llvm::CallInst *call = builder->CreateCall(ia, {});
+            call->addFnAttr(llvm::Attribute::Convergent);
+            call->addFnAttr(llvm::Attribute::NoDuplicate);
+            // Its effect is on nothing the program can address: said so,
+            // or LLVM takes an inline asm with side effects to read and
+            // write any memory, and a kernel with one loses its inferred
+            // memory attributes and the load and store motion across the
+            // exit that they allow.
+            call->addFnAttr(llvm::Attribute::getWithMemoryEffects(
+                module->getContext(),
+                llvm::MemoryEffects::inaccessibleMemOnly()));
+        }
+        value = nullptr;
+        return;
+    }
     case Intrinsic::prefetch: {
         // An address and a byte count, and a mask once a gang carries it
         // (see emit_prefetch); a reference that reached here was never

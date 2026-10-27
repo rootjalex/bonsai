@@ -145,6 +145,7 @@ add_bonsai_tests(
     parfor-sequential.bonsai
     print-str.bonsai
     loopify-early-returns.bonsai
+    loopify-exits.bonsai
     mut-array-literal.bonsai
     mut-element-field-argument.bonsai
     mut-field-argument.bonsai

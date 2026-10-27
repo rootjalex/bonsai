@@ -1545,6 +1545,11 @@ class BonsaiToCpp : ir::Printer {
             ss << "(1.0f / (";
             print_expr_list(node->args);
             ss << "))";
+        } else if (node->op == Intrinsic::reconverge) {
+            // A reconvergence point (ir::Intrinsic::reconverge) is nothing
+            // on a CPU thread: a statement that does nothing, named so that
+            // the C++ says where the loop's exits come together.
+            ss << "((void)0) /* reconverge */";
         } else if (node->op == Intrinsic::permute ||
                    node->op == Intrinsic::compress ||
                    node->op == Intrinsic::prefetch) {
@@ -1682,6 +1687,16 @@ class BonsaiToCpp : ir::Printer {
 
     void visit(const LetStmt *node) override {
         internal_assert(node->value.defined());
+        if (node->loc.base_type.is<Void_t>()) {
+            // An effect bound to a name nothing reads, so that it has a
+            // place among the statements (`let _effect0 = reconverge() in`,
+            // SSA/CodeGen_Stmt.cpp): C++ declares no void, so the effect
+            // stands alone.
+            ss << get_indent();
+            print_no_parens(node->value);
+            ss << ";\n";
+            return;
+        }
         ss << get_indent();
         ss << "const ";
         emit_type(ss, node->loc.base_type);

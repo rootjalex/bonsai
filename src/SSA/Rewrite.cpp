@@ -1225,6 +1225,437 @@ void inline_call(FuncMap &funcs, const shared_ptr<Function> &caller,
     }
 }
 
+namespace {
+
+// Whether the code reachable from `a` and from `b`, two blocks outside the
+// loop whose blocks are `inside`, is the same code: block for block the same
+// parameters by type, the same instructions by operation, type and operands,
+// the same terminators to blocks that pair up the same way -- with names
+// ignored, since a copied-in callee is renamed at every copy. What the two
+// `return terminal(...)` exits of a walk are once `terminal` has been
+// copied in at each (SSA/Convert.cpp inlines a non-recursive callee at its
+// call): two regions of some dozens of blocks that differ in nothing but
+// their suffixes. Tail merging, as a linker's identical code folding does
+// to functions (Tallam et al., "Safe ICF", CGO 2010), over the exit regions
+// of one loop; a region that reaches a parfor or a run of calls is left
+// unmerged, and so is any pair past a few hundred blocks.
+bool same_exit_region(const Cfg &cfg, const BlockSet &inside, BlockId a,
+                      BlockId b) {
+    map<BlockId, BlockId> pair_ab, pair_ba;
+    map<const Instruction *, const Instruction *> instr_pair;
+    vector<pair<BlockId, BlockId>> work;
+
+    const auto pair_blocks = [&](BlockId x, BlockId y) {
+        if (x == NO_BLOCK || y == NO_BLOCK || inside.contains(x) ||
+            inside.contains(y)) {
+            return false;
+        }
+        const auto ab = pair_ab.find(x);
+        const auto ba = pair_ba.find(y);
+        if (ab != pair_ab.end() || ba != pair_ba.end()) {
+            return ab != pair_ab.end() && ab->second == y &&
+                   ba != pair_ba.end() && ba->second == x;
+        }
+        if (pair_ab.size() >= 512) {
+            return false;
+        }
+        pair_ab[x] = y;
+        pair_ba[y] = x;
+        work.emplace_back(x, y);
+        return true;
+    };
+    const auto index_of = [](const Block &block, const string &name) {
+        for (size_t i = 0; i < block.args.size(); i++) {
+            if (block.args[i].name == name) {
+                return int(i);
+            }
+        }
+        return -1;
+    };
+    const auto same_type = [](const Type &x, const Type &y) {
+        if (!x.defined() || !y.defined()) {
+            return x.defined() == y.defined();
+        }
+        return x.same_as(y);
+    };
+    const auto values = [&](const shared_ptr<Value> &x,
+                            const shared_ptr<Value> &y, const Block &bx,
+                            const Block &by) {
+        if (x == nullptr || y == nullptr) {
+            return x == nullptr && y == nullptr;
+        }
+        if (x->data.index() != y->data.index()) {
+            return false;
+        }
+        if (const auto *ax = std::get_if<Argument>(&x->data)) {
+            const auto &ay = std::get<Argument>(y->data);
+            if (!same_type(ax->type, ay.type)) {
+                return false;
+            }
+            const int ix = index_of(bx, ax->name), iy = index_of(by, ay.name);
+            if (ix < 0 && iy < 0) {
+                return ax->name == ay.name; // the function's own parameter
+            }
+            return ix == iy;
+        }
+        if (const auto *cx = std::get_if<Constant>(&x->data)) {
+            const auto &cy = std::get<Constant>(y->data);
+            return same_type(cx->type, cy.type) && cx->data == cy.data;
+        }
+        const auto &ix = std::get<shared_ptr<Instruction>>(x->data);
+        const auto &iy = std::get<shared_ptr<Instruction>>(y->data);
+        const auto it = instr_pair.find(ix.get());
+        return it != instr_pair.end() && it->second == iy.get();
+    };
+    const auto jumps = [&](const Terminator::Jump &x,
+                           const Terminator::Jump &y, const Block &bx,
+                           const Block &by) {
+        if (x.args.size() != y.args.size()) {
+            return false;
+        }
+        for (size_t i = 0; i < x.args.size(); i++) {
+            if (!values(x.args[i], y.args[i], bx, by)) {
+                return false;
+            }
+        }
+        return pair_blocks(cfg.find(x.name), cfg.find(y.name));
+    };
+    const auto value_lists = [&](const vector<shared_ptr<Value>> &x,
+                                 const vector<shared_ptr<Value>> &y,
+                                 const Block &bx, const Block &by) {
+        if (x.size() != y.size()) {
+            return false;
+        }
+        for (size_t i = 0; i < x.size(); i++) {
+            if (!values(x[i], y[i], bx, by)) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    if (!pair_blocks(a, b)) {
+        return false;
+    }
+    while (!work.empty()) {
+        const auto [x, y] = work.back();
+        work.pop_back();
+        const Block &bx = *cfg.block(x);
+        const Block &by = *cfg.block(y);
+        if (bx.args.size() != by.args.size() ||
+            bx.instrs.size() != by.instrs.size()) {
+            return false;
+        }
+        for (size_t i = 0; i < bx.args.size(); i++) {
+            if (!same_type(bx.args[i].type, by.args[i].type)) {
+                return false;
+            }
+        }
+        for (size_t i = 0; i < bx.instrs.size(); i++) {
+            const Instruction &p = *bx.instrs[i];
+            const Instruction &q = *by.instrs[i];
+            if (p.op != q.op || !same_type(p.type, q.type) ||
+                !same_type(p.queried_type, q.queried_type) ||
+                p.intrinsic != q.intrinsic || p.reduce != q.reduce ||
+                p.shuffle != q.shuffle || p.atomic != q.atomic ||
+                p.compact != q.compact || p.slack != q.slack ||
+                p.scratch != q.scratch || p.storage != q.storage ||
+                p.queue != q.queue || p.alongside != q.alongside ||
+                !value_lists(p.operands, q.operands, bx, by)) {
+                return false;
+            }
+            instr_pair[&p] = &q;
+        }
+        if (bx.terminator.data.index() != by.terminator.data.index()) {
+            return false;
+        }
+        const bool same = std::visit(
+            overloads{
+                [&](const Terminator::Jump &j) {
+                    const auto &k = std::get<Terminator::Jump>(by.terminator.data);
+                    return jumps(j, k, bx, by);
+                },
+                [&](const Terminator::Dispatch &d) {
+                    const auto &e =
+                        std::get<Terminator::Dispatch>(by.terminator.data);
+                    if (!values(d.cond, e.cond, bx, by) ||
+                        d.targets.size() != e.targets.size()) {
+                        return false;
+                    }
+                    for (size_t i = 0; i < d.targets.size(); i++) {
+                        if (!jumps(d.targets[i], e.targets[i], bx, by)) {
+                            return false;
+                        }
+                    }
+                    return true;
+                },
+                [&](const Terminator::Return &r) {
+                    const auto &s = std::get<Terminator::Return>(by.terminator.data);
+                    return values(r.value, s.value, bx, by);
+                },
+                [&](const Terminator::Call &c) {
+                    const auto &d = std::get<Terminator::Call>(by.terminator.data);
+                    return c.call.name == d.call.name && c.drop == d.drop &&
+                           value_lists(c.call.args, d.call.args, bx, by) &&
+                           jumps(c.cont, d.cont, bx, by);
+                },
+                [&](const Terminator::Spawn &s) {
+                    const auto &t = std::get<Terminator::Spawn>(by.terminator.data);
+                    return s.call.name == t.call.name &&
+                           value_lists(s.call.args, t.call.args, bx, by) &&
+                           jumps(s.cont, t.cont, bx, by);
+                },
+                [&](const Terminator::Join &j) {
+                    const auto &k = std::get<Terminator::Join>(by.terminator.data);
+                    return jumps(j.next, k.next, bx, by);
+                },
+                [&](const Terminator::Yield &) { return true; },
+                [&](const Terminator::Defer &d) {
+                    const auto &e = std::get<Terminator::Defer>(by.terminator.data);
+                    return d.yields == e.yields &&
+                           values(d.queue, e.queue, bx, by) &&
+                           values(d.entry, e.entry, bx, by) &&
+                           values(d.answer, e.answer, bx, by);
+                },
+                [&](const auto &) { return false; }, // ParFor, MultiCall, none
+            },
+            bx.terminator.data);
+        if (!same) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// The loop's exits brought together after it. A recursion's returns sit
+// wherever the program wrote them, and loopify leaves each where it is: an
+// exit edge of the loop goes straight to the code of that return, and when
+// the return is a call -- `return terminal(x, steps)` at the walk's two ways
+// out -- the call runs where the lane left. On a warp that is as soon as the
+// lane leaves, with the warp's other lanes idle: the walk's terminal query,
+// a traversal as long as any step's, ran at under two of 32 lanes
+// (apps/wosx/PLAN.md, 2026-10-27), where WoSX's shader returns a completion
+// code from its loop and makes the query after it, once, with every lane
+// that has one. This gives the loop that shape: every edge out of it is
+// redirected to one block after the loop, `<func>!exit`, which carries a
+// tag saying which exit the lane took and every exit's arguments (the
+// others' slots undefined on that edge), reconverges (ir::Intrinsic::
+// reconverge: the point LLVM may not thread an edge past, and ptxas's
+// convergence barrier), and dispatches on the tag to the exits' code, which
+// now runs after the warp's lanes have all left the loop. Exits whose code
+// is the same code -- the two terminal calls, copied in at each
+// (same_exit_region) -- become one arm, so that the code is in the kernel
+// once and the lanes that left by either run it together. Every exit edge
+// leaves from a dispatch: a block with one successor is in the loop only if
+// that successor is (the latch is reached through it or not at all), so a
+// call's continuation, a jump's target or a join's next is never outside
+// the loop while the block is in it. The exits' code is unchanged: after an
+// exit the loop runs no more, so the arm sees the same
+// arguments whether it runs where the lane left or after the join, and on a
+// CPU, where there is nothing to reconverge, LLVM threads the funnel back
+// into the exits and the code is as it was, with the identical regions
+// merged. A loop with one exit (one target, after merging) needs no funnel
+// and gets none. Reconvergence at the loop's exit is where a SIMT machine
+// reconverges by construction -- Fung et al., "Dynamic Warp Formation and
+// Scheduling for Efficient GPU Control Flow", MICRO 2007 (reconvergence at
+// the immediate post-dominator); AMDGPU's StructurizeCFG does the same to
+// every loop by hand.
+void funnel_exits(const shared_ptr<Function> &f, const string &header_name) {
+    Function &func = *f;
+    const Cfg cfg(func);
+    const DomTree dom = compute_dominator_tree(cfg);
+    const LoopForest forest = compute_loop_forest(cfg, dom);
+    const BlockId header = cfg.find(header_name);
+    internal_assert(header != NO_BLOCK)
+        << "loopify(" << func.blocks.front()->name << "): no block "
+        << header_name;
+    const Loop *loop = forest.find(header);
+    internal_assert(loop != nullptr)
+        << "loopify(" << func.blocks.front()->name << "): no loop headed by "
+        << header_name;
+    const BlockSet &inside = loop->blocks;
+
+    // Every edge out of the loop: a target of a dispatch in the loop that
+    // names a block outside it, rewritten in place below. Nothing else
+    // leaves: a block whose terminator has one successor is in the loop
+    // only if that successor is, so the one successor of a jump, a call,
+    // a spawn, a join or a parfor's continuation is inside too.
+    struct Exit {
+        shared_ptr<Block> from;
+        Terminator::Jump *slot;
+    };
+    vector<Exit> exits;
+    for (const BlockId b : cfg.rpo) {
+        if (!inside.contains(b)) {
+            continue;
+        }
+        const shared_ptr<Block> &block = cfg.block(b);
+        const auto outside = [&](const Terminator::Jump &j) {
+            const BlockId t = cfg.find(j.name);
+            return t != NO_BLOCK && !inside.contains(t);
+        };
+        std::visit(overloads{
+                       [&](Terminator::Dispatch &d) {
+                           for (Terminator::Jump &t : d.targets) {
+                               if (outside(t)) {
+                                   exits.push_back({block, &t});
+                               }
+                           }
+                       },
+                       [&](Terminator::Jump &j) {
+                           internal_assert(!outside(j))
+                               << block->name << " leaves its loop by a jump";
+                       },
+                       [&](Terminator::Call &c) {
+                           internal_assert(!outside(c.cont))
+                               << block->name << " leaves its loop by a call";
+                       },
+                       [&](Terminator::MultiCall &c) {
+                           internal_assert(!outside(c.cont))
+                               << block->name << " leaves its loop by a call";
+                       },
+                       [&](Terminator::Spawn &s) {
+                           internal_assert(!outside(s.cont))
+                               << block->name << " leaves its loop by a spawn";
+                       },
+                       [&](Terminator::Join &j) {
+                           internal_assert(!outside(j.next))
+                               << block->name << " leaves its loop by a join";
+                       },
+                       [&](Terminator::ParFor &p) {
+                           internal_assert(!outside(p.cont))
+                               << block->name << " leaves its loop by a parfor";
+                       },
+                       [&](auto &) {},
+                   },
+                   block->terminator.data);
+    }
+    if (exits.empty()) {
+        return;
+    }
+
+    // The exits' targets, distinct, in the order the exits come; then the
+    // same regions among them folded onto the first of each.
+    vector<BlockId> targets;
+    vector<size_t> target_of(exits.size());
+    for (size_t i = 0; i < exits.size(); i++) {
+        const BlockId t = cfg.find(exits[i].slot->name);
+        const auto at = std::find(targets.begin(), targets.end(), t);
+        target_of[i] = size_t(at - targets.begin());
+        if (at == targets.end()) {
+            targets.push_back(t);
+        }
+    }
+    vector<size_t> rep(targets.size());
+    bool merged = false;
+    for (size_t j = 0; j < targets.size(); j++) {
+        rep[j] = j;
+        for (size_t k = 0; k < j; k++) {
+            if (rep[k] == k &&
+                same_exit_region(cfg, inside, targets[k], targets[j])) {
+                rep[j] = k;
+                merged = true;
+                break;
+            }
+        }
+    }
+    vector<size_t> arms; // the representatives, in order
+    vector<size_t> arm_of(targets.size(), 0);
+    for (size_t j = 0; j < targets.size(); j++) {
+        if (rep[j] == j) {
+            arm_of[j] = arms.size();
+            arms.push_back(j);
+        }
+    }
+
+    if (arms.size() == 1) {
+        // One way out once the same regions are one: the exit block itself
+        // is where the lanes come together, and the merged exits go there.
+        if (!merged) {
+            return;
+        }
+        for (size_t i = 0; i < exits.size(); i++) {
+            exits[i].slot->name = cfg.name(targets[rep[target_of[i]]]);
+        }
+        refresh_preds(func);
+        remove_unreachable_blocks(func);
+        return;
+    }
+
+    set<string> taken;
+    for (const auto &block : func.blocks) {
+        taken.insert(block->name);
+    }
+    const auto fresh = [&](const string &base) {
+        string name = base;
+        for (size_t i = 0; taken.count(name); i++) {
+            name = base + std::to_string(i);
+        }
+        taken.insert(name);
+        return name;
+    };
+
+    // The funnel: the tag, then each arm's parameters, suffixed by the arm.
+    auto funnel = std::make_shared<Block>();
+    funnel->name = fresh(func.blocks.front()->name + "!exit");
+    funnel->owner = f;
+    const Type tag_type = UInt_t::make(32);
+    const shared_ptr<Value> which =
+        funnel->add_argument(Argument{tag_type, "which"});
+    vector<vector<shared_ptr<Value>>> slots(arms.size());
+    for (size_t a = 0; a < arms.size(); a++) {
+        const Block &target = *cfg.block(targets[arms[a]]);
+        for (const Argument &arg : target.args) {
+            slots[a].push_back(funnel->add_argument(
+                Argument{arg.type, arg.name + "!" + std::to_string(a)}));
+        }
+    }
+    funnel->make_side_effect(Instruction::Op::Intrinsic, {});
+    funnel->instrs.back()->intrinsic = ir::Intrinsic::reconverge;
+    Terminator::Dispatch dispatch;
+    dispatch.cond = which;
+    for (size_t a = 0; a < arms.size(); a++) {
+        dispatch.targets.push_back(
+            Terminator::Jump{cfg.name(targets[arms[a]]), slots[a]});
+    }
+    funnel->terminator.data = std::move(dispatch);
+
+    // Every exit edge into the funnel, with its tag, its own arguments in
+    // its arm's slots and nothing in the others'.
+    for (size_t i = 0; i < exits.size(); i++) {
+        Exit &e = exits[i];
+        const size_t a = arm_of[rep[target_of[i]]];
+        const auto funnel_args = [&](const vector<shared_ptr<Value>> &own) {
+            vector<shared_ptr<Value>> args;
+            args.push_back(
+                std::make_shared<Value>(Constant{tag_type, uint64_t(a)}));
+            for (size_t b = 0; b < arms.size(); b++) {
+                if (b == a) {
+                    internal_assert(own.size() == slots[a].size())
+                        << "loopify(" << func.blocks.front()->name
+                        << "): the exit from " << e.from->name << " passes "
+                        << own.size() << " values where its target takes "
+                        << slots[a].size();
+                    args.insert(args.end(), own.begin(), own.end());
+                } else {
+                    for (const auto &s : slots[b]) {
+                        args.push_back(undef_value(s->get_type()));
+                    }
+                }
+            }
+            return args;
+        };
+        vector<shared_ptr<Value>> args = funnel_args(e.slot->args);
+        e.slot->name = funnel->name;
+        e.slot->args = std::move(args);
+    }
+    func.blocks.push_back(funnel);
+    refresh_preds(func);
+    remove_unreachable_blocks(func);
+}
+
+} // namespace
+
 void loopify(FuncMap &funcs, std::string func, int size,
              const std::string &variant) {
     internal_assert(funcs.contains(func))
@@ -1430,7 +1861,10 @@ void loopify(FuncMap &funcs, std::string func, int size,
     // own parameters, reassigned on every iteration. A parameter is not
     // storage, so nothing can be assigned to it; the loop needs a header of
     // its own, entered from a preheader (see SSA/InsertPreheader.h).
-    insert_preheader(*f, f->blocks[0]->name, latches);
+    const std::string header = insert_preheader(*f, f->blocks[0]->name, latches);
+
+    // And the loop's exits brought together after it (funnel_exits above).
+    funnel_exits(f, header);
 }
 
 } // namespace ssa

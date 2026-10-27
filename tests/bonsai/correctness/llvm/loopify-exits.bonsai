@@ -1,0 +1,56 @@
+//! flags: -p ssa -b llvm -e
+
+// tests/bonsai/ssa/loopify-exits' program, run: a loopified recursion whose
+// exits were brought together after the loop (funnel_exits in
+// SSA/Rewrite.cpp) computes what the recursion computed, by every exit --
+// the first walk runs out of steps (1 -> 1.5 -> 2.25 -> 3.375, then
+// finish(3.375, 0) = 1.6875), the second passes half the limit on its
+// second step (finish(2.25, 4) = 5.125), the third passes the limit at once
+// (0). The two `finish` exits are one arm after the loop, entered with
+// different values; the first and second walks check that each enters it
+// with its own. `twice` has only the two `finish` exits, which fold into
+// one with no funnel: run out of steps (1 -> 1.5 -> 2.25 -> 3.375,
+// finish(3.375, 0) = 1.6875) and past 100 on the second step (60 -> 90 ->
+// 135, finish(135, 4) = 71.5).
+func finish(x : f32, n : i32) -> f32 {
+    return x * 0.5 + cast[[f32]](n);
+}
+
+func step(i : i32, x : f32, limit : f32) -> f32 {
+    if i <= 0 {
+        return finish(x, i);
+    }
+    y = x * 1.5;
+    if y > limit {
+        return 0.0;
+    }
+    if y > limit * 0.5 {
+        return finish(y, i);
+    }
+    return step(i - 1, y, limit);
+}
+
+func twice(i : i32, x : f32) -> f32 {
+    if i <= 0 {
+        return finish(x, i);
+    }
+    y = x * 1.5;
+    if y > 100.0 {
+        return finish(y, i);
+    }
+    return twice(i - 1, y);
+}
+
+func main() -> i32 {
+    print(step(3, 1.0, 100.0));
+    print(step(5, 1.0, 4.0));
+    print(step(5, 10.0, 4.0));
+    print(twice(3, 1.0));
+    print(twice(5, 60.0));
+    return 0;
+}
+
+schedule {
+    step.loopify();
+    twice.loopify();
+}
