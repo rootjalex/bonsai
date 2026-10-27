@@ -76,7 +76,8 @@ at the size they are printed (apps/pbrt/figure_style.py has the format):
 Liberation Sans embedded as TrueType (pdf.fonttype 42, which ACM's
 production accepts where matplotlib's default Type 3 fonts are refused),
 the mesh names leaning only as far as eighteen of them must to clear each
-other (figure_style.lean_labels).
+other (figure_style.lean_labels), the legend above the axes in as many
+columns as that width holds (legend_above; --width draws a wider figure).
 """
 import argparse
 import csv
@@ -201,16 +202,17 @@ def geomeans(rows, schedules, exclude):
         print(f"  {schedule:<20} {g:8.3f} {min(values.values()):6.2f} {max(values.values()):6.2f}  {low}")
 
 
-def figure(rows, meshes, bars, ylabel, height):
+def figure(rows, meshes, bars, ylabel, height, fig_width=TEXT_WIDTH):
     """One figure: a bar per (schedule, label, colour) of `bars` per mesh, the
     dashed line at 1 as WoSX in the legend above the axes, the meshes by
-    name. Returns the figure and the schedules drawn, or (None, [])."""
+    name, `fig_width` inches wide (the paper's text block unless --width
+    says otherwise). Returns the figure and the schedules drawn, or (None, [])."""
     data = {s: cells(rows, s) for s, _, _ in bars}
     drawn = [(s, label, colour) for s, label, colour in bars if data[s]]
     if not drawn:
         return None, []
     paper_style()
-    fig, ax = plt.subplots(figsize=(TEXT_WIDTH, height))
+    fig, ax = plt.subplots(figsize=(fig_width, height))
     width = 0.8 / len(drawn)
     top = 1.0
     for i, mesh in enumerate(meshes):
@@ -227,7 +229,7 @@ def figure(rows, meshes, bars, ylabel, height):
     # The names lean only as far as they must to clear their neighbours
     # (the user, 10-24: no needless whitespace under the axes); the pitch
     # is the axes' width less what the y label takes, over the meshes.
-    lean_labels(ax, meshes, (TEXT_WIDTH - 0.6) / len(meshes))
+    lean_labels(ax, meshes, (fig_width - 0.6) / len(meshes))
     ax.set_xlim(-0.6, len(meshes) - 0.4)
     ax.set_ylim(0, top * 1.08)
     ax.yaxis.set_major_locator(MultipleLocator(0.5))
@@ -237,15 +239,35 @@ def figure(rows, meshes, bars, ylabel, height):
     ax.yaxis.grid(True, linewidth=0.4, alpha=0.5, zorder=0)
     ax.set_axisbelow(True)
     # The reference line leads the legend, then a patch per schedule, as
-    # apps/pbrt's figures have it: one row up to five entries, else two rows.
+    # apps/pbrt's figures have it: one row up to five entries, else as many
+    # columns as the figure is wide for.
     handles = [Line2D([], [], color=line.get_color(), linestyle=line.get_linestyle(),
                       linewidth=line.get_linewidth(), label=REFERENCE)]
     handles += [Patch(facecolor=colour, edgecolor=EDGE, linewidth=0.4, label=label)
                 for _, label, colour in drawn]
-    ncol = len(handles) if len(handles) <= 5 else (len(handles) + 1) // 2
-    ax.legend(handles=handles, ncol=ncol, frameon=False, loc="lower center",
-              bbox_to_anchor=(0.5, 1.02), borderaxespad=0.0, columnspacing=1.2)
+    rows_above = legend_above(fig, ax, handles)
+    # A legend of more than two rows takes its extra rows from the height,
+    # not from the axes.
+    fig.set_size_inches(fig_width, height + 0.16 * max(0, rows_above - 2))
     return fig, [s for s, _, _ in drawn]
+
+
+def legend_above(fig, ax, handles):
+    """The legend above the axes, measured to fit: one row up to five
+    entries, else the most columns whose row is no wider than the figure --
+    the layout pass does not see a legend outside the axes, and the nine
+    GPU schedules in five columns ran past the page's right edge in the PDF
+    (the user, 10-27). Returns the number of rows; save() makes room above
+    the axes for them."""
+    ncol = len(handles) if len(handles) <= 5 else (len(handles) + 1) // 2
+    while True:
+        legend = ax.legend(handles=handles, ncol=ncol, frameon=False, loc="lower center",
+                           bbox_to_anchor=(0.5, 1.02), borderaxespad=0.0, columnspacing=1.2)
+        fig.canvas.draw()
+        box = legend.get_window_extent(fig.canvas.get_renderer())
+        if box.width <= 0.97 * fig.bbox.width or ncol == 1:
+            return math.ceil(len(handles) / ncol)
+        ncol -= 1
 
 
 def save(fig, out_dir, name, formats):
@@ -253,6 +275,15 @@ def save(fig, out_dir, name, formats):
     would leave LaTeX to rescale it): the layout fits the labels and the
     legend inside it. Returns the path of the first format written."""
     fig.tight_layout(pad=0.3)
+    # The legend above the axes is outside what tight_layout lays out: the
+    # axes' top comes down by whatever the legend overhangs the page.
+    legend = fig.axes[0].get_legend()
+    if legend is not None:
+        fig.canvas.draw()
+        box = legend.get_window_extent(fig.canvas.get_renderer())
+        over = (box.y1 - fig.bbox.height) / fig.bbox.height + 0.02
+        if over > 0:
+            fig.subplots_adjust(top=fig.subplotpars.top - over)
     paths = []
     for fmt in formats:
         path = os.path.join(out_dir, f"{name}.{fmt}")
@@ -357,11 +388,11 @@ def cpu_notes(base, exclude):
     return notes
 
 
-def draw_cpu(rows, out_dir, formats, exclude, trees):
+def draw_cpu(rows, out_dir, formats, exclude, trees, width=TEXT_WIDTH):
     meshes, tris = meshes_by_triangles(rows, exclude)
     for base, name, what in trees:
         bars = [(base + suffix, label, colour) for suffix, label, colour in CPU_BARS]
-        fig, drawn = figure(rows, meshes, bars, "Speedup", height=1.7)
+        fig, drawn = figure(rows, meshes, bars, "Speedup", height=1.7, fig_width=width)
         if fig is None:
             print(f"{name}: no rows for {base}'s schedules; skipped", file=sys.stderr)
             continue
@@ -379,12 +410,13 @@ def draw_cpu(rows, out_dir, formats, exclude, trees):
                             sections, notes))
 
 
-def draw_gpu(rows, schedules, out_dir, formats, exclude, stars):
+def draw_gpu(rows, schedules, out_dir, formats, exclude, stars, width=TEXT_WIDTH):
     meshes, tris = meshes_by_triangles(rows, exclude)
     known = {s: (label, colour) for s, label, colour in (STARS_GPU_BARS if stars else GPU_BARS)}
     bars = [(s, *known.get(s, (s, YLGNBU[8]))) for s in schedules]
     # A little taller: seven bars a mesh and a legend of two rows above them.
-    fig, drawn = figure(rows, meshes, bars, "Speedup", height=2.0 if len(bars) > 5 else 1.7)
+    fig, drawn = figure(rows, meshes, bars, "Speedup", height=2.0 if len(bars) > 5 else 1.7,
+                        fig_width=width)
     if fig is None:
         print(f"no rows for {schedules}; nothing drawn", file=sys.stderr)
         return
@@ -465,6 +497,10 @@ def main():
     p.add_argument("--exclude", default="landscape",
                    help="comma-separated meshes left out (default landscape, whose walks escape "
                         "on their first step)")
+    p.add_argument("--width", type=float, default=TEXT_WIDTH,
+                   help="the figure's width in inches (default %(default)s, the paper's text "
+                        "block; wider for a slide or a look -- LaTeX scales a wider figure down "
+                        "to the text width, its text with it)")
     a = p.parse_args()
     exclude = {m for m in a.exclude.split(",") if m}
     os.makedirs(a.out, exist_ok=True)
@@ -474,10 +510,10 @@ def main():
         gpu_bars = STARS_GPU_BARS if a.stars else GPU_BARS
         named = a.gpu_schedules if a.gpu_schedules is not None else ",".join(s for s, _, _ in gpu_bars)
         schedules = [s for s in named.split(",") if s]
-        draw_gpu(rows, schedules, a.out, a.format.split(","), exclude, a.stars)
+        draw_gpu(rows, schedules, a.out, a.format.split(","), exclude, a.stars, a.width)
     else:
         schedules = [base + suffix for base, _, _ in trees for suffix, _, _ in CPU_BARS]
-        draw_cpu(rows, a.out, a.format.split(","), exclude, trees)
+        draw_cpu(rows, a.out, a.format.split(","), exclude, trees, a.width)
     meshes, _ = meshes_by_triangles(rows, exclude)
     mesh_table(rows, meshes, a.out, exclude, "wosx-stars-meshes" if a.stars else "wosx-meshes")
     geomeans(rows, schedules, exclude)
