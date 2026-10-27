@@ -11,6 +11,7 @@
 #include "SSA/Contention.h"
 #include "SSA/GateDrains.h"
 #include "SSA/HitContinuations.h"
+#include "SSA/RecordHoist.h"
 #include "SSA/RoundGuard.h"
 #include "SSA/DemoteAtomics.h"
 #include "SSA/HeapArrays.h"
@@ -3657,6 +3658,13 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
     // a push still one instruction; before the simplify below, which
     // specializes the two copies the split makes on hit and on miss.
     split_hit_continuations(fmap);
+    // The calls a hit program makes whose arguments carry a part of the
+    // record -- the triangle built from the record's mesh and the primitive
+    // index -- are copied into the program (SSA/RecordHoist.h), so that the
+    // loads at the record's values are the program's own for the hoist
+    // after the promotion below. Before the promotion, since the copies
+    // bring the callees' `mut` locals with them.
+    inline_record_callees(fmap);
     phase("drain gates");
 
     // The round loops' guards and the inner queues' header fills
@@ -3811,6 +3819,17 @@ ir::FuncMap convert(ir::FuncMap funcs, const ir::TransformMap &transforms,
         simplify(*f, nullptr, /*fold_built_lanes=*/true);
     }
     phase("simplify after promotion");
+    // What a hit program computes from its hit-group record alone -- the
+    // loads at indices that are record fields, the mesh's row at the
+    // record's mesh -- becomes a field of the record, computed per record
+    // by the driver through the filler (SSA/RecordHoist.h). After the
+    // promotion and its simplification, which made the callees' structs
+    // their fields again; before the contraction and the storage passes,
+    // which see the residual program only.
+    if (keep_ssa != nullptr) {
+        hoist_record_loads(fmap, *keep_ssa);
+    }
+    phase("record hoist");
 
     // Contraction after the schedule, and after the promotion: what a
     // transform produces is arithmetic too -- a vectorized gang's widened

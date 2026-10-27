@@ -79,12 +79,6 @@ declare float @llvm.fabs.f32(float) #1
 ; Function Attrs: mustprogress nounwind
 define ptx_kernel void @__anyhit__trace() local_unnamed_addr #0 {
 __anyhit__trace:
-  %mesh_first_index = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 16), align 16
-  %mesh_first_index.global = addrspacecast ptr %mesh_first_index to ptr addrspace(1)
-  %mesh_first_index.generic = addrspacecast ptr addrspace(1) %mesh_first_index.global to ptr
-  %mesh_first_vertex = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 24), align 8
-  %mesh_first_vertex.global = addrspacecast ptr %mesh_first_vertex to ptr addrspace(1)
-  %mesh_first_vertex.generic = addrspacecast ptr addrspace(1) %mesh_first_vertex.global to ptr
   %indices = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 32), align 16
   %indices.global = addrspacecast ptr %indices to ptr addrspace(1)
   %indices.generic = addrspacecast ptr addrspace(1) %indices.global to ptr
@@ -94,68 +88,65 @@ __anyhit__trace:
   %near = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 48), align 16
   %near.global = addrspacecast ptr %near to ptr addrspace(1)
   %near.generic = addrspacecast ptr addrspace(1) %near.global to ptr
-  %prims.unpack23 = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 68), align 4
-  %prims.unpack23.global = addrspacecast ptr %prims.unpack23 to ptr addrspace(1)
-  %prims.unpack23.generic = addrspacecast ptr addrspace(1) %prims.unpack23.global to ptr
+  %prims.unpack45 = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 68), align 4
+  %prims.unpack45.global = addrspacecast ptr %prims.unpack45 to ptr addrspace(1)
+  %prims.unpack45.generic = addrspacecast ptr addrspace(1) %prims.unpack45.global to ptr
   %Prim_Solo_pool = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 80), align 16
   %Prim_Solo_pool.global = addrspacecast ptr %Prim_Solo_pool to ptr addrspace(1)
   %Prim_Solo_pool.generic = addrspacecast ptr addrspace(1) %Prim_Solo_pool.global to ptr
   %0 = tail call i64 asm "call ($0), _optix_get_sbt_data_ptr_64, ();", "=l"() #3
   %_sbt_data = inttoptr i64 %0 to ptr
   %_sbt_record.unpack = load i32, ptr %_sbt_data, align 4
-  %_sbt_record.elt25 = getelementptr inbounds nuw i8, ptr %_sbt_data, i64 4
-  %_sbt_record.unpack26 = load i32, ptr %_sbt_record.elt25, align 4
-  %_sbt_record.elt29 = getelementptr inbounds nuw i8, ptr %_sbt_data, i64 12
-  %_sbt_record.unpack30 = load i32, ptr %_sbt_record.elt29, align 4
-  %1 = icmp eq i32 %_sbt_record.unpack26, -1
+  %_sbt_record.elt47 = getelementptr inbounds nuw i8, ptr %_sbt_data, i64 4
+  %_sbt_record.unpack48 = load i32, ptr %_sbt_record.elt47, align 4
+  %_sbt_record.elt53 = getelementptr inbounds nuw i8, ptr %_sbt_data, i64 16
+  %_sbt_record.unpack54 = load i32, ptr %_sbt_record.elt53, align 4
+  %_sbt_record.elt55 = getelementptr inbounds nuw i8, ptr %_sbt_data, i64 20
+  %_sbt_record.unpack56 = load i32, ptr %_sbt_record.elt55, align 4
+  %1 = icmp eq i32 %_sbt_record.unpack48, -1
   %2 = tail call i32 asm "call ($0), _optix_read_primitive_idx, ();", "=r"() #3
   %3 = add i32 %2, %_sbt_record.unpack
   br i1 %1, label %"!ite_then_0", label %"!ite_else_1"
 
 "!ite_then_0":                                    ; preds = %__anyhit__trace
   %_wide = zext i32 %3 to i64
-  %extract_ptr = getelementptr inbounds nuw [8 x i8], ptr %prims.unpack23.generic, i64 %_wide
+  %extract_ptr = getelementptr inbounds nuw [8 x i8], ptr %prims.unpack45.generic, i64 %_wide
   %extract = load i64, ptr %extract_ptr, align 8, !invariant.load !1
   %4 = and i64 %extract, 72057594037927935
-  %extract_ptr20 = getelementptr inbounds nuw [48 x i8], ptr %Prim_Solo_pool.generic, i64 %4
-  %extract21.unpack.elt33 = getelementptr inbounds nuw i8, ptr %extract_ptr20, i64 16
-  %extract21.unpack.elt35 = getelementptr inbounds nuw i8, ptr %extract_ptr20, i64 32
+  %extract_ptr42 = getelementptr inbounds nuw [48 x i8], ptr %Prim_Solo_pool.generic, i64 %4
+  %extract43.unpack.elt59 = getelementptr inbounds nuw i8, ptr %extract_ptr42, i64 16
+  %extract43.unpack.elt61 = getelementptr inbounds nuw i8, ptr %extract_ptr42, i64 32
   br label %"!ite_merge_2"
 
 "!ite_else_1":                                    ; preds = %__anyhit__trace
   %5 = mul i32 %3, 3
-  %t.mesh_wide.i = zext i32 %_sbt_record.unpack30 to i64
-  %extract_ptr.i = getelementptr inbounds nuw [4 x i8], ptr %mesh_first_vertex.generic, i64 %t.mesh_wide.i
-  %extract.i = load i32, ptr %extract_ptr.i, align 4, !invariant.load !1
-  %extract_ptr2.i = getelementptr inbounds nuw [4 x i8], ptr %mesh_first_index.generic, i64 %t.mesh_wide.i
-  %extract3.i = load i32, ptr %extract_ptr2.i, align 4, !invariant.load !1
-  %6 = add i32 %extract3.i, %5
-  %_wide.i = zext i32 %6 to i64
-  %extract_ptr4.i = getelementptr inbounds nuw [4 x i8], ptr %indices.generic, i64 %_wide.i
-  %extract5.i = load i32, ptr %extract_ptr4.i, align 4, !invariant.load !1
-  %7 = add i32 %extract5.i, %extract.i
-  %_wide6.i = zext i32 %7 to i64
-  %extract_ptr7.i = getelementptr inbounds nuw [16 x i8], ptr %positions.generic, i64 %_wide6.i
+  %6 = add i32 %5, %_sbt_record.unpack54
+  %_wide18 = zext i32 %6 to i64
+  %extract_ptr19 = getelementptr inbounds nuw [4 x i8], ptr %indices.generic, i64 %_wide18
+  %extract20 = load i32, ptr %extract_ptr19, align 4, !invariant.load !1
+  %7 = add i32 %extract20, %_sbt_record.unpack56
+  %_wide21 = zext i32 %7 to i64
+  %extract_ptr22 = getelementptr inbounds nuw [16 x i8], ptr %positions.generic, i64 %_wide21
   %8 = add i32 %6, 1
-  %_wide9.i = zext i32 %8 to i64
-  %extract_ptr10.i = getelementptr inbounds nuw [4 x i8], ptr %indices.generic, i64 %_wide9.i
-  %extract11.i = load i32, ptr %extract_ptr10.i, align 4, !invariant.load !1
-  %9 = add i32 %extract11.i, %extract.i
-  %_wide12.i = zext i32 %9 to i64
-  %extract_ptr13.i = getelementptr inbounds nuw [16 x i8], ptr %positions.generic, i64 %_wide12.i
+  %_wide24 = zext i32 %8 to i64
+  %extract_ptr25 = getelementptr inbounds nuw [4 x i8], ptr %indices.generic, i64 %_wide24
+  %extract26 = load i32, ptr %extract_ptr25, align 4, !invariant.load !1
+  %9 = add i32 %extract26, %_sbt_record.unpack56
+  %_wide27 = zext i32 %9 to i64
+  %extract_ptr28 = getelementptr inbounds nuw [16 x i8], ptr %positions.generic, i64 %_wide27
   %10 = add i32 %6, 2
-  %_wide15.i = zext i32 %10 to i64
-  %extract_ptr16.i = getelementptr inbounds nuw [4 x i8], ptr %indices.generic, i64 %_wide15.i
-  %extract17.i = load i32, ptr %extract_ptr16.i, align 4, !invariant.load !1
-  %11 = add i32 %extract17.i, %extract.i
-  %_wide18.i = zext i32 %11 to i64
-  %extract_ptr19.i = getelementptr inbounds nuw [16 x i8], ptr %positions.generic, i64 %_wide18.i
+  %_wide30 = zext i32 %10 to i64
+  %extract_ptr31 = getelementptr inbounds nuw [4 x i8], ptr %indices.generic, i64 %_wide30
+  %extract32 = load i32, ptr %extract_ptr31, align 4, !invariant.load !1
+  %11 = add i32 %extract32, %_sbt_record.unpack56
+  %_wide33 = zext i32 %11 to i64
+  %extract_ptr34 = getelementptr inbounds nuw [16 x i8], ptr %positions.generic, i64 %_wide33
   br label %"!ite_merge_2"
 
 "!ite_merge_2":                                   ; preds = %"!ite_then_0", %"!ite_else_1"
-  %"!ite_0.0.in" = phi ptr [ %extract_ptr7.i, %"!ite_else_1" ], [ %extract_ptr20, %"!ite_then_0" ]
-  %"!ite_0.1.in" = phi ptr [ %extract_ptr13.i, %"!ite_else_1" ], [ %extract21.unpack.elt33, %"!ite_then_0" ]
-  %"!ite_0.2.in" = phi ptr [ %extract_ptr19.i, %"!ite_else_1" ], [ %extract21.unpack.elt35, %"!ite_then_0" ]
+  %"!ite_0.0.in" = phi ptr [ %extract_ptr22, %"!ite_else_1" ], [ %extract_ptr42, %"!ite_then_0" ]
+  %"!ite_0.1.in" = phi ptr [ %extract_ptr28, %"!ite_else_1" ], [ %extract43.unpack.elt59, %"!ite_then_0" ]
+  %"!ite_0.2.in" = phi ptr [ %extract_ptr34, %"!ite_else_1" ], [ %extract43.unpack.elt61, %"!ite_then_0" ]
   %"!ite_0.2" = load <3 x float>, ptr %"!ite_0.2.in", align 16, !invariant.load !1
   %"!ite_0.1" = load <3 x float>, ptr %"!ite_0.1.in", align 16, !invariant.load !1
   %"!ite_0.0" = load <3 x float>, ptr %"!ite_0.0.in", align 16, !invariant.load !1
@@ -204,18 +195,18 @@ __anyhit__trace:
   %51 = insertelement <3 x i32> %49, i32 %50, i64 1
   %52 = extractvalue { i32, i32, i32 } %13, 2
   %53 = insertelement <3 x i32> %51, i32 %52, i64 2
-  %_ray_d17 = bitcast <3 x i32> %53 to <3 x float>
+  %_ray_d39 = bitcast <3 x i32> %53 to <3 x float>
   %54 = extractvalue { i32, i32, i32 } %12, 0
   %55 = insertelement <3 x i32> poison, i32 %54, i64 0
   %56 = extractvalue { i32, i32, i32 } %12, 1
   %57 = insertelement <3 x i32> %55, i32 %56, i64 1
   %58 = extractvalue { i32, i32, i32 } %12, 2
   %59 = insertelement <3 x i32> %57, i32 %58, i64 2
-  %_ray_o15 = bitcast <3 x i32> %59 to <3 x float>
-  %60 = fsub <3 x float> %"!ite_0.0", %_ray_o15
-  %61 = fsub <3 x float> %"!ite_0.1", %_ray_o15
-  %62 = fsub <3 x float> %"!ite_0.2", %_ray_o15
-  %63 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %_ray_d17)
+  %_ray_o37 = bitcast <3 x i32> %59 to <3 x float>
+  %60 = fsub <3 x float> %"!ite_0.0", %_ray_o37
+  %61 = fsub <3 x float> %"!ite_0.1", %_ray_o37
+  %62 = fsub <3 x float> %"!ite_0.2", %_ray_o37
+  %63 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %_ray_d39)
   %64 = extractelement <3 x float> %63, i64 0
   %65 = extractelement <3 x float> %63, i64 1
   %66 = fcmp olt float %64, %65
@@ -487,8 +478,8 @@ intersectsp_ray_tri.exit:                         ; preds = %"!ite_merge_2", %"!
   %"isect$i0.value" = extractvalue %struct._option2 %common.ret.op.i, 0
   %"isect_$i0.t" = extractvalue %struct.TriangleIntersection %"isect$i0.value", 3
   %"distmin_Ray_Triangle$r0" = select i1 %258, float %"isect_$i0.t", float +inf
-  %extract19 = load float, ptr %near.generic, align 4, !invariant.load !1
-  %259 = fcmp uge float %extract19, %"distmin_Ray_Triangle$r0"
+  %extract41 = load float, ptr %near.generic, align 4, !invariant.load !1
+  %259 = fcmp uge float %extract41, %"distmin_Ray_Triangle$r0"
   br i1 %259, label %"!then_8", label %"!merge_9"
 
 "!then_8":                                        ; preds = %intersectsp_ray_tri.exit
@@ -507,12 +498,6 @@ define ptx_kernel void @__closesthit__trace() local_unnamed_addr #0 {
   %0 = tail call i32 asm "call ($0), _optix_get_launch_index_x, ();", "=r"() #3
   %1 = mul i32 %0, %_stride
   %i = add i32 %1, %_begin
-  %mesh_first_index = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 16), align 16
-  %mesh_first_index.global = addrspacecast ptr %mesh_first_index to ptr addrspace(1)
-  %mesh_first_index.generic = addrspacecast ptr addrspace(1) %mesh_first_index.global to ptr
-  %mesh_first_vertex = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 24), align 8
-  %mesh_first_vertex.global = addrspacecast ptr %mesh_first_vertex to ptr addrspace(1)
-  %mesh_first_vertex.generic = addrspacecast ptr addrspace(1) %mesh_first_vertex.global to ptr
   %indices = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 32), align 16
   %indices.global = addrspacecast ptr %indices to ptr addrspace(1)
   %indices.generic = addrspacecast ptr addrspace(1) %indices.global to ptr
@@ -539,14 +524,16 @@ define ptx_kernel void @__closesthit__trace() local_unnamed_addr #0 {
   %2 = tail call i64 asm "call ($0), _optix_get_sbt_data_ptr_64, ();", "=l"() #3
   %_sbt_data.i = inttoptr i64 %2 to ptr
   %_sbt_record.unpack.i = load i32, ptr %_sbt_data.i, align 4
-  %_sbt_record.elt11.i = getelementptr inbounds nuw i8, ptr %_sbt_data.i, i64 4
-  %_sbt_record.unpack12.i = load i32, ptr %_sbt_record.elt11.i, align 4
-  %_sbt_record.elt15.i = getelementptr inbounds nuw i8, ptr %_sbt_data.i, i64 12
-  %_sbt_record.unpack16.i = load i32, ptr %_sbt_record.elt15.i, align 4
-  %3 = icmp eq i32 %_sbt_record.unpack12.i, -1
+  %_sbt_record.elt33.i = getelementptr inbounds nuw i8, ptr %_sbt_data.i, i64 4
+  %_sbt_record.unpack34.i = load i32, ptr %_sbt_record.elt33.i, align 4
+  %_sbt_record.elt39.i = getelementptr inbounds nuw i8, ptr %_sbt_data.i, i64 16
+  %_sbt_record.unpack40.i = load i32, ptr %_sbt_record.elt39.i, align 4
+  %_sbt_record.elt41.i = getelementptr inbounds nuw i8, ptr %_sbt_data.i, i64 20
+  %_sbt_record.unpack42.i = load i32, ptr %_sbt_record.elt41.i, align 4
+  %3 = icmp eq i32 %_sbt_record.unpack34.i, -1
   %4 = tail call i32 asm "call ($0), _optix_read_primitive_idx, ();", "=r"() #3
   %5 = add i32 %4, %_sbt_record.unpack.i
-  %6 = select i1 %3, i32 %5, i32 %_sbt_record.unpack12.i
+  %6 = select i1 %3, i32 %5, i32 %_sbt_record.unpack34.i
   %_wide.i = zext i32 %6 to i64
   %extract_ptr.i = getelementptr inbounds nuw [8 x i8], ptr %prims.unpack28.generic, i64 %_wide.i
   %extract.i = load i64, ptr %extract_ptr.i, align 8
@@ -554,28 +541,23 @@ define ptx_kernel void @__closesthit__trace() local_unnamed_addr #0 {
 
 "!ite_then_0.i":                                  ; preds = %"__closesthit__trace$i"
   %7 = and i64 %extract.i, 72057594037927935
-  %extract_ptr9.i = getelementptr inbounds nuw [48 x i8], ptr %Prim_Solo_pool.generic, i64 %7
+  %extract_ptr31.i = getelementptr inbounds nuw [48 x i8], ptr %Prim_Solo_pool.generic, i64 %7
   br label %"_rt_trace0$hit.exit"
 
 "!ite_else_1.i":                                  ; preds = %"__closesthit__trace$i"
   %8 = mul i32 %5, 3
-  %t.mesh_wide.i.i = zext i32 %_sbt_record.unpack16.i to i64
-  %extract_ptr.i.i = getelementptr inbounds nuw [4 x i8], ptr %mesh_first_vertex.generic, i64 %t.mesh_wide.i.i
-  %extract.i.i = load i32, ptr %extract_ptr.i.i, align 4, !invariant.load !1
-  %extract_ptr2.i.i = getelementptr inbounds nuw [4 x i8], ptr %mesh_first_index.generic, i64 %t.mesh_wide.i.i
-  %extract3.i.i = load i32, ptr %extract_ptr2.i.i, align 4, !invariant.load !1
-  %9 = add i32 %extract3.i.i, %8
-  %_wide.i.i = zext i32 %9 to i64
-  %extract_ptr4.i.i = getelementptr inbounds nuw [4 x i8], ptr %indices.generic, i64 %_wide.i.i
-  %extract5.i.i = load i32, ptr %extract_ptr4.i.i, align 4, !invariant.load !1
-  %10 = add i32 %extract5.i.i, %extract.i.i
-  %_wide6.i.i = zext i32 %10 to i64
-  %extract_ptr7.i.i = getelementptr inbounds nuw [16 x i8], ptr %positions.generic, i64 %_wide6.i.i
+  %9 = add i32 %8, %_sbt_record.unpack40.i
+  %_wide13.i = zext i32 %9 to i64
+  %extract_ptr14.i = getelementptr inbounds nuw [4 x i8], ptr %indices.generic, i64 %_wide13.i
+  %extract15.i = load i32, ptr %extract_ptr14.i, align 4, !invariant.load !1
+  %10 = add i32 %extract15.i, %_sbt_record.unpack42.i
+  %_wide16.i = zext i32 %10 to i64
+  %extract_ptr17.i = getelementptr inbounds nuw [16 x i8], ptr %positions.generic, i64 %_wide16.i
   br label %"_rt_trace0$hit.exit"
 
 "_rt_trace0$hit.exit":                            ; preds = %"!ite_then_0.i", %"!ite_else_1.i"
-  %"!ite_0.0.i.in" = phi ptr [ %extract_ptr7.i.i, %"!ite_else_1.i" ], [ %extract_ptr9.i, %"!ite_then_0.i" ]
-  %11 = load float, ptr %"!ite_0.0.i.in", align 16
+  %"!ite_0.0.in.i" = phi ptr [ %extract_ptr17.i, %"!ite_else_1.i" ], [ %extract_ptr31.i, %"!ite_then_0.i" ]
+  %11 = load float, ptr %"!ite_0.0.in.i", align 16
   %hit_x23 = getelementptr inbounds [4 x i8], ptr %hit_x.generic, i64 %i_wide
   store float %11, ptr %hit_x23, align 4, !tbaa !2
   %cond = icmp ult i64 %extract.i, 72057594037927936
@@ -597,80 +579,71 @@ define ptx_kernel void @__closesthit__trace() local_unnamed_addr #0 {
 ; Function Attrs: mustprogress nounwind
 define ptx_kernel void @__intersection__trace() local_unnamed_addr #0 {
 __intersection__trace:
-  %mesh_first_index = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 16), align 16
-  %mesh_first_index.global = addrspacecast ptr %mesh_first_index to ptr addrspace(1)
-  %mesh_first_index.generic = addrspacecast ptr addrspace(1) %mesh_first_index.global to ptr
-  %mesh_first_vertex = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 24), align 8
-  %mesh_first_vertex.global = addrspacecast ptr %mesh_first_vertex to ptr addrspace(1)
-  %mesh_first_vertex.generic = addrspacecast ptr addrspace(1) %mesh_first_vertex.global to ptr
   %indices = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 32), align 16
   %indices.global = addrspacecast ptr %indices to ptr addrspace(1)
   %indices.generic = addrspacecast ptr addrspace(1) %indices.global to ptr
   %positions = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 40), align 8
   %positions.global = addrspacecast ptr %positions to ptr addrspace(1)
   %positions.generic = addrspacecast ptr addrspace(1) %positions.global to ptr
-  %prims.unpack13 = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 68), align 4
-  %prims.unpack13.global = addrspacecast ptr %prims.unpack13 to ptr addrspace(1)
-  %prims.unpack13.generic = addrspacecast ptr addrspace(1) %prims.unpack13.global to ptr
+  %prims.unpack35 = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 68), align 4
+  %prims.unpack35.global = addrspacecast ptr %prims.unpack35 to ptr addrspace(1)
+  %prims.unpack35.generic = addrspacecast ptr addrspace(1) %prims.unpack35.global to ptr
   %Prim_Solo_pool = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 80), align 16
   %Prim_Solo_pool.global = addrspacecast ptr %Prim_Solo_pool to ptr addrspace(1)
   %Prim_Solo_pool.generic = addrspacecast ptr addrspace(1) %Prim_Solo_pool.global to ptr
   %0 = tail call i64 asm "call ($0), _optix_get_sbt_data_ptr_64, ();", "=l"() #3
   %_sbt_data = inttoptr i64 %0 to ptr
   %_sbt_record.unpack = load i32, ptr %_sbt_data, align 4
-  %_sbt_record.elt15 = getelementptr inbounds nuw i8, ptr %_sbt_data, i64 4
-  %_sbt_record.unpack16 = load i32, ptr %_sbt_record.elt15, align 4
-  %_sbt_record.elt19 = getelementptr inbounds nuw i8, ptr %_sbt_data, i64 12
-  %_sbt_record.unpack20 = load i32, ptr %_sbt_record.elt19, align 4
-  %1 = icmp eq i32 %_sbt_record.unpack16, -1
+  %_sbt_record.elt37 = getelementptr inbounds nuw i8, ptr %_sbt_data, i64 4
+  %_sbt_record.unpack38 = load i32, ptr %_sbt_record.elt37, align 4
+  %_sbt_record.elt43 = getelementptr inbounds nuw i8, ptr %_sbt_data, i64 16
+  %_sbt_record.unpack44 = load i32, ptr %_sbt_record.elt43, align 4
+  %_sbt_record.elt45 = getelementptr inbounds nuw i8, ptr %_sbt_data, i64 20
+  %_sbt_record.unpack46 = load i32, ptr %_sbt_record.elt45, align 4
+  %1 = icmp eq i32 %_sbt_record.unpack38, -1
   %2 = tail call i32 asm "call ($0), _optix_read_primitive_idx, ();", "=r"() #3
   %3 = add i32 %2, %_sbt_record.unpack
   br i1 %1, label %"!ite_then_0", label %"!ite_else_1"
 
 "!ite_then_0":                                    ; preds = %__intersection__trace
   %_wide = zext i32 %3 to i64
-  %extract_ptr = getelementptr inbounds nuw [8 x i8], ptr %prims.unpack13.generic, i64 %_wide
+  %extract_ptr = getelementptr inbounds nuw [8 x i8], ptr %prims.unpack35.generic, i64 %_wide
   %extract = load i64, ptr %extract_ptr, align 8, !invariant.load !1
   %4 = and i64 %extract, 72057594037927935
-  %extract_ptr10 = getelementptr inbounds nuw [48 x i8], ptr %Prim_Solo_pool.generic, i64 %4
-  %extract11.unpack.elt23 = getelementptr inbounds nuw i8, ptr %extract_ptr10, i64 16
-  %extract11.unpack.elt25 = getelementptr inbounds nuw i8, ptr %extract_ptr10, i64 32
+  %extract_ptr32 = getelementptr inbounds nuw [48 x i8], ptr %Prim_Solo_pool.generic, i64 %4
+  %extract33.unpack.elt49 = getelementptr inbounds nuw i8, ptr %extract_ptr32, i64 16
+  %extract33.unpack.elt51 = getelementptr inbounds nuw i8, ptr %extract_ptr32, i64 32
   br label %"!ite_merge_2"
 
 "!ite_else_1":                                    ; preds = %__intersection__trace
   %5 = mul i32 %3, 3
-  %t.mesh_wide.i = zext i32 %_sbt_record.unpack20 to i64
-  %extract_ptr.i = getelementptr inbounds nuw [4 x i8], ptr %mesh_first_vertex.generic, i64 %t.mesh_wide.i
-  %extract.i = load i32, ptr %extract_ptr.i, align 4, !invariant.load !1
-  %extract_ptr2.i = getelementptr inbounds nuw [4 x i8], ptr %mesh_first_index.generic, i64 %t.mesh_wide.i
-  %extract3.i = load i32, ptr %extract_ptr2.i, align 4, !invariant.load !1
-  %6 = add i32 %extract3.i, %5
-  %_wide.i = zext i32 %6 to i64
-  %extract_ptr4.i = getelementptr inbounds nuw [4 x i8], ptr %indices.generic, i64 %_wide.i
-  %extract5.i = load i32, ptr %extract_ptr4.i, align 4, !invariant.load !1
-  %7 = add i32 %extract5.i, %extract.i
-  %_wide6.i = zext i32 %7 to i64
-  %extract_ptr7.i = getelementptr inbounds nuw [16 x i8], ptr %positions.generic, i64 %_wide6.i
+  %6 = add i32 %5, %_sbt_record.unpack44
+  %_wide10 = zext i32 %6 to i64
+  %extract_ptr11 = getelementptr inbounds nuw [4 x i8], ptr %indices.generic, i64 %_wide10
+  %extract12 = load i32, ptr %extract_ptr11, align 4, !invariant.load !1
+  %7 = add i32 %extract12, %_sbt_record.unpack46
+  %_wide13 = zext i32 %7 to i64
+  %extract_ptr14 = getelementptr inbounds nuw [16 x i8], ptr %positions.generic, i64 %_wide13
   %8 = add i32 %6, 1
-  %_wide9.i = zext i32 %8 to i64
-  %extract_ptr10.i = getelementptr inbounds nuw [4 x i8], ptr %indices.generic, i64 %_wide9.i
-  %extract11.i = load i32, ptr %extract_ptr10.i, align 4, !invariant.load !1
-  %9 = add i32 %extract11.i, %extract.i
-  %_wide12.i = zext i32 %9 to i64
-  %extract_ptr13.i = getelementptr inbounds nuw [16 x i8], ptr %positions.generic, i64 %_wide12.i
+  %_wide16 = zext i32 %8 to i64
+  %extract_ptr17 = getelementptr inbounds nuw [4 x i8], ptr %indices.generic, i64 %_wide16
+  %extract18 = load i32, ptr %extract_ptr17, align 4, !invariant.load !1
+  %9 = add i32 %extract18, %_sbt_record.unpack46
+  %_wide19 = zext i32 %9 to i64
+  %extract_ptr20 = getelementptr inbounds nuw [16 x i8], ptr %positions.generic, i64 %_wide19
   %10 = add i32 %6, 2
-  %_wide15.i = zext i32 %10 to i64
-  %extract_ptr16.i = getelementptr inbounds nuw [4 x i8], ptr %indices.generic, i64 %_wide15.i
-  %extract17.i = load i32, ptr %extract_ptr16.i, align 4, !invariant.load !1
-  %11 = add i32 %extract17.i, %extract.i
-  %_wide18.i = zext i32 %11 to i64
-  %extract_ptr19.i = getelementptr inbounds nuw [16 x i8], ptr %positions.generic, i64 %_wide18.i
+  %_wide22 = zext i32 %10 to i64
+  %extract_ptr23 = getelementptr inbounds nuw [4 x i8], ptr %indices.generic, i64 %_wide22
+  %extract24 = load i32, ptr %extract_ptr23, align 4, !invariant.load !1
+  %11 = add i32 %extract24, %_sbt_record.unpack46
+  %_wide25 = zext i32 %11 to i64
+  %extract_ptr26 = getelementptr inbounds nuw [16 x i8], ptr %positions.generic, i64 %_wide25
   br label %"!ite_merge_2"
 
 "!ite_merge_2":                                   ; preds = %"!ite_then_0", %"!ite_else_1"
-  %"!ite_0.0.in" = phi ptr [ %extract_ptr7.i, %"!ite_else_1" ], [ %extract_ptr10, %"!ite_then_0" ]
-  %"!ite_0.1.in" = phi ptr [ %extract_ptr13.i, %"!ite_else_1" ], [ %extract11.unpack.elt23, %"!ite_then_0" ]
-  %"!ite_0.2.in" = phi ptr [ %extract_ptr19.i, %"!ite_else_1" ], [ %extract11.unpack.elt25, %"!ite_then_0" ]
+  %"!ite_0.0.in" = phi ptr [ %extract_ptr14, %"!ite_else_1" ], [ %extract_ptr32, %"!ite_then_0" ]
+  %"!ite_0.1.in" = phi ptr [ %extract_ptr20, %"!ite_else_1" ], [ %extract33.unpack.elt49, %"!ite_then_0" ]
+  %"!ite_0.2.in" = phi ptr [ %extract_ptr26, %"!ite_else_1" ], [ %extract33.unpack.elt51, %"!ite_then_0" ]
   %"!ite_0.2" = load <3 x float>, ptr %"!ite_0.2.in", align 16, !invariant.load !1
   %"!ite_0.1" = load <3 x float>, ptr %"!ite_0.1.in", align 16, !invariant.load !1
   %"!ite_0.0" = load <3 x float>, ptr %"!ite_0.0.in", align 16, !invariant.load !1
@@ -719,18 +692,18 @@ __intersection__trace:
   %50 = insertelement <3 x i32> %48, i32 %49, i64 1
   %51 = extractvalue { i32, i32, i32 } %13, 2
   %52 = insertelement <3 x i32> %50, i32 %51, i64 2
-  %_ray_d9 = bitcast <3 x i32> %52 to <3 x float>
+  %_ray_d31 = bitcast <3 x i32> %52 to <3 x float>
   %53 = extractvalue { i32, i32, i32 } %12, 0
   %54 = insertelement <3 x i32> poison, i32 %53, i64 0
   %55 = extractvalue { i32, i32, i32 } %12, 1
   %56 = insertelement <3 x i32> %54, i32 %55, i64 1
   %57 = extractvalue { i32, i32, i32 } %12, 2
   %58 = insertelement <3 x i32> %56, i32 %57, i64 2
-  %_ray_o7 = bitcast <3 x i32> %58 to <3 x float>
-  %59 = fsub <3 x float> %"!ite_0.0", %_ray_o7
-  %60 = fsub <3 x float> %"!ite_0.1", %_ray_o7
-  %61 = fsub <3 x float> %"!ite_0.2", %_ray_o7
-  %62 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %_ray_d9)
+  %_ray_o29 = bitcast <3 x i32> %58 to <3 x float>
+  %59 = fsub <3 x float> %"!ite_0.0", %_ray_o29
+  %60 = fsub <3 x float> %"!ite_0.1", %_ray_o29
+  %61 = fsub <3 x float> %"!ite_0.2", %_ray_o29
+  %62 = tail call <3 x float> @llvm.fabs.v3f32(<3 x float> %_ray_d31)
   %63 = extractelement <3 x float> %62, i64 0
   %64 = extractelement <3 x float> %62, i64 1
   %65 = fcmp olt float %63, %64
@@ -1103,83 +1076,76 @@ $L__BB0_2:
 {
 	.reg .pred 	%p<39>;
 	.reg .b32 	%r<232>;
-	.reg .b64 	%rd<42>;
+	.reg .b64 	%rd<34>;
 
-	ld.const.v2.b64 	{%rd10, %rd11}, [params+16];
-	cvta.to.global.u64 	%rd1, %rd10;
-	cvta.to.global.u64 	%rd2, %rd11;
-	ld.const.v2.b64 	{%rd12, %rd13}, [params+32];
-	cvta.to.global.u64 	%rd3, %rd12;
+	ld.const.v2.b64 	{%rd7, %rd8}, [params+32];
+	cvta.to.global.u64 	%rd1, %rd7;
+	cvta.to.global.u64 	%rd2, %rd8;
+	ld.const.b64 	%rd9, [params+48];
+	cvta.to.global.u64 	%rd3, %rd9;
+	ld.const.b32 	%rd10, [params+72];
+	shl.b64 	%rd11, %rd10, 32;
+	ld.const.b32 	%rd12, [params+68];
+	or.b64 	%rd13, %rd11, %rd12;
 	cvta.to.global.u64 	%rd4, %rd13;
-	ld.const.b64 	%rd14, [params+48];
+	ld.const.b64 	%rd14, [params+80];
 	cvta.to.global.u64 	%rd5, %rd14;
-	ld.const.b32 	%rd15, [params+72];
-	shl.b64 	%rd16, %rd15, 32;
-	ld.const.b32 	%rd17, [params+68];
-	or.b64 	%rd18, %rd16, %rd17;
-	cvta.to.global.u64 	%rd6, %rd18;
-	ld.const.b64 	%rd19, [params+80];
-	cvta.to.global.u64 	%rd7, %rd19;
 	// begin inline asm
-	call (%rd9), _optix_get_sbt_data_ptr_64, ();
+	call (%rd6), _optix_get_sbt_data_ptr_64, ();
 	// end inline asm
-	ld.b32 	%r39, [%rd9];
-	ld.b32 	%r40, [%rd9+4];
-	setp.ne.b32 	%p1, %r40, -1;
+	ld.b32 	%r41, [%rd6];
+	ld.b32 	%r42, [%rd6+4];
+	setp.ne.b32 	%p1, %r42, -1;
 	// begin inline asm
-	call (%r38), _optix_read_primitive_idx, ();
+	call (%r40), _optix_read_primitive_idx, ();
 	// end inline asm
-	add.s32 	%r1, %r38, %r39;
+	add.s32 	%r3, %r40, %r41;
 	@!%p1 bra 	$L__BB1_1;
-	ld.b32 	%rd8, [%rd9+12];
-	shl.b64 	%rd20, %rd8, 2;
-	add.s64 	%rd21, %rd2, %rd20;
-	ld.global.nc.b32 	%r41, [%rd21];
-	add.s64 	%rd22, %rd1, %rd20;
-	ld.global.nc.b32 	%r42, [%rd22];
-	mad.lo.s32 	%r43, %r1, 3, %r42;
-	mul.wide.u32 	%rd23, %r43, 4;
-	add.s64 	%rd24, %rd3, %rd23;
-	ld.global.nc.b32 	%r44, [%rd24];
-	add.s32 	%r45, %r44, %r41;
-	mul.wide.u32 	%rd25, %r45, 16;
-	add.s64 	%rd39, %rd4, %rd25;
+	ld.b32 	%r1, [%rd6+16];
+	ld.b32 	%r2, [%rd6+20];
+	mad.lo.s32 	%r43, %r3, 3, %r1;
+	mul.wide.u32 	%rd15, %r43, 4;
+	add.s64 	%rd16, %rd1, %rd15;
+	ld.global.nc.b32 	%r44, [%rd16];
+	add.s32 	%r45, %r44, %r2;
+	mul.wide.u32 	%rd17, %r45, 16;
+	add.s64 	%rd31, %rd2, %rd17;
 	add.s32 	%r46, %r43, 1;
-	mul.wide.u32 	%rd26, %r46, 4;
-	add.s64 	%rd27, %rd3, %rd26;
-	ld.global.nc.b32 	%r47, [%rd27];
-	add.s32 	%r48, %r47, %r41;
-	mul.wide.u32 	%rd28, %r48, 16;
-	add.s64 	%rd40, %rd4, %rd28;
+	mul.wide.u32 	%rd18, %r46, 4;
+	add.s64 	%rd19, %rd1, %rd18;
+	ld.global.nc.b32 	%r47, [%rd19];
+	add.s32 	%r48, %r47, %r2;
+	mul.wide.u32 	%rd20, %r48, 16;
+	add.s64 	%rd32, %rd2, %rd20;
 	add.s32 	%r49, %r43, 2;
-	mul.wide.u32 	%rd29, %r49, 4;
-	add.s64 	%rd30, %rd3, %rd29;
-	ld.global.nc.b32 	%r50, [%rd30];
-	add.s32 	%r51, %r50, %r41;
-	mul.wide.u32 	%rd31, %r51, 16;
-	add.s64 	%rd41, %rd4, %rd31;
+	mul.wide.u32 	%rd21, %r49, 4;
+	add.s64 	%rd22, %rd1, %rd21;
+	ld.global.nc.b32 	%r50, [%rd22];
+	add.s32 	%r51, %r50, %r2;
+	mul.wide.u32 	%rd23, %r51, 16;
+	add.s64 	%rd33, %rd2, %rd23;
 	bra.uni 	$L__BB1_3;
 $L__BB1_1:
-	mul.wide.u32 	%rd32, %r1, 8;
-	add.s64 	%rd33, %rd6, %rd32;
-	ld.global.nc.b64 	%rd34, [%rd33];
-	and.b64 	%rd35, %rd34, 72057594037927935;
-	mad.lo.s64 	%rd39, %rd35, 48, %rd7;
-	add.s64 	%rd40, %rd39, 16;
-	add.s64 	%rd41, %rd39, 32;
+	mul.wide.u32 	%rd24, %r3, 8;
+	add.s64 	%rd25, %rd4, %rd24;
+	ld.global.nc.b64 	%rd26, [%rd25];
+	and.b64 	%rd27, %rd26, 72057594037927935;
+	mad.lo.s64 	%rd31, %rd27, 48, %rd5;
+	add.s64 	%rd32, %rd31, 16;
+	add.s64 	%rd33, %rd31, 32;
 $L__BB1_3:
-	ld.global.nc.b32 	%r4, [%rd41+8];
-	ld.global.nc.b64 	%rd36, [%rd41];
-	mov.b64 	{_, %r3}, %rd36;
-	cvt.u32.u64 	%r2, %rd36;
-	ld.global.nc.b64 	%rd37, [%rd40];
-	mov.b64 	{_, %r6}, %rd37;
-	ld.global.nc.b32 	%r7, [%rd40+8];
-	cvt.u32.u64 	%r5, %rd37;
-	ld.global.nc.b32 	%r10, [%rd39+8];
-	ld.global.nc.b64 	%rd38, [%rd39];
-	mov.b64 	{_, %r9}, %rd38;
-	cvt.u32.u64 	%r8, %rd38;
+	ld.global.nc.b32 	%r6, [%rd33+8];
+	ld.global.nc.b64 	%rd28, [%rd33];
+	mov.b64 	{_, %r5}, %rd28;
+	cvt.u32.u64 	%r4, %rd28;
+	ld.global.nc.b64 	%rd29, [%rd32];
+	mov.b64 	{_, %r8}, %rd29;
+	ld.global.nc.b32 	%r9, [%rd32+8];
+	cvt.u32.u64 	%r7, %rd29;
+	ld.global.nc.b32 	%r12, [%rd31+8];
+	ld.global.nc.b64 	%rd30, [%rd31];
+	mov.b64 	{_, %r11}, %rd30;
+	cvt.u32.u64 	%r10, %rd30;
 	// begin inline asm
 	{ .reg .f32 %fw<3>; call (%fw0), _optix_get_world_ray_origin_x, (); call (%fw1), _optix_get_world_ray_origin_y, (); call (%fw2), _optix_get_world_ray_origin_z, (); mov.b32 %r52, %fw0; mov.b32 %r53, %fw1; mov.b32 %r54, %fw2; }
 	// end inline asm
@@ -1190,12 +1156,12 @@ $L__BB1_3:
 	// begin inline asm
 	call (%r58), _optix_get_payload, (%r59);
 	// end inline asm
-	sub.rn.f32 	%r60, %r2, %r8;
-	sub.rn.f32 	%r61, %r3, %r9;
-	sub.rn.f32 	%r62, %r4, %r10;
-	sub.rn.f32 	%r63, %r5, %r8;
-	sub.rn.f32 	%r64, %r7, %r10;
-	sub.rn.f32 	%r65, %r6, %r9;
+	sub.rn.f32 	%r60, %r4, %r10;
+	sub.rn.f32 	%r61, %r5, %r11;
+	sub.rn.f32 	%r62, %r6, %r12;
+	sub.rn.f32 	%r63, %r7, %r10;
+	sub.rn.f32 	%r64, %r9, %r12;
+	sub.rn.f32 	%r65, %r8, %r11;
 	mul.rn.f32 	%r66, %r62, %r65;
 	neg.f32 	%r67, %r66;
 	fma.rn.f32 	%r68, %r61, %r64, %r67;
@@ -1224,15 +1190,15 @@ $L__BB1_3:
 	mov.pred 	%p38, 0;
 	mov.b32 	%r231, 0f00000000;
 	@%p2 bra 	$L__BB1_11;
-	sub.rn.f32 	%r90, %r10, %r54;
-	sub.rn.f32 	%r91, %r8, %r52;
-	sub.rn.f32 	%r92, %r9, %r53;
-	sub.rn.f32 	%r93, %r7, %r54;
-	sub.rn.f32 	%r94, %r5, %r52;
-	sub.rn.f32 	%r95, %r6, %r53;
-	sub.rn.f32 	%r96, %r4, %r54;
-	sub.rn.f32 	%r97, %r2, %r52;
-	sub.rn.f32 	%r98, %r3, %r53;
+	sub.rn.f32 	%r90, %r12, %r54;
+	sub.rn.f32 	%r91, %r10, %r52;
+	sub.rn.f32 	%r92, %r11, %r53;
+	sub.rn.f32 	%r93, %r9, %r54;
+	sub.rn.f32 	%r94, %r7, %r52;
+	sub.rn.f32 	%r95, %r8, %r53;
+	sub.rn.f32 	%r96, %r6, %r54;
+	sub.rn.f32 	%r97, %r4, %r52;
+	sub.rn.f32 	%r98, %r5, %r53;
 	abs.f32 	%r99, %r57;
 	abs.f32 	%r100, %r55;
 	abs.f32 	%r101, %r56;
@@ -1293,8 +1259,8 @@ $L__BB1_3:
 	div.rn.f32 	%r144, %r143, %r135;
 	mul.rn.f32 	%r145, %r144, %r142;
 	mul.rn.f32 	%r146, %r145, 0f00000000;
-	add.rn.f32 	%r12, %r140, %r145;
-	add.rn.f32 	%r11, %r141, %r146;
+	add.rn.f32 	%r14, %r140, %r145;
+	add.rn.f32 	%r13, %r141, %r146;
 	mul.rn.f32 	%r147, %r123, %r137;
 	mul.rn.f32 	%r148, %r147, 0f00000000;
 	add.rn.f32 	%r149, %r121, %r148;
@@ -1302,8 +1268,8 @@ $L__BB1_3:
 	add.rn.f32 	%r151, %r123, %r148;
 	mul.rn.f32 	%r152, %r144, %r151;
 	mul.rn.f32 	%r153, %r152, 0f00000000;
-	add.rn.f32 	%r15, %r149, %r152;
-	add.rn.f32 	%r14, %r150, %r153;
+	add.rn.f32 	%r17, %r149, %r152;
+	add.rn.f32 	%r16, %r150, %r153;
 	mul.rn.f32 	%r154, %r129, %r137;
 	mul.rn.f32 	%r155, %r154, 0f00000000;
 	add.rn.f32 	%r156, %r127, %r155;
@@ -1311,99 +1277,99 @@ $L__BB1_3:
 	add.rn.f32 	%r158, %r129, %r155;
 	mul.rn.f32 	%r159, %r144, %r158;
 	mul.rn.f32 	%r160, %r159, 0f00000000;
-	add.rn.f32 	%r18, %r156, %r159;
-	add.rn.f32 	%r17, %r157, %r160;
-	mul.rn.f32 	%r161, %r15, %r17;
+	add.rn.f32 	%r20, %r156, %r159;
+	add.rn.f32 	%r19, %r157, %r160;
+	mul.rn.f32 	%r161, %r17, %r19;
 	neg.f32 	%r162, %r161;
-	fma.rn.f32 	%r163, %r14, %r18, %r162;
-	neg.f32 	%r164, %r15;
-	fma.rn.f32 	%r165, %r164, %r17, %r161;
-	add.rn.f32 	%r20, %r163, %r165;
-	mul.rn.f32 	%r166, %r18, %r11;
+	fma.rn.f32 	%r163, %r16, %r20, %r162;
+	neg.f32 	%r164, %r17;
+	fma.rn.f32 	%r165, %r164, %r19, %r161;
+	add.rn.f32 	%r22, %r163, %r165;
+	mul.rn.f32 	%r166, %r20, %r13;
 	neg.f32 	%r167, %r166;
-	fma.rn.f32 	%r168, %r17, %r12, %r167;
-	neg.f32 	%r169, %r18;
-	fma.rn.f32 	%r170, %r169, %r11, %r166;
-	add.rn.f32 	%r21, %r168, %r170;
-	mul.rn.f32 	%r171, %r12, %r14;
+	fma.rn.f32 	%r168, %r19, %r14, %r167;
+	neg.f32 	%r169, %r20;
+	fma.rn.f32 	%r170, %r169, %r13, %r166;
+	add.rn.f32 	%r23, %r168, %r170;
+	mul.rn.f32 	%r171, %r14, %r16;
 	neg.f32 	%r172, %r171;
-	fma.rn.f32 	%r173, %r11, %r15, %r172;
-	neg.f32 	%r174, %r12;
-	fma.rn.f32 	%r175, %r174, %r14, %r171;
-	add.rn.f32 	%r22, %r173, %r175;
-	min.f32 	%r176, %r20, %r21;
-	min.f32 	%r177, %r22, %r176;
+	fma.rn.f32 	%r173, %r13, %r17, %r172;
+	neg.f32 	%r174, %r14;
+	fma.rn.f32 	%r175, %r174, %r16, %r171;
+	add.rn.f32 	%r24, %r173, %r175;
+	min.f32 	%r176, %r22, %r23;
+	min.f32 	%r177, %r24, %r176;
 	setp.geu.f32 	%p15, %r177, 0f00000000;
 	@%p15 bra 	$L__BB1_6;
-	max.f32 	%r178, %r20, %r21;
-	max.f32 	%r179, %r22, %r178;
+	max.f32 	%r178, %r22, %r23;
+	max.f32 	%r179, %r24, %r178;
 	setp.gt.f32 	%p16, %r179, 0f00000000;
 	mov.b32 	%r231, 0f00000000;
 	@%p16 bra 	$L__BB1_11;
 $L__BB1_6:
-	add.rn.f32 	%r180, %r20, %r21;
-	add.rn.f32 	%r24, %r22, %r180;
-	setp.eq.f32 	%p17, %r24, 0f00000000;
+	add.rn.f32 	%r180, %r22, %r23;
+	add.rn.f32 	%r26, %r24, %r180;
+	setp.eq.f32 	%p17, %r26, 0f00000000;
 	mov.b32 	%r231, 0f00000000;
 	@%p17 bra 	$L__BB1_11;
-	add.rn.f32 	%r13, %r142, %r146;
-	add.rn.f32 	%r16, %r151, %r153;
-	add.rn.f32 	%r19, %r158, %r160;
-	rcp.rn.f32 	%r23, %r135;
-	add.rn.f32 	%r182, %r23, 0f00000000;
-	mul.rn.f32 	%r27, %r182, %r13;
-	mul.rn.f32 	%r30, %r182, %r16;
-	mul.rn.f32 	%r33, %r182, %r19;
-	mul.rn.f32 	%r184, %r27, %r20;
-	mul.rn.f32 	%r185, %r30, %r21;
+	add.rn.f32 	%r15, %r142, %r146;
+	add.rn.f32 	%r18, %r151, %r153;
+	add.rn.f32 	%r21, %r158, %r160;
+	rcp.rn.f32 	%r25, %r135;
+	add.rn.f32 	%r182, %r25, 0f00000000;
+	mul.rn.f32 	%r29, %r182, %r15;
+	mul.rn.f32 	%r32, %r182, %r18;
+	mul.rn.f32 	%r35, %r182, %r21;
+	mul.rn.f32 	%r184, %r29, %r22;
+	mul.rn.f32 	%r185, %r32, %r23;
 	add.rn.f32 	%r186, %r184, %r185;
-	mul.rn.f32 	%r187, %r33, %r22;
-	add.rn.f32 	%r34, %r187, %r186;
-	setp.lt.f32 	%p18, %r24, 0f00000000;
-	setp.ge.f32 	%p19, %r34, 0f00000000;
-	mul.rn.f32 	%r35, %r24, %r58;
-	setp.lt.f32 	%p20, %r34, %r35;
+	mul.rn.f32 	%r187, %r35, %r24;
+	add.rn.f32 	%r36, %r187, %r186;
+	setp.lt.f32 	%p18, %r26, 0f00000000;
+	setp.ge.f32 	%p19, %r36, 0f00000000;
+	mul.rn.f32 	%r37, %r26, %r58;
+	setp.lt.f32 	%p20, %r36, %r37;
 	or.pred 	%p21, %p19, %p20;
 	and.pred 	%p22, %p18, %p21;
 	mov.b32 	%r231, 0f00000000;
 	@%p22 bra 	$L__BB1_11;
-	setp.gt.f32 	%p23, %r24, 0f00000000;
-	setp.le.f32 	%p24, %r34, 0f00000000;
-	setp.lt.f32 	%p25, %r35, %r34;
+	setp.gt.f32 	%p23, %r26, 0f00000000;
+	setp.le.f32 	%p24, %r36, 0f00000000;
+	setp.lt.f32 	%p25, %r37, %r36;
 	or.pred 	%p26, %p24, %p25;
 	and.pred 	%p27, %p23, %p26;
 	mov.b32 	%r231, 0f00000000;
 	@%p27 bra 	$L__BB1_11;
-	mul.rn.f32 	%r181, %r23, 0f00000000;
+	mul.rn.f32 	%r181, %r25, 0f00000000;
 	add.rn.f32 	%r183, %r181, 0f3F800000;
-	mul.rn.f32 	%r26, %r183, %r12;
-	mul.rn.f32 	%r25, %r183, %r11;
-	mul.rn.f32 	%r29, %r183, %r15;
 	mul.rn.f32 	%r28, %r183, %r14;
-	mul.rn.f32 	%r32, %r183, %r18;
+	mul.rn.f32 	%r27, %r183, %r13;
 	mul.rn.f32 	%r31, %r183, %r17;
-	rcp.rn.f32 	%r36, %r24;
-	mul.rn.f32 	%r37, %r34, %r36;
-	abs.f32 	%r188, %r33;
-	abs.f32 	%r189, %r30;
-	abs.f32 	%r190, %r27;
+	mul.rn.f32 	%r30, %r183, %r16;
+	mul.rn.f32 	%r34, %r183, %r20;
+	mul.rn.f32 	%r33, %r183, %r19;
+	rcp.rn.f32 	%r38, %r26;
+	mul.rn.f32 	%r39, %r36, %r38;
+	abs.f32 	%r188, %r35;
+	abs.f32 	%r189, %r32;
+	abs.f32 	%r190, %r29;
 	setp.lt.f32 	%p28, %r190, %r189;
 	selp.f32 	%r191, %r189, %r190, %p28;
 	setp.lt.f32 	%p29, %r191, %r188;
 	selp.f32 	%r192, %r188, %r191, %p29;
 	mul.rn.f32 	%r193, %r192, 0f34400002;
-	abs.f32 	%r194, %r31;
-	abs.f32 	%r195, %r28;
-	abs.f32 	%r196, %r25;
+	abs.f32 	%r194, %r33;
+	abs.f32 	%r195, %r30;
+	abs.f32 	%r196, %r27;
 	setp.lt.f32 	%p30, %r196, %r195;
 	selp.f32 	%r197, %r195, %r196, %p30;
 	setp.lt.f32 	%p31, %r197, %r194;
 	selp.f32 	%r198, %r194, %r197, %p31;
 	add.rn.f32 	%r199, %r198, %r192;
 	mul.rn.f32 	%r200, %r199, 0f34A00003;
-	abs.f32 	%r201, %r32;
-	abs.f32 	%r202, %r29;
-	abs.f32 	%r203, %r26;
+	abs.f32 	%r201, %r34;
+	abs.f32 	%r202, %r31;
+	abs.f32 	%r203, %r28;
 	setp.lt.f32 	%p32, %r203, %r202;
 	selp.f32 	%r204, %r202, %r203, %p32;
 	setp.lt.f32 	%p33, %r204, %r201;
@@ -1417,9 +1383,9 @@ $L__BB1_6:
 	mul.rn.f32 	%r212, %r205, %r200;
 	add.rn.f32 	%r213, %r212, %r211;
 	add.rn.f32 	%r214, %r213, %r213;
-	abs.f32 	%r215, %r22;
-	abs.f32 	%r216, %r21;
-	abs.f32 	%r217, %r20;
+	abs.f32 	%r215, %r24;
+	abs.f32 	%r216, %r23;
+	abs.f32 	%r217, %r22;
 	setp.lt.f32 	%p34, %r217, %r216;
 	selp.f32 	%r218, %r216, %r217, %p34;
 	setp.lt.f32 	%p35, %r218, %r215;
@@ -1431,16 +1397,16 @@ $L__BB1_6:
 	mul.rn.f32 	%r224, %r193, %r219;
 	add.rn.f32 	%r225, %r224, %r223;
 	mul.rn.f32 	%r226, %r225, 0f40400000;
-	abs.f32 	%r227, %r36;
+	abs.f32 	%r227, %r38;
 	mul.rn.f32 	%r228, %r227, %r226;
-	setp.le.f32 	%p36, %r37, %r228;
+	setp.le.f32 	%p36, %r39, %r228;
 	mov.b32 	%r231, 0f00000000;
 	@%p36 bra 	$L__BB1_11;
 	mov.pred 	%p38, -1;
-	mov.b32 	%r231, %r37;
+	mov.b32 	%r231, %r39;
 $L__BB1_11:
 	selp.f32 	%r229, %r231, 0f7F800000, %p38;
-	ld.global.nc.b32 	%r230, [%rd5];
+	ld.global.nc.b32 	%r230, [%rd3];
 	setp.lt.f32 	%p37, %r230, %r229;
 	@%p37 bra 	$L__BB1_13;
 	// begin inline asm
@@ -1455,82 +1421,75 @@ $L__BB1_13:
 {
 	.reg .pred 	%p<4>;
 	.reg .b32 	%r<18>;
-	.reg .b64 	%rd<41>;
+	.reg .b64 	%rd<33>;
 
-	ld.const.v2.b32 	{%r5, %r6}, [params];
+	ld.const.v2.b32 	{%r7, %r8}, [params];
 	// begin inline asm
-	call (%r2), _optix_get_launch_index_x, ();
+	call (%r4), _optix_get_launch_index_x, ();
 	// end inline asm
-	mad.lo.s32 	%r7, %r2, %r6, %r5;
-	ld.const.v2.b64 	{%rd14, %rd15}, [params+16];
-	cvta.to.global.u64 	%rd1, %rd14;
-	cvta.to.global.u64 	%rd2, %rd15;
-	ld.const.v2.b64 	{%rd16, %rd17}, [params+32];
-	cvta.to.global.u64 	%rd3, %rd16;
-	cvta.to.global.u64 	%rd4, %rd17;
-	ld.const.b32 	%rd18, [params+72];
-	shl.b64 	%rd19, %rd18, 32;
-	ld.const.b32 	%rd20, [params+68];
-	or.b64 	%rd21, %rd19, %rd20;
-	cvta.to.global.u64 	%rd22, %rd21;
-	ld.const.v2.b64 	{%rd23, %rd24}, [params+80];
-	cvta.to.global.u64 	%rd5, %rd23;
-	cvta.to.global.u64 	%rd6, %rd24;
-	ld.const.v2.b64 	{%rd25, %rd26}, [params+96];
-	cvta.to.global.u64 	%rd7, %rd25;
-	cvta.to.global.u64 	%rd8, %rd26;
-	cvt.s64.s32 	%rd9, %r7;
-	mov.b32 	%r3, 1;
+	mad.lo.s32 	%r9, %r4, %r8, %r7;
+	ld.const.v2.b64 	{%rd11, %rd12}, [params+32];
+	cvta.to.global.u64 	%rd1, %rd11;
+	cvta.to.global.u64 	%rd2, %rd12;
+	ld.const.b32 	%rd13, [params+72];
+	shl.b64 	%rd14, %rd13, 32;
+	ld.const.b32 	%rd15, [params+68];
+	or.b64 	%rd16, %rd14, %rd15;
+	cvta.to.global.u64 	%rd17, %rd16;
+	ld.const.v2.b64 	{%rd18, %rd19}, [params+80];
+	cvta.to.global.u64 	%rd3, %rd18;
+	cvta.to.global.u64 	%rd4, %rd19;
+	ld.const.v2.b64 	{%rd20, %rd21}, [params+96];
+	cvta.to.global.u64 	%rd5, %rd20;
+	cvta.to.global.u64 	%rd6, %rd21;
+	cvt.s64.s32 	%rd7, %r9;
+	mov.b32 	%r5, 1;
 	// begin inline asm
-	call _optix_set_payload, (%r3, %r3);
+	call _optix_set_payload, (%r5, %r5);
 	// end inline asm
 	// begin inline asm
-	call (%rd13), _optix_get_sbt_data_ptr_64, ();
+	call (%rd10), _optix_get_sbt_data_ptr_64, ();
 	// end inline asm
-	ld.b32 	%r8, [%rd13];
-	ld.b32 	%r9, [%rd13+4];
-	setp.ne.b32 	%p1, %r9, -1;
-	setp.eq.b32 	%p2, %r9, -1;
+	ld.b32 	%r10, [%rd10];
+	ld.b32 	%r11, [%rd10+4];
+	setp.ne.b32 	%p1, %r11, -1;
+	setp.eq.b32 	%p2, %r11, -1;
 	// begin inline asm
-	call (%r4), _optix_read_primitive_idx, ();
+	call (%r6), _optix_read_primitive_idx, ();
 	// end inline asm
-	add.s32 	%r1, %r4, %r8;
-	selp.b32 	%r10, %r1, %r9, %p2;
-	mul.wide.u32 	%rd27, %r10, 8;
-	add.s64 	%rd28, %rd22, %rd27;
-	ld.global.b64 	%rd11, [%rd28];
-	and.b64 	%rd39, %rd11, 72057594037927935;
+	add.s32 	%r3, %r6, %r10;
+	selp.b32 	%r12, %r3, %r11, %p2;
+	mul.wide.u32 	%rd22, %r12, 8;
+	add.s64 	%rd23, %rd17, %rd22;
+	ld.global.b64 	%rd8, [%rd23];
+	and.b64 	%rd31, %rd8, 72057594037927935;
 	@!%p1 bra 	$L__BB2_1;
-	ld.b32 	%rd10, [%rd13+12];
-	shl.b64 	%rd29, %rd10, 2;
-	add.s64 	%rd30, %rd2, %rd29;
-	ld.global.nc.b32 	%r11, [%rd30];
-	add.s64 	%rd31, %rd1, %rd29;
-	ld.global.nc.b32 	%r12, [%rd31];
-	mad.lo.s32 	%r13, %r1, 3, %r12;
-	mul.wide.u32 	%rd32, %r13, 4;
-	add.s64 	%rd33, %rd3, %rd32;
-	ld.global.nc.b32 	%r14, [%rd33];
-	add.s32 	%r15, %r14, %r11;
-	mul.wide.u32 	%rd34, %r15, 16;
-	add.s64 	%rd40, %rd4, %rd34;
+	ld.b32 	%r1, [%rd10+16];
+	ld.b32 	%r2, [%rd10+20];
+	mad.lo.s32 	%r13, %r3, 3, %r1;
+	mul.wide.u32 	%rd24, %r13, 4;
+	add.s64 	%rd25, %rd1, %rd24;
+	ld.global.nc.b32 	%r14, [%rd25];
+	add.s32 	%r15, %r14, %r2;
+	mul.wide.u32 	%rd26, %r15, 16;
+	add.s64 	%rd32, %rd2, %rd26;
 	bra.uni 	$L__BB2_3;
 $L__BB2_1:
-	mad.lo.s64 	%rd40, %rd39, 48, %rd5;
+	mad.lo.s64 	%rd32, %rd31, 48, %rd3;
 $L__BB2_3:
-	ld.global.b32 	%r16, [%rd40];
-	shl.b64 	%rd35, %rd9, 2;
-	add.s64 	%rd36, %rd7, %rd35;
-	st.global.b32 	[%rd36], %r16;
-	setp.lt.u64 	%p3, %rd11, 72057594037927936;
+	ld.global.b32 	%r16, [%rd32];
+	shl.b64 	%rd27, %rd7, 2;
+	add.s64 	%rd28, %rd5, %rd27;
+	st.global.b32 	[%rd28], %r16;
+	setp.lt.u64 	%p3, %rd8, 72057594037927936;
 	mov.b32 	%r17, -1;
 	@%p3 bra 	$L__BB2_5;
-	shl.b64 	%rd37, %rd39, 2;
-	add.s64 	%rd12, %rd6, %rd37;
-	ld.global.b32 	%r17, [%rd12];
+	shl.b64 	%rd29, %rd31, 2;
+	add.s64 	%rd9, %rd4, %rd29;
+	ld.global.b32 	%r17, [%rd9];
 $L__BB2_5:
-	add.s64 	%rd38, %rd8, %rd35;
-	st.global.b32 	[%rd38], %r17;
+	add.s64 	%rd30, %rd6, %rd27;
+	st.global.b32 	[%rd30], %r17;
 	ret;
 
 }
@@ -1539,81 +1498,74 @@ $L__BB2_5:
 {
 	.reg .pred 	%p<39>;
 	.reg .b32 	%r<232>;
-	.reg .b64 	%rd<40>;
+	.reg .b64 	%rd<32>;
 
-	ld.const.v2.b64 	{%rd9, %rd10}, [params+16];
-	cvta.to.global.u64 	%rd1, %rd9;
-	cvta.to.global.u64 	%rd2, %rd10;
-	ld.const.v2.b64 	{%rd11, %rd12}, [params+32];
+	ld.const.v2.b64 	{%rd6, %rd7}, [params+32];
+	cvta.to.global.u64 	%rd1, %rd6;
+	cvta.to.global.u64 	%rd2, %rd7;
+	ld.const.b32 	%rd8, [params+72];
+	shl.b64 	%rd9, %rd8, 32;
+	ld.const.b32 	%rd10, [params+68];
+	or.b64 	%rd11, %rd9, %rd10;
 	cvta.to.global.u64 	%rd3, %rd11;
+	ld.const.b64 	%rd12, [params+80];
 	cvta.to.global.u64 	%rd4, %rd12;
-	ld.const.b32 	%rd13, [params+72];
-	shl.b64 	%rd14, %rd13, 32;
-	ld.const.b32 	%rd15, [params+68];
-	or.b64 	%rd16, %rd14, %rd15;
-	cvta.to.global.u64 	%rd5, %rd16;
-	ld.const.b64 	%rd17, [params+80];
-	cvta.to.global.u64 	%rd6, %rd17;
 	// begin inline asm
-	call (%rd8), _optix_get_sbt_data_ptr_64, ();
+	call (%rd5), _optix_get_sbt_data_ptr_64, ();
 	// end inline asm
-	ld.b32 	%r39, [%rd8];
-	ld.b32 	%r40, [%rd8+4];
-	setp.ne.b32 	%p1, %r40, -1;
+	ld.b32 	%r41, [%rd5];
+	ld.b32 	%r42, [%rd5+4];
+	setp.ne.b32 	%p1, %r42, -1;
 	// begin inline asm
-	call (%r38), _optix_read_primitive_idx, ();
+	call (%r40), _optix_read_primitive_idx, ();
 	// end inline asm
-	add.s32 	%r1, %r38, %r39;
+	add.s32 	%r3, %r40, %r41;
 	@!%p1 bra 	$L__BB3_1;
-	ld.b32 	%rd7, [%rd8+12];
-	shl.b64 	%rd18, %rd7, 2;
-	add.s64 	%rd19, %rd2, %rd18;
-	ld.global.nc.b32 	%r41, [%rd19];
-	add.s64 	%rd20, %rd1, %rd18;
-	ld.global.nc.b32 	%r42, [%rd20];
-	mad.lo.s32 	%r43, %r1, 3, %r42;
-	mul.wide.u32 	%rd21, %r43, 4;
-	add.s64 	%rd22, %rd3, %rd21;
-	ld.global.nc.b32 	%r44, [%rd22];
-	add.s32 	%r45, %r44, %r41;
-	mul.wide.u32 	%rd23, %r45, 16;
-	add.s64 	%rd37, %rd4, %rd23;
+	ld.b32 	%r1, [%rd5+16];
+	ld.b32 	%r2, [%rd5+20];
+	mad.lo.s32 	%r43, %r3, 3, %r1;
+	mul.wide.u32 	%rd13, %r43, 4;
+	add.s64 	%rd14, %rd1, %rd13;
+	ld.global.nc.b32 	%r44, [%rd14];
+	add.s32 	%r45, %r44, %r2;
+	mul.wide.u32 	%rd15, %r45, 16;
+	add.s64 	%rd29, %rd2, %rd15;
 	add.s32 	%r46, %r43, 1;
-	mul.wide.u32 	%rd24, %r46, 4;
-	add.s64 	%rd25, %rd3, %rd24;
-	ld.global.nc.b32 	%r47, [%rd25];
-	add.s32 	%r48, %r47, %r41;
-	mul.wide.u32 	%rd26, %r48, 16;
-	add.s64 	%rd38, %rd4, %rd26;
+	mul.wide.u32 	%rd16, %r46, 4;
+	add.s64 	%rd17, %rd1, %rd16;
+	ld.global.nc.b32 	%r47, [%rd17];
+	add.s32 	%r48, %r47, %r2;
+	mul.wide.u32 	%rd18, %r48, 16;
+	add.s64 	%rd30, %rd2, %rd18;
 	add.s32 	%r49, %r43, 2;
-	mul.wide.u32 	%rd27, %r49, 4;
-	add.s64 	%rd28, %rd3, %rd27;
-	ld.global.nc.b32 	%r50, [%rd28];
-	add.s32 	%r51, %r50, %r41;
-	mul.wide.u32 	%rd29, %r51, 16;
-	add.s64 	%rd39, %rd4, %rd29;
+	mul.wide.u32 	%rd19, %r49, 4;
+	add.s64 	%rd20, %rd1, %rd19;
+	ld.global.nc.b32 	%r50, [%rd20];
+	add.s32 	%r51, %r50, %r2;
+	mul.wide.u32 	%rd21, %r51, 16;
+	add.s64 	%rd31, %rd2, %rd21;
 	bra.uni 	$L__BB3_3;
 $L__BB3_1:
-	mul.wide.u32 	%rd30, %r1, 8;
-	add.s64 	%rd31, %rd5, %rd30;
-	ld.global.nc.b64 	%rd32, [%rd31];
-	and.b64 	%rd33, %rd32, 72057594037927935;
-	mad.lo.s64 	%rd37, %rd33, 48, %rd6;
-	add.s64 	%rd38, %rd37, 16;
-	add.s64 	%rd39, %rd37, 32;
+	mul.wide.u32 	%rd22, %r3, 8;
+	add.s64 	%rd23, %rd3, %rd22;
+	ld.global.nc.b64 	%rd24, [%rd23];
+	and.b64 	%rd25, %rd24, 72057594037927935;
+	mad.lo.s64 	%rd29, %rd25, 48, %rd4;
+	add.s64 	%rd30, %rd29, 16;
+	add.s64 	%rd31, %rd29, 32;
 $L__BB3_3:
-	ld.global.nc.b32 	%r4, [%rd39+8];
-	ld.global.nc.b64 	%rd34, [%rd39];
-	mov.b64 	{_, %r3}, %rd34;
-	cvt.u32.u64 	%r2, %rd34;
-	ld.global.nc.b64 	%rd35, [%rd38];
-	mov.b64 	{_, %r6}, %rd35;
-	ld.global.nc.b32 	%r7, [%rd38+8];
-	cvt.u32.u64 	%r5, %rd35;
-	ld.global.nc.b32 	%r10, [%rd37+8];
-	ld.global.nc.b64 	%rd36, [%rd37];
-	mov.b64 	{_, %r9}, %rd36;
-	cvt.u32.u64 	%r8, %rd36;
+	ld.global.nc.b32 	%r6, [%rd31+8];
+	ld.global.nc.b64 	%rd26, [%rd31];
+	mov.b64 	{_, %r5}, %rd26;
+	cvt.u32.u64 	%r4, %rd26;
+	ld.global.nc.b64 	%rd27, [%rd30];
+	mov.b64 	{_, %r8}, %rd27;
+	ld.global.nc.b32 	%r9, [%rd30+8];
+	cvt.u32.u64 	%r7, %rd27;
+	ld.global.nc.b32 	%r12, [%rd29+8];
+	ld.global.nc.b64 	%rd28, [%rd29];
+	mov.b64 	{_, %r11}, %rd28;
+	cvt.u32.u64 	%r10, %rd28;
 	// begin inline asm
 	{ .reg .f32 %fw<3>; call (%fw0), _optix_get_world_ray_origin_x, (); call (%fw1), _optix_get_world_ray_origin_y, (); call (%fw2), _optix_get_world_ray_origin_z, (); mov.b32 %r52, %fw0; mov.b32 %r53, %fw1; mov.b32 %r54, %fw2; }
 	// end inline asm
@@ -1623,12 +1575,12 @@ $L__BB3_3:
 	// begin inline asm
 	{ .reg .f32 %ft; call (%ft), _optix_get_ray_tmax, (); mov.b32 %r58, %ft; }
 	// end inline asm
-	sub.rn.f32 	%r59, %r2, %r8;
-	sub.rn.f32 	%r60, %r3, %r9;
-	sub.rn.f32 	%r61, %r4, %r10;
-	sub.rn.f32 	%r62, %r5, %r8;
-	sub.rn.f32 	%r63, %r7, %r10;
-	sub.rn.f32 	%r64, %r6, %r9;
+	sub.rn.f32 	%r59, %r4, %r10;
+	sub.rn.f32 	%r60, %r5, %r11;
+	sub.rn.f32 	%r61, %r6, %r12;
+	sub.rn.f32 	%r62, %r7, %r10;
+	sub.rn.f32 	%r63, %r9, %r12;
+	sub.rn.f32 	%r64, %r8, %r11;
 	mul.rn.f32 	%r65, %r61, %r64;
 	neg.f32 	%r66, %r65;
 	fma.rn.f32 	%r67, %r60, %r63, %r66;
@@ -1657,15 +1609,15 @@ $L__BB3_3:
 	mov.pred 	%p38, 0;
 	mov.b32 	%r231, 0f00000000;
 	@%p2 bra 	$L__BB3_11;
-	sub.rn.f32 	%r89, %r10, %r54;
-	sub.rn.f32 	%r90, %r8, %r52;
-	sub.rn.f32 	%r91, %r9, %r53;
-	sub.rn.f32 	%r92, %r7, %r54;
-	sub.rn.f32 	%r93, %r5, %r52;
-	sub.rn.f32 	%r94, %r6, %r53;
-	sub.rn.f32 	%r95, %r4, %r54;
-	sub.rn.f32 	%r96, %r2, %r52;
-	sub.rn.f32 	%r97, %r3, %r53;
+	sub.rn.f32 	%r89, %r12, %r54;
+	sub.rn.f32 	%r90, %r10, %r52;
+	sub.rn.f32 	%r91, %r11, %r53;
+	sub.rn.f32 	%r92, %r9, %r54;
+	sub.rn.f32 	%r93, %r7, %r52;
+	sub.rn.f32 	%r94, %r8, %r53;
+	sub.rn.f32 	%r95, %r6, %r54;
+	sub.rn.f32 	%r96, %r4, %r52;
+	sub.rn.f32 	%r97, %r5, %r53;
 	abs.f32 	%r98, %r57;
 	abs.f32 	%r99, %r55;
 	abs.f32 	%r100, %r56;
@@ -1726,8 +1678,8 @@ $L__BB3_3:
 	div.rn.f32 	%r143, %r142, %r134;
 	mul.rn.f32 	%r144, %r143, %r141;
 	mul.rn.f32 	%r145, %r144, 0f00000000;
-	add.rn.f32 	%r12, %r139, %r144;
-	add.rn.f32 	%r11, %r140, %r145;
+	add.rn.f32 	%r14, %r139, %r144;
+	add.rn.f32 	%r13, %r140, %r145;
 	mul.rn.f32 	%r146, %r122, %r136;
 	mul.rn.f32 	%r147, %r146, 0f00000000;
 	add.rn.f32 	%r148, %r120, %r147;
@@ -1735,8 +1687,8 @@ $L__BB3_3:
 	add.rn.f32 	%r150, %r122, %r147;
 	mul.rn.f32 	%r151, %r143, %r150;
 	mul.rn.f32 	%r152, %r151, 0f00000000;
-	add.rn.f32 	%r15, %r148, %r151;
-	add.rn.f32 	%r14, %r149, %r152;
+	add.rn.f32 	%r17, %r148, %r151;
+	add.rn.f32 	%r16, %r149, %r152;
 	mul.rn.f32 	%r153, %r128, %r136;
 	mul.rn.f32 	%r154, %r153, 0f00000000;
 	add.rn.f32 	%r155, %r126, %r154;
@@ -1744,99 +1696,99 @@ $L__BB3_3:
 	add.rn.f32 	%r157, %r128, %r154;
 	mul.rn.f32 	%r158, %r143, %r157;
 	mul.rn.f32 	%r159, %r158, 0f00000000;
-	add.rn.f32 	%r18, %r155, %r158;
-	add.rn.f32 	%r17, %r156, %r159;
-	mul.rn.f32 	%r160, %r15, %r17;
+	add.rn.f32 	%r20, %r155, %r158;
+	add.rn.f32 	%r19, %r156, %r159;
+	mul.rn.f32 	%r160, %r17, %r19;
 	neg.f32 	%r161, %r160;
-	fma.rn.f32 	%r162, %r14, %r18, %r161;
-	neg.f32 	%r163, %r15;
-	fma.rn.f32 	%r164, %r163, %r17, %r160;
-	add.rn.f32 	%r20, %r162, %r164;
-	mul.rn.f32 	%r165, %r18, %r11;
+	fma.rn.f32 	%r162, %r16, %r20, %r161;
+	neg.f32 	%r163, %r17;
+	fma.rn.f32 	%r164, %r163, %r19, %r160;
+	add.rn.f32 	%r22, %r162, %r164;
+	mul.rn.f32 	%r165, %r20, %r13;
 	neg.f32 	%r166, %r165;
-	fma.rn.f32 	%r167, %r17, %r12, %r166;
-	neg.f32 	%r168, %r18;
-	fma.rn.f32 	%r169, %r168, %r11, %r165;
-	add.rn.f32 	%r21, %r167, %r169;
-	mul.rn.f32 	%r170, %r12, %r14;
+	fma.rn.f32 	%r167, %r19, %r14, %r166;
+	neg.f32 	%r168, %r20;
+	fma.rn.f32 	%r169, %r168, %r13, %r165;
+	add.rn.f32 	%r23, %r167, %r169;
+	mul.rn.f32 	%r170, %r14, %r16;
 	neg.f32 	%r171, %r170;
-	fma.rn.f32 	%r172, %r11, %r15, %r171;
-	neg.f32 	%r173, %r12;
-	fma.rn.f32 	%r174, %r173, %r14, %r170;
-	add.rn.f32 	%r22, %r172, %r174;
-	min.f32 	%r175, %r20, %r21;
-	min.f32 	%r176, %r22, %r175;
+	fma.rn.f32 	%r172, %r13, %r17, %r171;
+	neg.f32 	%r173, %r14;
+	fma.rn.f32 	%r174, %r173, %r16, %r170;
+	add.rn.f32 	%r24, %r172, %r174;
+	min.f32 	%r175, %r22, %r23;
+	min.f32 	%r176, %r24, %r175;
 	setp.geu.f32 	%p15, %r176, 0f00000000;
 	@%p15 bra 	$L__BB3_6;
-	max.f32 	%r177, %r20, %r21;
-	max.f32 	%r178, %r22, %r177;
+	max.f32 	%r177, %r22, %r23;
+	max.f32 	%r178, %r24, %r177;
 	setp.gt.f32 	%p16, %r178, 0f00000000;
 	mov.b32 	%r231, 0f00000000;
 	@%p16 bra 	$L__BB3_11;
 $L__BB3_6:
-	add.rn.f32 	%r179, %r20, %r21;
-	add.rn.f32 	%r24, %r22, %r179;
-	setp.eq.f32 	%p17, %r24, 0f00000000;
+	add.rn.f32 	%r179, %r22, %r23;
+	add.rn.f32 	%r26, %r24, %r179;
+	setp.eq.f32 	%p17, %r26, 0f00000000;
 	mov.b32 	%r231, 0f00000000;
 	@%p17 bra 	$L__BB3_11;
-	add.rn.f32 	%r13, %r141, %r145;
-	add.rn.f32 	%r16, %r150, %r152;
-	add.rn.f32 	%r19, %r157, %r159;
-	rcp.rn.f32 	%r23, %r134;
-	add.rn.f32 	%r181, %r23, 0f00000000;
-	mul.rn.f32 	%r27, %r181, %r13;
-	mul.rn.f32 	%r30, %r181, %r16;
-	mul.rn.f32 	%r33, %r181, %r19;
-	mul.rn.f32 	%r183, %r27, %r20;
-	mul.rn.f32 	%r184, %r30, %r21;
+	add.rn.f32 	%r15, %r141, %r145;
+	add.rn.f32 	%r18, %r150, %r152;
+	add.rn.f32 	%r21, %r157, %r159;
+	rcp.rn.f32 	%r25, %r134;
+	add.rn.f32 	%r181, %r25, 0f00000000;
+	mul.rn.f32 	%r29, %r181, %r15;
+	mul.rn.f32 	%r32, %r181, %r18;
+	mul.rn.f32 	%r35, %r181, %r21;
+	mul.rn.f32 	%r183, %r29, %r22;
+	mul.rn.f32 	%r184, %r32, %r23;
 	add.rn.f32 	%r185, %r183, %r184;
-	mul.rn.f32 	%r186, %r33, %r22;
-	add.rn.f32 	%r34, %r186, %r185;
-	setp.lt.f32 	%p18, %r24, 0f00000000;
-	setp.ge.f32 	%p19, %r34, 0f00000000;
-	mul.rn.f32 	%r35, %r24, %r58;
-	setp.lt.f32 	%p20, %r34, %r35;
+	mul.rn.f32 	%r186, %r35, %r24;
+	add.rn.f32 	%r36, %r186, %r185;
+	setp.lt.f32 	%p18, %r26, 0f00000000;
+	setp.ge.f32 	%p19, %r36, 0f00000000;
+	mul.rn.f32 	%r37, %r26, %r58;
+	setp.lt.f32 	%p20, %r36, %r37;
 	or.pred 	%p21, %p19, %p20;
 	and.pred 	%p22, %p18, %p21;
 	mov.b32 	%r231, 0f00000000;
 	@%p22 bra 	$L__BB3_11;
-	setp.gt.f32 	%p23, %r24, 0f00000000;
-	setp.le.f32 	%p24, %r34, 0f00000000;
-	setp.lt.f32 	%p25, %r35, %r34;
+	setp.gt.f32 	%p23, %r26, 0f00000000;
+	setp.le.f32 	%p24, %r36, 0f00000000;
+	setp.lt.f32 	%p25, %r37, %r36;
 	or.pred 	%p26, %p24, %p25;
 	and.pred 	%p27, %p23, %p26;
 	mov.b32 	%r231, 0f00000000;
 	@%p27 bra 	$L__BB3_11;
-	mul.rn.f32 	%r180, %r23, 0f00000000;
+	mul.rn.f32 	%r180, %r25, 0f00000000;
 	add.rn.f32 	%r182, %r180, 0f3F800000;
-	mul.rn.f32 	%r26, %r182, %r12;
-	mul.rn.f32 	%r25, %r182, %r11;
-	mul.rn.f32 	%r29, %r182, %r15;
 	mul.rn.f32 	%r28, %r182, %r14;
-	mul.rn.f32 	%r32, %r182, %r18;
+	mul.rn.f32 	%r27, %r182, %r13;
 	mul.rn.f32 	%r31, %r182, %r17;
-	rcp.rn.f32 	%r36, %r24;
-	mul.rn.f32 	%r37, %r34, %r36;
-	abs.f32 	%r187, %r33;
-	abs.f32 	%r188, %r30;
-	abs.f32 	%r189, %r27;
+	mul.rn.f32 	%r30, %r182, %r16;
+	mul.rn.f32 	%r34, %r182, %r20;
+	mul.rn.f32 	%r33, %r182, %r19;
+	rcp.rn.f32 	%r38, %r26;
+	mul.rn.f32 	%r39, %r36, %r38;
+	abs.f32 	%r187, %r35;
+	abs.f32 	%r188, %r32;
+	abs.f32 	%r189, %r29;
 	setp.lt.f32 	%p28, %r189, %r188;
 	selp.f32 	%r190, %r188, %r189, %p28;
 	setp.lt.f32 	%p29, %r190, %r187;
 	selp.f32 	%r191, %r187, %r190, %p29;
 	mul.rn.f32 	%r192, %r191, 0f34400002;
-	abs.f32 	%r193, %r31;
-	abs.f32 	%r194, %r28;
-	abs.f32 	%r195, %r25;
+	abs.f32 	%r193, %r33;
+	abs.f32 	%r194, %r30;
+	abs.f32 	%r195, %r27;
 	setp.lt.f32 	%p30, %r195, %r194;
 	selp.f32 	%r196, %r194, %r195, %p30;
 	setp.lt.f32 	%p31, %r196, %r193;
 	selp.f32 	%r197, %r193, %r196, %p31;
 	add.rn.f32 	%r198, %r197, %r191;
 	mul.rn.f32 	%r199, %r198, 0f34A00003;
-	abs.f32 	%r200, %r32;
-	abs.f32 	%r201, %r29;
-	abs.f32 	%r202, %r26;
+	abs.f32 	%r200, %r34;
+	abs.f32 	%r201, %r31;
+	abs.f32 	%r202, %r28;
 	setp.lt.f32 	%p32, %r202, %r201;
 	selp.f32 	%r203, %r201, %r202, %p32;
 	setp.lt.f32 	%p33, %r203, %r200;
@@ -1850,9 +1802,9 @@ $L__BB3_6:
 	mul.rn.f32 	%r211, %r204, %r199;
 	add.rn.f32 	%r212, %r211, %r210;
 	add.rn.f32 	%r213, %r212, %r212;
-	abs.f32 	%r214, %r22;
-	abs.f32 	%r215, %r21;
-	abs.f32 	%r216, %r20;
+	abs.f32 	%r214, %r24;
+	abs.f32 	%r215, %r23;
+	abs.f32 	%r216, %r22;
 	setp.lt.f32 	%p34, %r216, %r215;
 	selp.f32 	%r217, %r215, %r216, %p34;
 	setp.lt.f32 	%p35, %r217, %r214;
@@ -1864,13 +1816,13 @@ $L__BB3_6:
 	mul.rn.f32 	%r223, %r192, %r218;
 	add.rn.f32 	%r224, %r223, %r222;
 	mul.rn.f32 	%r225, %r224, 0f40400000;
-	abs.f32 	%r226, %r36;
+	abs.f32 	%r226, %r38;
 	mul.rn.f32 	%r227, %r226, %r225;
-	setp.le.f32 	%p36, %r37, %r227;
+	setp.le.f32 	%p36, %r39, %r227;
 	mov.b32 	%r231, 0f00000000;
 	@%p36 bra 	$L__BB3_11;
 	mov.pred 	%p38, -1;
-	mov.b32 	%r231, %r37;
+	mov.b32 	%r231, %r39;
 $L__BB3_11:
 	selp.f32 	%r229, %r231, 0f7F800000, %p38;
 	setp.eq.f32 	%p37, %r229, 0f7F800000;

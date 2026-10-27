@@ -9,6 +9,7 @@ add_bonsai_tests(
     LABELS ssa blocks
     FILES
     loopify.bonsai
+    record-hoist.bonsai
     mixed-traversal.bonsai
     persistent.bonsai
     nested-traversal.bonsai

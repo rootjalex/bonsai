@@ -289,6 +289,7 @@ target_sources(
     src/SSA/Contract.cpp
     src/SSA/GateDrains.cpp
     src/SSA/HitContinuations.cpp
+    src/SSA/RecordHoist.cpp
     src/SSA/RoundGuard.cpp
     src/SSA/Defer.cpp
     src/SSA/Definitions.cpp

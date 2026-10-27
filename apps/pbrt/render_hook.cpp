@@ -3083,15 +3083,21 @@ int main(int argc, char **argv) {
         // host call like every other generated one: its buffers staged on
         // the host first, since implicit copies may be off -- the pool's
         // buffer is this call's own, over the same rows the render's is.
+        // The mesh rows too: the record carries the fields of the holder's
+        // mesh that the hit programs read -- pbrt's TriangleMeshRecord --
+        // computed by the filler from the row at the record's mesh
+        // (SSA/RecordHoist.h).
         bonsai_buffer b_placed_fill = buffer_of(placed_pool);
+        bonsai_buffer b_meshes_fill = buffer_of(meshes);
         const auto fill_record = [&](uint32_t holder, _RTRecord &out) {
             bonsai_buffer b_out = buffer_of(&out, 1);
-            bonsai_buffer *buffers[] = {&b_out, tree.geoms, tree.prims, &b_placed_fill};
+            bonsai_buffer *buffers[] = {&b_out, tree.geoms, tree.prims, &b_placed_fill,
+                                        &b_meshes_fill};
             static_assert(sizeof(buffers) / sizeof(buffers[0]) ==
                           sizeof(bonsai_rt_record_fill_sides));
             bonsai_buffer_stage_all(buffers, bonsai_rt_record_fill_sides,
                                     sizeof(bonsai_rt_record_fill_sides));
-            bonsai_rt_record_fill(holder, &b_out, tree, &b_placed_fill);
+            bonsai_rt_record_fill(holder, &b_out, tree, &b_placed_fill, &b_meshes_fill);
         };
         tree.traversable = Acceleration{pool, compacted, fill_record}.scene(
             shapes, mesh_prims, tris, instanced, top, def_runs, definition_meshes,

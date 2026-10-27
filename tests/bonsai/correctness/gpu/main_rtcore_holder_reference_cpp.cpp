@@ -53,9 +53,14 @@ struct Input {
     bonsai_optix_triangles input;
 };
 
+// The filler takes, beside the tree and the Mesh pool, the arrays the hit
+// programs read at the record's mesh -- the mesh's first index and first
+// vertex -- whose values the record carries (SSA/RecordHoist.h), so that a
+// hit goes from the record to the mesh's indices in one load.
 void fill_record(Input &in, uint32_t holder, const _tree_layout0 &prims,
-                 const Mesh *mesh_pool) {
-    bonsai_rt_record_fill(holder, &in.record, prims, mesh_pool);
+                 const Mesh *mesh_pool, const Meshes &meshes) {
+    bonsai_rt_record_fill(holder, &in.record, prims, mesh_pool, meshes.first_index.data(),
+                          meshes.first_vertex.data());
     in.input.record = reinterpret_cast<const unsigned char *>(&in.record) +
                       2 * sizeof(uint32_t);
 }
@@ -152,8 +157,8 @@ int main() {
     const uint64_t geometry_solo = bonsai_optix_geometry(&solo_input, 1, nullptr, 0);
     Input m0 = input_of(meshes, mesh0, holder0);
     Input m1 = input_of(meshes, mesh1, holder1);
-    fill_record(m0, holder0, scene, mesh_pool.data());
-    fill_record(m1, holder1, scene, mesh_pool.data());
+    fill_record(m0, holder0, scene, mesh_pool.data(), meshes);
+    fill_record(m1, holder1, scene, mesh_pool.data(), meshes);
     const bonsai_optix_triangles mesh_inputs[2] = {m0.input, m1.input};
     const uint64_t geometry_meshes = bonsai_optix_geometry(mesh_inputs, 2, nullptr, 0);
     std::vector<bonsai_optix_instance> instances;

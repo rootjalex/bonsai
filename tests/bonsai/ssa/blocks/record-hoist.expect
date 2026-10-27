@@ -1,0 +1,582 @@
+; === ssa final ===
+; --- Prim_Mesh ---
+func Prim_Mesh(mesh : u32, Prim_Mesh_pool : Mesh[], Prim_Mesh_fill : u64[]): 
+  callc Prim_Mesh_new(mesh, Prim_Mesh_pool, Prim_Mesh_fill) !Prim_Mesh_new_call_cont_0()
+
+!Prim_Mesh_new_call_cont_0(@0 : u64): // preds: Prim_Mesh
+  ret @0
+
+; --- Prim_Mesh_new ---
+func Prim_Mesh_new(mesh : u32, Prim_Mesh_pool : Mesh[], Prim_Mesh_fill : u64[]): 
+  @0 = gep(Prim_Mesh_fill, (u64)0)
+  _index = atomic.add(@0, (u64)1)
+  @2 = make_struct<Mesh>(mesh)
+  @3 = gep(Prim_Mesh_pool, _index)
+  store @3 @2
+  @5 = bwor((u64)72057594037927936, _index)
+  ret @5
+
+; --- Prim_Solo ---
+func Prim_Solo(tri : (Triangle*), Prim_Solo_pool : Solo[], Prim_Solo_fill : u64[]): 
+  @0 = load(tri)
+  callc Prim_Solo_new(@0, Prim_Solo_pool, Prim_Solo_fill) !Prim_Solo_new_call_cont_0()
+
+!Prim_Solo_new_call_cont_0(@1 : u64): // preds: Prim_Solo
+  ret @1
+
+; --- Prim_Solo_new ---
+func Prim_Solo_new(tri : Triangle, Prim_Solo_pool : Solo[], Prim_Solo_fill : u64[]): 
+  @0 = gep(Prim_Solo_fill, (u64)0)
+  _index = atomic.add(@0, (u64)1)
+  @2 = make_struct<Solo>(tri)
+  @3 = gep(Prim_Solo_pool, _index)
+  store @3 @2
+  @5 = bwor((u64)0, _index)
+  ret @5
+
+; --- __anyhit__trace ---
+func __anyhit__trace(mesh_first_index : const u32[], mesh_first_vertex : const u32[], indices : const u32[], positions : const f32x3[], near : const f32[1], prims : _tree_layout0, Prim_Solo_pool : Solo[]): 
+  _rt_rec = rt_sbt_record()
+  _t10 = load_field(_rt_rec, (u32)1)
+  _rt_own = eq(_t10, (u32)4294967295)
+  @3 = load_field(_rt_rec, (u32)0)
+  @4 = rt_primitive_index()
+  _rt_idx = add(@3, @4)
+  _rt_top = select(_rt_own, _rt_idx, _t10)
+  @7 = load_field(prims, (u32)2)
+  _rt_e0 = extract_idx(@7, _rt_top)
+  dispatch _rt_own [!ite_else_1(_rt_rec, _rt_idx, mesh_first_index, mesh_first_vertex, indices, positions, near), !ite_then_0(Prim_Solo_pool, _rt_e0, near)]
+
+!ite_then_0(Prim_Solo_pool : Solo[], _rt_e0 : u64, near : const f32[1]): // preds: __anyhit__trace
+  @9 = bwand(_rt_e0, (u64)72057594037927935)
+  @10 = extract_idx(Prim_Solo_pool, @9)
+  !ite_0 = load_field(@10, (u32)0)
+  jmp !ite_merge_2(!ite_0, near)
+
+!ite_else_1(_rt_rec : _RTRecord, _rt_idx : u32, mesh_first_index : const u32[], mesh_first_vertex : const u32[], indices : const u32[], positions : const f32x3[], near : const f32[1]): // preds: __anyhit__trace
+  @12 = load_field(_rt_rec, (u32)3)
+  @13 = make_struct<TriRef>(@12, _rt_idx)
+  jmp triangle_of!inl0(@13, mesh_first_index, mesh_first_vertex, indices, positions, near, _rt_rec)
+
+!ite_merge_2(!ite_0 : Triangle, near : const f32[1]): // preds: !ite_then_0, !triangle_of_call_cont_3
+  _rt_e1 = set(!ite_0)
+  @15 = rt_ray_origin()
+  @16 = rt_ray_direction()
+  @17 = rt_payload((u32)0)
+  @18 = reinterpret<f32>(@17)
+  r = make_struct<Ray>(@15, @16, @18)
+  callc intersectsp_ray_tri(r, _rt_e1) !intersectsp_ray_tri_call_cont_4(near)
+
+!triangle_of_call_cont_3(@14 : Triangle, near : const f32[1]): // preds: triangle_of!inl0
+  !ite_0 = set(@14)
+  jmp !ite_merge_2(!ite_0, near)
+
+!intersectsp_ray_tri_call_cont_4(@20 : _option2, near : const f32[1]): // preds: !ite_merge_2
+  isect$i0 = set(@20)
+  @21 = load_field(isect$i0, (u32)1)
+  dispatch @21 [!else_6(near), !then_5(isect$i0, near)]
+
+!then_5(isect$i0 : _option2, near : const f32[1]): // preds: !intersectsp_ray_tri_call_cont_4
+  isect_$i0 = load_field(isect$i0, (u32)0)
+  @23 = load_field(isect_$i0, (u32)3)
+  jmp !merge_7(near, @23)
+
+!else_6(near : const f32[1]): // preds: !intersectsp_ray_tri_call_cont_4
+  @24 = inf()
+  jmp !merge_7(near, @24)
+
+!merge_7(near : const f32[1], distmin_Ray_Triangle$r0 : f32): // preds: !else_6, !then_5
+  @25 = extract_idx(near, (i32)0)
+  @27 = lt(@25, distmin_Ray_Triangle$r0)
+  @28 = not(@27)
+  dispatch @28 [!merge_9(), !then_8()]
+
+!then_8(): // preds: !merge_7
+  _rt_ignored = rt_ignore_hit()
+  jmp !merge_9()
+
+!merge_9(): // preds: !merge_7, !then_8
+  ret
+
+triangle_of!inl0(t!inl0 : TriRef, mesh_first_index : const u32[], mesh_first_vertex : const u32[], indices : const u32[], positions : const f32x3[], _inl0_0 : const f32[1], @54 : _RTRecord): // preds: !ite_else_1
+  @33 = mul((u32)3, _rt_idx)
+  @56 = load_field(@54, (u32)5)
+  @55 = load_field(@54, (u32)4)
+  @36 = add(@55, @33)
+  @37 = extract_idx(indices, @36)
+  @38 = add(@56, @37)
+  @39 = extract_idx(positions, @38)
+  @41 = add(@36, (u32)1)
+  @42 = extract_idx(indices, @41)
+  @43 = add(@56, @42)
+  @44 = extract_idx(positions, @43)
+  @46 = add(@36, (u32)2)
+  @47 = extract_idx(indices, @46)
+  @48 = add(@56, @47)
+  @49 = extract_idx(positions, @48)
+  @53 = make_struct<Triangle>(@39, @44, @49)
+  jmp !triangle_of_call_cont_3(@53, _inl0_0)
+
+; --- __closesthit__trace ---
+func __closesthit__trace(): 
+  _rt_set1 = rt_set_payload((u32)1, (u32)1)
+  @1 = rt_sbt_record()
+  @2 = load_field(@1, (u32)0)
+  @3 = rt_primitive_index()
+  @4 = add(@2, @3)
+  _rt_set2 = rt_set_payload((u32)2, @4)
+  @7 = load_field(@1, (u32)1)
+  @8 = eq(@7, (u32)4294967295)
+  @15 = select(@8, @4, @7)
+  _rt_set3 = rt_set_payload((u32)3, @15)
+  ret
+
+; --- __closesthit__trace$i ---
+func __closesthit__trace$i(i : i32, rays : Ray[n], mesh_first_index : const u32[], mesh_first_vertex : const u32[], indices : const u32[], positions : const f32x3[], near : const f32[1], prims : (_tree_layout0*), Prim_Solo_pool : Solo[], Prim_Mesh_pool : Mesh[], hit_x : f32[], hit_mesh : i32[]): 
+  r = extract_idx(rays, i)
+  @1 = load(prims)
+  callc trace!hit(r, mesh_first_index, mesh_first_vertex, indices, positions, near, @1, Prim_Solo_pool, Prim_Mesh_pool) !trace_call_cont_2!__closesthit__trace$i(hit_x, i, Prim_Mesh_pool, hit_mesh)
+
+!case_7!__closesthit__trace$i(hit_mesh : i32[], i : i32): // Prim.Solo of mesh_of; preds: !then_3!__closesthit__trace$i
+  jmp !merge_6!__closesthit__trace$i(hit_mesh, i, (i32)-1)
+
+!case_8!__closesthit__trace$i(Prim_Mesh_pool : Mesh[], p$i65 : u64, hit_mesh : i32[], i : i32): // Prim.Mesh of mesh_of; preds: !then_3!__closesthit__trace$i
+  @11 = bwand(p$i65, (u64)72057594037927935)
+  @12 = extract_idx(Prim_Mesh_pool, @11)
+  mesh$i65 = load_field(@12, (u32)0)
+  @14 = cast<i32>(mesh$i65)
+  jmp !merge_6!__closesthit__trace$i(hit_mesh, i, @14)
+
+!else_4!__closesthit__trace$i(hit_x : f32[], i : i32, hit_mesh : i32[]): // preds: !trace_call_cont_2!__closesthit__trace$i
+  @17 = gep(hit_x, i)
+  store @17 (f32)-1
+  @18 = gep(hit_mesh, i)
+  store @18 (i32)-2
+  jmp !merge_5!__closesthit__trace$i()
+
+!merge_5!__closesthit__trace$i(): // preds: !else_4!__closesthit__trace$i, !merge_6!__closesthit__trace$i
+  ret
+
+!merge_6!__closesthit__trace$i(hit_mesh : i32[], i : i32, mesh_of$r65 : i32): // preds: !case_7!__closesthit__trace$i, !case_8!__closesthit__trace$i
+  @16 = gep(hit_mesh, i)
+  store @16 mesh_of$r65
+  jmp !merge_5!__closesthit__trace$i()
+
+!then_3!__closesthit__trace$i(found : _option0, hit_x : f32[], i : i32, Prim_Mesh_pool : Mesh[], hit_mesh : i32[]): // preds: !trace_call_cont_2!__closesthit__trace$i
+  hit = load_field(found, (u32)0)
+  @5 = load_field(hit, (u32)1)
+  @6 = load_field(@5, (u32)0)
+  @7 = extract_idx(@6, (u32)0)
+  @8 = gep(hit_x, i)
+  store @8 @7
+  p$i65 = load_field(hit, (u32)0)
+  @10 = shr(p$i65, (u64)56)
+  dispatch @10 [!case_7!__closesthit__trace$i(hit_mesh, i), !case_8!__closesthit__trace$i(Prim_Mesh_pool, p$i65, hit_mesh, i)]
+
+!trace_call_cont_2!__closesthit__trace$i(@2 : _option0, hit_x : f32[], i : i32, Prim_Mesh_pool : Mesh[], hit_mesh : i32[]): // preds: __closesthit__trace$i
+  found = set(@2)
+  @3 = load_field(found, (u32)1)
+  dispatch @3 [!else_4!__closesthit__trace$i(hit_x, i, hit_mesh), !then_3!__closesthit__trace$i(found, hit_x, i, Prim_Mesh_pool, hit_mesh)]
+
+; --- __intersection__trace ---
+func __intersection__trace(mesh_first_index : const u32[], mesh_first_vertex : const u32[], indices : const u32[], positions : const f32x3[], prims : _tree_layout0, Prim_Solo_pool : Solo[]): 
+  _rt_rec = rt_sbt_record()
+  _t15 = load_field(_rt_rec, (u32)1)
+  _rt_own = eq(_t15, (u32)4294967295)
+  @3 = load_field(_rt_rec, (u32)0)
+  @4 = rt_primitive_index()
+  _rt_idx = add(@3, @4)
+  _rt_top = select(_rt_own, _rt_idx, _t15)
+  @7 = load_field(prims, (u32)2)
+  _rt_e0 = extract_idx(@7, _rt_top)
+  dispatch _rt_own [!ite_else_1(_rt_rec, _rt_idx, mesh_first_index, mesh_first_vertex, indices, positions), !ite_then_0(Prim_Solo_pool, _rt_e0)]
+
+!ite_then_0(Prim_Solo_pool : Solo[], _rt_e0 : u64): // preds: __intersection__trace
+  @9 = bwand(_rt_e0, (u64)72057594037927935)
+  @10 = extract_idx(Prim_Solo_pool, @9)
+  !ite_0 = load_field(@10, (u32)0)
+  jmp !ite_merge_2(!ite_0)
+
+!ite_else_1(_rt_rec : _RTRecord, _rt_idx : u32, mesh_first_index : const u32[], mesh_first_vertex : const u32[], indices : const u32[], positions : const f32x3[]): // preds: __intersection__trace
+  @12 = load_field(_rt_rec, (u32)3)
+  @13 = make_struct<TriRef>(@12, _rt_idx)
+  jmp triangle_of!inl1(@13, mesh_first_index, mesh_first_vertex, indices, positions, _rt_rec)
+
+!ite_merge_2(!ite_0 : Triangle): // preds: !ite_then_0, !triangle_of_call_cont_3
+  _rt_e1 = set(!ite_0)
+  @15 = rt_ray_origin()
+  @16 = rt_ray_direction()
+  @17 = rt_hit_t()
+  r = make_struct<Ray>(@15, @16, @17)
+  callc intersectsp_ray_tri(r, _rt_e1) !intersectsp_ray_tri_call_cont_4()
+
+!triangle_of_call_cont_3(@14 : Triangle): // preds: triangle_of!inl1
+  !ite_0 = set(@14)
+  jmp !ite_merge_2(!ite_0)
+
+!intersectsp_ray_tri_call_cont_4(@19 : _option2): // preds: !ite_merge_2
+  isect$i1 = set(@19)
+  @20 = load_field(isect$i1, (u32)1)
+  dispatch @20 [!else_6(), !then_5(isect$i1)]
+
+!then_5(isect$i1 : _option2): // preds: !intersectsp_ray_tri_call_cont_4
+  isect_$i1 = load_field(isect$i1, (u32)0)
+  @22 = load_field(isect_$i1, (u32)3)
+  jmp !merge_7(@22)
+
+!else_6(): // preds: !intersectsp_ray_tri_call_cont_4
+  @23 = inf()
+  jmp !merge_7(@23)
+
+!merge_7(distmin_Ray_Triangle$r1 : f32): // preds: !else_6, !then_5
+  @25 = inf()
+  @26 = ne(distmin_Ray_Triangle$r1, @25)
+  dispatch @26 [!merge_9(), !then_8()]
+
+!then_8(): // preds: !merge_7
+  _rt_reported = rt_report_hit(distmin_Ray_Triangle$r1)
+  jmp !merge_9()
+
+!merge_9(): // preds: !merge_7, !then_8
+  ret
+
+triangle_of!inl1(t!inl1 : TriRef, mesh_first_index : const u32[], mesh_first_vertex : const u32[], indices : const u32[], positions : const f32x3[], @53 : _RTRecord): // preds: !ite_else_1
+  @32 = mul((u32)3, _rt_idx)
+  @55 = load_field(@53, (u32)5)
+  @54 = load_field(@53, (u32)4)
+  @35 = add(@54, @32)
+  @36 = extract_idx(indices, @35)
+  @37 = add(@55, @36)
+  @38 = extract_idx(positions, @37)
+  @40 = add(@35, (u32)1)
+  @41 = extract_idx(indices, @40)
+  @42 = add(@55, @41)
+  @43 = extract_idx(positions, @42)
+  @45 = add(@35, (u32)2)
+  @46 = extract_idx(indices, @45)
+  @47 = add(@55, @46)
+  @48 = extract_idx(positions, @47)
+  @52 = make_struct<Triangle>(@38, @43, @48)
+  jmp !triangle_of_call_cont_3(@52)
+
+; --- __miss__trace ---
+func __miss__trace(): 
+  ret
+
+; --- _match0 ---
+func _match0(_matched : u64, _rt_idx : u32, mesh_first_index : const u32[], mesh_first_vertex : const u32[], indices : const u32[], positions : const f32x3[], Prim_Solo_pool : Solo[], Prim_Mesh_pool : Mesh[]): 
+  @0 = shr(_matched, (u64)56)
+  dispatch @0 [!case_0(Prim_Solo_pool, _matched), !case_1(Prim_Mesh_pool, _matched, _rt_idx, positions, mesh_first_vertex, indices, mesh_first_index)]
+
+!case_0(Prim_Solo_pool : Solo[], _matched : u64): // Prim.Solo of _match0; preds: _match0
+  @1 = bwand(_matched, (u64)72057594037927935)
+  @2 = extract_idx(Prim_Solo_pool, @1)
+  @3 = load_field(@2, (u32)0)
+  ret @3
+
+!case_1(Prim_Mesh_pool : Mesh[], _matched : u64, _rt_idx : u32, positions : const f32x3[], mesh_first_vertex : const u32[], indices : const u32[], mesh_first_index : const u32[]): // Prim.Mesh of _match0; preds: _match0
+  @4 = bwand(_matched, (u64)72057594037927935)
+  @5 = extract_idx(Prim_Mesh_pool, @4)
+  _t76$i72 = load_field(@5, (u32)0)
+  _t392 = mul((u32)3, _rt_idx)
+  @8 = extract_idx(mesh_first_vertex, _t76$i72)
+  @9 = extract_idx(mesh_first_index, _t76$i72)
+  @10 = add(@9, _t392)
+  @11 = extract_idx(indices, @10)
+  @12 = add(@8, @11)
+  @13 = extract_idx(positions, @12)
+  @17 = add(@10, (u32)1)
+  @18 = extract_idx(indices, @17)
+  @19 = add(@8, @18)
+  @20 = extract_idx(positions, @19)
+  @24 = add(@10, (u32)2)
+  @25 = extract_idx(indices, @24)
+  @26 = add(@8, @25)
+  @27 = extract_idx(positions, @26)
+  out$i2 = make_struct<Triangle>(@13, @20, @27)
+  ret out$i2
+
+; --- _match1 ---
+func _match1(_matched : u64, _holder : u32, Prim_Mesh_pool : Mesh[]): 
+  @0 = shr(_matched, (u64)56)
+  dispatch @0 [!case_0(_holder), !case_1(_holder, Prim_Mesh_pool, _matched)]
+
+!case_0(_holder : u32): // Prim.Solo of _match1; preds: _match1
+  @1 = make_struct<_RTRecord>((u32)0, _holder, (u32)0, (u32)0, (u32)undef, (u32)undef)
+  ret @1
+
+!case_1(_holder : u32, Prim_Mesh_pool : Mesh[], _matched : u64): // Prim.Mesh of _match1; preds: _match1
+  @2 = bwand(_matched, (u64)72057594037927935)
+  @3 = extract_idx(Prim_Mesh_pool, @2)
+  @4 = load_field(@3, (u32)0)
+  @5 = make_struct<_RTRecord>((u32)0, _holder, (u32)1, @4, (u32)undef, (u32)undef)
+  ret @5
+
+; --- _rt_trace0 ---
+func _rt_trace0(prims : _tree_layout0, r : Ray, mesh_first_index : const u32[], mesh_first_vertex : const u32[], indices : const u32[], positions : const f32x3[], near : const f32[1], Prim_Solo_pool : Solo[], Prim_Mesh_pool : Mesh[]): 
+  _t25 = load_field(r, (u32)2)
+  @1 = load_field(prims, (u32)0)
+  @2 = load_field(r, (u32)0)
+  @3 = load_field(r, (u32)1)
+  @4 = min(_t25, (f32)1e+30)
+  @5 = make_struct<_RTHit_trace>((bool)0, (u32)0, (u32)0)
+  @6 = make_struct<_RTContext_trace>(_t25, @5)
+  _rt_ctx_out = rt_trace(@1, @2, @3, (f32)1e-07, @4, (u32)0, @6, Prim_Solo_pool, indices, mesh_first_index, mesh_first_vertex, near, positions, prims)
+  _rt_hit = load_field(_rt_ctx_out, (u32)1)
+  @9 = load_field(_rt_hit, (u32)0)
+  dispatch @9 [!else_1(), !then_0(_rt_hit, prims, Prim_Solo_pool, Prim_Mesh_pool, positions, mesh_first_vertex, indices, mesh_first_index)]
+
+!then_0(_rt_hit : _RTHit_trace, prims : _tree_layout0, Prim_Solo_pool : Solo[], Prim_Mesh_pool : Mesh[], positions : const f32x3[], mesh_first_vertex : const u32[], indices : const u32[], mesh_first_index : const u32[]): // preds: _rt_trace0
+  _rt_top = load_field(_rt_hit, (u32)2)
+  @11 = load_field(prims, (u32)2)
+  _rt_e0 = extract_idx(@11, _rt_top)
+  @13 = shr(_rt_e0, (u64)56)
+  dispatch @13 [!case_3(Prim_Solo_pool, _rt_e0), !case_4(Prim_Mesh_pool, _rt_e0, _rt_hit, positions, mesh_first_vertex, indices, mesh_first_index)]
+
+!else_1(): // preds: _rt_trace0
+  @50 = make_struct<_option0>()
+  ret @50
+
+!merge_2(_rt_e0 : u64, _match0$r3 : Triangle): // preds: !case_3, !case_4
+  @48 = make_struct<__tuple_0>(_rt_e0, _match0$r3)
+  @49 = make_struct<_option0>(@48, (bool)1)
+  ret @49
+
+!case_3(Prim_Solo_pool : Solo[], _rt_e0 : u64): // Prim.Solo of _match0; preds: !then_0
+  @14 = bwand(_rt_e0, (u64)72057594037927935)
+  @15 = extract_idx(Prim_Solo_pool, @14)
+  @16 = load_field(@15, (u32)0)
+  jmp !merge_2(_rt_e0, @16)
+
+!case_4(Prim_Mesh_pool : Mesh[], _rt_e0 : u64, _rt_hit : _RTHit_trace, positions : const f32x3[], mesh_first_vertex : const u32[], indices : const u32[], mesh_first_index : const u32[]): // Prim.Mesh of _match0; preds: !then_0
+  @17 = bwand(_rt_e0, (u64)72057594037927935)
+  @18 = extract_idx(Prim_Mesh_pool, @17)
+  _t76$i67$i75 = load_field(@18, (u32)0)
+  _rt_idx = load_field(_rt_hit, (u32)1)
+  _t351$i75 = mul((u32)3, _rt_idx)
+  @22 = extract_idx(mesh_first_vertex, _t76$i67$i75)
+  @23 = extract_idx(mesh_first_index, _t76$i67$i75)
+  @24 = add(@23, _t351$i75)
+  @25 = extract_idx(indices, @24)
+  @26 = add(@22, @25)
+  @27 = extract_idx(positions, @26)
+  @31 = add(@24, (u32)1)
+  @32 = extract_idx(indices, @31)
+  @33 = add(@22, @32)
+  @34 = extract_idx(positions, @33)
+  @38 = add(@24, (u32)2)
+  @39 = extract_idx(indices, @38)
+  @40 = add(@22, @39)
+  @41 = extract_idx(positions, @40)
+  out$i75 = make_struct<Triangle>(@27, @34, @41)
+  jmp !merge_2(_rt_e0, out$i75)
+
+; --- _rt_trace0!hit ---
+func _rt_trace0!hit(prims : _tree_layout0, r : Ray, mesh_first_index : const u32[], mesh_first_vertex : const u32[], indices : const u32[], positions : const f32x3[], Prim_Solo_pool : Solo[]): 
+  _rt_set_hit = rt_set_payload((u32)1, (u32)1)
+  _rt_rec = rt_sbt_record()
+  _t30 = load_field(_rt_rec, (u32)1)
+  _rt_own = eq(_t30, (u32)4294967295)
+  @4 = load_field(_rt_rec, (u32)0)
+  @5 = rt_primitive_index()
+  _rt_idx = add(@4, @5)
+  _rt_top = select(_rt_own, _rt_idx, _t30)
+  @8 = load_field(prims, (u32)2)
+  _rt_e0 = extract_idx(@8, _rt_top)
+  dispatch _rt_own [!ite_else_1(_rt_rec, _rt_idx, mesh_first_index, mesh_first_vertex, indices, positions, _rt_e0), !ite_then_0(Prim_Solo_pool, _rt_e0)]
+
+!ite_then_0(Prim_Solo_pool : Solo[], _rt_e0 : u64): // preds: _rt_trace0!hit
+  @10 = bwand(_rt_e0, (u64)72057594037927935)
+  @11 = extract_idx(Prim_Solo_pool, @10)
+  !ite_0 = load_field(@11, (u32)0)
+  jmp !ite_merge_2(!ite_0, _rt_e0)
+
+!ite_else_1(_rt_rec : _RTRecord, _rt_idx : u32, mesh_first_index : const u32[], mesh_first_vertex : const u32[], indices : const u32[], positions : const f32x3[], _rt_e0 : u64): // preds: _rt_trace0!hit
+  @13 = load_field(_rt_rec, (u32)3)
+  @14 = make_struct<TriRef>(@13, _rt_idx)
+  jmp triangle_of!inl2(@14, mesh_first_index, mesh_first_vertex, indices, positions, _rt_e0, _rt_rec)
+
+!ite_merge_2(!ite_0 : Triangle, _rt_e0 : u64): // preds: !ite_then_0, !triangle_of_call_cont_3
+  _rt_e1 = set(!ite_0)
+  @16 = make_struct<__tuple_0>(_rt_e0, _rt_e1)
+  @17 = make_struct<_option0>(@16, (bool)1)
+  ret @17
+
+!triangle_of_call_cont_3(@15 : Triangle, _rt_e0 : u64): // preds: triangle_of!inl2
+  !ite_0 = set(@15)
+  jmp !ite_merge_2(!ite_0, _rt_e0)
+
+triangle_of!inl2(t!inl2 : TriRef, mesh_first_index : const u32[], mesh_first_vertex : const u32[], indices : const u32[], positions : const f32x3[], _inl2_0 : u64, @42 : _RTRecord): // preds: !ite_else_1
+  @21 = mul((u32)3, _rt_idx)
+  @44 = load_field(@42, (u32)5)
+  @43 = load_field(@42, (u32)4)
+  @24 = add(@43, @21)
+  @25 = extract_idx(indices, @24)
+  @26 = add(@44, @25)
+  @27 = extract_idx(positions, @26)
+  @29 = add(@24, (u32)1)
+  @30 = extract_idx(indices, @29)
+  @31 = add(@44, @30)
+  @32 = extract_idx(positions, @31)
+  @34 = add(@24, (u32)2)
+  @35 = extract_idx(indices, @34)
+  @36 = add(@44, @35)
+  @37 = extract_idx(positions, @36)
+  @41 = make_struct<Triangle>(@27, @32, @37)
+  jmp !triangle_of_call_cont_3(@41, _inl2_0)
+
+; --- bonsai_rt_record_fill ---
+func bonsai_rt_record_fill(_holder : u32, _out : _RTRecord[], prims : (_tree_layout0*), Prim_Mesh_pool : Mesh[], mesh_first_index : const u32[], mesh_first_vertex : const u32[]): 
+  @0 = load(prims)
+  @1 = load_field(@0, (u32)2)
+  _rt_held = extract_idx(@1, _holder)
+  @3 = shr(_rt_held, (u64)56)
+  dispatch @3 [!case_1(_holder, _out), !case_2(_holder, Prim_Mesh_pool, _rt_held, _out, mesh_first_index, mesh_first_vertex)]
+
+!merge_0(_out : _RTRecord[], _match1$r4 : _RTRecord): // preds: !case_1, !case_2
+  @10 = gep(_out, (u32)0)
+  store @10 _match1$r4
+  ret
+
+!case_1(_holder : u32, _out : _RTRecord[]): // Prim.Solo of _match1; preds: bonsai_rt_record_fill
+  @4 = make_struct<_RTRecord>((u32)0, _holder, (u32)0, (u32)0, (u32)0, (u32)0)
+  jmp !merge_0(_out, @4)
+
+!case_2(_holder : u32, Prim_Mesh_pool : Mesh[], _rt_held : u64, _out : _RTRecord[], @11 : const u32[], @13 : const u32[]): // Prim.Mesh of _match1; preds: bonsai_rt_record_fill
+  @5 = bwand(_rt_held, (u64)72057594037927935)
+  @6 = extract_idx(Prim_Mesh_pool, @5)
+  @7 = load_field(@6, (u32)0)
+  @12 = extract_idx(@11, @7)
+  @14 = extract_idx(@13, @7)
+  @8 = make_struct<_RTRecord>((u32)0, _holder, (u32)1, @7, @12, @14)
+  jmp !merge_0(_out, @8)
+
+; --- corner ---
+func corner(t : TriRef, c : u32, mesh_first_index : const u32[], mesh_first_vertex : const u32[], indices : const u32[], positions : const f32x3[]): 
+  _t76 = load_field(t, (u32)0)
+  @1 = extract_idx(mesh_first_vertex, _t76)
+  @2 = extract_idx(mesh_first_index, _t76)
+  @3 = load_field(t, (u32)1)
+  @4 = mul((u32)3, @3)
+  @5 = add(@2, @4)
+  @6 = add(@5, c)
+  @7 = extract_idx(indices, @6)
+  @8 = add(@1, @7)
+  @9 = extract_idx(positions, @8)
+  ret @9
+
+; --- mesh_of ---
+func mesh_of(p : u64, Prim_Solo_pool : Solo[], Prim_Mesh_pool : Mesh[]): 
+  @0 = shr(p, (u64)56)
+  dispatch @0 [!case_0(), !case_1(Prim_Mesh_pool, p)]
+
+!case_0(): // Prim.Solo of mesh_of; preds: mesh_of
+  ret (i32)-1
+
+!case_1(Prim_Mesh_pool : Mesh[], p : u64): // Prim.Mesh of mesh_of; preds: mesh_of
+  @1 = bwand(p, (u64)72057594037927935)
+  @2 = extract_idx(Prim_Mesh_pool, @1)
+  mesh = load_field(@2, (u32)0)
+  @4 = cast<i32>(mesh)
+  ret @4
+
+; --- render ---
+func render(n : i32, rays : Ray[n], hit_x : f32[], hit_mesh : i32[], mesh_first_index : const u32[], mesh_first_vertex : const u32[], indices : const u32[], positions : const f32x3[], near : const f32[1], prims : (_tree_layout0*), Prim_Solo_pool : Solo[], Prim_Mesh_pool : Mesh[]): 
+  parfor i (i32)0:n:(i32)1 !par_body_0(rays, mesh_first_index, mesh_first_vertex, indices, positions, near, prims, Prim_Solo_pool, Prim_Mesh_pool, hit_x, hit_mesh) !par_cont_1() on OptixThread
+
+!par_body_0(i : i32, rays : Ray[n], mesh_first_index : const u32[], mesh_first_vertex : const u32[], indices : const u32[], positions : const f32x3[], near : const f32[1], prims : (_tree_layout0*), Prim_Solo_pool : Solo[], Prim_Mesh_pool : Mesh[], hit_x : f32[], hit_mesh : i32[]): // preds: render
+  r = extract_idx(rays, i)
+  @1 = load(prims)
+  callc trace(r, mesh_first_index, mesh_first_vertex, indices, positions, near, @1, Prim_Solo_pool, Prim_Mesh_pool) !trace_call_cont_2!miss(hit_x, i, Prim_Mesh_pool, hit_mesh)
+
+!par_cont_1(): // preds: render
+  ret
+
+!trace_call_cont_2(@2 : _option0, hit_x : f32[], i : i32, Prim_Mesh_pool : Mesh[], hit_mesh : i32[]): // preds: !trace_call_cont_2!miss
+  found = set(@2)
+  @3 = load_field(found, (u32)1)
+  dispatch @3 [!else_4(hit_x, i, hit_mesh), !then_3(found, hit_x, i, Prim_Mesh_pool, hit_mesh)]
+
+!then_3(found : _option0, hit_x : f32[], i : i32, Prim_Mesh_pool : Mesh[], hit_mesh : i32[]): // preds: !trace_call_cont_2
+  hit = load_field(found, (u32)0)
+  @5 = load_field(hit, (u32)1)
+  @6 = load_field(@5, (u32)0)
+  @7 = extract_idx(@6, (u32)0)
+  @8 = gep(hit_x, i)
+  store @8 @7
+  p$i65 = load_field(hit, (u32)0)
+  @10 = shr(p$i65, (u64)56)
+  dispatch @10 [!case_7(hit_mesh, i), !case_8(Prim_Mesh_pool, p$i65, hit_mesh, i)]
+
+!else_4(hit_x : f32[], i : i32, hit_mesh : i32[]): // preds: !trace_call_cont_2
+  @17 = gep(hit_x, i)
+  store @17 (f32)-1
+  @18 = gep(hit_mesh, i)
+  store @18 (i32)-2
+  jmp !merge_5()
+
+!merge_5(): // preds: !else_4, !merge_6
+  yield
+
+!merge_6(hit_mesh : i32[], i : i32, mesh_of$r65 : i32): // preds: !case_7, !case_8
+  @16 = gep(hit_mesh, i)
+  store @16 mesh_of$r65
+  jmp !merge_5()
+
+!case_7(hit_mesh : i32[], i : i32): // Prim.Solo of mesh_of; preds: !then_3
+  jmp !merge_6(hit_mesh, i, (i32)-1)
+
+!case_8(Prim_Mesh_pool : Mesh[], p$i65 : u64, hit_mesh : i32[], i : i32): // Prim.Mesh of mesh_of; preds: !then_3
+  @11 = bwand(p$i65, (u64)72057594037927935)
+  @12 = extract_idx(Prim_Mesh_pool, @11)
+  mesh$i65 = load_field(@12, (u32)0)
+  @14 = cast<i32>(mesh$i65)
+  jmp !merge_6(hit_mesh, i, @14)
+
+!trace_call_cont_2!miss(@2 : _option0, hit_x : f32[], i : i32, Prim_Mesh_pool : Mesh[], hit_mesh : i32[]): // preds: !par_body_0
+  @19 = load_field(@2, (u32)1)
+  dispatch @19 [!trace_call_cont_2(@2, hit_x, i, Prim_Mesh_pool, hit_mesh), !trace_call_cont_2!hit-done()]
+
+!trace_call_cont_2!hit-done(): // preds: !trace_call_cont_2!miss
+  yield
+
+; --- trace ---
+func trace(r : Ray, mesh_first_index : const u32[], mesh_first_vertex : const u32[], indices : const u32[], positions : const f32x3[], near : const f32[1], prims : _tree_layout0, Prim_Solo_pool : Solo[], Prim_Mesh_pool : Mesh[]): 
+  callc _rt_trace0(prims, r, mesh_first_index, mesh_first_vertex, indices, positions, near, Prim_Solo_pool, Prim_Mesh_pool) !_rt_trace0_call_cont_0()
+
+!_rt_trace0_call_cont_0(@0 : _option0): // preds: trace
+  ret @0
+
+; --- trace!hit ---
+func trace!hit(r : Ray, mesh_first_index : const u32[], mesh_first_vertex : const u32[], indices : const u32[], positions : const f32x3[], near : const f32[1], prims : _tree_layout0, Prim_Solo_pool : Solo[], Prim_Mesh_pool : Mesh[]): 
+  callc _rt_trace0!hit(prims, r, mesh_first_index, mesh_first_vertex, indices, positions, Prim_Solo_pool) !_rt_trace0_call_cont_0()
+
+!_rt_trace0_call_cont_0(@0 : _option0): // preds: trace!hit
+  ret @0
+
+; --- trace_anyhit_matters ---
+func trace_anyhit_matters(_rt_e1 : (Triangle*)): 
+  ret (bool)1
+
+; --- triangle_of ---
+func triangle_of(t : TriRef, mesh_first_index : const u32[], mesh_first_vertex : const u32[], indices : const u32[], positions : const f32x3[]): 
+  _t76$i67 = load_field(t, (u32)0)
+  @1 = load_field(t, (u32)1)
+  _t351 = mul((u32)3, @1)
+  @3 = extract_idx(mesh_first_vertex, _t76$i67)
+  @4 = extract_idx(mesh_first_index, _t76$i67)
+  @5 = add(@4, _t351)
+  @6 = extract_idx(indices, @5)
+  @7 = add(@3, @6)
+  @8 = extract_idx(positions, @7)
+  @12 = add(@5, (u32)1)
+  @13 = extract_idx(indices, @12)
+  @14 = add(@3, @13)
+  @15 = extract_idx(positions, @14)
+  @19 = add(@5, (u32)2)
+  @20 = extract_idx(indices, @19)
+  @21 = add(@3, @20)
+  @22 = extract_idx(positions, @21)
+  out = make_struct<Triangle>(@8, @15, @22)
+  ret out
+
