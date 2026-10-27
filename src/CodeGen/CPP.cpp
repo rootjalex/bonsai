@@ -478,8 +478,18 @@ class BonsaiToCpp : ir::Printer {
             ss << "\n// The program's ray queries run on the ray tracing "
                   "hardware: the acceleration\n// structures are built through "
                   "runtime/bonsai_optix.h.\n"
-                  "#define BONSAI_HAS_OPTIX 1\n"
-                  "#include \"runtime/bonsai_optix.h\"\n";
+                  "#define BONSAI_HAS_OPTIX 1\n";
+            // The hit-group record is the program's `_RTRecord` -- base,
+            // holder and the holder element's fields (Lower/Trees.cpp) --
+            // so the runtime's records are that many bytes, and the driver
+            // fills the element's through `bonsai_rt_record_fill`.
+            if (program.types.contains("_RTRecord")) {
+                ss << "// The hit-group record is this program's _RTRecord: the "
+                      "runtime sizes its records by it,\n// and the driver fills "
+                      "the holder element's fields through bonsai_rt_record_fill.\n"
+                      "#define BONSAI_OPTIX_RECORD_BYTES sizeof(_RTRecord)\n";
+            }
+            ss << "#include \"runtime/bonsai_optix.h\"\n";
         }
         emit_buffer_helpers(program);
         return ss.str();
@@ -987,9 +997,13 @@ class BonsaiToCpp : ir::Printer {
         std::vector<Type> exported_types;
 
         // Any generated structs might be used in code generated,
-        // and therefore must be ommitted.
+        // and therefore must be ommitted. The hit-group record (`_RTRecord`,
+        // Lower/Trees.cpp) is declared whether or not an exported function
+        // takes it: the runtime sizes its records by it (the
+        // BONSAI_OPTIX_RECORD_BYTES define below).
         for (const auto &[name, type] : program.types) {
-            if (name.starts_with("_tree") || name.starts_with("_queue"))
+            if (name.starts_with("_tree") || name.starts_with("_queue") ||
+                name == "_RTRecord")
                 get_declared_types(type, deduplicate, exported_types);
         }
 

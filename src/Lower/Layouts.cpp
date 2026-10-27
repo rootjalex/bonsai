@@ -1986,13 +1986,43 @@ struct LowerMatches : public ir::Mutator {
     // The schedule's trees, by the set or `Element.field` they are bound
     // to: which of them are the hardware's (ir::BVH_t::hardware).
     const ir::TypeMap &tree_types;
+    // The program's hit-group record, `_RTRecord` (Lower/Trees.cpp,
+    // record_type_of), when it has one: the ray tracing kernels' hit
+    // programs read the holder element's fields off it.
+    const ir::Type record_t;
 
     LowerMatches(const ir::LayoutMap &layouts, const ir::TypeMap &structs,
                  const LayoutTypeMap &ltmap,
                  const std::map<std::string, std::string> &tree_field_groups,
-                 const ir::TypeMap &tree_types)
+                 const ir::TypeMap &tree_types, ir::Type record_t)
         : layouts(layouts), structs(structs), ltmap(ltmap),
-          tree_field_groups(tree_field_groups), tree_types(tree_types) {}
+          tree_field_groups(tree_field_groups), tree_types(tree_types),
+          record_t(std::move(record_t)) {}
+
+    // A field of the holder element as the hit-group record carries it:
+    // `Access(f, Unwrap(k, rt_sbt_element()))` -- the way a hit program's
+    // held arm reads the element whose field holds the hit tree (Lower/
+    // Trees.cpp, bind_elements) -- is the record's field for variant k's
+    // `f` (ir::rt_record_field), read off `rt_sbt_record()` as the
+    // program's `_RTRecord`; the element itself is never loaded. A
+    // set-typed field is not in the record: its read is a stored-element
+    // read, lowered below (the hardware's run, or a group indexed by
+    // (holder, ordinal), whose holder fields come back through here).
+    ir::Expr visit(const ir::Access *node) override {
+        if (const ir::Unwrap *unwrap = node->value.as<ir::Unwrap>()) {
+            const ir::Intrinsic *in = unwrap->value.as<ir::Intrinsic>();
+            if (in != nullptr && in->op == ir::Intrinsic::rt_sbt_element &&
+                !node->type.is<ir::Set_t>()) {
+                internal_assert(record_t.defined())
+                    << "a hit program reads the holder element's field " << node->field
+                    << " off the record, and the program has no _RTRecord";
+                return ir::Access::make(
+                    ir::rt_record_field(unwrap->index, node->field),
+                    ir::Intrinsic::make(ir::Intrinsic::rt_sbt_record, {}, record_t));
+            }
+        }
+        return ir::Mutator::visit(node);
+    }
 
     std::map<std::string, ir::Type> ref_types;
     IndexTList index_list;
@@ -2482,7 +2512,10 @@ struct LowerMatches : public ir::Mutator {
                     internal_assert(m != members.cend())
                         << "group " << group->second << " computes no field `"
                         << f.name << "` of its element " << element_t;
-                    ir::Expr v = bind.mutate(m->second);
+                    // Lowered once more after the pair is bound: a holder
+                    // that is the hit-group record's element (Lower/Trees.cpp)
+                    // has its fields read off the record (visit(Access)).
+                    ir::Expr v = mutate(bind.mutate(m->second));
                     internal_assert(ir::equals(v.type(), f.type))
                         << "group " << group->second << " computes `" << f.name
                         << "` as " << v.type() << ", but the element's field is "
@@ -2994,6 +3027,15 @@ ir::Program LowerLayouts::run(ir::Program program,
         }
     }
 
+    // The hit-group record the tree lowering gave the program, if it did
+    // (Lower/Trees.cpp runs first): a hit program's reads of the holder
+    // element's fields are lowered to reads of it.
+    ir::Type record_t;
+    if (const auto found = program.types.find("_RTRecord");
+        found != program.types.cend()) {
+        record_t = found->second;
+    }
+
     for (auto &[fname, func] : program.funcs) {
         if (fname.starts_with("_scan")) {
 
@@ -3037,7 +3079,7 @@ ir::Program LowerLayouts::run(ir::Program program,
 
         LowerMatches lowerer(tree_layouts, types, ltmap,
                              program.schedule.tree_groups,
-                             program.schedule.tree_types);
+                             program.schedule.tree_types, record_t);
         func->body = lowerer.mutate(func->body);
     }
 

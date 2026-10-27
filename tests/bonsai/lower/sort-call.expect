@@ -4,7 +4,8 @@ type Large = struct Large{ v : i32 }
 type Small = struct Small{ v : i32 }
 
 func _match0(_matched : Kind) -> u32 {
-  switch (_matched.tag) {
+  let @0 = _matched.tag in
+  switch (@0) {
   case 0: { // Kind.Small of _match0
     return 0u
   } break;
@@ -18,7 +19,8 @@ func _match0(_matched : Kind) -> u32 {
 }
 
 func _match1(_matched : Kind) -> u32 {
-  switch (_matched.tag) {
+  let @0 = _matched.tag in
+  switch (@0) {
   case 0: { // Kind.Small of _match1
     return 0u
   } break;
@@ -32,47 +34,156 @@ func _match1(_matched : Kind) -> u32 {
 }
 
 func _match2(_matched : Kind, i : i32) -> i32 {
-  switch (_matched.tag) {
+  let @0 = _matched.tag in
+  switch (@0) {
   case 0: { // Kind.Small of _match2
-    return build<Small>(reinterpret_cast<i32>(_matched.payload[0u])).v + i
+    let @1 = _matched.payload in
+    let @2 = @1[0u] in
+    let @3 = reinterpret_cast<i32>(@2) in
+    let @4 = @3 + i in
+    return @4
   } break;
   case 1: { // Kind.Large of _match2
-    return build<Large>(reinterpret_cast<i32>(_matched.payload[0u])).v * i
+    let @5 = _matched.payload in
+    let @6 = @5[0u] in
+    let @7 = reinterpret_cast<i32>(@6) in
+    let @8 = @7 * i in
+    return @8
   } break;
   default: { // Kind.Huge of _match2
-    return (build<Huge>(reinterpret_cast<i32>(_matched.payload[0u])).v * build<Huge>(reinterpret_cast<i32>(_matched.payload[0u])).v) * i
+    let @9 = _matched.payload in
+    let @10 = @9[0u] in
+    let _t8 = reinterpret_cast<i32>(@10) in
+    let @12 = _t8 * _t8 in
+    let @13 = @12 * i in
+    return @13
   }
   }
 }
 
 func kind_of(i : i32) -> Kind {
-  if (i < 4) {
-    return build<Kind>(0u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(reinterpret_cast<u32>(i)))
+  let @0 = i < 4 in
+  if (@0) {
+    let @1 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @2 = reinterpret_cast<u32>(i) in
+    let @3 = build<[[packed]] u32x1>(@2) in
+    let @4 = build<Kind>(0u, @1, @3) in
+    return @4
+  } else {
+    let @5 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+    let @6 = reinterpret_cast<u32>(i) in
+    let @7 = build<[[packed]] u32x1>(@6) in
+    let @8 = build<Kind>(1u, @5, @7) in
+    return @8
   }
-  return build<Kind>(1u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(reinterpret_cast<u32>(i)))
 }
 
 func run(out : mut i32[8]) -> void {
   parfor i in [0:8:1] {
-    let k = kind_of(i) in
-    let _rt_reordered = rt_reorder(_match0(k), 2u) in
-    let a = weigh(k, i) in
-    let _rt_reordered = rt_reorder(_match1(build<Kind>(2u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(reinterpret_cast<u32>(a)))), 2u) in
-    let _rt_reordered = rt_reorder(cast<u32>(i < 2), 1u) in
-    out[i] = weigh(build<Kind>(2u, ([[packed]] u8x3)[0u,0u,0u], build<[[packed]] u32x1>(reinterpret_cast<u32>(a))), 2) + score(a, i < 2)
+    kind_of$r0$tag0 : mut u8
+    kind_of$r0$payload1 : mut [[packed]] u32x1
+    _match0$r1 : mut u32
+    _match2$r4 : mut i32
+    let @0 = i < 4 in
+    if (@0) {
+      let @1 = reinterpret_cast<u32>(i) in
+      let @2 = build<[[packed]] u32x1>(@1) in
+      kind_of$r0$tag0 = 0u
+      kind_of$r0$payload1 = @2
+    } else {
+      let @3 = reinterpret_cast<u32>(i) in
+      let @4 = build<[[packed]] u32x1>(@3) in
+      kind_of$r0$tag0 = 1u
+      kind_of$r0$payload1 = @4
+    }
+    switch ((*kind_of$r0$tag0)) {
+    case 0: { // Kind.Small of _match0
+      _match0$r1 = 0u
+    } break;
+    case 1: { // Kind.Large of _match0
+      _match0$r1 = 1u
+    } break;
+    default: { // Kind.Huge of _match0
+      _match0$r1 = 2u
+    }
+    }
+    let _rt_reordered0 = rt_reorder((*_match0$r1), 2u) in
+    switch ((*kind_of$r0$tag0)) {
+    case 0: { // Kind.Small of _match2
+      let @10 = (*kind_of$r0$payload1)[0u] in
+      let @11 = reinterpret_cast<i32>(@10) in
+      let @12 = @11 + i in
+      _match2$r4 = @12
+    } break;
+    case 1: { // Kind.Large of _match2
+      let @14 = (*kind_of$r0$payload1)[0u] in
+      let @15 = reinterpret_cast<i32>(@14) in
+      let @16 = @15 * i in
+      _match2$r4 = @16
+    } break;
+    default: { // Kind.Huge of _match2
+      let @18 = (*kind_of$r0$payload1)[0u] in
+      let _t8$i4 = reinterpret_cast<i32>(@18) in
+      let @20 = _t8$i4 * _t8$i4 in
+      let @21 = @20 * i in
+      _match2$r4 = @21
+    }
+    }
+    let _rt_reordered1 = rt_reorder(2u, 2u) in
+    let @28 = i < 2 in
+    let @29 = cast<u32>(@28) in
+    let _rt_reordered2 = rt_reorder(@29, 1u) in
+    let @33 = (*_match2$r4) * (*_match2$r4) in
+    let @34 = @33 << 1 in
+    let @37 = 0 - (*_match2$r4) in
+    let @38 = select(@28, (*_match2$r4), @37) in
+    let @39 = @34 + @38 in
+    out[i] = @39
+    continue
   }
   return
 }
 
 func score(n : i32, flag : bool) -> i32 {
-  return select(flag, n, -n)
+  let @0 = 0 - n in
+  let @1 = select(flag, n, @0) in
+  return @1
 }
 
 func weigh(k : Kind, i : i32) -> i32 {
-  return _match2(k, i)
+  _match2$r3 : mut i32
+  let @0 = k.tag in
+  switch (@0) {
+  case 0: { // Kind.Small of _match2
+    let @1 = k.payload in
+    let @2 = @1[0u] in
+    let @3 = reinterpret_cast<i32>(@2) in
+    let @4 = @3 + i in
+    _match2$r3 = @4
+  } break;
+  case 1: { // Kind.Large of _match2
+    let @5 = k.payload in
+    let @6 = @5[0u] in
+    let @7 = reinterpret_cast<i32>(@6) in
+    let @8 = @7 * i in
+    _match2$r3 = @8
+  } break;
+  default: { // Kind.Huge of _match2
+    let @9 = k.payload in
+    let @10 = @9[0u] in
+    let _t8$i3 = reinterpret_cast<i32>(@10) in
+    let @12 = _t8$i3 * _t8$i3 in
+    let @13 = @12 * i in
+    _match2$r3 = @13
+  }
+  }
+  return (*_match2$r3)
 }
 
 
 schedule {
+    run.sort(weigh, |k : | Small(v : i32) | Large(v : i32) | Huge(v : i32)| k)
+       .sort(score, |flag : bool| flag)
+       .bind(i, OptixThread)
 
 }

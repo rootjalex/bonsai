@@ -459,7 +459,7 @@ Expr Mutator::visit(const Intrinsic *node) {
     if (not_changed) {
         return node;
     }
-    return Intrinsic::make(node->op, std::move(args));
+    return Intrinsic::make_like(node, std::move(args));
 }
 
 Expr Mutator::visit(const Generator *node) {

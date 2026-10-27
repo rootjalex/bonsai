@@ -330,6 +330,46 @@ Stmt apply_sort(const Location &loc, const Expr &cost_func, Stmt stmt,
     return change;
 }
 
+// Whether `func` runs inside a raygen program: it is, or is called from
+// (through any chain of calls), a function one of whose loops the schedule
+// binds to OptixThread. The one place a sort on a call made in place can be
+// honored: the hardware regroups the threads about to make the call. The
+// call graph is walked from the bound functions over their bodies as they
+// stand, inlined calls included.
+bool in_optix_raygen(const TransformMap &transforms, const FuncMap &funcs,
+                     const std::string &func) {
+    std::vector<std::string> work;
+    for (const auto &[name, ts] : transforms) {
+        for (const Transform &t : ts) {
+            const auto *bind = std::get_if<Bind>(&t);
+            if (bind != nullptr && bind->resource == Resource::OptixThread &&
+                !bind->i.names.empty()) {
+                work.push_back(name);
+                break;
+            }
+        }
+    }
+    std::set<std::string> seen;
+    while (!work.empty()) {
+        const std::string name = work.back();
+        work.pop_back();
+        if (!seen.insert(name).second) {
+            continue;
+        }
+        if (name == func) {
+            return true;
+        }
+        const auto f = funcs.find(name);
+        if (f == funcs.end()) {
+            continue;
+        }
+        for (const std::string &callee : called_functions(f->second->body)) {
+            work.push_back(callee);
+        }
+    }
+    return false;
+}
+
 // `f.sort(g, |args| key)`: a sort on the call of `g`, the launch's threads
 // reordered by `key` just before the stage `g` is. Shader execution
 // reordering (OptiX's `optixReorder`, Ada and later): the threads of a raygen
@@ -423,7 +463,11 @@ Stmt apply_reorder(const std::string &caller, const std::string &callee,
                            << "; a key is a variant (an ADT value), a bool, or "
                            << "an integer.";
         }
-        return LetStmt::make(WriteLoc("_rt_reordered", u32),
+        // A fresh name per hint: a statement with two sorted calls gets
+        // two, nested, and a let shadowing another of its name is what
+        // the use counting refuses (Opt/DCE.cpp).
+        static size_t hints = 0;
+        return LetStmt::make(WriteLoc("_rt_reordered" + std::to_string(hints++), u32),
                              Intrinsic::make(Intrinsic::rt_reorder,
                                              {key, UIntImm::make(u32, bits)}));
     };
@@ -714,6 +758,26 @@ Program LowerSorts::run(Program program, const CompilerOptions &options) const {
                         body = std::move(func->body);
                         continue;
                     }
+                    // A sort of calls made in place: nothing collects them,
+                    // so only hardware that regroups the threads making them
+                    // can honor the order -- the ray tracing hardware's
+                    // reordering, in a raygen program. Anywhere else the
+                    // directive would be dropped without a word, which it
+                    // is not (the user, 10-26): it is refused, with the two
+                    // ways to have the order.
+                    internal_assert(in_optix_raygen(transforms, program.funcs, name))
+                        << name << ".sort(" << sort.loc.names[0] << ", ...): the "
+                        << "calls to " << sort.loc.names[0] << " are made in place, "
+                        << "and " << name << " runs in no loop bound to OptixThread, "
+                        << "so nothing can run them in key order: a sort on a call "
+                        << "orders the calls to the function by the key, which a "
+                        << "queue does by draining its entries in that order and a "
+                        << "ray tracing kernel does by regrouping the threads about "
+                        << "to make the call (optixReorder); a CPU loop or a CUDA "
+                        << "kernel has neither. Defer the call onto a queue "
+                        << "(`" << name << ".defer(" << sort.loc.names[0]
+                        << ", <queue>)`) to sort it, or bind the loop that runs "
+                        << name << " to OptixThread.";
                     body = apply_reorder(name, sort.loc.names[0], sort.lambda,
                                          std::move(body), program.funcs);
                     continue;

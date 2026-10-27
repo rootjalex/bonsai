@@ -725,7 +725,10 @@ Expr pure_expr(const Instruction &instr, std::vector<Expr> args) {
             internal_assert(!args.empty()) << "rand without its state";
             args.pop_back();
         }
-        value = ir::Intrinsic::make(instr.intrinsic, std::move(args));
+        // The two whose type is the program's keep the instruction's.
+        value = ir::Intrinsic::typed_by_program(instr.intrinsic)
+                    ? ir::Intrinsic::make(instr.intrinsic, std::move(args), instr.type)
+                    : ir::Intrinsic::make(instr.intrinsic, std::move(args));
         break;
     }
     case Instruction::Op::Reduce: {

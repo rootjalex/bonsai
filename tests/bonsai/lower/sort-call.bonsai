@@ -1,14 +1,16 @@
-//! flags: -p core
+//! flags: -p ssa
 
 // `f.sort(g, |args| key)`: a sort on the call of `g`, the launch's threads
 // reordered by the key before the stage `g` runs (Lower/Sorts.cpp,
-// apply_reorder). What to look for: `rt_reorder(key, bits)` placed before
-// each statement that calls `g`, with the key computed from the call's own
-// arguments -- the lambda's `k` replaced by what `run` passes -- and a
-// variant key spelled as the variant's index (a match with one arm per
-// variant) in as many bits as the variants need; a bool key is one bit. The
-// two calls of `weigh` each get their own hint, since each passes something
-// different.
+// apply_reorder) -- the ray tracing hardware's reordering, so the loop
+// making the calls is bound to OptixThread (anywhere else the sort is
+// refused: error/sort-in-place-unbound). What to look for: `rt_reorder(key,
+// bits)` placed before each statement that calls `g`, with the key computed
+// from the call's own arguments -- the lambda's `k` replaced by what `run`
+// passes -- and a variant key spelled as the variant's index (a match with
+// one arm per variant) in as many bits as the variants need; a bool key is
+// one bit. The two calls of `weigh` each get their own hint, since each
+// passes something different, and each hint its own name.
 
 element Kind =
     | Small(v : i32)
@@ -46,4 +48,5 @@ func run(out : mut array[i32, 8]) -> void {
 schedule {
     run.sort(weigh, |k : Kind| k);
     run.sort(score, |flag : bool| flag);
+    run.bind(i, OptixThread);
 }

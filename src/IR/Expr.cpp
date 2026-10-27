@@ -1278,6 +1278,7 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
                          op == OpType::rt_ray_direction ||
                          op == OpType::rt_primitive_index ||
                          op == OpType::rt_sbt_record ||
+                         op == OpType::rt_sbt_element ||
                          op == OpType::rt_launch_iteration ||
                          op == OpType::rt_ignore_hit;
     internal_assert(nullary ||
@@ -1529,8 +1530,14 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
             break;
         }
         case Intrinsic::rt_sbt_record: {
-            internal_assert(args.empty()) << "rt_sbt_record takes no arguments";
-            node->type = rt_record_type();
+            internal_error << "rt_sbt_record is made with its type, the program's "
+                              "`_RTRecord` (Lower/Trees.cpp, record_type_of): "
+                              "Intrinsic::make(op, {}, type)";
+            break;
+        }
+        case Intrinsic::rt_sbt_element: {
+            internal_error << "rt_sbt_element is made with its type, the tree's "
+                              "element type: Intrinsic::make(op, {}, type)";
             break;
         }
         case Intrinsic::rt_launch_iteration: {
@@ -1625,6 +1632,30 @@ Expr Intrinsic::make(OpType op, std::vector<Expr> args) {
     node->op = op;
     node->args = std::move(args);
     return node;
+}
+
+Expr Intrinsic::make(OpType op, std::vector<Expr> args, Type type) {
+    internal_assert(op == OpType::rt_sbt_record || op == OpType::rt_sbt_element)
+        << to_string(op) << " has a fixed type; only rt_sbt_record and "
+        << "rt_sbt_element take the program's";
+    internal_assert(args.empty()) << to_string(op) << " takes no arguments";
+    internal_assert(type.defined()) << to_string(op) << " given no type";
+    Intrinsic *node = new Intrinsic;
+    node->op = op;
+    node->args = std::move(args);
+    node->type = std::move(type);
+    return node;
+}
+
+bool Intrinsic::typed_by_program(OpType op) {
+    return op == OpType::rt_sbt_record || op == OpType::rt_sbt_element;
+}
+
+Expr Intrinsic::make_like(const Intrinsic *node, std::vector<Expr> args) {
+    if (typed_by_program(node->op)) {
+        return make(node->op, std::move(args), node->type);
+    }
+    return make(node->op, std::move(args));
 }
 
 Expr Generator::make(OpType op, std::vector<Expr> args) {
@@ -1787,11 +1818,12 @@ const char *GeomOp::intrinsic_name(const OpType &op) {
     return geometric_op_names[op];
 }
 
-Type rt_record_type() {
-    static const Type record = Struct_t::make(
-        "_RTRecord", Struct_t::Map{TypedVar{"base", UInt_t::make(32)},
-                                   TypedVar{"holder", UInt_t::make(32)}});
-    return record;
+std::string rt_record_field(size_t variant, const std::string &field) {
+    return "_" + std::to_string(variant) + "_" + field;
+}
+
+std::string rt_record_tag() {
+    return "_tag";
 }
 
 Type hit_record_type() {

@@ -38,14 +38,27 @@ struct Meshes {
 };
 
 // A mesh as one build input: its own buffers, based at 0, the mesh
-// primitive its holder. The hardware takes three floats a vertex, tightly
-// packed, where the program's vec3f is padded to four, so the positions
-// are repacked. The any-hit programs matter for every triangle here (the
-// filter's `distmin > near` is no triangle's to settle).
+// primitive its holder, and the input's hit-group record: the holder's
+// fields as the program's _RTRecord lays them out, which the hit programs
+// read instead of loading the mesh primitive (pbrt's TriangleMeshRecord).
+// The program's bonsai_rt_record_fill writes it from the element; the
+// runtime takes the bytes after the record's own two words, base and
+// holder (bonsai_optix_record). The hardware takes three floats a vertex,
+// tightly packed, where the program's vec3f is padded to four, so the
+// positions are repacked. The any-hit programs matter for every triangle
+// here (the filter's `distmin > near` is no triangle's to settle).
 struct Input {
     std::vector<float> positions;
+    _RTRecord record = {};
     bonsai_optix_triangles input;
 };
+
+void fill_record(Input &in, uint32_t holder, const _tree_layout0 &prims,
+                 const Mesh *mesh_pool) {
+    bonsai_rt_record_fill(holder, &in.record, prims, mesh_pool);
+    in.input.record = reinterpret_cast<const unsigned char *>(&in.record) +
+                      2 * sizeof(uint32_t);
+}
 
 Input input_of(const Meshes &m, uint32_t mesh, uint32_t holder) {
     Input in;
@@ -105,10 +118,19 @@ int main() {
     assert(solo_fill == solo_pool.size());
     assert(mesh_fill == mesh_pool.size());
 
+    // The tree's storage: the elements, and the traversable once the
+    // structures are built.
+    bonsai_buffer elems_buffer =
+        bonsai_buffer_wrap(elems.data(), elems.size() * sizeof(elems[0]));
+    _tree_layout0 scene;
+    scene.pCount = uint32_t(elems.size());
+    scene.elems = &elems_buffer;
+
     // The structures: the standalone triangle, one input based where the
     // Solo element is in `elems`; the meshes, one input each with the mesh
-    // primitive as holder; both placed once by the identity, the meshes'
-    // inputs' own holders applying.
+    // primitive as holder and its record filled from that primitive; both
+    // placed once by the identity, the meshes' inputs' own holders
+    // applying.
     std::vector<float> solo_positions;
     std::vector<uint32_t> solo_indices;
     for (const float3 &p : {solo.p0, solo.p1, solo.p2}) {
@@ -126,8 +148,10 @@ int main() {
     solo_input.any_hit = true;
     solo_input.holder = BONSAI_OPTIX_OWN;
     const uint64_t geometry_solo = bonsai_optix_geometry(&solo_input, 1, nullptr, 0);
-    const Input m0 = input_of(meshes, mesh0, holder0);
-    const Input m1 = input_of(meshes, mesh1, holder1);
+    Input m0 = input_of(meshes, mesh0, holder0);
+    Input m1 = input_of(meshes, mesh1, holder1);
+    fill_record(m0, holder0, scene, mesh_pool.data());
+    fill_record(m1, holder1, scene, mesh_pool.data());
     const bonsai_optix_triangles mesh_inputs[2] = {m0.input, m1.input};
     const uint64_t geometry_meshes = bonsai_optix_geometry(mesh_inputs, 2, nullptr, 0);
     std::vector<bonsai_optix_instance> instances;
@@ -156,12 +180,7 @@ int main() {
     std::vector<float3> hit_p0(n);
     std::vector<int32_t> hit_mesh(n, -3), hit_any(n, -3);
 
-    bonsai_buffer elems_buffer =
-        bonsai_buffer_wrap(elems.data(), elems.size() * sizeof(elems[0]));
-    _tree_layout0 scene;
     scene.traversable = traversable;
-    scene.pCount = uint32_t(elems.size());
-    scene.elems = &elems_buffer;
     bonsai_buffer first_index_buffer = bonsai_buffer_wrap(
         meshes.first_index.data(), meshes.first_index.size() * sizeof(uint32_t));
     bonsai_buffer first_vertex_buffer = bonsai_buffer_wrap(

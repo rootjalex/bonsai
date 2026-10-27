@@ -744,6 +744,30 @@ void rt_order(std::vector<Geometric>::iterator begin,
 struct Acceleration {
     const Meshes &meshes;
     const Shapes &shapes;
+    // The program's filler of a hit-group record for the element `holder`
+    // names (`bonsai_rt_record_fill`, Lower/Trees.cpp): the holder's
+    // fields the hit programs read, as the program's _RTRecord lays them
+    // out -- pbrt's TriangleMeshRecord, derived. The runtime takes the
+    // bytes after the record's own two words, base and holder
+    // (bonsai_optix_record::element).
+    std::function<void(uint32_t, _RTRecord &)> fill_record;
+
+    static constexpr size_t kRecordWords = 2 * sizeof(uint32_t);
+    static constexpr size_t kElementBytes = sizeof(_RTRecord) - kRecordWords;
+
+    // The element bytes of the records of `holders`, consecutive, one
+    // record each.
+    std::vector<unsigned char> record_elements(const std::vector<uint32_t> &holders) const {
+        std::vector<unsigned char> bytes;
+        bytes.reserve(holders.size() * kElementBytes);
+        for (const uint32_t holder : holders) {
+            _RTRecord record = {};
+            fill_record(holder, record);
+            const auto *from = reinterpret_cast<const unsigned char *>(&record) + kRecordWords;
+            bytes.insert(bytes.end(), from, from + kElementBytes);
+        }
+        return bytes;
+    }
 
     // The structures over one set of shapes: its triangles' and its other
     // shapes'; none where the set has none of that kind. (An id, not a
@@ -937,6 +961,22 @@ struct Acceleration {
             input.holder = holder_of.at(k);
             inputs.push_back(input);
         }
+        // The records of the inputs with holders of their own -- the mesh
+        // primitive's fields the programs read, one record per input --
+        // which the runtime copies at the build.
+        std::vector<uint32_t> holders;
+        for (const uint32_t holder : holder_of) {
+            if (holder != BONSAI_OPTIX_OWN) {
+                holders.push_back(holder);
+            }
+        }
+        const std::vector<unsigned char> elements = record_elements(holders);
+        size_t next = 0;
+        for (size_t k = 0; k < inputs.size(); k++) {
+            if (holder_of.at(k) != BONSAI_OPTIX_OWN) {
+                inputs[k].record = elements.data() + (next++) * kElementBytes;
+            }
+        }
         return bonsai_optix_geometry(inputs.data(), int64_t(inputs.size()), nullptr, 0);
     }
 
@@ -981,8 +1021,28 @@ struct Acceleration {
         // per input from there), or none for the scene's own shapes (what
         // the hit programs' records carry, bonsai_optix_record).
         std::vector<bonsai_optix_instance> instances;
+        // The placements' records (bonsai_optix_instance::records), kept
+        // until the scene is built, when the runtime copies them: one
+        // record for a placement's one holder, or one per input from
+        // `holder` on for a placement with a holder per input (`inputs` of
+        // them, its definition's meshes).
+        std::vector<std::vector<unsigned char>> placement_records;
         const auto place = [&](const Built &built, const float transform[12],
-                               uint32_t holder, uint32_t holder_per_input) {
+                               uint32_t holder, uint32_t holder_per_input,
+                               size_t inputs) {
+            const unsigned char *records = nullptr;
+            if (holder != BONSAI_OPTIX_OWN) {
+                std::vector<uint32_t> holders;
+                if (holder_per_input != 0) {
+                    for (size_t k = 0; k < inputs; k++) {
+                        holders.push_back(holder + uint32_t(k));
+                    }
+                } else {
+                    holders.push_back(holder);
+                }
+                placement_records.push_back(record_elements(holders));
+                records = placement_records.back().data();
+            }
             for (const std::optional<uint64_t> &g : {built.triangles, built.boxes}) {
                 if (!g.has_value()) {
                     continue;
@@ -992,6 +1052,7 @@ struct Acceleration {
                 inst.geometry = *g;
                 inst.holder = holder;
                 inst.holder_per_input = holder_per_input;
+                inst.records = records;
                 instances.push_back(inst);
             }
         };
@@ -1049,12 +1110,12 @@ struct Acceleration {
         const float identity[12] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f,
                                     0.f, 0.f, 0.f, 0.f, 1.f, 0.f};
         if (own > 0) {
-            place(geometry(own_shapes.data(), own, 0), identity, BONSAI_OPTIX_OWN, 0);
+            place(geometry(own_shapes.data(), own, 0), identity, BONSAI_OPTIX_OWN, 0, 0);
         }
         if (const std::optional<uint64_t> own_meshes =
                 meshes_geometry(mesh_prims, tris, holder_of);
             own_meshes.has_value()) {
-            place(Built{own_meshes, std::nullopt}, identity, BONSAI_OPTIX_OWN, 0);
+            place(Built{own_meshes, std::nullopt}, identity, BONSAI_OPTIX_OWN, 0, 0);
         }
         // OptiX's transform is the top three rows of the matrix, row major
         // -- the first twelve of the sixteen scene_dump wrote. Every
@@ -1066,13 +1127,14 @@ struct Acceleration {
             const bonsai_scene::Instance &inst = placed[i];
             if (first_placed[i] != BONSAI_OPTIX_OWN) {
                 place(Built{definition_mesh_structure[inst.definition], std::nullopt},
-                      inst.render_from_instance, first_placed[i], 1);
+                      inst.render_from_instance, first_placed[i], 1,
+                      definition_meshes[inst.definition].size());
             }
         }
         for (size_t i = after_placed; i < top.size(); i++) {
             const bonsai_scene::Instance &inst = placed[top[i].index];
             place(of_definition[inst.definition], inst.render_from_instance,
-                  uint32_t(i), 0);
+                  uint32_t(i), 0, 0);
         }
         if (instances.empty()) {
             return 0;
@@ -2981,7 +3043,24 @@ int main(int argc, char **argv) {
                                patch_pool.data(),    cylinder_pool.data(),
                                curve_pool.data(),    curve_commons.data(),
                                curve_frames.data()};
-        tree.traversable = Acceleration{pool, compacted}.scene(
+        // The records' filler: the program's, reading the top-level
+        // elements and the pool of the placed meshes (the record carries a
+        // mesh's and a placed mesh's mesh index, the fields the hit
+        // programs read; an instance's own shapes carry nothing of it). A
+        // host call like every other generated one: its buffers staged on
+        // the host first, since implicit copies may be off -- the pool's
+        // buffer is this call's own, over the same rows the render's is.
+        bonsai_buffer b_placed_fill = buffer_of(placed_pool);
+        const auto fill_record = [&](uint32_t holder, _RTRecord &out) {
+            bonsai_buffer b_out = buffer_of(&out, 1);
+            bonsai_buffer *buffers[] = {&b_out, tree.geoms, tree.prims, &b_placed_fill};
+            static_assert(sizeof(buffers) / sizeof(buffers[0]) ==
+                          sizeof(bonsai_rt_record_fill_sides));
+            bonsai_buffer_stage_all(buffers, bonsai_rt_record_fill_sides,
+                                    sizeof(bonsai_rt_record_fill_sides));
+            bonsai_rt_record_fill(holder, &b_out, tree, &b_placed_fill);
+        };
+        tree.traversable = Acceleration{pool, compacted, fill_record}.scene(
             shapes, mesh_prims, tris, instanced, top, def_runs, definition_meshes,
             placed_meshes, loaded.instances);
         if (tree.traversable == 0) {

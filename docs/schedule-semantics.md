@@ -229,15 +229,32 @@ the program's. The recursion must be tail-modulo-recursion: after a
 recursive call returns, nothing remains but more recursive calls and the
 return. `n` is the schedule's promise about the depth.
 
-**sort(c, lambda).** On a recursion's children, `trace.sort(tris.Interior,
+**sort(c, lambda).** An ordering of what comes next, with no change to
+what is computed. On a recursion's children, `trace.sort(tris.Interior,
 |child| key)`: the calls of a `from (a, b)` are made in ascending order of
 the key the lambda gives each child. The sort must come before `loopify`,
 which replaces the run of calls by stack pushes and leaves nothing to
 permute. In a gang the comparisons vote by the lanes' majority, so the
-gang descends into one child order. On a call, `vol_route.sort(
-vol_surface, |prim| key)`, the threads are reordered by the key just
-before the call (OptiX's `optixReorder`); nothing an iteration computes
-changes.
+gang descends into one child order.
+
+On a call, `f.sort(g, |args| key)`: the calls to `g` that `f` makes run in
+ascending `key`, computed from each call's own arguments at the point of
+the call. How the order is had depends on where the calls run, and the
+directive is the same word for each because it means the same thing:
+
+- the calls are deferred onto a queue (`x.defer(g, q)` somewhere in the
+  schedule): the key travels in the entry and every pass of the drain runs
+  the entries in key order -- the exact order (4.2; the paper's ray
+  reordering, a Morton code of where a ray starts and where it is expected
+  to end);
+- the calls are made in place inside a loop bound to OptixThread: the
+  threads about to make the call are regrouped by the key's low bits
+  (OptiX's `optixReorder`, shader execution reordering) -- the hardware's
+  approximate order, `vol_route.sort(vol_surface, |prim| material kind)`
+  before the material stage;
+- the calls are made in place anywhere else: nothing collects them and
+  nothing regroups the threads, so the directive is refused with those two
+  ways out. A sort that could not be honored is never dropped in silence.
 
 **specialize(x).** Halide's `specialize`, from a boolean condition to a
 variant. `x` is a parameter of the function of variant type (an algebraic

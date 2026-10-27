@@ -3974,6 +3974,7 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
     case Intrinsic::rt_ray_direction:
     case Intrinsic::rt_primitive_index:
     case Intrinsic::rt_sbt_record:
+    case Intrinsic::rt_sbt_element:
     case Intrinsic::rt_launch_iteration:
     case Intrinsic::rt_report_hit:
     case Intrinsic::rt_ignore_hit:

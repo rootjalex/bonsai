@@ -11,6 +11,7 @@ add_bonsai_tests(
     reducer-assign.bonsai
     reducer-mut-argument.bonsai
     specialize-late.bonsai
+    sort-in-place-unbound.bonsai
     unroll-nonconstant.bonsai
     specialize-count-no-gang.bonsai
     specialize-field-not-bool.bonsai

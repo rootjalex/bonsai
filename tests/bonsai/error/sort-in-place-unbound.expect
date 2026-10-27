@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/Lower/Sorts.cpp:764
+
+--> in_optix_raygen(transforms, program.funcs, name)
+run.sort(work, ...): the calls to work are made in place, and run runs in no loop bound to OptixThread, so nothing can run them in key order: a sort on a call orders the calls to the function by the key, which a queue does by draining its entries in that order and a ray tracing kernel does by regrouping the threads about to make the call (optixReorder); a CPU loop or a CUDA kernel has neither. Defer the call onto a queue (`run.defer(work, <queue>)`) to sort it, or bind the loop that runs run to OptixThread.

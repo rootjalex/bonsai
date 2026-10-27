@@ -1,0 +1,30 @@
+//! flags: -p ssa
+
+// A sort on a call that nothing can order (the user, 10-26): `run.sort(work,
+// |x| key)` asks that the calls to `work` run in ascending key, but the
+// calls are made in place -- no `defer` collects them on a queue -- and
+// `run` is bound to no OptixThread loop, so no hardware regroups the threads
+// making them either. The directive used to be dropped without a word; it is
+// refused with the two ways to have the order (Lower/Sorts.cpp). The same
+// sort beside `run.defer(work, q)` sorts the queue, and inside a loop bound
+// to OptixThread it is the hardware's reordering.
+import stdlib/numerics;
+
+func work(x : Float, acc : reduce(+) Float) -> void {
+    acc += x * 0.5;
+    return;
+}
+
+func run(values : array[Float, 8], out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        acc : reduce(+) Float = 0.0;
+        work(values[i], acc);
+        out[i] = acc;
+    }
+    return;
+}
+
+schedule {
+    run.sort(work, |x : Float| cast[[u32]](x));
+    run.bind(i, CPUThread);
+}

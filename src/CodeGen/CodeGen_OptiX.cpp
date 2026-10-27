@@ -816,19 +816,26 @@ llvm::Value *CodeGen_OptiX::codegen_rt_intrinsic(const Intrinsic *node) {
     }
     case Intrinsic::rt_sbt_record: {
         // The record's data, `bonsai_optix_record` (runtime/bonsai_optix.h)
-        // as the IR's `_RTRecord` (ir::rt_record_type): two 32-bit words,
-        // `base` then `holder`, at the address `optixGetSbtDataPointer`
+        // as the IR's `_RTRecord`: `base` and `holder`, two 32-bit words,
+        // and then the holder element's fields as the program's tree
+        // lowering defined them (the intrinsic's own type, Lower/Trees.cpp's
+        // record_type_of), at the address `optixGetSbtDataPointer`
         // answers -- arithmetic on the table's base, no memory of the
-        // acceleration structure's read. Loaded whole, so that the two
-        // words are one 64-bit load where the backend sees fit.
+        // acceleration structure's read. Loaded whole; the backend narrows
+        // the load to the fields read.
         llvm::Value *data = asm_call(
             i64_t, "call ($0), _optix_get_sbt_data_ptr_64, ();", "=l", {},
             /*side_effects=*/false);
-        llvm::Type *record_ty = codegen_type(ir::rt_record_type());
+        llvm::Type *record_ty = codegen_type(node->type);
         llvm::Value *ptr = builder->CreateIntToPtr(
             data, llvm::PointerType::getUnqual(*context), "_sbt_data");
         return builder->CreateLoad(record_ty, ptr, "_sbt_record");
     }
+    case Intrinsic::rt_sbt_element:
+        internal_error << "rt_sbt_element reached the backend: Lower/Trees.cpp "
+                          "and Lower/Layouts.cpp turn every read of it into a "
+                          "field of the record";
+        return nullptr;
     case Intrinsic::rt_report_hit: {
         internal_assert(node->args.size() == 1);
         llvm::Value *t = builder->CreateBitCast(codegen_expr(node->args[0]), i32_t);

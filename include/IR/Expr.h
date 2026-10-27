@@ -713,8 +713,8 @@ struct Intrinsic : ExprNode<Intrinsic> {
         rt_primitive_index,
         // In a hit, any-hit or intersection program: the build input's
         // shader binding table record, `rt_sbt_record() -> _RTRecord`
-        // (ir::rt_record_type; runtime/bonsai_optix.h's
-        // bonsai_optix_record): `base`, where the input's elements start
+        // (the program's, Lower/Trees.cpp's record_type_of; runtime/
+        // bonsai_optix.h's bonsai_optix_record): `base`, where the input's elements start
         // in the tree's storage, and `holder`, the index of the element
         // whose field holds the hit tree -- the instance -- or
         // ir::rt_record_own for the tree's own elements. With the primitive
@@ -723,6 +723,19 @@ struct Intrinsic : ExprNode<Intrinsic> {
         // the instance id OptiX offers instead is a load from the
         // acceleration structure's instance node, which no program makes.
         rt_sbt_record,
+        // In a hit, any-hit or intersection program: the element whose
+        // field holds the hit tree -- the instance, the mesh primitive --
+        // as the record carries it, `rt_sbt_element() -> <the tree's
+        // element type>`. The record stores that element's fields (each
+        // variant's, named ir::rt_record_field(variant, field)), filled by
+        // the driver through the program's `bonsai_rt_record_fill` from the
+        // element the holder index names; a program reads a field of the
+        // holder off the record instead of loading the element and its arm
+        // (Lower/Trees.cpp, bind_elements) -- pbrt's TriangleMeshRecord. A
+        // marker for the lowering: Lower/Trees.cpp and Lower/Layouts.cpp
+        // turn every read of it into a record field, and none survives to
+        // the backends.
+        rt_sbt_element,
         // In a hit program made of a raygen's continuation
         // (SSA/HitContinuations.h): the iteration of the launched loop
         // that this thread's trace belongs to -- `_begin + launch index *
@@ -790,6 +803,21 @@ struct Intrinsic : ExprNode<Intrinsic> {
     std::vector<Expr> args;
 
     static Expr make(OpType op, std::vector<Expr> args);
+    // The same with the result's type given, for the two intrinsics whose
+    // type is the program's rather than fixed: `rt_sbt_record`, the record
+    // struct the program's tree lowering defines (its fields are the
+    // holder element's, Lower/Trees.cpp), and `rt_sbt_element`, the tree's
+    // element type.
+    static Expr make(OpType op, std::vector<Expr> args, Type type);
+    // `node` over new arguments: the way a rewrite rebuilds an intrinsic,
+    // so that one of the two typed ones keeps its type -- rebuilt from its
+    // op alone it would have none, and the program has no second record
+    // type to give it.
+    static Expr make_like(const Intrinsic *node, std::vector<Expr> args);
+    // Whether `op` is one of the two whose type is the program's: what
+    // rebuilds one from an op and a type it kept (the SSA form's
+    // instruction) asks before choosing the constructor.
+    static bool typed_by_program(OpType op);
     // Whether an intrinsic does something besides compute its value --
     // advances the random generator, traces a ray, reports or rejects a
     // hit -- so that a call whose value goes unread is kept.
@@ -914,9 +942,23 @@ struct GeomOp : ExprNode<GeomOp> {
 Type hit_record_type();
 
 // The shader binding table record a hit program reads (Intrinsic::
-// rt_sbt_record): `_RTRecord { base : u32; holder : u32 }`, laid out as
-// runtime/bonsai_optix.h's bonsai_optix_record.
-Type rt_record_type();
+// rt_sbt_record) is the program's `_RTRecord`, defined by the tree lowering
+// (Lower/Trees.cpp, record_type_of): `base : u32` and `holder : u32`, laid
+// out as runtime/bonsai_optix.h's bonsai_optix_record's first two words,
+// then the holder element's tag and fields. One type per program, and
+// every read of the record is made with it -- two struct types of one name
+// are one expression to common-subexpression elimination.
+//
+// The record field that carries field `field` of the holder element's
+// variant number `variant` (`rt_sbt_element`): `_<variant>_<field>` -- the
+// index rather than the name, so that no two (variant, field) pairs share a
+// name whatever underscores the names hold. One name for the tree lowering,
+// which defines the record and reads it, the layout lowering, which reads it
+// for a group indexed by (holder, ordinal), and the filler the driver calls
+// (Lower/Trees.cpp, `bonsai_rt_record_fill`).
+std::string rt_record_field(size_t variant, const std::string &field);
+// The record's field that says which variant the holder element is: `_tag`.
+std::string rt_record_tag();
 // The `holder` of a record over a tree's own elements: no element holds
 // the tree (BONSAI_OPTIX_OWN in runtime/bonsai_optix.h).
 constexpr uint32_t rt_record_own = 0xffffffffu;

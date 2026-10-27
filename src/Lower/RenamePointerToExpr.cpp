@@ -229,7 +229,7 @@ struct Rename : public ir::Mutator {
         for (const ir::Expr &arg : node->args) {
             args.push_back(mutate(arg));
         }
-        ir::Expr intrinsic = ir::Intrinsic::make(node->op, std::move(args));
+        ir::Expr intrinsic = ir::Intrinsic::make_like(node, std::move(args));
         if (!rename) {
             return intrinsic;
         }

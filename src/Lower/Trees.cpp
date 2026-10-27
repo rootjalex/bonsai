@@ -3832,9 +3832,21 @@ struct LowerBVH : public ir::Mutator {
     //===----------------------------------------------------------------===//
 
     const ir::TransformMap *transforms = nullptr;
+    // The schedule's tree layouts and the groups it bound set fields to
+    // (`Mesh.tris : OptixTree from mesh_tris`): what the hit-group record
+    // carries of a holder is read off them (fields_read).
+    const ir::LayoutMap *tree_layouts = nullptr;
+    const std::map<std::string, std::string> *tree_groups = nullptr;
     std::string current_function;
     ir::TypeMap new_types;
     size_t rt_counter = 0;
+    // The program's hit-group record (record_type_of): base and holder, then
+    // the tag and the fields of the holder element's arms. One type for the
+    // program, named `_RTRecord`; `record_adt` the element type it was
+    // derived from.
+    ir::Type record_t;
+    std::string record_adt;
+    bool record_fill_added = false;
 
     bool bound_to_rtcore() const {
         if (transforms == nullptr) {
@@ -4087,6 +4099,248 @@ struct LowerBVH : public ir::Mutator {
         return parts;
     }
 
+    // Whether an arm of the flatten's match names one element of its own
+    // (`Geom(g) => set[Geometric]{g}`) rather than a tree the element holds.
+    static bool own_arm(const ir::MatchExpr::Arm &arm) {
+        const ir::Build *one = arm.value.as<ir::Build>();
+        return one != nullptr && one->type.is<ir::Set_t>();
+    }
+
+    // The fields of the holder's variant `index` that the hit programs
+    // read: directly, `Access(f, Unwrap(index, e0))` in the arm's
+    // expression, and through the layout group the schedule bound to the
+    // arm's set field (`Mesh.tris : OptixTree from mesh_tris`), whose
+    // members compute a stored element from the holder's fields (`mesh =
+    // h.mesh`; Lower/Layouts.cpp reads them off the record). A field
+    // nothing reads is not in the record, as pbrt's TriangleMeshRecord
+    // carries what its programs read: an instanced mesh's transforms stay
+    // with the instance primitive, whose row the raygen reads after the
+    // trace.
+    std::set<std::string> fields_read(const ir::MatchExpr::Arm &arm, size_t index,
+                                      const ir::ADT_t *adt,
+                                      const std::string &e0) const {
+        struct Reads : public ir::Visitor {
+            const size_t index;
+            const std::string &e0;
+            std::set<std::string> fields, sets;
+            Reads(size_t index, const std::string &e0) : index(index), e0(e0) {}
+            void visit(const ir::Access *node) override {
+                if (const ir::Unwrap *u = node->value.as<ir::Unwrap>();
+                    u != nullptr && u->index == index) {
+                    const ir::Var *v = u->value.as<ir::Var>();
+                    if (v != nullptr && v->name == e0) {
+                        (node->type.is<ir::Set_t>() ? sets : fields).insert(node->field);
+                    }
+                }
+                ir::Visitor::visit(node);
+            }
+        } reads(index, e0);
+        arm.value.accept(&reads);
+        if (tree_groups == nullptr || tree_layouts == nullptr) {
+            return reads.fields;
+        }
+        for (const std::string &set_field : reads.sets) {
+            const auto bound = tree_groups->find(adt->variant_name(index) + "." + set_field);
+            if (bound == tree_groups->cend()) {
+                continue;
+            }
+            struct FindGroup : public ir::Visitor {
+                const std::string &wanted;
+                const ir::Group *group = nullptr;
+                FindGroup(const std::string &wanted) : wanted(wanted) {}
+                void visit(const ir::Group *node) override {
+                    if (node->declared_name == wanted) {
+                        group = node;
+                    }
+                    node->inner.accept(this);
+                }
+            } finder(bound->second);
+            for (const auto &[_, layout] : *tree_layouts) {
+                layout.accept(&finder);
+                if (finder.group != nullptr) {
+                    break;
+                }
+            }
+            if (finder.group == nullptr || finder.group->holder_name.empty()) {
+                continue;
+            }
+            struct HolderReads : public ir::Visitor {
+                const std::string &holder;
+                std::set<std::string> &fields;
+                HolderReads(const std::string &holder, std::set<std::string> &fields)
+                    : holder(holder), fields(fields) {}
+                // A computed member's expression (the base visitor stops
+                // at the member).
+                void visit(const ir::Materialize *node) override {
+                    node->value.accept(this);
+                }
+                void visit(const ir::Access *node) override {
+                    const ir::Var *v = node->value.as<ir::Var>();
+                    if (v != nullptr && v->name == holder) {
+                        fields.insert(node->field);
+                    }
+                    ir::Visitor::visit(node);
+                }
+            } holder_reads(finder.group->holder_name, reads.fields);
+            finder.group->inner.accept(&holder_reads);
+        }
+        return reads.fields;
+    }
+
+    // The program's hit-group record: `base` and `holder` (runtime/
+    // bonsai_optix.h's bonsai_optix_record's two words), then `_tag`, the
+    // variant of the holder element, and the fields of every arm that
+    // holds a tree that the hit programs read (fields_read), each named
+    // ir::rt_record_field(variant, field) -- never a set-typed one (a held
+    // set's elements are read by the hardware's primitive index and the
+    // record's base, or computed from the holder's fields -- Lower/
+    // Layouts.cpp). It is pbrt's TriangleMeshRecord, derived: what a hit
+    // program reads of the holder it reads off the record (bind_elements),
+    // and the driver fills the record from the holder element
+    // (add_record_fill), so the hit chain loads neither the element nor its
+    // arm. One type for the program; a second tree with another element
+    // type is refused.
+    const ir::Type &record_type_of(const RayQuery &rq) {
+        static const ir::Type u32 = ir::UInt_t::make(32);
+        const ir::Type element_t = rq.elements[0].type;
+        const ir::ADT_t *adt = element_t.as<ir::ADT_t>();
+        const bool has_arms = rq.arms != nullptr && adt != nullptr;
+        if (record_t.defined()) {
+            internal_assert(!has_arms || record_adt == adt->name)
+                << "[unimplemented] " << current_function << ".bind(RTCore): "
+                << "the program's hit-group record was derived for elements of "
+                << (record_adt.empty() ? std::string("no variant type") : record_adt)
+                << ", and this query's tree holds " << adt->name
+                << "; one record per program is what is built -- every RT-core "
+                << "query over a tree of variants in one program is over the "
+                << "same element type.";
+            return record_t;
+        }
+        ir::Struct_t::Map fields{ir::TypedVar{"base", u32}, ir::TypedVar{"holder", u32}};
+        if (has_arms) {
+            fields.push_back(ir::TypedVar{ir::rt_record_tag(), u32});
+            for (const ir::MatchExpr::Arm &arm : rq.arms->arms) {
+                if (own_arm(arm)) {
+                    continue;
+                }
+                const auto index = adt->index_of(arm.variant);
+                internal_assert(index.has_value())
+                    << adt->name << " has no variant " << arm.variant;
+                const ir::Struct_t *payload = adt->variants[*index].as<ir::Struct_t>();
+                internal_assert(payload != nullptr)
+                    << arm.variant << " of " << adt->name << " is not a struct";
+                const std::set<std::string> read =
+                    fields_read(arm, *index, adt, rq.elements[0].name);
+                for (const ir::TypedVar &f : payload->fields) {
+                    if (f.type.is<ir::Set_t>() || !read.contains(f.name)) {
+                        continue;
+                    }
+                    fields.push_back(
+                        ir::TypedVar{ir::rt_record_field(*index, f.name), f.type});
+                }
+            }
+            record_adt = adt->name;
+        }
+        record_t = ir::Struct_t::make("_RTRecord", std::move(fields));
+        return record_t;
+    }
+
+    // A zero of `t`: for the record's fields of the arms the holder is not.
+    static ir::Expr zero_of(const ir::Type &t) {
+        if (const ir::Struct_t *s = t.as<ir::Struct_t>()) {
+            std::vector<ir::Expr> values;
+            values.reserve(s->fields.size());
+            for (const ir::TypedVar &f : s->fields) {
+                values.push_back(zero_of(f.type));
+            }
+            return ir::Build::make(t, std::move(values));
+        }
+        internal_assert(!t.is<ir::ADT_t>() && !t.is<ir::Set_t>())
+            << "[unimplemented] a hit-group record field of type " << t;
+        return make_zero(t);
+    }
+
+    // The driver's filler of the record, `bonsai_rt_record_fill(holder, out,
+    // <the tree>)`, exported once per program: reads the element `holder`
+    // names out of the tree's storage and writes `out[0]` -- base zero,
+    // the holder, its variant's tag, its fields in the record's places and
+    // zeros in the other arms'. The driver calls it once per hit-group
+    // record whose holder is an element (a mesh input's, an instance's) and
+    // hands the runtime the bytes (bonsai_optix_triangles::record,
+    // bonsai_optix_instance::records); pbrt fills its TriangleMeshRecord by
+    // hand per mesh, here the compiler writes the filler from the arms the
+    // programs read.
+    void add_record_fill(const RayQuery &rq) {
+        if (record_fill_added || rq.arms == nullptr) {
+            return;
+        }
+        static const ir::Type u32 = ir::UInt_t::make(32);
+        const ir::Type &rec_t = record_type_of(rq);
+        const ir::Struct_t *rec = rec_t.as<ir::Struct_t>();
+        const ir::Type element_t = rq.elements[0].type;
+        const ir::ADT_t *adt = element_t.as<ir::ADT_t>();
+        if (adt == nullptr || rec->fields.size() <= 2) {
+            return; // nothing beyond base and holder: zeros will do
+        }
+        record_fill_added = true;
+        const std::string holder_name = "_holder", out_name = "_out",
+                          held_name = "_rt_held";
+        const ir::Expr holder = ir::Var::make(u32, holder_name);
+        std::vector<ir::Stmt> body;
+        body.push_back(ir::LetStmt::make(ir::WriteLoc(held_name, element_t),
+                                         ir::StoredElement::make(rq.tree, holder)));
+        const ir::Expr held = ir::Var::make(element_t, held_name);
+        std::vector<ir::MatchExpr::Arm> arms;
+        for (size_t k = 0; k < adt->variants.size(); k++) {
+            const std::string prefix = ir::rt_record_field(k, "");
+            std::vector<ir::Expr> values;
+            values.reserve(rec->fields.size());
+            for (const ir::TypedVar &f : rec->fields) {
+                if (f.name == "base") {
+                    values.push_back(make_zero(u32));
+                } else if (f.name == "holder") {
+                    values.push_back(holder);
+                } else if (f.name == ir::rt_record_tag()) {
+                    values.push_back(ir::UIntImm::make(u32, k));
+                } else if (f.name.compare(0, prefix.size(), prefix) == 0) {
+                    values.push_back(ir::Access::make(f.name.substr(prefix.size()),
+                                                      ir::Unwrap::make(k, held)));
+                } else {
+                    values.push_back(zero_of(f.type));
+                }
+            }
+            arms.push_back(ir::MatchExpr::Arm{adt->variant_name(k),
+                                              ir::Build::make(rec_t, std::move(values))});
+        }
+        const ir::Type out_t = ir::Array_t::make(rec_t, ir::Expr());
+        ir::WriteLoc slot(out_name, out_t);
+        slot.add_index_access(ir::UIntImm::make(u32, 0));
+        body.push_back(ir::Store::make(std::move(slot),
+                                       ir::MatchExpr::make(held, std::move(arms))));
+        const ir::Stmt stmt = ir::Sequence::make(std::move(body));
+        // The parameters: the holder and the record first, then what the
+        // read of the tree needs -- the tree itself, as the trace function
+        // takes it.
+        std::vector<ir::Function::Argument> args;
+        args.emplace_back(holder_name, u32);
+        args.emplace_back(out_name, out_t, ir::Expr(), /*mutating=*/true);
+        for (const ir::TypedVar &var : ir::gather_free_vars(stmt)) {
+            if (var.name == holder_name || var.name == out_name) {
+                continue;
+            }
+            const auto tree = tree_types.find(var.name);
+            args.emplace_back(var.name,
+                              tree != tree_types.cend() ? tree->second : var.type);
+        }
+        const std::string name = "bonsai_rt_record_fill";
+        auto f = std::make_shared<ir::Function>(
+            name, std::move(args), ir::Void_t::make(), stmt,
+            ir::Function::InterfaceList{},
+            std::vector<ir::Function::Attribute>{ir::Function::Attribute::exported});
+        internal_assert(!new_funcs.contains(name)) << name << " made twice";
+        new_funcs[name] = std::move(f);
+    }
+
     // The statements that bind the query's elements from a hit.
     //
     // In a program the hit is the hardware's: the build input's record
@@ -4113,10 +4367,14 @@ struct LowerBVH : public ir::Mutator {
     std::vector<ir::Stmt> bind_elements(const RayQuery &rq,
                                         ir::Expr from_hit = ir::Expr()) {
         static const ir::Type u32 = ir::UInt_t::make(32);
-        const ir::Type rec_t = ir::rt_record_type();
+        // In a program the record is at hand, and the holder element's
+        // fields are read off it (record_type_of); after the trace, in the
+        // raygen, the hit record names the element by index alone.
+        const bool from_record = !from_hit.defined();
+        const ir::Type &rec_t = record_type_of(rq);
         std::vector<ir::Stmt> stmts;
-        ir::Expr idx, top, own;
-        if (from_hit.defined()) {
+        ir::Expr idx, top, own, rec;
+        if (!from_record) {
             idx = ir::Access::make("idx", from_hit);
             if (rq.arms != nullptr) {
                 top = ir::Access::make("top", from_hit);
@@ -4124,8 +4382,8 @@ struct LowerBVH : public ir::Mutator {
         } else {
             stmts.push_back(ir::LetStmt::make(
                 ir::WriteLoc("_rt_rec", rec_t),
-                ir::Intrinsic::make(ir::Intrinsic::rt_sbt_record, {})));
-            const ir::Expr rec = ir::Var::make(rec_t, "_rt_rec");
+                ir::Intrinsic::make(ir::Intrinsic::rt_sbt_record, {}, rec_t)));
+            rec = ir::Var::make(rec_t, "_rt_rec");
             idx = ir::Access::make("base", rec) +
                   ir::Intrinsic::make(ir::Intrinsic::rt_primitive_index, {});
             if (rq.arms != nullptr) {
@@ -4145,6 +4403,11 @@ struct LowerBVH : public ir::Mutator {
         } else {
             top = idx;
         }
+        // The top-level element: the tree's own, at `idx`, or the holder.
+        // In a program the holder is never read from storage: its arms'
+        // fields come off the record below, and this read is left for the
+        // tree's own elements alone (dead, and removed, where every arm
+        // holds a tree).
         const ir::TypedVar &e0 = rq.elements[0];
         stmts.push_back(ir::LetStmt::make(ir::WriteLoc(e0.name, e0.type),
                                           ir::StoredElement::make(rq.tree, top)));
@@ -4154,13 +4417,22 @@ struct LowerBVH : public ir::Mutator {
             // `map(|t| triangle_geometric(t), tris)`, a mesh's triangles
             // each made the Geometric the query's lambdas take, which is how
             // pbrt's GPU reads a triangle hit: the mesh's record and the
-            // primitive index, the GeometricPrimitive built from them.
+            // primitive index, the GeometricPrimitive built from them. In a
+            // program a held arm reads the holder as `rt_sbt_element()`, the
+            // element as the record carries it: every field of it the arm
+            // reads becomes a field of the record (Lower/Layouts.cpp), and
+            // which arm the holder is, the record's tag says.
+            const ir::ADT_t *adt = e0.type.as<ir::ADT_t>();
+            const ir::Expr held_element =
+                from_record ? ir::Intrinsic::make(ir::Intrinsic::rt_sbt_element, {}, e0.type)
+                            : ir::Expr();
             std::vector<ir::MatchExpr::Arm> arms;
             std::vector<ir::Expr> ones, held;
+            std::vector<size_t> held_tags;
             for (const ir::MatchExpr::Arm &arm : rq.arms->arms) {
                 ir::Expr in_arm;
-                if (const ir::Build *one = arm.value.as<ir::Build>();
-                    one != nullptr && one->type.is<ir::Set_t>()) {
+                if (own_arm(arm)) {
+                    const ir::Build *one = arm.value.as<ir::Build>();
                     internal_assert(one->values.size() == 1)
                         << current_function
                         << ".bind(RTCore): the arm " << arm.variant
@@ -4169,20 +4441,48 @@ struct LowerBVH : public ir::Mutator {
                         << "take one element or one tree per arm";
                     in_arm = one->values[0];
                     ones.push_back(in_arm);
-                } else if (const ir::SetOp *mapped = arm.value.as<ir::SetOp>();
-                           mapped != nullptr && mapped->op == ir::SetOp::map) {
-                    in_arm = apply_lambda(mapped->a,
-                                          ir::StoredElement::make(mapped->b, idx));
-                    held.push_back(in_arm);
                 } else {
-                    in_arm = ir::StoredElement::make(arm.value, idx);
+                    if (const ir::SetOp *mapped = arm.value.as<ir::SetOp>();
+                        mapped != nullptr && mapped->op == ir::SetOp::map) {
+                        in_arm = apply_lambda(mapped->a,
+                                              ir::StoredElement::make(mapped->b, idx));
+                    } else {
+                        in_arm = ir::StoredElement::make(arm.value, idx);
+                    }
+                    if (from_record) {
+                        in_arm = replace(e0.name, held_element, in_arm);
+                        internal_assert(adt != nullptr) << e0.type;
+                        held_tags.push_back(*adt->index_of(arm.variant));
+                    }
                     held.push_back(in_arm);
                 }
                 arms.push_back(ir::MatchExpr::Arm{arm.variant, in_arm});
             }
             const ir::TypedVar &e1 = rq.elements[1];
             ir::Expr element;
-            if (own.defined() && ones.size() == 1 && held.size() == 1) {
+            if (from_record && !held.empty()) {
+                // The record says which arm: the holder's tag, lazily, so
+                // that only the arm the hit is of reads its fields and no
+                // own element is read for a held one; and the own side
+                // reads the tree's own element only when the record says
+                // the hit is the tree's own.
+                ir::Expr held_side = held.back();
+                for (size_t i = held.size() - 1; i-- > 0;) {
+                    held_side = ir::Select::make(
+                        ir::Access::make(ir::rt_record_tag(), rec) ==
+                            ir::UIntImm::make(u32, held_tags[i]),
+                        held[i], held_side, /*lazy=*/true);
+                }
+                if (ones.empty()) {
+                    element = held_side;
+                } else {
+                    const ir::Expr own_side =
+                        ones.size() == 1
+                            ? ones[0]
+                            : ir::MatchExpr::make(ir::Var::make(e0.type, e0.name), arms);
+                    element = ir::Select::make(own, own_side, held_side, /*lazy=*/true);
+                }
+            } else if (own.defined() && ones.size() == 1 && held.size() == 1) {
                 // The record says which arm: lazy, so that the tree arm's
                 // read -- of an array the own elements' index may exceed
                 // -- is made only when it is the arm.
@@ -4400,8 +4700,11 @@ struct LowerBVH : public ir::Mutator {
             new_types[result_t.as<ir::Struct_t>()->name] = result_t;
         }
         // The input's record, read by every program (bind_elements): one
-        // type for the program, however many queries.
-        new_types.emplace("_RTRecord", ir::rt_record_type());
+        // type for the program, however many queries -- base, holder and
+        // the holder element's fields (record_type_of) -- and the filler
+        // the driver fills it with (add_record_fill).
+        new_types["_RTRecord"] = record_type_of(rq);
+        add_record_fill(rq);
         const ir::Type q_t = rq.q.type();
         const std::string q_name = rq.q.as<ir::Var>()->name;
         const RayParts parts = ray_parts(q_t);
@@ -4683,8 +4986,12 @@ struct LowerBVH : public ir::Mutator {
         // and, for the hardware's triangles, its barycentrics; zeros in the
         // `$boxes` flavor, whose shapes fix their point from t alone.
         const auto hit_from_hardware = [&](std::optional<bool> triangles) -> ir::Expr {
-            const ir::Expr rec =
-                ir::Intrinsic::make(ir::Intrinsic::rt_sbt_record, {});
+            // The program's one record type (record_type_of): a second
+            // `_RTRecord` of the two words alone would be the same
+            // expression to common-subexpression elimination, which then
+            // reads the holder's fields off the wrong one.
+            const ir::Expr rec = ir::Intrinsic::make(ir::Intrinsic::rt_sbt_record,
+                                                     {}, record_type_of(rq));
             const ir::Expr idx =
                 ir::Access::make("base", rec) +
                 ir::Intrinsic::make(ir::Intrinsic::rt_primitive_index, {});
@@ -5065,6 +5372,8 @@ ir::Program LowerTrees::run(ir::Program program,
 
     LowerBVH converter(tree_types, program.extents, program.funcs);
     converter.transforms = &program.schedule.func_transforms;
+    converter.tree_layouts = &program.schedule.tree_layouts;
+    converter.tree_groups = &program.schedule.tree_groups;
 
     // Remap externs.
     for (auto &[name, type] : program.externs) {

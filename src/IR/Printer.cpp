@@ -1281,6 +1281,8 @@ std::string to_string(const Intrinsic::OpType &op) {
         return "rt_primitive_index";
     case Intrinsic::rt_sbt_record:
         return "rt_sbt_record";
+    case Intrinsic::rt_sbt_element:
+        return "rt_sbt_element";
     case Intrinsic::rt_launch_iteration:
         return "rt_launch_iteration";
     case Intrinsic::rt_report_hit:

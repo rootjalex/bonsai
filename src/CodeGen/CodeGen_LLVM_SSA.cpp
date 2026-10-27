@@ -458,6 +458,10 @@ struct CodeGen_LLVM::SSALowering {
                 internal_assert(n >= 1) << "rand without its state";
                 args.pop_back();
             }
+            // The two whose type is the program's keep the instruction's.
+            if (Intrinsic::typed_by_program(instr.intrinsic)) {
+                return Intrinsic::make(instr.intrinsic, std::move(args), instr.type);
+            }
             return Intrinsic::make(instr.intrinsic, std::move(args));
         case Instruction::Op::Reduce:
             internal_assert(n == 1) << "a reduction takes one value";

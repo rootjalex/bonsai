@@ -670,7 +670,7 @@ struct Rename : public ir::Mutator {
         for (const ir::Expr &arg : node->args) {
             args.push_back(mutate(arg));
         }
-        ir::Expr intrinsic = ir::Intrinsic::make(node->op, std::move(args));
+        ir::Expr intrinsic = ir::Intrinsic::make_like(node, std::move(args));
         if (!rename) {
             return intrinsic;
         }
@@ -1141,7 +1141,7 @@ class LVN : public ir::Mutator {
             for (int i = 0, e = args.size(); i < e; ++i) {
                 args[i] = substitute(args[i]);
             }
-            return ir::Intrinsic::make(op->op, std::move(args));
+            return ir::Intrinsic::make_like(op, std::move(args));
         }
         if (const auto *op = e.as<ir::Access>()) {
             return ir::Access::make(op->field, substitute(op->value));

@@ -112,6 +112,13 @@ struct bonsai_optix_triangles {
     // instance's holder to apply (an instance's object, the scene's own
     // shapes). What the input's records carry as `holder`.
     uint32_t holder = BONSAI_OPTIX_OWN;
+    // The rest of the input's record (bonsai_optix_record::element,
+    // BONSAI_OPTIX_RECORD_BYTES in all), when the input has a holder of its
+    // own: the holder element's fields as the program's
+    // `bonsai_rt_record_fill(holder, ...)` writes them. Null for zeros --
+    // right for an input whose holder is the instance's (the placement's
+    // `records` apply) or none.
+    const void *record = nullptr;
 };
 
 // A build input of shapes the hardware does not intersect itself, by their
@@ -122,6 +129,7 @@ struct bonsai_optix_boxes {
     uint32_t base;
     bool any_hit;                        // as bonsai_optix_triangles::any_hit
     uint32_t holder = BONSAI_OPTIX_OWN;  // as bonsai_optix_triangles::holder
+    const void *record = nullptr;        // as bonsai_optix_triangles::record
 };
 
 // Builds a geometry acceleration structure over the inputs -- of one kind:
@@ -138,11 +146,48 @@ uint64_t bonsai_optix_geometry(const bonsai_optix_triangles *triangles,
 // The data of a hit-group record, after OptiX's header: what the hit
 // programs read of the build input they hit (`rt_sbt_record`, the IR's
 // `_RTRecord`, Lower/Trees.cpp). `base` is the input's, `holder` the
-// instance's.
-struct bonsai_optix_record {
+// instance's, and `element` the holder element's fields as the program's
+// tree lowering laid them out -- pbrt's TriangleMeshRecord, derived: the
+// generated header says how many bytes the record is in all
+// (BONSAI_OPTIX_RECORD_BYTES, sizeof the program's `_RTRecord`) before it
+// includes this file, and the driver fills the element's bytes through the
+// program's `bonsai_rt_record_fill` (an input's `record`, a placement's
+// `records`); a program with no record of its own has the two words alone.
+#ifndef BONSAI_OPTIX_RECORD_BYTES
+#define BONSAI_OPTIX_RECORD_BYTES 8
+#endif
+// The byte count is `sizeof` the generated record, a constant expression
+// and not a preprocessor one, so the record's shape is chosen by template
+// rather than by `#if` -- outside the C linkage the rest of the interface
+// has, which a template cannot take.
+} // extern "C"
+template <size_t Bytes>
+struct bonsai_optix_record_of {
+    uint32_t base;
+    uint32_t holder;
+    unsigned char element[Bytes - 8];
+};
+template <>
+struct bonsai_optix_record_of<8> {
     uint32_t base;
     uint32_t holder;
 };
+using bonsai_optix_record = bonsai_optix_record_of<BONSAI_OPTIX_RECORD_BYTES>;
+
+// The element's bytes into a record: copied from `element`, or zeros when
+// the input gave none; nothing for a record of the two words alone.
+inline void bonsai_optix_record_element(bonsai_optix_record_of<8> &,
+                                        const unsigned char *) {}
+template <size_t Bytes>
+inline void bonsai_optix_record_element(bonsai_optix_record_of<Bytes> &record,
+                                        const unsigned char *element) {
+    if (element != nullptr) {
+        std::memcpy(record.element, element, Bytes - 8);
+    } else {
+        std::memset(record.element, 0, Bytes - 8);
+    }
+}
+extern "C" {
 
 // One placement of a geometry: OptiX's 3x4 row-major transform, the
 // geometry's id, and the holder its records carry -- the index of the
@@ -161,6 +206,14 @@ struct bonsai_optix_instance {
     uint64_t geometry;
     uint32_t holder;
     uint32_t holder_per_input;
+    // The rest of this placement's records: the holder element's bytes
+    // (bonsai_optix_record::element, BONSAI_OPTIX_RECORD_BYTES - 8 each, as
+    // `bonsai_rt_record_fill` writes them for the record's holder) -- one
+    // record for the placement's one holder, or with `holder_per_input`
+    // one per build input of the geometry in the inputs' order, the k-th
+    // for `holder + k`. Null for zeros; an input's own `record` wins where
+    // the input has its own holder.
+    const void *records = nullptr;
 };
 
 // Builds the instance acceleration structure over `instances`, and returns
@@ -327,6 +380,9 @@ struct Input {
     bool triangles;
     uint32_t base;
     uint32_t holder;
+    // The input's own record's element bytes (bonsai_optix_triangles::record),
+    // copied when the geometry is built; empty for zeros.
+    std::vector<unsigned char> record;
 };
 
 struct Geometry {
@@ -345,6 +401,10 @@ struct Scene {
         uint64_t geometry;
         uint32_t holder;
         uint32_t holder_per_input; // as bonsai_optix_instance's
+        // The placement's records' element bytes, one record, or one per
+        // input with holder_per_input (bonsai_optix_instance::records),
+        // copied when the scene is built; empty for zeros.
+        std::vector<unsigned char> records;
     };
     std::vector<Placed> instances;
     std::vector<uint32_t> record_start;
@@ -359,9 +419,10 @@ struct alignas(OPTIX_SBT_RECORD_ALIGNMENT) Record {
     bonsai_optix_record data;
     uint32_t pad[2];
 };
-static_assert(sizeof(bonsai_optix_record) == 8,
-              "the compiler reads the record as two 32-bit words, base then "
-              "holder (ir::rt_record_type)");
+static_assert(sizeof(bonsai_optix_record) == BONSAI_OPTIX_RECORD_BYTES,
+              "the compiler reads the record as base then holder, two 32-bit "
+              "words, and then the holder element's fields as its _RTRecord "
+              "lays them out (BONSAI_OPTIX_RECORD_BYTES, the generated header)");
 
 // A compiled module and, per raygen program of it, a pipeline.
 struct Module {
@@ -762,10 +823,24 @@ inline Pipeline &pipeline_of(Api &a, State &s, const char *ptx,
     return s.pipelines.emplace(key, std::move(p)).first->second;
 }
 
+// A record's element bytes as the driver gave them (bonsai_optix_triangles::
+// record, one record of bonsai_optix_instance::records), copied so that the
+// driver's memory need not outlive the call: BONSAI_OPTIX_RECORD_BYTES - 8
+// bytes, or none for a null pointer (zeros in the record).
+inline std::vector<unsigned char> record_bytes(const void *given, size_t count = 1) {
+    if (given == nullptr || BONSAI_OPTIX_RECORD_BYTES <= 8) {
+        return {};
+    }
+    const auto *bytes = static_cast<const unsigned char *>(given);
+    return std::vector<unsigned char>(bytes,
+                                      bytes + count * (BONSAI_OPTIX_RECORD_BYTES - 8));
+}
+
 // The shader binding table of `p` for `scene`: the raygen's record, the
 // miss records per ray type, and the hit-group records instance by
 // instance, input by input, ray type by ray type, each carrying the
-// input's base and the instance's holder.
+// input's base and the instance's holder, and the holder element's bytes
+// (bonsai_optix_record::element).
 inline const OptixShaderBindingTable &table_of(Api &a, State &s, Module &m,
                                                Pipeline &p, uint64_t traversable) {
     if (const auto it = p.tables.find(traversable); it != p.tables.end()) {
@@ -807,10 +882,22 @@ inline const OptixShaderBindingTable &table_of(Api &a, State &s, Module &m,
                 input.holder != BONSAI_OPTIX_OWN ? input.holder
                 : placed.holder_per_input != 0  ? placed.holder + uint32_t(k)
                                                 : placed.holder;
+            // The holder element's bytes, from whoever named the holder:
+            // the input's own record, or the placement's -- its one, or
+            // the k-th for a placement with a holder per input; zeros
+            // where neither was given.
+            const unsigned char *element = nullptr;
+            if (input.holder != BONSAI_OPTIX_OWN && !input.record.empty()) {
+                element = input.record.data();
+            } else if (!placed.records.empty()) {
+                const size_t which = placed.holder_per_input != 0 ? k : 0;
+                element = placed.records.data() + which * (BONSAI_OPTIX_RECORD_BYTES - 8);
+            }
             for (size_t t = 0; t < types; t++) {
                 records.emplace_back();
                 records.back().data.base = input.base;
                 records.back().data.holder = holder;
+                bonsai_optix_record_element(records.back().data, element);
                 check(a,
                       a.table.optixSbtRecordPackHeader(
                           input.triangles ? p.hit_triangles[t] : p.hit_boxes[t],
@@ -920,7 +1007,8 @@ bonsai_optix_geometry(const bonsai_optix_triangles *triangles,
         input.triangleArray.flags = &flags[i];
         input.triangleArray.numSbtRecords = 1;
         inputs.push_back(input);
-        geometry.inputs.push_back(Input{true, t.base, t.holder});
+        geometry.inputs.push_back(
+            Input{true, t.base, t.holder, record_bytes(t.record)});
     }
     for (int64_t i = 0; i < box_inputs; i++) {
         const bonsai_optix_boxes &b = boxes[i];
@@ -935,7 +1023,8 @@ bonsai_optix_geometry(const bonsai_optix_triangles *triangles,
         input.customPrimitiveArray.flags = &flags[triangle_inputs + i];
         input.customPrimitiveArray.numSbtRecords = 1;
         inputs.push_back(input);
-        geometry.inputs.push_back(Input{false, b.base, b.holder});
+        geometry.inputs.push_back(
+            Input{false, b.base, b.holder, record_bytes(b.record)});
     }
     if (inputs.empty()) {
         fail("a geometry acceleration structure needs at least one input");
@@ -978,8 +1067,12 @@ bonsai_optix_scene(const bonsai_optix_instance *instances, int64_t count) {
             fail("instance " + std::to_string(i) + " names geometry " +
                  std::to_string(g) + ", which bonsai_optix_geometry did not build");
         }
-        scene.instances.push_back(
-            Scene::Placed{g, instances[i].holder, instances[i].holder_per_input});
+        scene.instances.push_back(Scene::Placed{
+            g, instances[i].holder, instances[i].holder_per_input,
+            record_bytes(instances[i].records,
+                         instances[i].holder_per_input != 0
+                             ? s.geometries[g].inputs.size()
+                             : 1)});
         scene.record_start.push_back(scene.records);
         scene.records += uint32_t(s.geometries[g].inputs.size());
     }
