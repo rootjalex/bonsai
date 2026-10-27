@@ -48,7 +48,11 @@
 // the arm's binding of the field -- however inlining spread it -- reads a
 // constant, as the match on the tag reads one. The copies are `False` and
 // `True`, as a bool parameter's are, and callees handed the value are copied
-// with the field fixed as they are copied with a tag fixed (FixedField).
+// with the field fixed as they are copied with a tag fixed (FixedField) --
+// found by what the earlier specialize left in place of the value, its
+// struct with the tag put in, not by the parameter's name
+// (specialize_callees), so that the field is a constant in the callee's
+// SSA and not left for the backend to fold after inlining.
 //
 // Only `Inline` storage is specialized (a tag beside the payload), which is
 // how a parameter's variant type is stored; a `tagged_index` handle carries

@@ -142,6 +142,8 @@ add_bonsai_tests(
     specialize.bonsai
     specialize-bool.bonsai
     specialize-field.bonsai
+    specialize-field-callee.bonsai
+    specialize-field-reorder.bonsai
     specialize-first.bonsai
     specialize-loop.bonsai
     specialize-loop-hoisted.bonsai

@@ -9,10 +9,13 @@
 #include "SSA/Simplify.h"
 #include "Utils.h"
 
+#include <algorithm>
 #include <functional>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace bonsai {
@@ -831,33 +834,193 @@ void specialize_loops(FuncMap &fmap, const string &fname, const string &param_na
     }
 }
 
+namespace {
+bool is_optional_storage(const Struct_t &s); // below, with the queue's specialize
+} // namespace
+
 void specialize_callees(FuncMap &fmap, const vector<shared_ptr<Block>> &blocks,
                         const string &value, const KeyVariant &v,
                         const map<string, ir::Program::AdtStorage> &storages) {
-    // Whether `arg` is the value: named so, or a load through the pointer
+    // What each slot of `blocks` is stored, for a slot an earlier copy made
+    // of the value (below).
+    map<const Instruction *, vector<shared_ptr<Value>>> stored;
+    for (const auto &block : blocks) {
+        for (const auto &in : block->instrs) {
+            if (in->op == Instruction::Op::Store && in->operands.size() >= 2) {
+                if (const auto *slot =
+                        std::get_if<shared_ptr<Instruction>>(&in->operands[0]->data)) {
+                    stored[slot->get()].push_back(in->operands[1]);
+                }
+            }
+        }
+    }
+    const auto constant_of = [](const shared_ptr<Value> &x) -> std::optional<uint64_t> {
+        const Constant *c = x ? std::get_if<Constant>(&x->data) : nullptr;
+        if (c == nullptr) {
+            return std::nullopt;
+        }
+        return std::visit(
+            [](const auto &k) -> std::optional<uint64_t> {
+                if constexpr (std::is_integral_v<std::decay_t<decltype(k)>>) {
+                    return uint64_t(k);
+                } else {
+                    return std::nullopt;
+                }
+            },
+            c->data);
+    };
+    // Whether `arg` is the value: named so; a load through the pointer
     // named so -- a variant parameter arrives by pointer (Lower/Mutability
     // .cpp), and a callee taking it by value is handed what the pointer
-    // holds.
-    const std::function<bool(const shared_ptr<Value> &)> names =
-        [&](const shared_ptr<Value> &arg) -> bool {
+    // holds -- or the address of it, for a callee taking the pointer; a
+    // slot that holds nothing but the value; or the value rebuilt with
+    // constants put in, which is what an earlier specialize left of it in
+    // this copy. `run.specialize(mode)` replaces every read of `mode` in
+    // the Sum copy by a struct of its fields with the tag a constant
+    // (specialize_loops, the by-pointer case; specialize_function in a
+    // callee), so the field form written after it, `run[Sum].specialize(
+    // Sum::doubled)`, finds the calls handed that struct and not the name:
+    // a MakeStruct of the value's type whose tag is a constant -- this
+    // variant's -- and whose every other operand is the value's own field
+    // at that index, read out of it (LoadField), or, at the payload, its
+    // words rebuilt lane by lane with a byte forced (force_fixed_field's
+    // shape: ExtractIdx of the value's payload per lane, masked and or'ed
+    // with constants), which a field fixed before this one leaves. Nothing
+    // looser: a struct the program builds from some of the value's fields
+    // is not the value. Without this a callee handed the struct kept
+    // reading the field at run time, and whether it folded was left to
+    // LLVM's inlining -- which a reorder() of the loop defeats, hoisting
+    // the forcing arithmetic out of the kernel into the host's prologue
+    // (apps/pbrt's gpu-optix-mega-pass: both have_subsurface copies of the
+    // raygen carried the subsurface arm, 10-27).
+    std::function<bool(const shared_ptr<Value> &)> names;
+    set<const Instruction *> visiting; // the slots being followed
+    const auto field_of = [&](const shared_ptr<Value> &x, size_t i) -> bool {
+        const auto *in = x ? std::get_if<shared_ptr<Instruction>>(&x->data) : nullptr;
+        if (in == nullptr || (*in)->op != Instruction::Op::LoadField ||
+            (*in)->operands.size() != 2) {
+            return false;
+        }
+        const auto index = constant_of((*in)->operands[1]);
+        return index.has_value() && *index == i && names((*in)->operands[0]);
+    };
+    const std::function<bool(const shared_ptr<Value> &, size_t, size_t)> lane_of =
+        [&](const shared_ptr<Value> &x, size_t lane, size_t i) -> bool {
+        const auto *in = x ? std::get_if<shared_ptr<Instruction>>(&x->data) : nullptr;
+        if (in == nullptr) {
+            return false;
+        }
+        if (((*in)->op == Instruction::Op::BwAnd || (*in)->op == Instruction::Op::BwOr) &&
+            (*in)->operands.size() == 2) {
+            // The forced word: the lane masked, then or'ed, by constants.
+            if (constant_of((*in)->operands[1]).has_value()) {
+                return lane_of((*in)->operands[0], lane, i);
+            }
+            if (constant_of((*in)->operands[0]).has_value()) {
+                return lane_of((*in)->operands[1], lane, i);
+            }
+            return false;
+        }
+        if ((*in)->op != Instruction::Op::ExtractIdx || (*in)->operands.size() != 2) {
+            return false;
+        }
+        const auto k = constant_of((*in)->operands[1]);
+        return k.has_value() && *k == lane && field_of((*in)->operands[0], i);
+    };
+    const auto words_of = [&](const shared_ptr<Value> &x, size_t i) -> bool {
+        const auto *in = x ? std::get_if<shared_ptr<Instruction>>(&x->data) : nullptr;
+        if (in == nullptr || (*in)->op != Instruction::Op::MakeStruct ||
+            (*in)->type.as<Vector_t>() == nullptr) {
+            return false;
+        }
+        for (size_t lane = 0; lane < (*in)->operands.size(); lane++) {
+            if (!lane_of((*in)->operands[lane], lane, i)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    const auto rebuilt = [&](const Instruction &in) -> bool {
+        const Struct_t *s = in.type.as<Struct_t>();
+        if (s == nullptr || in.operands.size() != s->fields.size()) {
+            return false;
+        }
+        // Where the struct's tag is: a variant storage's tag field (a tag
+        // beside the payload; a tagged index is not handled by specialize),
+        // or an optional's `set`.
+        const auto st = storages.find(s->name);
+        std::optional<size_t> tag_at;
+        if (st != storages.end()) {
+            if (!st->second.inline_storage) {
+                return false;
+            }
+            tag_at = find_struct_index(st->second.tag_field, s->fields);
+        } else if (is_optional_storage(*s)) {
+            tag_at = 1;
+        }
+        if (!tag_at.has_value()) {
+            return false;
+        }
+        const size_t payload_at =
+            st != storages.end()
+                ? find_struct_index(st->second.payload_field, s->fields)
+                : in.operands.size();
+        for (size_t i = 0; i < in.operands.size(); i++) {
+            if (i == *tag_at) {
+                const auto c = constant_of(in.operands[i]);
+                if (!c.has_value() || *c != v.tag) {
+                    return false;
+                }
+                continue;
+            }
+            if (field_of(in.operands[i], i) ||
+                (i == payload_at && words_of(in.operands[i], i))) {
+                continue;
+            }
+            return false;
+        }
+        return true;
+    };
+    names = [&](const shared_ptr<Value> &arg) -> bool {
         if (!arg) {
             return false;
         }
         if (const auto *a = std::get_if<Argument>(&arg->data)) {
             return a->name == value;
         }
-        if (const auto *i = std::get_if<shared_ptr<Instruction>>(&arg->data)) {
-            if ((*i)->name == value) {
-                return true;
-            }
+        const auto *i = std::get_if<shared_ptr<Instruction>>(&arg->data);
+        if (i == nullptr) {
+            return false;
+        }
+        if ((*i)->name == value) {
+            return true;
+        }
+        switch ((*i)->op) {
+        case Instruction::Op::Load:
+        case Instruction::Op::AddressOf:
             // Through a load of the pointer, for a callee taking the value;
             // through the address of the value, for a callee taking a
             // pointer to it, which is how a variant travels.
-            return ((*i)->op == Instruction::Op::Load ||
-                    (*i)->op == Instruction::Op::AddressOf) &&
-                   !(*i)->operands.empty() && names((*i)->operands[0]);
+            return !(*i)->operands.empty() && names((*i)->operands[0]);
+        case Instruction::Op::Alloca: {
+            // A slot an earlier copy made, holding the value and nothing
+            // else, handed to a callee taking the pointer. (A slot that
+            // stores its own address is not the value, and is not followed
+            // round.)
+            const auto it = stored.find(i->get());
+            if (it == stored.end() || it->second.empty() ||
+                !visiting.insert(i->get()).second) {
+                return false;
+            }
+            const bool all = std::all_of(it->second.begin(), it->second.end(), names);
+            visiting.erase(i->get());
+            return all;
         }
-        return false;
+        case Instruction::Op::MakeStruct:
+            return rebuilt(**i);
+        default:
+            return false;
+        }
     };
     for (const auto &block : blocks) {
         // A call, or a spawned one (Terminator::Spawn): the same edge to a

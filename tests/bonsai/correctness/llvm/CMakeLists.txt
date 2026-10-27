@@ -176,6 +176,7 @@ add_bonsai_tests(
     specialize-bool.bonsai
     specialize-callee.bonsai
     specialize-field.bonsai
+    specialize-field-callee.bonsai
     specialize-loop.bonsai
     specialize-loop-hoisted.bonsai
     specialize-nested.bonsai

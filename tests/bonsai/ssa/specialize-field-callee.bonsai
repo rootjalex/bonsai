@@ -1,0 +1,49 @@
+//! flags: -p ssa
+
+// The field form of specialize followed into a callee that is not inlined.
+// `run.specialize(mode)` copies the loop per arm and, in the Sum copy,
+// replaces every read of `mode` by a struct of its fields with the tag a
+// constant; the call `apply(mode, ...)` is then handed that struct, and the
+// callee copied for the arm, `apply!Sum`. `run[Sum].specialize(Sum::doubled)`
+// after it copies the Sum loop for the two values of the field and has to
+// find the same call -- by the struct the first copy left, not by the
+// parameter's name (SSA/Specialize.h, specialize_callees) -- and copy the
+// callee once more with the field fixed: `apply!Sum!False` and
+// `apply!Sum!True`, in which `scaled`'s `if` on the field has folded, the
+// `* 2f` in the True copy alone, and each loop copy calls its own. Before
+// this the two loop copies called one `apply!Sum`, which read the field
+// out of the payload at run time, and whether the byte folded was left to
+// LLVM's inlining of the callee (specialize-field-reorder shows where
+// that fails).
+import stdlib/numerics;
+
+element Mode =
+    | Sum(scale : Float, doubled : bool)
+    | Clamp(floor : Float);
+
+func scaled(x : Float, scale : Float, doubled : bool) -> Float {
+    if doubled {
+        return x * scale * 2.0;
+    }
+    return x * scale;
+}
+
+func [[noinline]] apply(mode : Mode, x : Float) -> Float {
+    match mode {
+        Sum(scale, doubled) => return scaled(x, scale, doubled);
+        Clamp(floor) => return max(x, floor);
+    }
+}
+
+func [[export]] run(mode : Mode, values : array[Float, 8],
+                    out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = apply(mode, values[i]);
+    }
+    return;
+}
+
+schedule {
+    run.specialize(mode);
+    run[Sum].specialize(Sum::doubled);
+}

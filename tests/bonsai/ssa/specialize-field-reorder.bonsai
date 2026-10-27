@@ -1,0 +1,53 @@
+//! flags: -p ssa
+
+// The field form of specialize, then reorder(): apps/pbrt's megakernel per
+// sample (schedules/gpu-optix-mega-pass.bonsai), whose pixel loop is copied
+// per integrator, then per the VolPath arm's `have_subsurface`, and then
+// interchanged with its sample loop. The copy's value of `mode` -- the
+// given struct with the field's byte forced -- is pure arithmetic on a read
+// of a parameter nothing writes, so the reorder hoists it before the nest
+// (SSA/ReorderLoops.h): under a GPU bind that is the host, and the kernel
+// receives the struct as a launch parameter, in which no byte is a
+// constant any more. So the field has to be fixed in the callee by the
+// specialize itself, not left for the backend to fold after inlining:
+// `apply!Sum!False` and `apply!Sum!True` here, the inner body of each copy
+// calling its own, with the `* 2f` in the True copy alone -- the same as
+// specialize-field-callee, with the hoisted struct passed in from before
+// the nest. In the renderer this is the difference between a raygen
+// without the subsurface arm and one carrying it (10-27).
+import stdlib/numerics;
+
+element Mode =
+    | Sum(scale : Float, doubled : bool)
+    | Clamp(floor : Float);
+
+func scaled(x : Float, scale : Float, doubled : bool) -> Float {
+    if doubled {
+        return x * scale * 2.0;
+    }
+    return x * scale;
+}
+
+func [[noinline]] apply(mode : Mode, x : Float) -> Float {
+    match mode {
+        Sum(scale, doubled) => return scaled(x, scale, doubled);
+        Clamp(floor) => return max(x, floor);
+    }
+}
+
+func [[export]] run(mode : Mode, values : array[Float, 8],
+                    out : mut array[Float, 32], sums : mut array[Float, 4]) -> void {
+    parfor i in 0:4 {
+        sums[i] = 0.0;
+        parfor j in 0:8 {
+            out[i * 8 + j] = apply(mode, values[j]);
+        }
+    }
+    return;
+}
+
+schedule {
+    run.specialize(mode);
+    run[Sum].specialize(Sum::doubled);
+    run[Sum].reorder(i, j);
+}

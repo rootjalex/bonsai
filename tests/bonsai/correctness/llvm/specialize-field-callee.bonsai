@@ -1,0 +1,58 @@
+//! flags: -p ssa -b llvm -e
+
+// The field form of specialize followed into a callee that is not inlined,
+// run (ssa/specialize-field-callee shows the copies): `apply!Sum!True` and
+// `apply!Sum!False` each with the field a constant, called from the loop
+// copy entered for that value of the field. The three answers differ, so
+// a loop copy calling the callee copy of the other value, or a callee copy
+// whose field was fixed to the wrong value, would show; `scale` beside the
+// field in the same payload has to come through untouched, and the Clamp
+// arm's callee copy is the first specialize's alone. Unbound, since the
+// JIT has no thread pool.
+import stdlib/numerics;
+
+element Mode =
+    | Sum(scale : Float, doubled : bool)
+    | Clamp(floor : Float);
+
+func scaled(x : Float, scale : Float, doubled : bool) -> Float {
+    if doubled {
+        return x * scale * 2.0;
+    }
+    return x * scale;
+}
+
+func [[noinline]] apply(mode : Mode, x : Float) -> Float {
+    match mode {
+        Sum(scale, doubled) => return scaled(x, scale, doubled);
+        Clamp(floor) => return max(x, floor);
+    }
+}
+
+func [[export]] run(mode : Mode, values : array[Float, 8],
+                    out : mut array[Float, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = apply(mode, values[i]);
+    }
+    return;
+}
+
+func main() -> i32 {
+    values : array[Float, 8] = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0};
+    out : mut array[Float, 8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(Sum(3.0, true), values, out);
+    // Six times.
+    print(out);
+    run(Sum(3.0, false), values, out);
+    // Three times.
+    print(out);
+    run(Clamp(3.5), values, out);
+    // The floor where the input is below it.
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.specialize(mode);
+    run[Sum].specialize(Sum::doubled);
+}

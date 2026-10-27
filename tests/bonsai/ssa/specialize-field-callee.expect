@@ -1,0 +1,197 @@
+type Clamp = struct Clamp{ floor : f32 }
+type Float = f32
+type Half = f16
+type Mode = struct Mode{ tag : u8; _pad : [[packed]] u8x3; payload : [[packed]] u32x2 }
+type Sum = struct Sum{ scale : f32; doubled : bool }
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func [[export]] Mode_Clamp(_ret0 : mut (Mode*), floor : f32) -> void {
+  let @0 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+  let @1 = reinterpret_cast<u32>(floor) in
+  let @2 = build<[[packed]] u32x2>(@1, 0u) in
+  let @3 = build<Mode>(1u, @0, @2) in
+  _ret0 = @3
+  return
+}
+
+func [[export]] Mode_Sum(_ret1 : mut (Mode*), scale : f32, doubled : bool) -> void {
+  let @0 = build<[[packed]] u8x3>(0u, 0u, 0u) in
+  let @1 = reinterpret_cast<u32>(scale) in
+  let @2 = cast<u32>(doubled) in
+  let @3 = build<[[packed]] u32x2>(@1, @2) in
+  let @4 = build<Mode>(0u, @0, @3) in
+  _ret1 = @4
+  return
+}
+
+func [[noinline]] apply(mode : Mode, x : f32) -> f32 {
+  scaled$r0 : mut f32
+  let @0 = mode.tag in
+  switch (@0) {
+  case 0: { // Mode.Sum of apply
+    let _t0 = mode.payload in
+    let @2 = _t0[0u] in
+    let scale = reinterpret_cast<f32>(@2) in
+    let @4 = _t0[1u] in
+    let @5 = @4 >> 0u in
+    let @6 = @5 & 255u in
+    let doubled = @6 != 0u in
+    if (doubled) {
+      let @8 = x * scale in
+      let @9 = @8 * 2f in
+      scaled$r0 = @9
+    } else {
+      let @10 = x * scale in
+      scaled$r0 = @10
+    }
+    return (*scaled$r0)
+  } break;
+  default: { // Mode.Clamp of apply
+    let @12 = mode.payload in
+    let @13 = @12[0u] in
+    let floor = reinterpret_cast<f32>(@13) in
+    let @15 = max(x, floor) in
+    return @15
+  }
+  }
+}
+
+func [[noinline]] apply!Clamp(mode : Mode, x : f32) -> f32 {
+  let @16 = mode._pad in
+  let _t0 = mode.payload in
+  let mode!Clamp = build<Mode>(1u, @16, _t0) in
+  let @13 = _t0[0u] in
+  let floor = reinterpret_cast<f32>(@13) in
+  let @15 = max(x, floor) in
+  return @15
+}
+
+func [[noinline]] apply!Sum(mode : Mode, x : f32) -> f32 {
+  scaled$r0 : mut f32
+  let @16 = mode._pad in
+  let _t0 = mode.payload in
+  let mode!Sum = build<Mode>(0u, @16, _t0) in
+  let @2 = _t0[0u] in
+  let scale = reinterpret_cast<f32>(@2) in
+  let @4 = _t0[1u] in
+  let @5 = @4 >> 0u in
+  let @6 = @5 & 255u in
+  let doubled = @6 != 0u in
+  if (doubled) {
+    let @8 = x * scale in
+    let @9 = @8 * 2f in
+    scaled$r0 = @9
+  } else {
+    let @10 = x * scale in
+    scaled$r0 = @10
+  }
+  return (*scaled$r0)
+}
+
+func [[noinline]] apply!Sum!False(mode : Mode, x : f32) -> f32 {
+  let @17 = mode._pad in
+  let @18 = mode.payload in
+  let @19 = @18[0u] in
+  let @20 = @18[1u] in
+  let @21 = @20 & 4294967040u in
+  let _t0 = build<[[packed]] u32x2>(@19, @21) in
+  let mode!False = build<Mode>(0u, @17, _t0) in
+  let mode!Sum = mode!False in
+  let scale = reinterpret_cast<f32>(@19) in
+  let @10 = x * scale in
+  return @10
+}
+
+func [[noinline]] apply!Sum!True(mode : Mode, x : f32) -> f32 {
+  let @17 = mode._pad in
+  let @18 = mode.payload in
+  let @19 = @18[0u] in
+  let @20 = @18[1u] in
+  let @21 = @20 & 4294967040u in
+  let @22 = @21 | 1u in
+  let _t0 = build<[[packed]] u32x2>(@19, @22) in
+  let mode!True = build<Mode>(0u, @17, _t0) in
+  let mode!Sum = mode!True in
+  let scale = reinterpret_cast<f32>(@19) in
+  let @8 = x * scale in
+  let @9 = @8 * 2f in
+  return @9
+}
+
+func [[export]] run(mode : (Mode*), values : f32[8], out : mut f32[8]) -> void {
+  let @11 = (*mode).tag in
+  switch (@11) {
+  case 0: {
+    let @35 = (*mode).payload in
+    let @36 = @35[1u] in
+    let @37 = @36 & 255u in
+    let @38 = @37 != 0u in
+    if (@38) {
+      parfor i!Sum!True in [0:8:1] {
+        let @47 = (*mode) in
+        let @48 = @47._pad in
+        let @49 = @47.payload in
+        let @50 = @49[0u] in
+        let @51 = @49[1u] in
+        let @52 = @51 & 4294967040u in
+        let @53 = @52 | 1u in
+        let @54 = build<[[packed]] u32x2>(@50, @53) in
+        let @55 = build<Mode>(0u, @48, @54) in
+        let @33 = values[i!Sum!True] in
+        let @2 = apply!Sum!True(@55, @33) in
+        out[i!Sum!True] = @2
+        continue
+      }
+    } else {
+      parfor i!Sum!False in [0:8:1] {
+        let @39 = (*mode) in
+        let @40 = @39._pad in
+        let @41 = @39.payload in
+        let @42 = @41[0u] in
+        let @43 = @41[1u] in
+        let @44 = @43 & 4294967040u in
+        let @45 = build<[[packed]] u32x2>(@42, @44) in
+        let @46 = build<Mode>(0u, @40, @45) in
+        let @26 = values[i!Sum!False] in
+        let @2 = apply!Sum!False(@46, @26) in
+        out[i!Sum!False] = @2
+        continue
+      }
+    }
+  } break;
+  default: {
+    parfor i!Clamp in [0:8:1] {
+      let @16 = (*mode) in
+      let @17 = @16._pad in
+      let @18 = @16.payload in
+      let @19 = build<Mode>(1u, @17, @18) in
+      let @9 = values[i!Clamp] in
+      let @2 = apply!Clamp(@19, @9) in
+      out[i!Clamp] = @2
+      continue
+    }
+  }
+  }
+  return
+}
+
+func scaled(x : f32, scale : f32, doubled : bool) -> f32 {
+  if (doubled) {
+    let @0 = x * scale in
+    let @1 = @0 * 2f in
+    return @1
+  } else {
+    let @2 = x * scale in
+    return @2
+  }
+}
+
+
+schedule {
+    run.specialize(mode)
+       .specialize(Sum::doubled)
+
+}
