@@ -1913,6 +1913,23 @@ device-only, so the table stands. The figures are redrawn:
 plots/wosx-cpu-fcpw4w16-speedup.*, plots/wosx-cpu-fcpwb-speedup.* and
 their .txt.
 
+**The exit funnel, built and measured** (9846e3e6, the afternoon). loopify
+now brings every exit of the loop it makes to one block after it,
+`<func>!exit`, which reconverges -- a new intrinsic, `reconverge()`, an
+empty convergent inline asm on the device and nothing on the host, the one
+thing LLVM's jump threading leaves standing -- and dispatches on which exit
+was taken, the two `return terminal(...)` exits folded into one arm
+(SSA/Rewrite.cpp, funnel_exits). The matching schedule, A/B against a
+compiler at aa4dbaaa (the min/max change in, the funnel out), two rounds of
+ten repeats alternating, WoSX's rate measured in every run as the control:
+comb 0.97x and 0.95x of WoSX to 1.18x and 1.13x -- our rate 764 and 752 to
+947 and 916 Msteps/s, WoSX's 788-809 throughout -- and head 1.36x and 1.36x
+to 1.43x and 1.44x (609 and 611 to 641 and 646; WoSX 448-450). The kernel
+holds the traversal twice now, the step's and the one terminal, as WoSX's
+shader does (computeDistToAbsorbingBoundary in the loop,
+projectToAbsorbingBoundary after it); it held three. The GPU tables are to
+be remeasured under both changes, 21:30 tonight after f9's pbrt sweep.
+
 ### Next
 
 - The other binary-tree schedules measured again with the unrolled visit
@@ -1984,3 +2001,35 @@ their .txt.
 - Why the two largest meshes scale worse across the threads on both sides
   (the table's note): a profile of the threaded dragon solve, cache misses
   against the single-threaded one.
+
+## Notes for WoSX's authors (2026-10-27)
+
+Two things the GPU comparison turned up in WoSX's own walk. Both are kept
+as they are on our side, since the comparison is of the same algorithm
+(the user, 10-27: "we want to compare fairly to what WoSX does"); they are
+noted here for whoever maintains WoSX.
+
+- **The terminal query is a second traversal the walk's last query already
+  answered.** `getTerminalContribution` calls `projectToAbsorbingBoundary`
+  -- FCPW's findClosestPoint with an infinite radius -- at the walk's final
+  position, for the boundary point whose Dirichlet value the walk returns.
+  The loop's last `computeDistToAbsorbingBoundary` ran the same query at
+  the same position and kept the distance alone, since the distance
+  interface returns a distance (it serves distance grids as well as
+  meshes). Returning the closest point from the step's query, or keeping
+  it in the walk state, saves one full traversal per walk: on comb a walk
+  is six steps, so the terminal query is about a seventh of the traversal
+  work, and on a warp it runs with only the lanes that ended at the
+  boundary.
+
+- **The step's query is an argmin where a min would do.**
+  `computeDistToAbsorbingBoundary` needs the distance; FCPW's
+  findClosestPoint finds the closest point and fills an Interaction (point,
+  normal, uv, primitive index, distance) at every improvement. A traversal
+  carrying the best distance alone -- the same node order and pruning, the
+  leaf's point-triangle distance without the record's bookkeeping -- does
+  less per leaf and holds fewer registers. The saving is small beside the
+  traversal (the distance to a triangle locates the closest point's region
+  on the way; what goes is the record's writes), and our side does the same
+  argmin with FCPW's own records (apps/rtq), so the comparison stands; WoSX
+  need not.
