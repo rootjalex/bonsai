@@ -461,6 +461,21 @@ driver, the two sides' kernels told apart by symbol).
   picks on an AVX-512 machine); `--embree`, `--fcpw` name others. (The
   packet schedule's rows, `packet16` against Embree's packets, fold into
   the CSV and the geomeans but have no figure of their own since 10-26.)
+- `nsys_kernels.py`: the reading of an Nsight Systems trace of one GPU
+  comparison, `nsys profile --trace=cuda --gpu-metrics-devices=0
+  --gpu-metrics-frequency=100000 -o results/nsys/<mesh>-hf ./rtq.out
+  <mesh.ply> --side 1024 --repeats 20` over the driver compare.sh leaves
+  behind under RTQ_KEEP=1, exported with `nsys export --type sqlite`:
+  both sides' kernels in launch order (FCPW's rayIntersection and
+  closestPoint through slang-rhi, ours `_kernel_i_blk_*`), each run's
+  least and mean GPU duration against the driver's period per repeat --
+  dispatch, kernel, wait -- registers, grid and block, and the mean of
+  every sampled GPU metric inside each kernel's spans; beside the printed
+  reading two CSVs for plots, `<stem>-launches.csv` (one row per launch)
+  and `<stem>-metrics.csv` (kernel, metric, mean, samples). The traces and
+  their CSVs are kept under `results/nsys/` (gitignored), `summary.csv`
+  there the kernel-only and wall-clock speedups per cell (PLAN.md, "What
+  Nsight Systems says of the GPU win", 10-26).
 - `results/`, `plots/`: the measured data -- one CSV, one row per measured
   cell (date, commit, reference, schedule, mesh, query, ray set, both rates,
   the speedup, the agreement) -- and the figures drawn from it. Generated,

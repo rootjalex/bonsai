@@ -7718,3 +7718,72 @@ with zero-day and crown at 0.88: the load form, not the bytes. The
 figures: apps/rtq/plots/rtq-fcpwb-fcpws-cpu and -gpu, rtq-firsthit,
 rtq-anyhit, rtq-closestpoint (the packet figure is gone at the user's
 word, 18:00; the packet16 rows still fold into the CSV).
+
+### What Nsight Systems says of the GPU win (2026-10-26, evening)
+
+The user's question: why are we ahead of FCPW on the binary tree at all,
+on both targets, and what would profiling tell. Nsight Systems over the
+fcpwb-gpu driver (the user's say-so; `nsys profile --trace=cuda` with GPU
+metrics sampled at 100 kHz, 20 repeats, landscape and pavilion;
+results/nsys/, read by nsys_kernels.py) -- both sides' kernels in one
+trace, FCPW's through slang-rhi's CUDA backend, ours through the driver
+API, the same 256-thread blocks over the same batches:
+
+| cell | FCPW kernel ms | ours | kernel x | FCPW period ms | ours | wall x | dispatch us FCPW / ours |
+|---|---|---|---|---|---|---|---|
+| landscape primary | 0.069 | 0.046 | 1.49 | 0.098 | 0.057 | 1.71 | 25 / 7 |
+| landscape ao | 0.023 | 0.019 | 1.22 | 0.046 | 0.026 | 1.79 | 22 / 6 |
+| landscape diffuse | 0.026 | 0.021 | 1.21 | 0.048 | 0.029 | 1.66 | 21 / 7 |
+| landscape closest near | 0.486 | 0.431 | 1.13 | 0.510 | 0.444 | 1.15 | 21 / 9 |
+| landscape closest volume | 0.278 | 0.269 | 1.03 | 0.302 | 0.279 | 1.08 | 21 / 7 |
+| pavilion primary | 0.083 | 0.064 | 1.29 | 0.112 | 0.073 | 1.53 | 26 / 6 |
+| pavilion ao | 0.040 | 0.034 | 1.19 | 0.062 | 0.041 | 1.53 | 21 / 7 |
+| pavilion diffuse | 0.046 | 0.035 | 1.33 | 0.068 | 0.043 | 1.60 | 21 / 7 |
+| pavilion closest near | 0.098 | 0.078 | 1.26 | 0.122 | 0.088 | 1.38 | 23 / 9 |
+| pavilion closest volume | 0.454 | 0.411 | 1.10 | 0.477 | 0.420 | 1.14 | 21 / 7 |
+
+(kernel: the least GPU duration of the 21 launches; period: the mean
+start-to-start gap between a run's launches, what the driver's clock sees
+per repeat; dispatch: the period less the kernel.) Two findings:
+
+- **A fixed 21-26 microseconds per dispatch on FCPW's side against 6-9 on
+  ours**, the cost of slang-rhi's path from the host call to the kernel
+  (command encoding, parameter binding, the fence) against a driver-API
+  launch and a synchronize. The harness times both sides around the
+  dispatch and the wait, as the user's rule of 10-24 has it (one query a
+  thread in groups of 256, the same call on both sides), so this cost is
+  in the table -- and for the 20-80 microsecond ray kernels it is a third
+  to a half of the gap: landscape's ao rays are 1.22x kernel to kernel and
+  1.79x on the clock. The closest-point cells, 0.3-0.5 ms a launch, carry
+  it as 2-5%. Kernel to kernel the first hit is 1.3-1.5x, the any hit
+  1.2x, the closest point 1.03-1.26x. A question for the user: which of
+  the two is the number the figure should show -- the API as a walk pays
+  for it, or the kernel the compiler made.
+- **Neither kernel is bandwidth-bound, and both run at low occupancy; ours
+  issues more and hides more.** DRAM read bandwidth inside the kernels is
+  0.4-1.5% of peak on pavilion (the tree sits in L2) and 11% against 18%
+  on landscape's primary rays, where we drain the same bytes faster.
+  SM issue utilization (instructions issued per cycle, percent of peak)
+  is 16% against 21% on landscape's primary rays and 37% against 40% on
+  pavilion's; 25% against 32% and 44% against 53% on the closest point.
+  Warps in flight average 16 against 31 (landscape primary) and 24 against
+  39 (pavilion primary), 20-40 against 24-48 on the closest point, under
+  the same register counts (63 against 64, 54 against 52) and the same
+  block size, so the difference is not an occupancy limit but how long
+  each warp sits waiting: ours keep more warps busy and finish sooner. The
+  issue rates times the durations say the first-hit kernels issue about
+  the same number of instruction slots (ours 10-15% fewer on landscape)
+  and the closest-point kernels 10-15% more on our side, finishing 10-13%
+  sooner -- the win on the point queries is latency hidden, not work
+  saved. What hides it is what the SASS reading named (read-only loads
+  through the texture path where Slang's buffers are generic loads; the
+  nearer child entered directly where FCPW pushes both and pops) and the
+  record once per query where FCPW fills its Interaction per improving
+  candidate; apportioning the three needs Nsight Compute's stall reasons
+  and L1 hit rates, which Nsight Systems does not sample.
+
+Registers at run time: 63 (FCPW) against 64 (ours) for the first hit, 45
+for our any hit, 54 against 52 for the closest point; CUPTI reports no
+local memory allocated per thread for either (the stacks ptxas counted as
+512- and 256-byte frames). The GPC clock column of the sampled metrics
+exports as a wrapped integer in this nsys version and is not read.
