@@ -1,6 +1,7 @@
 // Bonsai Header
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <atomic>
 #include "runtime/bonsai_cpp.h"
