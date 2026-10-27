@@ -1,0 +1,48 @@
+//! flags: -p ssa -b ptx -o tests/bonsai/backends/ptx/float-min-max.ptx
+//! commands: grep -c "max\.f32\|min\.f32" $<>/float-min-max.ptx || true, grep -c "selp\.f32" $<>/float-min-max.ptx || true, rm $<>/float-min-max.ptx
+
+// Float min and max on the device are the GPU's own instructions, PTX's
+// min.f32 and max.f32 (one FMNMX each), as Slang's min() and max() and
+// CUDA's fminf and fmaxf compile to -- not the CPU's compare-and-select,
+// which NVPTX cannot fold to them (max.f32 returns the other operand when
+// one is NaN; the select returns the first) and so emitted a setp and a
+// selp for every one. A box test clamps twelve times a node, and the
+// matching GPU kernel was spending two instructions where FCPW's spends
+// one (apps/wosx/PLAN.md, 2026-10-27). What is counted: the min.f32 and
+// max.f32 lines of the PTX -- the two scalar clamps, the scalar min, and
+// two for the vector max's three lanes, its first two being one max with
+// the operands swapped, which maxnum shares (it is commutative, where
+// std::max's NaN rule made the two distinct) -- and the selp.f32 lines,
+// which must be none.
+import stdlib/numerics;
+
+func run(out : mut array[f32,8], far : mut array[vec3f, 8],
+         a : array[f32,8], b : array[f32,8]) -> void {
+    parfor p in 0:2 {
+        parfor s in 0:4 {
+            i = p * 4 + s;
+            lo = max(a[i] - 1.0, 0.0);
+            hi = max(1.0 - b[i], 0.0);
+            out[i] = min(lo * lo + hi * hi, a[i]);
+            far[i] = max(vec3f{a[i], b[i], lo}, vec3f{b[i], a[i], hi});
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    a : array[f32,8] = {0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5};
+    b : array[f32,8] = {7.5, 6.5, 5.5, 4.5, 3.5, 2.5, 1.5, 0.5};
+    out : mut array[f32,8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    zero = vec3f{0.0, 0.0, 0.0};
+    far : mut array[vec3f, 8] = {zero, zero, zero, zero, zero, zero, zero, zero};
+    run(out, far, a, b);
+    print(out);
+    print(far);
+    return 0;
+}
+
+schedule {
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+}

@@ -76,4 +76,5 @@ add_bonsai_tests(
     struct-capture.bonsai
     texture-cpp.bonsai
     threads.bonsai
+    float-min-max.bonsai
 )

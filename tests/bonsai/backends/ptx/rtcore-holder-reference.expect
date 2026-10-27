@@ -13,8 +13,11 @@ target triple = "nvptx64-nvidia-cuda"
 
 @params = local_unnamed_addr addrspace(4) global %_params zeroinitializer
 
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.minnum.f32(float, float) #0
+
 ; Function Attrs: mustprogress nounwind
-define ptx_kernel void @__raygen__i() local_unnamed_addr #0 {
+define ptx_kernel void @__raygen__i() local_unnamed_addr #1 {
 "!par_body_0":
   %_begin = load i32, ptr addrspace(4) @params, align 16
   %_stride = load i32, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 4), align 4
@@ -31,27 +34,27 @@ define ptx_kernel void @__raygen__i() local_unnamed_addr #0 {
   %r.tmax.i = extractvalue %struct.Ray %extract, 2
   %r.o.i = extractvalue %struct.Ray %extract, 0
   %r.d.i = extractvalue %struct.Ray %extract, 1
-  %min_lt.i = fcmp ogt float %r.tmax.i, 1.000000e+30
-  %2 = bitcast float %r.tmax.i to i32
+  %2 = tail call float @llvm.minnum.f32(float %r.tmax.i, float 1.000000e+30)
+  %3 = bitcast float %r.tmax.i to i32
   %bc.i = bitcast <3 x float> %r.o.i to <3 x i32>
-  %3 = extractelement <3 x i32> %bc.i, i64 0
-  %4 = extractelement <3 x i32> %bc.i, i64 1
-  %5 = extractelement <3 x i32> %bc.i, i64 2
+  %4 = extractelement <3 x i32> %bc.i, i64 0
+  %5 = extractelement <3 x i32> %bc.i, i64 1
+  %6 = extractelement <3 x i32> %bc.i, i64 2
   %bc48.i = bitcast <3 x float> %r.d.i to <3 x i32>
-  %6 = extractelement <3 x i32> %bc48.i, i64 0
-  %7 = extractelement <3 x i32> %bc48.i, i64 1
-  %8 = extractelement <3 x i32> %bc48.i, i64 2
-  %9 = select i1 %min_lt.i, i32 1900671690, i32 %2
-  %10 = tail call { i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32 } asm sideeffect "{ .reg .f32 %fr<9>; mov.b32 %fr0, $34; mov.b32 %fr1, $35; mov.b32 %fr2, $36; mov.b32 %fr3, $37; mov.b32 %fr4, $38; mov.b32 %fr5, $39; mov.b32 %fr6, $40; mov.b32 %fr7, $41; mov.b32 %fr8, $42; call ($0,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31), _optix_trace_typed_32, ($32,$33,%fr0,%fr1,%fr2,%fr3,%fr4,%fr5,%fr6,%fr7,%fr8,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80); }", "=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,r,l,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r"(i32 0, i64 %prims.unpack, i32 %3, i32 %4, i32 %5, i32 %6, i32 %7, i32 %8, i32 869711765, i32 %9, i32 0, i32 255, i32 0, i32 0, i32 1, i32 0, i32 4, i32 %2, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0) #3
+  %7 = extractelement <3 x i32> %bc48.i, i64 0
+  %8 = extractelement <3 x i32> %bc48.i, i64 1
+  %9 = extractelement <3 x i32> %bc48.i, i64 2
+  %10 = bitcast float %2 to i32
+  %11 = tail call { i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32 } asm sideeffect "{ .reg .f32 %fr<9>; mov.b32 %fr0, $34; mov.b32 %fr1, $35; mov.b32 %fr2, $36; mov.b32 %fr3, $37; mov.b32 %fr4, $38; mov.b32 %fr5, $39; mov.b32 %fr6, $40; mov.b32 %fr7, $41; mov.b32 %fr8, $42; call ($0,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31), _optix_trace_typed_32, ($32,$33,%fr0,%fr1,%fr2,%fr3,%fr4,%fr5,%fr6,%fr7,%fr8,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80); }", "=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,=r,r,l,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r,r"(i32 0, i64 %prims.unpack, i32 %4, i32 %5, i32 %6, i32 %7, i32 %8, i32 %9, i32 869711765, i32 %10, i32 0, i32 255, i32 0, i32 0, i32 1, i32 0, i32 4, i32 %3, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0) #3
   %hit_mesh = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 104), align 8
   %hit_x = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 96), align 16
   %hit_mesh.global = addrspacecast ptr %hit_mesh to ptr addrspace(1)
   %hit_x.global = addrspacecast ptr %hit_x to ptr addrspace(1)
   %hit_mesh.generic = addrspacecast ptr addrspace(1) %hit_mesh.global to ptr
   %hit_x.generic = addrspacecast ptr addrspace(1) %hit_x.global to ptr
-  %11 = extractvalue { i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32 } %10, 1
-  %12 = trunc i32 %11 to i1
-  br i1 %12, label %common.ret, label %"!else_4"
+  %12 = extractvalue { i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32 } %11, 1
+  %13 = trunc i32 %12 to i1
+  br i1 %13, label %common.ret, label %"!else_4"
 
 common.ret:                                       ; preds = %"!else_4", %"!par_body_0"
   ret void
@@ -65,19 +68,19 @@ common.ret:                                       ; preds = %"!else_4", %"!par_b
 }
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.fma.f32(float, float, float) #1
+declare float @llvm.fma.f32(float, float, float) #0
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.vector.reduce.fadd.v3f32(float, <3 x float>) #1
+declare float @llvm.vector.reduce.fadd.v3f32(float, <3 x float>) #0
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare <3 x float> @llvm.fabs.v3f32(<3 x float>) #1
+declare <3 x float> @llvm.fabs.v3f32(<3 x float>) #0
 
 ; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
-declare float @llvm.fabs.f32(float) #1
+declare float @llvm.fabs.f32(float) #0
 
 ; Function Attrs: mustprogress nounwind
-define ptx_kernel void @__anyhit__trace() local_unnamed_addr #0 {
+define ptx_kernel void @__anyhit__trace() local_unnamed_addr #1 {
 __anyhit__trace:
   %indices = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 32), align 16
   %indices.global = addrspacecast ptr %indices to ptr addrspace(1)
@@ -491,7 +494,7 @@ intersectsp_ray_tri.exit:                         ; preds = %"!ite_merge_2", %"!
 }
 
 ; Function Attrs: mustprogress nounwind
-define ptx_kernel void @__closesthit__trace() local_unnamed_addr #0 {
+define ptx_kernel void @__closesthit__trace() local_unnamed_addr #1 {
 "__closesthit__trace$i":
   %_begin = load i32, ptr addrspace(4) @params, align 16
   %_stride = load i32, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 4), align 4
@@ -577,7 +580,7 @@ define ptx_kernel void @__closesthit__trace() local_unnamed_addr #0 {
 }
 
 ; Function Attrs: mustprogress nounwind
-define ptx_kernel void @__intersection__trace() local_unnamed_addr #0 {
+define ptx_kernel void @__intersection__trace() local_unnamed_addr #1 {
 __intersection__trace:
   %indices = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @params, i64 32), align 16
   %indices.global = addrspacecast ptr %indices to ptr addrspace(1)
@@ -993,8 +996,8 @@ __miss__trace:
   ret void
 }
 
-attributes #0 = { mustprogress nounwind }
-attributes #1 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #0 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #1 = { mustprogress nounwind }
 attributes #2 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
 attributes #3 = { nounwind }
 
@@ -1022,7 +1025,7 @@ attributes #3 = { nounwind }
 
 .visible .entry __raygen__i()
 {
-	.reg .pred 	%p<4>;
+	.reg .pred 	%p<3>;
 	.reg .b32 	%r<51>;
 	.reg .b64 	%rd<15>;
 
@@ -1037,7 +1040,7 @@ attributes #3 = { nounwind }
 	mul.wide.s32 	%rd6, %r49, 48;
 	add.s64 	%rd7, %rd5, %rd6;
 	ld.global.nc.b32 	%r46, [%rd7+32];
-	setp.gt.f32 	%p1, %r46, 0f7149F2CA;
+	min.f32 	%r42, %r46, 0f7149F2CA;
 	ld.global.nc.b32 	%r37, [%rd7+8];
 	ld.global.nc.b64 	%rd8, [%rd7];
 	cvt.u32.u64 	%r35, %rd8;
@@ -1046,7 +1049,6 @@ attributes #3 = { nounwind }
 	ld.global.nc.b64 	%rd9, [%rd7+16];
 	cvt.u32.u64 	%r38, %rd9;
 	mov.b64 	{_, %r39}, %rd9;
-	selp.b32 	%r42, 1900671690, %r46, %p1;
 	mov.b32 	%r41, 869711765;
 	mov.b32 	%r43, 255;
 	mov.b32 	%r44, 1;
@@ -1059,9 +1061,9 @@ attributes #3 = { nounwind }
 	cvta.to.global.u64 	%rd12, %rd11;
 	cvta.to.global.u64 	%rd13, %rd10;
 	and.b32 	%r50, %r3, 1;
-	setp.ne.b32 	%p2, %r50, 0;
-	not.pred 	%p3, %p2;
-	@!%p3 bra 	$L__BB0_2;
+	setp.ne.b32 	%p1, %r50, 0;
+	not.pred 	%p2, %p1;
+	@!%p2 bra 	$L__BB0_2;
 	mul.wide.s32 	%rd14, %r49, 4;
 	add.s64 	%rd1, %rd12, %rd14;
 	add.s64 	%rd2, %rd13, %rd14;

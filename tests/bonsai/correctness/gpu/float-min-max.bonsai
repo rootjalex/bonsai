@@ -1,0 +1,40 @@
+//! flags: -p ssa -b llvm -e
+
+// Float min and max run on the GPU: the device's own min.f32 and max.f32
+// (backends/ptx/float-min-max.bonsai shows the PTX), whose rule for a NaN
+// is IEEE's minNum and maxNum -- the other operand comes back -- as Slang's
+// min() and max() and CUDA's fminf and fmaxf have it. That is the
+// platform's arithmetic, and this pins it: a NaN in either position of a
+// max or a min yields the number beside it, and ordinary operands the
+// larger and the smaller. (On the CPU max and min are C++'s std::max and
+// std::min, under which a NaN first argument comes back; the GPU's rule is
+// what every GPU kernel this program is compared against runs.)
+func run(out : mut array[f32,8], a : array[f32,8], b : array[f32,8]) -> void {
+    parfor p in 0:2 {
+        parfor s in 0:4 {
+            i = p * 4 + s;
+            out[i] = max(a[i], b[i]) + 10.0 * min(a[i], b[i]);
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    // inf - inf is a NaN made at run time on the host, so that no fold
+    // decides what the kernel sees.
+    n = inf - inf;
+    a : array[f32,8] = {1.0, n, 3.0, 5.0, -1.0, 7.0, 2.5, 0.5};
+    b : array[f32,8] = {n, 2.0, 5.0, 3.0, -2.0, 7.0, n, 0.25};
+    out : mut array[f32,8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    run(out, a, b);
+    // (1, NaN) -> 1 + 10: the NaN passed over in either position; (3, 5)
+    // and (5, 3) -> 5 + 30; (-1, -2) -> -1 - 20; (7, 7) -> 77; (2.5, NaN)
+    // -> 2.5 + 25; (0.5, 0.25) -> 0.5 + 2.5.
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+}

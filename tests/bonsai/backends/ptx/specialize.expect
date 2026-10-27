@@ -22,15 +22,17 @@ define ptx_kernel void @"_kernel_i$Clamp_0"(i32 %_begin, i32 %_stride, ptr nofre
   %extract = load float, ptr %extract_ptr, align 4, !invariant.load !1
   %1 = extractvalue [1 x i32] %"@53.payload", 0
   %2 = bitcast i32 %1 to float
-  %max_lt = fcmp olt float %extract, %2
-  %max = select i1 %max_lt, float %2, float %extract
+  %3 = tail call float @llvm.maxnum.f32(float %extract, float %2)
   %out5 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %"i!Clamp_wide"
-  store float %max, ptr %out5, align 4, !tbaa !2
+  store float %3, ptr %out5, align 4, !tbaa !2
   ret void
 }
 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare noundef range(i32 0, 1024) i32 @llvm.nvvm.read.ptx.sreg.tid.x() #1
+
+; Function Attrs: mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare float @llvm.maxnum.f32(float, float) #2
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite)
 define ptx_kernel void @"_kernel_i$Sum_1"(i32 %_begin, i32 %_stride, ptr nofree readonly captures(none) %values, %struct.Mode %mode_value, ptr nofree writeonly captures(none) %out) local_unnamed_addr #0 {
@@ -56,6 +58,7 @@ define ptx_kernel void @"_kernel_i$Sum_1"(i32 %_begin, i32 %_stride, ptr nofree 
 
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) }
 attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #2 = { mustprogress nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
 
 !llvm.module.flags = !{!0}
 
@@ -84,7 +87,6 @@ attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable wi
 	.param .u64 .ptr .align 1 _kernel_i$Clamp_0_param_4
 )
 {
-	.reg .pred 	%p<2>;
 	.reg .b32 	%r<8>;
 	.reg .b64 	%rd<8>;
 
@@ -100,8 +102,7 @@ attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable wi
 	add.s64 	%rd6, %rd4, %rd5;
 	ld.global.nc.b32 	%r5, [%rd6];
 	ld.param.b32 	%r6, [_kernel_i$Clamp_0_param_3+4];
-	setp.lt.f32 	%p1, %r5, %r6;
-	selp.f32 	%r7, %r6, %r5, %p1;
+	max.f32 	%r7, %r5, %r6;
 	add.s64 	%rd7, %rd2, %rd5;
 	st.global.b32 	[%rd7], %r7;
 	ret;

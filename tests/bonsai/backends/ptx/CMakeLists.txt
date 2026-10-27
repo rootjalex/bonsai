@@ -47,6 +47,7 @@ add_bonsai_tests(
     thread-phases-sequenced.bonsai
     thread-phase-after-leader-effect.bonsai
     thread-phase-then-leader-effect.bonsai
+    float-min-max.bonsai
     block-shared.bonsai
     queue-shared.bonsai
     defer-device.bonsai

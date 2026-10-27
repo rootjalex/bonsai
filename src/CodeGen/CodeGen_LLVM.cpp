@@ -3721,6 +3721,26 @@ void CodeGen_LLVM::visit(const Intrinsic *node) {
         internal_assert(node->args[0].type().is_float())
             << "Cannot lower " << (is_max ? "max" : "min")
             << " of type: " << node->args[0].type();
+        if (device_code()) {
+            // The GPU's own min and max: PTX's min.f32 and max.f32, one
+            // FMNMX each, which return the other operand when one is NaN
+            // (IEEE's minNum and maxNum, llvm.minnum and llvm.maxnum
+            // exactly). That is what Slang's min() and max() and CUDA's
+            // fminf and fmaxf compile to, so it is what FCPW's GPU kernel
+            // spends on a box test, and the compare-and-select below is
+            // what a matching kernel must not spend: NVPTX cannot fold it
+            // to max.f32, their NaN rules differing, and a node's twelve
+            // became a setp and a selp each -- 240M compares and selects
+            // against FCPW's 122M and 60M FMNMX on one mesh, read with
+            // Nsight Compute (apps/wosx/PLAN.md, 2026-10-27). The CPU keeps
+            // std::max below, as pbrt's CPU build has it; pbrt's device
+            // code writes std::max too, which nvcc keeps a compare and a
+            // select, so pbrt --gpu and this differ where a NaN leads a max
+            // or a min, and nowhere else (apps/pbrt's GPU compare says
+            // whether any image notices).
+            intrin = is_max ? llvm::Intrinsic::maxnum : llvm::Intrinsic::minnum;
+            break;
+        }
         // C++'s std::max and std::min, exactly: `a < b ? b : a` and
         // `b < a ? b : a`. A NaN makes the comparison false, so a NaN in the
         // first argument comes back and a NaN in the second is passed over.

@@ -1,0 +1,4 @@
+[test] grep -c "max\.f32\|min\.f32" tests/bonsai/backends/ptx/float-min-max.ptx || true
+5
+[test] grep -c "selp\.f32" tests/bonsai/backends/ptx/float-min-max.ptx || true
+0
