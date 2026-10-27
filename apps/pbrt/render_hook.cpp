@@ -70,6 +70,40 @@ constexpr bool kRTCore = false;
 template <class Layout>
 constexpr bool has_tris = requires(Layout t) { t.tris; };
 constexpr bool kTrisStored = has_tris<_tree_layout0>;
+
+// A mesh primitive and a placed mesh, built as the layout stores them. With
+// the triangles stored as rows, the element's `tris` field holds where its
+// run (or its tree) starts and the constructor takes it; with the triangles
+// computed from (mesh primitive, index), the field stores nothing, the
+// stored element has no such field, and the constructor takes none. One
+// branch per layout, in a template so that only the layout's is compiled:
+// the call in the other branch is made dependent on the template parameter
+// (`as_is<Stored>`), since a discarded branch's non-dependent call is still
+// resolved against the header's one constructor.
+template <bool, typename T> const T &as_is(const T &x) { return x; }
+
+template <bool Stored = kTrisStored>
+void make_mesh(Primitive &out, uint32_t mesh, uint32_t tris) {
+    if constexpr (Stored) {
+        Primitive_Mesh(out, as_is<Stored>(mesh), tris);
+    } else {
+        (void)tris;
+        Primitive_Mesh(out, as_is<Stored>(mesh));
+    }
+}
+template <bool Stored = kTrisStored>
+void make_placed(Primitive &out, const Transform &render_from_instance,
+                 const Transform &instance_from_render, uint32_t mesh, uint32_t tris,
+                 Placed *pool, uint64_t *fill) {
+    if constexpr (Stored) {
+        Primitive_Placed(out, as_is<Stored>(render_from_instance), instance_from_render,
+                         mesh, tris, pool, fill);
+    } else {
+        (void)tris;
+        Primitive_Placed(out, as_is<Stored>(render_from_instance), instance_from_render,
+                         mesh, pool, fill);
+    }
+}
 // The rows and their count into the layout, where the layout has them.
 template <class Layout>
 void upload_tris(Layout &tree, uint32_t count, bonsai_buffer *rows) {
@@ -2975,18 +3009,17 @@ int main(int argc, char **argv) {
                 // its run of `tris` starts (`Mesh.tris : OptixTree from
                 // tris`).
                 const MeshPrim &mp = mesh_prims[t.index];
-                Primitive_Mesh(prims[i], mp.mesh,
-                               kRTCore ? mp.first : mesh_roots[mp.mesh]);
+                make_mesh(prims[i], mp.mesh, kRTCore ? mp.first : mesh_roots[mp.mesh]);
             } else if (t.kind == TopLevel::Placed) {
                 // A placed mesh: the instance's two matrices, the mesh, and
                 // what the mesh stores of its triangles, as above -- the
                 // same run or tree for every placement of the mesh.
                 const PlacedMesh &pm = placed_meshes[t.index];
                 const bonsai_scene::Instance &inst = loaded.instances[pm.instance];
-                Primitive_Placed(prims[i], to_bonsai(inst.render_from_instance),
-                                 to_bonsai(inst.instance_from_render), pm.mesh,
-                                 kRTCore ? mesh_first[pm.mesh] : mesh_roots[pm.mesh],
-                                 placed_pool.data(), &placed_fill);
+                make_placed(prims[i], to_bonsai(inst.render_from_instance),
+                            to_bonsai(inst.instance_from_render), pm.mesh,
+                            kRTCore ? mesh_first[pm.mesh] : mesh_roots[pm.mesh],
+                            placed_pool.data(), &placed_fill);
             } else if (t.kind == TopLevel::Instance) {
                 const bonsai_scene::Instance &inst = loaded.instances[t.index];
                 // What the instance stores of its object's tree: the row of

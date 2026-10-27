@@ -103,18 +103,20 @@ int main() {
 
     // The elements: the standalone triangle, then the two meshes. Under
     // `layout Prim = tagged_index` an element is a handle into the arm's
-    // pool. A mesh's `tris` field stores a reference the hit programs never
-    // read (the triangle is computed from the mesh and the index).
+    // pool. A mesh's `tris` field stores nothing -- its triangles are
+    // computed from the mesh and the index -- so the stored Mesh is its
+    // mesh index alone, and the constructor takes no `tris`.
     std::vector<Solo> solo_pool(1);
     uint64_t solo_fill = 0;
     std::vector<Mesh> mesh_pool(2);
     uint64_t mesh_fill = 0;
+    static_assert(sizeof(Mesh) == sizeof(uint32_t));
     std::vector<uint64_t> elems;
     elems.push_back(Prim_Solo(solo, solo_pool.data(), &solo_fill));
     const uint32_t holder0 = uint32_t(elems.size());
-    elems.push_back(Prim_Mesh(mesh0, /*tris=*/0u, mesh_pool.data(), &mesh_fill));
+    elems.push_back(Prim_Mesh(mesh0, mesh_pool.data(), &mesh_fill));
     const uint32_t holder1 = uint32_t(elems.size());
-    elems.push_back(Prim_Mesh(mesh1, /*tris=*/0u, mesh_pool.data(), &mesh_fill));
+    elems.push_back(Prim_Mesh(mesh1, mesh_pool.data(), &mesh_fill));
     assert(solo_fill == solo_pool.size());
     assert(mesh_fill == mesh_pool.size());
 

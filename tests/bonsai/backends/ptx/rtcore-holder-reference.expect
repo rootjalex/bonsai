@@ -583,7 +583,7 @@ define ptx_kernel void @__closesthit__trace() local_unnamed_addr #0 {
 
 "!case_8!__closesthit__trace$i":                  ; preds = %"_rt_trace0$hit.exit"
   %12 = and i64 %extract.i, 72057594037927935
-  %extract_ptr24 = getelementptr inbounds nuw [8 x i8], ptr %Prim_Mesh_pool.generic, i64 %12
+  %extract_ptr24 = getelementptr inbounds nuw [4 x i8], ptr %Prim_Mesh_pool.generic, i64 %12
   %extract25.unpack = load i32, ptr %extract_ptr24, align 4
   br label %"!merge_6!__closesthit__trace$i"
 
@@ -1525,7 +1525,7 @@ $L__BB2_3:
 	setp.lt.u64 	%p3, %rd11, 72057594037927936;
 	mov.b32 	%r17, -1;
 	@%p3 bra 	$L__BB2_5;
-	shl.b64 	%rd37, %rd39, 3;
+	shl.b64 	%rd37, %rd39, 2;
 	add.s64 	%rd12, %rd6, %rd37;
 	ld.global.b32 	%r17, [%rd12];
 $L__BB2_5:

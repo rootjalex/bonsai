@@ -112,19 +112,28 @@ ir::Type stored_type(const ir::Type &type,
         return type;
     }
     bool changed = false;
-    ir::Struct_t::Map fields = as_struct->fields;
-    for (auto &field : fields) {
+    ir::Struct_t::Map fields;
+    fields.reserve(as_struct->fields.size());
+    for (const auto &field : as_struct->fields) {
         const auto ref = field_refs.find(as_struct->name + "." + field.name);
         if (ref != field_refs.cend()) {
-            field.type = ref->second;
             changed = true;
+            // No reference type: the field stores nothing. Its set's
+            // elements are computed from the holder and the ordinal, and
+            // the holder is this element (a group indexed by (holder,
+            // ordinal), LayoutTypeMap::of_holder), so the stored element
+            // has no such field.
+            if (!ref->second.defined()) {
+                continue;
+            }
+            fields.push_back(ir::TypedVar{field.name, ref->second});
             continue;
         }
         ir::Type inner = stored_type(field.type, field_refs);
         if (!inner.same_as(field.type)) {
-            field.type = std::move(inner);
             changed = true;
         }
+        fields.push_back(ir::TypedVar{field.name, std::move(inner)});
     }
     if (!changed) {
         return type;
@@ -203,13 +212,30 @@ struct RewriteStoredElements : public ir::Mutator {
         return {std::move(new_loc), not_changed};
     }
 
+    // Whether field `f` of struct `s` stores nothing (a set computed from
+    // the holder and the ordinal, the holder being this element): bound in
+    // field_refs with no type. Such a field is not in the stored element,
+    // so a build of the element drops its value and a match arm its name.
+    bool stores_nothing(const ir::Struct_t *s, size_t f) const {
+        if (s == nullptr || f >= s->fields.size()) {
+            return false;
+        }
+        const auto ref = field_refs.find(s->name + "." + s->fields[f].name);
+        return ref != field_refs.cend() && !ref->second.defined();
+    }
+
     ir::Expr visit(const ir::Build *node) override {
+        const ir::Struct_t *built = node->type.as<ir::Struct_t>();
         std::vector<ir::Expr> values;
         values.reserve(node->values.size());
         bool not_changed = true;
-        for (const ir::Expr &value : node->values) {
-            ir::Expr new_value = mutate(value);
-            not_changed = not_changed && new_value.same_as(value);
+        for (size_t i = 0; i < node->values.size(); i++) {
+            if (stores_nothing(built, i)) {
+                not_changed = false;
+                continue;
+            }
+            ir::Expr new_value = mutate(node->values[i]);
+            not_changed = not_changed && new_value.same_as(node->values[i]);
             values.push_back(std::move(new_value));
         }
         ir::Type type = mutate(node->type);
@@ -217,6 +243,43 @@ struct RewriteStoredElements : public ir::Mutator {
             return node;
         }
         return ir::Build::make(std::move(type), std::move(values));
+    }
+
+    ir::Stmt visit(const ir::MatchVariant *node) override {
+        const ir::ADT_t *adt = node->value.type().as<ir::ADT_t>();
+        ir::Expr value = mutate(node->value);
+        bool not_changed = value.same_as(node->value);
+        std::vector<ir::MatchVariant::Arm> arms;
+        arms.reserve(node->arms.size());
+        for (const ir::MatchVariant::Arm &arm : node->arms) {
+            ir::MatchVariant::Arm out{arm.variant, {}, mutate(arm.body)};
+            not_changed = not_changed && out.body.same_as(arm.body);
+            const auto index = adt != nullptr ? adt->index_of(arm.variant) : std::nullopt;
+            const ir::Struct_t *payload =
+                index.has_value() ? adt->variants[*index].as<ir::Struct_t>() : nullptr;
+            for (size_t f = 0; f < arm.bindings.size(); f++) {
+                if (payload != nullptr && stores_nothing(payload, f)) {
+                    // The binding goes with the field; nothing may read it
+                    // as a value (its set is read through stored_element,
+                    // lowered before this).
+                    for (const ir::TypedVar &var : ir::gather_free_vars(out.body)) {
+                        internal_assert(var.name != arm.bindings[f])
+                            << arm.variant << "." << payload->fields[f].name
+                            << " is bound as `" << var.name << "` and read as a "
+                            << "value, but it stores nothing: its elements are "
+                            << "computed from the holder and the ordinal";
+                    }
+                    not_changed = false;
+                    continue;
+                }
+                out.bindings.push_back(arm.bindings[f]);
+            }
+            arms.push_back(std::move(out));
+        }
+        if (not_changed) {
+            return node;
+        }
+        return ir::MatchVariant::make(std::move(value), std::move(arms));
     }
 
     ir::Expr visit(const ir::Cast *node) override {
@@ -679,12 +742,14 @@ ir::Type layout_to_structs(const ir::Layout &layout, LayoutTypeMap &ltmap) {
                 // the field the schedule bound to it (LowerMatches); it is
                 // no array and no field of the struct.
                 if (!node->holder_name.empty()) {
-                    const auto [_, added] = ltmap.of_holder.emplace(
+                    // Registered already when it was bound to a field
+                    // (LowerLayouts::run) -- the same group -- or here.
+                    const auto [found, added] = ltmap.of_holder.emplace(
                         node->declared_name,
                         LayoutTypeMap::OfHolder{node->holder_name, node->name,
                                                 node->holder_t, node->index_t,
                                                 node->inner});
-                    internal_assert(added)
+                    internal_assert(added || found->second.inner.same_as(node->inner))
                         << "Two groups named " << node->declared_name
                         << ": a stored-element read could not say which it meant.";
                     break;
@@ -1977,6 +2042,112 @@ struct LowerReferencePrefetches : public ir::Mutator {
     }
 };
 
+// The element of a group indexed by (holder, ordinal) (LayoutTypeMap::
+// OfHolder): `Element.field : OptixTree from <group>`, where the group's
+// members compute every field of the element from the pair -- the holder,
+// which is the element the field is read off, and the ordinal, the index of
+// the read -- and store nothing: no array, no load, as pbrt's GPU hit
+// programs name a triangle by the record's mesh and the primitive index. The
+// members give the element's fields by name; the element is built in its
+// own order.
+ir::Expr element_of_holder_group(const LayoutTypeMap::OfHolder &g,
+                                 const std::string &group_name,
+                                 const std::string &path, const ir::Type &element_t,
+                                 const std::string &holder_element, ir::Expr holder,
+                                 ir::Expr index) {
+    const auto *as_struct = element_t.as<ir::Struct_t>();
+    internal_assert(as_struct != nullptr)
+        << path << ": the elements of group " << group_name << " are " << element_t
+        << ", not an element with fields, which a group indexed by (holder, "
+        << "ordinal) computes";
+    const auto *holder_struct = g.holder_t.as<ir::Struct_t>();
+    internal_assert(holder_struct != nullptr && holder_struct->name == holder_element)
+        << path << " is read off a " << holder_element << ", but group " << group_name
+        << " is indexed by a " << g.holder_t << " (" << g.holder_name << ")";
+    std::map<std::string, ir::Expr> members;
+    std::vector<ir::Layout> parts{g.inner};
+    if (const ir::Chain *chain = g.inner.as<ir::Chain>()) {
+        parts = chain->layouts;
+    }
+    for (const ir::Layout &part : parts) {
+        const ir::Materialize *m = part.as<ir::Materialize>();
+        internal_assert(m != nullptr)
+            << "group " << group_name << " stores " << part
+            << "; a group indexed by (holder, ordinal) computes every member";
+        members[m->name] = m->value;
+    }
+    struct BindPair : public ir::Mutator {
+        std::map<std::string, ir::Expr> repls;
+        using ir::Mutator::visit;
+        ir::Expr visit(const ir::Var *node) override {
+            const auto found = repls.find(node->name);
+            return found != repls.end() ? found->second : ir::Expr(node);
+        }
+    };
+    BindPair bind;
+    bind.repls[g.holder_name] = std::move(holder);
+    bind.repls[g.ordinal_name] = ir::equals(index.type(), g.ordinal_t)
+                                     ? index
+                                     : ir::Cast::make(g.ordinal_t, index);
+    std::vector<ir::Expr> values;
+    for (const auto &f : as_struct->fields) {
+        const auto m = members.find(f.name);
+        internal_assert(m != members.cend())
+            << "group " << group_name << " computes no field `" << f.name
+            << "` of its element " << element_t;
+        ir::Expr v = bind.mutate(m->second);
+        internal_assert(ir::equals(v.type(), f.type))
+            << "group " << group_name << " computes `" << f.name << "` as "
+            << v.type() << ", but the element's field is " << f.type;
+        values.push_back(std::move(v));
+    }
+    internal_assert(members.size() == as_struct->fields.size())
+        << "group " << group_name << " computes " << members.size()
+        << " members for the " << as_struct->fields.size() << " fields of "
+        << element_t;
+    return ir::Build::make(element_t, std::move(values));
+}
+
+// The stored-element reads through a field bound to a group indexed by
+// (holder, ordinal), lowered before the stored-type rewrite: the field
+// stores nothing and the rewrite removes it from the element, so no read of
+// it may be left for the rewrite to retype.
+struct LowerHolderReads : public ir::Mutator {
+    const std::map<std::string, std::string> &tree_field_groups;
+    const ir::TypeMap &tree_types;
+    const LayoutTypeMap &ltmap;
+
+    LowerHolderReads(const std::map<std::string, std::string> &tree_field_groups,
+                     const ir::TypeMap &tree_types, const LayoutTypeMap &ltmap)
+        : tree_field_groups(tree_field_groups), tree_types(tree_types), ltmap(ltmap) {}
+
+    using ir::Mutator::visit;
+
+    ir::Expr visit(const ir::StoredElement *node) override {
+        const auto *access = node->tree.as<ir::Access>();
+        const auto *element =
+            access != nullptr ? access->value.type().as<ir::Struct_t>() : nullptr;
+        if (element != nullptr) {
+            const std::string path = element->name + "." + access->field;
+            const auto group = tree_field_groups.find(path);
+            if (group != tree_field_groups.cend()) {
+                if (const auto of = ltmap.of_holder.find(group->second);
+                    of != ltmap.of_holder.cend()) {
+                    const auto bound = tree_types.find(path);
+                    internal_assert(bound != tree_types.cend() &&
+                                    bound->second.as<ir::BVH_t>() != nullptr)
+                        << path << " is bound to no tree";
+                    return element_of_holder_group(
+                        of->second, group->second, path,
+                        bound->second.as<ir::BVH_t>()->primitive, element->name,
+                        mutate(access->value), mutate(node->index));
+                }
+            }
+        }
+        return ir::Mutator::visit(node);
+    }
+};
+
 struct LowerMatches : public ir::Mutator {
     const ir::LayoutMap &layouts;
     const ir::TypeMap &structs;
@@ -2107,7 +2278,7 @@ struct LowerMatches : public ir::Mutator {
                     // the element's storage is lowered, whichever way its
                     // arm is stored, and the binding has to change with it.
                     const auto ref = ltmap.field_refs.find(path);
-                    if (ref != ltmap.field_refs.cend() &&
+                    if (ref != ltmap.field_refs.cend() && ref->second.defined() &&
                         !ir::equals(ref->second, node->loc.base_type)) {
                         return mutate(ir::LetStmt::make(
                             ir::WriteLoc(node->loc.base, ref->second),
@@ -2463,70 +2634,19 @@ struct LowerMatches : public ir::Mutator {
                 // record's mesh and the primitive index. The group's members
                 // give the element's fields by name; the element is built in
                 // its own order.
-                const LayoutTypeMap::OfHolder &g = of->second;
+                // Normally lowered before the stored-type rewrite
+                // (LowerHolderReads), since the field stores nothing and
+                // the rewrite removes it; a read built since then comes
+                // here. Lowered once more after the pair is bound: a holder
+                // that is the hit-group record's element (Lower/Trees.cpp)
+                // has its fields read off the record (visit(Access)).
                 internal_assert(bound != tree_types.cend() &&
                                 bound->second.as<ir::BVH_t>() != nullptr)
                     << path << " is bound to no tree";
-                const ir::Type element_t = bound->second.as<ir::BVH_t>()->primitive;
-                const auto *as_struct = element_t.as<ir::Struct_t>();
-                internal_assert(as_struct != nullptr)
-                    << path << ": the elements of group " << group->second
-                    << " are " << element_t << ", not an element with fields, "
-                    << "which a group indexed by (holder, ordinal) computes";
-                const auto *holder_struct = g.holder_t.as<ir::Struct_t>();
-                internal_assert(holder_struct != nullptr &&
-                                holder_struct->name == element->name)
-                    << path << " is read off a " << element->name
-                    << ", but group " << group->second << " is indexed by a "
-                    << g.holder_t << " (" << g.holder_name << ")";
-                std::map<std::string, ir::Expr> members;
-                std::vector<ir::Layout> parts{g.inner};
-                if (const ir::Chain *chain = g.inner.as<ir::Chain>()) {
-                    parts = chain->layouts;
-                }
-                for (const ir::Layout &part : parts) {
-                    const ir::Materialize *m = part.as<ir::Materialize>();
-                    internal_assert(m != nullptr)
-                        << "group " << group->second << " stores " << part
-                        << "; a group indexed by (holder, ordinal) computes "
-                        << "every member";
-                    members[m->name] = m->value;
-                }
-                struct BindPair : public ir::Mutator {
-                    std::map<std::string, ir::Expr> repls;
-                    using ir::Mutator::visit;
-                    ir::Expr visit(const ir::Var *node) override {
-                        const auto found = repls.find(node->name);
-                        return found != repls.end() ? found->second : ir::Expr(node);
-                    }
-                };
-                BindPair bind;
-                bind.repls[g.holder_name] = mutate(access->value);
-                bind.repls[g.ordinal_name] =
-                    ir::equals(index.type(), g.ordinal_t)
-                        ? index
-                        : ir::Cast::make(g.ordinal_t, index);
-                std::vector<ir::Expr> values;
-                for (const auto &f : as_struct->fields) {
-                    const auto m = members.find(f.name);
-                    internal_assert(m != members.cend())
-                        << "group " << group->second << " computes no field `"
-                        << f.name << "` of its element " << element_t;
-                    // Lowered once more after the pair is bound: a holder
-                    // that is the hit-group record's element (Lower/Trees.cpp)
-                    // has its fields read off the record (visit(Access)).
-                    ir::Expr v = mutate(bind.mutate(m->second));
-                    internal_assert(ir::equals(v.type(), f.type))
-                        << "group " << group->second << " computes `" << f.name
-                        << "` as " << v.type() << ", but the element's field is "
-                        << f.type;
-                    values.push_back(std::move(v));
-                }
-                internal_assert(members.size() == as_struct->fields.size())
-                    << "group " << group->second << " computes " << members.size()
-                    << " members for the " << as_struct->fields.size()
-                    << " fields of " << element_t;
-                return ir::Build::make(element_t, std::move(values));
+                return mutate(element_of_holder_group(
+                    of->second, group->second, path,
+                    bound->second.as<ir::BVH_t>()->primitive, element->name,
+                    mutate(access->value), index));
             }
             if (bound != tree_types.cend() &&
                 bound->second.as<ir::BVH_t>()->hardware) {
@@ -2938,7 +3058,45 @@ ir::Program LowerLayouts::run(ir::Program program,
     // What a field bound to a tree is, in storage. The schedule said which
     // group holds that tree's nodes; the group says what indexing it costs.
     for (const auto &[path, group_name] : program.schedule.tree_groups) {
-        ir::Type index_t;
+        // The group the schedule names, in whichever layout declares it
+        // (none, when the name is an array's: `OptixTree from <array>`).
+        struct FindGroup : public ir::Visitor {
+            const std::string &wanted;
+            const ir::Group *group = nullptr;
+
+            FindGroup(const std::string &wanted) : wanted(wanted) {}
+
+            void visit(const ir::Group *node) override {
+                if (node->declared_name == wanted) {
+                    group = node;
+                }
+                node->inner.accept(this);
+            }
+        };
+        FindGroup finder(group_name);
+        for (const auto &[_, layout] : tree_layouts) {
+            layout.accept(&finder);
+            if (finder.group != nullptr) {
+                break;
+            }
+        }
+        // A group indexed by (holder, ordinal) -- `Mesh.tris : OptixTree
+        // from mesh_tris`, `group mesh_tris (h : Mesh, k : u32) { .. }`:
+        // the field's elements are computed from the pair and stored
+        // nowhere, and the field stores nothing either -- the holder is the
+        // element the field is read off, so there is no reference to keep.
+        // The stored element has no such field (stored_type, an undefined
+        // reference type); the group is registered now, for the reads
+        // lowered before the rewrite (LowerHolderReads).
+        if (finder.group != nullptr && !finder.group->holder_name.empty()) {
+            const ir::Group *g = finder.group;
+            ltmap.of_holder.emplace(
+                g->declared_name,
+                LayoutTypeMap::OfHolder{g->holder_name, g->name, g->holder_t,
+                                        g->index_t, g->inner});
+            ltmap.field_refs[path] = ir::Type();
+            continue;
+        }
         // The hardware's tree in a field (`Element.field : OptixTree from
         // <array>`): the field stores where its run of the array starts,
         // an index into it.
@@ -2948,36 +3106,24 @@ ir::Program LowerLayouts::run(ir::Program program,
             ltmap.field_refs[path] = ir::UInt_t::make(32);
             continue;
         }
-        for (const auto &[_, layout] : tree_layouts) {
-            struct FindGroup : public ir::Visitor {
-                const std::string &wanted;
-                ir::Type index_t;
-
-                FindGroup(const std::string &wanted) : wanted(wanted) {}
-
-                void visit(const ir::Group *node) override {
-                    if (node->declared_name == wanted) {
-                        index_t = node->index_t;
-                    }
-                    node->inner.accept(this);
-                }
-            };
-            FindGroup finder(group_name);
-            layout.accept(&finder);
-            if (finder.index_t.defined()) {
-                index_t = finder.index_t;
-                break;
-            }
-        }
-        internal_assert(index_t.defined())
+        internal_assert(finder.group != nullptr && finder.group->index_t.defined())
             << path << " is stored in group " << group_name
             << ", which no layout declares.";
-        ltmap.field_refs[path] = std::move(index_t);
+        ltmap.field_refs[path] = finder.group->index_t;
     }
 
     // Now say that about the program, before anything is lowered against it,
     // so that everything reading an element and everything written about one
     // agree on what an element is.
+    // The reads through a field that stores nothing first (its elements are
+    // computed from the pair), while the field is still in the element.
+    if (!ltmap.of_holder.empty()) {
+        LowerHolderReads holder_reads(program.schedule.tree_groups,
+                                      program.schedule.tree_types, ltmap);
+        for (auto &[_, func] : program.funcs) {
+            func->body = holder_reads.mutate(func->body);
+        }
+    }
     if (!ltmap.field_refs.empty()) {
         RewriteStoredElements rewriter(ltmap.field_refs);
         for (auto &[_, type] : program.types) {
