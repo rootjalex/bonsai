@@ -81,13 +81,15 @@ HATCH = {"primary": "", "ao": "///", "diffuse": "xxx", "near": "...", "volume": 
 
 
 def hatch_colour(face):
-    """The colour a bar's hatch and edge are drawn in: the dark edge on a
-    light bar, white on a dark one. A hatch is drawn in the patch's edge
-    colour, and the dark grey of the light bars vanished on the ramp's two
-    dark blues, where the two silhouette sets read as one bar (the user,
-    10-26); white on the light yellow would vanish the same way."""
+    """The colour a bar's hatch and edge are drawn in: the dark edge on
+    every bar but the darkest blues, white there. A hatch is drawn in the
+    patch's edge colour, and the dark grey vanished on the silhouette bars
+    (YLGNBU[7]), where the two silhouette sets read as one bar (the user,
+    10-26); the closest point's mid blue (YLGNBU[5]) still shows the dark
+    hatch and keeps it, and white on the light yellow would vanish the same
+    way."""
     r, g, b = matplotlib.colors.to_rgb(face)
-    return "white" if 0.299 * r + 0.587 * g + 0.114 * b < 0.55 else EDGE
+    return "white" if 0.299 * r + 0.587 * g + 0.114 * b < 0.35 else EDGE
 # The legend's words for the sets; the caption says they are rays or points.
 LABEL = {"primary": "primary", "ao": "ambient occlusion", "diffuse": "diffuse",
          "near": "near surface", "volume": "in volume"}
