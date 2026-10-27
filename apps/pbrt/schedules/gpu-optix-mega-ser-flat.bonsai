@@ -1,0 +1,57 @@
+// gpu-optix-mega-flat with gpu-optix-mega-ser's sort: one raygen launch
+// of spp x pixels threads, a thread per path (`reorder(p, s)` then
+// `collapse(s, p, ps)`), and the surface call sorted on the hit's material
+// through shader execution reordering (`vol_route.sort(vol_surface, ...)`
+// on a call cursor under OptiX: optixReorder with the key, the warp's lanes
+// regrouped by material before the material's code runs). The two gains
+// are of different kinds -- the flat launch keeps a warp's lanes on the
+// same bounce of paths that started together, the sort regroups them when
+// the hits disagree -- so they may add; this measures whether they do.
+// Mitsuba 3's megakernel under Dr.Jit has both: one lane per sample of the
+// pass, and `drjit.reorder_threads` on the BSDF type at the shading point.
+import apps/pbrt/schedules/trees/optix;
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_probe_step.loopify();
+    vol_shadow_track.loopify();
+    render.specialize(integrator);
+    // pbrt's `haveMedia` and `haveSubsurface`, fixed per scene, the pixel
+    // loop copied per flag, as gpu-optix-mega has them.
+    render[VolPath].specialize(have_media);
+    render[VolPath].specialize(VolPath::have_subsurface);
+    // The sample loop outside the pixel loop, then the two as one loop over
+    // (sample, pixel) pairs, the pixel fastest (gpu-optix-mega-flat).
+    render[VolPath].reorder(p, s);
+    render[VolPath].collapse(s, p, ps);
+    // The ray tracing hardware answers both queries.
+    trace.bind(RTCore);
+    trace_any.bind(RTCore);
+    // The surface call sorted on the hit's material (gpu-optix-mega-ser).
+    vol_route.sort(vol_surface,
+                   |prim : Geometric| materials[cast[[u32]](prim.material)]);
+    // One thread per (sample, pixel) of the frame: the raygen launch; `p`
+    // after the reorder names each volpath copy's per-pixel prologue loop
+    // and the other integrators' pixel loops.
+    render.bind(p, OptixThread);
+    render[VolPath].bind(ps, OptixThread);
+    // The film pass over the frame after the paths, as a kernel of its own.
+    render.split(q, q_blk, q_thr, 256, true);
+    render.bind(q_blk, GPUBlock);
+    render.bind(q_thr, GPUThread);
+    texture_filter.bind(TextureUnit,
+                        |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                         dstdy : vec2f|
+                        texture_filter_unit(texture_handles[t.id], st, dstdx,
+                                            dstdy));
+    texture_filter_float.bind(TextureUnit,
+                              |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                               dstdy : vec2f|
+                              texture_filter_float_unit(
+                                  texture_handles[t.id], t.average_channels,
+                                  st, dstdx, dstdy));
+}

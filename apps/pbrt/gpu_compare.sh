@@ -99,6 +99,18 @@ IMGTOOL="${IMGTOOL:-$(dirname "$PBRT")/imgtool}"
 SCENES_DIR="${SCENES_DIR:-$HOME/projects/pbrt-v4-scenes}"
 BONSAI_BUILD_DIR="${BONSAI_BUILD_DIR:-build}"
 BONSAI_CXX="${BONSAI_CXX:-clang++}"
+# The register cap every schedule is compiled under: pbrt's GPU build caps
+# a thread at 128 registers (its CMakeLists' `-maxrregcount 128`), and so
+# does every schedule here, so that the wavefront is compared like with
+# like. BONSAI_GPU_MAX_REGISTERS=N compiles this run's schedules under
+# another cap -- a megakernel's trade between spills and warps is not the
+# wavefront's -- and 0 under none (ptxas's own choice); the compiler line
+# of the log says which, and the table's last line when it is not pbrt's.
+GPU_MAX_REGISTERS="${BONSAI_GPU_MAX_REGISTERS:-128}"
+REGISTER_FLAGS=()
+if [[ "$GPU_MAX_REGISTERS" != 0 ]]; then
+  REGISTER_FLAGS=(--gpu-max-registers "$GPU_MAX_REGISTERS")
+fi
 fail=0
 for tool in "$PBRT" "$IMGTOOL" "$BONSAI_BUILD_DIR/compiler"; do
   if [[ ! -x "$tool" ]]; then echo "missing: $tool" >&2; fail=1; fi
@@ -167,7 +179,7 @@ if [[ -f "$BONSAI_BUILD_DIR/CMakeCache.txt" ]]; then
 fi
 # Which compiler this run's numbers are of: the path, and the commit its
 # tree is at (a kept copy's is the commit it was built from), for the log.
-echo "compiler: $BONSAI_BUILD_DIR/compiler ($(git -C "$(dirname "$BONSAI_BUILD_DIR")" rev-parse --short HEAD 2>/dev/null || echo 'no git tree'))"
+echo "compiler: $BONSAI_BUILD_DIR/compiler ($(git -C "$(dirname "$BONSAI_BUILD_DIR")" rev-parse --short HEAD 2>/dev/null || echo 'no git tree')); registers capped at $GPU_MAX_REGISTERS$([[ "$GPU_MAX_REGISTERS" == 0 ]] && echo " (none: ptxas's choice)")"
 # The converter is one of the binaries --resume reuses, as the schedules'
 # are below: a sweep that calls this once per scene would otherwise rebuild
 # it every time.
@@ -292,7 +304,7 @@ for s in $SCHEDULES; do
     mapfile -t LINK_FLAGS < <(echo "$SHIM_OUT" | grep -v '^NANOVDB_INCLUDE=')
   fi
   "$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract --fast-math \
-      --gpu-max-registers 128 "${LINK_FLAGS[@]}" -i $PREFIX/render.bonsai \
+      "${REGISTER_FLAGS[@]}" "${LINK_FLAGS[@]}" -i $PREFIX/render.bonsai \
       -i "$PREFIX/schedules/$s.bonsai" -b cpp -o $PREFIX/render
   "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $(bash $PREFIX/scene_schema.sh) \
       $PREFIX/render_hook.cpp \
@@ -484,5 +496,5 @@ for sc in $SCENES; do
 done
 done
 echo
-echo "table: $TABLE (wall in seconds, the least of $REPEATS -- pbrt's of $REPEATS processes, ours of $REPEATS renders in one process, the first the warm-up; kernel time in ms, pbrt's from one --stats run, ours the profile of the fastest render; speedup is pbrt's wall over ours; the note says how many runs were redone because something else ran alongside, and how many were kept disturbed after three tries; $GPU_CLOCK_NOTE)"
+echo "table: $TABLE (wall in seconds, the least of $REPEATS -- pbrt's of $REPEATS processes, ours of $REPEATS renders in one process, the first the warm-up; kernel time in ms, pbrt's from one --stats run, ours the profile of the fastest render; speedup is pbrt's wall over ours; the note says how many runs were redone because something else ran alongside, and how many were kept disturbed after three tries; $GPU_CLOCK_NOTE$([[ "$GPU_MAX_REGISTERS" != 128 ]] && echo "; our schedules compiled with registers capped at $GPU_MAX_REGISTERS, not pbrt's 128"))"
 column -t -s $'\t' "$TABLE"

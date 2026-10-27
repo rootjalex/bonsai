@@ -18123,3 +18123,248 @@ b's drain between a's and the gated pass; values 102.5, 107, 104, 107, 116,
 107, 111.5, 125) and defer-two-queues-one-chain (the undo); the two error
 tests' expectations changed by the assert's line and text only. Suite 1884
 green in the worktree.
+
+## 10-27: the megakernel against Dr.Jit's -- one thread per path, one launch per frame, and the field specialize that stopped at the call
+
+**The question (the user, 10-27 morning).** Why are our megakernel
+schedules so slow, when Dr.Jit's megakernel is 2.14x faster than
+`pbrt --gpu`? Dr.Jit (Jakob, Speierer, Roussel, Vicini; arXiv 2202.01284,
+Fig. 5 and 6, an RTX A6000: Staircase at 3 bounces and 64 spp, Living room
+at 12 bounces, Glass of water at 32 bounces) reports its megakernel at a
+geometric mean of 2.14x over PBRT 4 --gpu and 3.70x over Mitsuba 2, and its
+own wavefront -- "every loop and polymorphic call unrolled into separate
+kernels that communicate through global memory", not pbrt's queue
+wavefront -- 2.0 to 7.7x slower than its megakernel on the GPU. Ours
+(gpu-compare-out-b, the night of 10-26, kernel ms at 16 spp): killeroo-gold
+pbrt 149, wavefront 68, megakernel 182, megakernel with the SER sort 134;
+ganesha pbrt 177, wavefront 95, megakernel 560 (0.32x of pbrt), 490 with
+the sort; and the megakernel's time is linear in spp where pbrt's is not
+quite. So the question is what Dr.Jit's megakernel does that ours does
+not. What it does, from the paper and drjit-core's source
+(https://github.com/mitsuba-renderer/drjit-core: src/optix_core.cpp,
+src/call.cpp; https://drjit.readthedocs.io/en/latest/reference.html):
+(a) it is a tracing JIT, so the kernel holds the types the scene
+instantiates and nothing else -- a scene of two materials compiles two
+BSDF arms, where our raygen compiles every material, shape, light and
+texture of pbrt (`__raygen__p$VolPath$False$False` is 220,872 PTX lines
+with no media and no subsurface, `$True$True` 613,340); (b) one lane per
+sample of the pass: the launch is pixels x samples-per-pass threads, each
+lane one path, the passes sized to memory (Mitsuba 3's spp_per_pass);
+(c) a polymorphic call is a direct callable under OptiX
+(`__direct_callable__<hash>` program groups, `optixDirectCall` selected by
+the instance's index out of an offset table) or an indirect `call` through
+a `.callprototype` under CUDA, with the callee's unreferenced inputs and
+outputs pruned and identical callees deduplicated by hash, which the paper
+puts at 2.5x on OptiX for its polymorphism-heavy scenes (§3.5, (d));
+(d) loops stay loops in one kernel (registers and labels), with "loop
+tracing inconclusive on the GPU" and ~65% of a loop's state variables
+removed by its optimizations; (e) its OptiX modules leave
+`maxRegisterCount` at OptiX's default (0) and `optLevel` 3, `maxTraceDepth`
+1, two attribute values, a trivial `__miss__`, the continuation stack
+`cssRG + max(cssCH, cssMS, cssAH + cssIS)`; (f) shader execution
+reordering at the trace and at `reorder_threads`. Against ours, four
+hypotheses, in the order they were tested: (1) `render.bind(p, OptixThread)`
+gives a thread a pixel and has it run the pixel's samples in turn, so a
+warp's lanes drift apart in sample and bounce and the warp executes the
+union of their paths, where lanes that all start a path together lose only
+the ones that end early; (2) every arm in one raygen -- the code size and
+register pressure of 09-22's entry and 10-15's bisection (the two flags,
+have_media and have_subsurface, bought back 113 of 161 ms; the rest of
+the arms are still there); (3) the continuation stack a path keeps live
+across `optixTrace`; (4) divergence at the hit, which the SER sort already
+takes 1.36x out of.
+
+**Hypothesis 1 measured: 1.74x, and one launch per frame 1.86x.** Two
+schedules. gpu-optix-mega-pass is gpu-optix-mega with
+`render[VolPath].reorder(p, s)`: the sample loop outside the pixel loop,
+the per-pixel prologue (the AOVs' zeroing, 36 PTX lines, a raygen of its
+own with a continuation stack of 0) distributed into a loop before the
+nest, and then a raygen launch per sample over the frame's pixels, one
+thread one path -- which is what gpu-optix-mega's header said could not be
+done ("the pixel loop does work of its own before its samples, so the two
+loops cannot be collapsed into one thread per sample"); the reorder's
+distribution is exactly what does it. gpu-optix-mega-flat adds
+`render[VolPath].collapse(s, p, ps)` and `render[VolPath].bind(ps,
+OptixThread)`: the interchanged nest collapsed into one loop over
+(sample, pixel) pairs, the pixel fastest, one launch of spp x pixels
+threads for the frame -- Dr.Jit's shape (b), and the shape 09-22's entry
+proposed for the software megakernel as its first item ("the block is the
+wrong shape"); the pixel's sum is then the atomic the program wrote, in
+whatever order the lanes finish, which is the trade render.bonsai's pixel
+loop says a schedule may make. Through gpu_compare.sh (compiler f2e47a10,
+the worktree's build; gpu-compare-out-mq and -mq2; killeroo-gold and
+ganesha at 16 spp; every image `ok: the image matches pbrt`, the flat
+schedule's included):
+
+| kernel ms, 16 spp | pbrt --gpu | gpu-optix-mega (a pixel's samples in turn) | gpu-optix-mega-pass (a launch per sample) | gpu-optix-mega-flat (one launch) | gpu-optix (wavefront, night run) |
+|---|---|---|---|---|---|
+| killeroo-gold | 149.4 | 181.2 | 104.0 | 97.4 | 67.6 |
+| ganesha | 177.0 | 560.6 | 321.8 | 316.4 | 94.9 |
+
+The samples in turn cost 1.74x on both scenes (181 -> 104, 561 -> 322),
+and the launch per frame another 6% on killeroo-gold and 2% on ganesha
+(the per-launch tail -- the frame's longest path -- paid once instead of
+sixteen times, and sixteen launches' gaps). The megakernel is now ahead of
+pbrt --gpu on killeroo-gold (1.53x on kernel time, 2.26x on wall) and at
+0.56x of it on ganesha; the wavefront is still 1.44x and 3.3x ahead of the
+flat megakernel. The continuation stack (BONSAI_OPTIX_STATS) is 384 to
+736 bytes a thread for gpu-optix-mega's four volpath raygens, 544 to 704
+for the reordered ones; hypothesis 3 is not what moved.
+
+**The compiler bug on the way: the field form of specialize stopped at
+the call.** The pass schedule's `$True$False` raygen came out at 613,688
+PTX lines with 8 trace sites, the same as `$True$True`, and `$False$False`
+at 250,080 with 4, the same as `$False$True` (gpu-optix-mega: 513,925 / 4
+and 220,872 / 2): both copies of each pair carried the subsurface arm,
+have_subsurface no longer a constant in either. A small reproduction
+(ssa/specialize-field-callee) shows why, and that it never worked for a
+callee that is not inlined: `render[VolPath].specialize(
+VolPath::have_subsurface)` copies the loop and forces the field's byte in
+the copy's value of the integrator (SSA/Specialize.cpp force_fixed_field),
+and SSA/Specialize.h says the callees handed the value are copied with the
+field fixed as they are with a tag fixed -- but specialize_callees knew
+the value only by its name, or through a load of it, and after
+`render.specialize(integrator)` the call's argument is no longer the
+parameter: it is the first copy's struct, `build<Integrator>(3u, pad,
+payload)` of the parameter's own fields with the tag a constant, which the
+tag specialize put in place of every read. So `integrator_li!VolPath!True`
+(the have_media copy) stayed shared by both have_subsurface copies, each
+handing it a struct whose byte was forced by arithmetic (`word &
+0xFFFF00FF`, `| 0x10000`), and the byte folded only where LLVM inlined
+`integrator_li` into the raygen and saw that arithmetic -- which it did
+under gpu-optix-mega, and not under the reorder: the forcing is pure
+arithmetic on an invariant read, so reorder() hoists it before the nest
+(SSA/ReorderLoops.h), which under `bind(p, OptixThread)` is the host, and
+the kernel received the finished struct as a launch parameter, in which no
+byte is a constant. Fixed at the root in specialize_callees: `names()` now
+also recognizes the value rebuilt with constants put in -- a MakeStruct of
+the value's type whose tag is a constant equal to this variant's and whose
+every other operand is the value's own field at that index (LoadField), or
+at the payload its words rebuilt lane by lane with a byte forced
+(force_fixed_field's shape: ExtractIdx of the value's payload per lane,
+masked and or'ed with constants), which is what a field fixed earlier
+leaves -- and a slot an earlier copy made that stores nothing but the
+value. Nothing looser: a struct the program builds from some of the
+value's fields is not the value. With it the field form clones the callee
+per value of the field (`apply!Sum!False`, `apply!Sum!True`; in the
+renderer the four `integrator_li!VolPath!{False,True}!{False,True}`, each
+raygen copy calling its own), and the field is a constant in SSA, where
+fold_forced_words and the known-bits rule fold the arm's `if` -- nothing
+left to the backend. In the renderer (the post-schedule dump of
+gpu-optix-mega-pass under 927fa485) `integrator_li!VolPath!True!False`
+hands `li_vol_path` the literal `(bool)0` for have_subsurface, where
+`integrator_li!VolPath!True` handed it `@110 != 0u`, a byte extracted
+from the word the host had forced; the arm's `if` below is folded on a
+literal argument. Tests at every level:
+ssa/specialize-field-callee (the two clones, the `* 2f` in True alone,
+each loop copy calling its own), ssa/specialize-field-reorder (the
+renderer's shape: the nest interchanged after the field form, the forced
+struct hoisted before the nest and the clones called from the inner
+body), correctness/llvm/specialize-field-callee (the three answers run).
+The 68 specialize-family tests and the 60 that name callee copies pass;
+the suite 1916 of 1916 on the rebuilt worktree compiler (927fa485 on
+ajr/ssa-multi-queue, cherry-picked onto ajr/ssa as b80bfa6d). A design
+note from the way
+the bug surfaced: reorder()'s hoisting of pure arithmetic on invariant
+reads is right by its own rules and moves that arithmetic across the
+kernel boundary under a GPU bind -- a value LLVM could have folded in the
+kernel becomes a launch parameter; harmless once the SSA holds the
+constant, but worth remembering for any other value a specialize forces
+by arithmetic.
+
+**The shapes remeasured under the fixed compiler, the register cap, the
+SER sort on the flat launch, and the A/B owed from the night.** First
+the code: gpu-optix-mega-pass compiled by 927fa485 (scratchpad
+ptxstats.py over the strings of render.o), per raygen PTX lines / trace
+sites, f2e47a10's in parentheses: `$VolPath$True$True` 613,683 / 8
+(613,688 / 8), `$True$False` 514,230 / 4 (613,688 / 8), `$False$True`
+250,063 / 4 (250,080 / 4), `$False$False` 221,206 / 2 (250,080 / 4) --
+the `$False` copies are gpu-optix-mega's sizes again (513,925 / 4 and
+220,872 / 2), the subsurface arm and its two trace sites gone from each.
+Then the time (gpu-compare-out-mq3, the same two scenes at 16 spp, every
+image `ok: the image matches pbrt`; the morning's f2e47a10 numbers in
+parentheses):
+
+| kernel ms, 16 spp, compiler 927fa485 | pbrt --gpu | gpu-optix-mega | gpu-optix-mega-pass | gpu-optix-mega-flat |
+|---|---|---|---|---|
+| killeroo-gold | 149.3 | 183.4 (181.2) | 89.4 (104.0) | 86.6 (97.4) |
+| ganesha | 177.0 | 561.7 (560.6) | 310.1 (321.8) | 306.5 (316.4) |
+
+gpu-optix-mega is unchanged, as it should be (its byte folded already);
+the reordered shapes gain 14% and 11% on killeroo-gold and 3-4% on
+ganesha from the subsurface arm's departure -- killeroo-gold's path is
+short and shaded, so the raygen's size and the two trace sites it lost
+weighed on it; ganesha's time is elsewhere (below). The flat megakernel
+now stands at 1.72x of pbrt --gpu's kernel time on killeroo-gold (2.54x
+on wall) and 0.58x on ganesha, against the wavefront's 2.21x and 1.87x.
+Run record: lock 'timing' 14:17; bonsai-ac's niced four-core build and
+a two-minute ctest (cores 0-3, no GPU) shared the machine 14:51-14:56
+by agreement, and the harness's idle check caught them -- three cells
+`redone 1` -- which can touch the wall_s column alone. The three
+passes after it (gpu-compare-out-mq3b, -mq4, -mq5; kernel ms at 16 spp,
+images matching):
+
+| kernel ms, 16 spp | killeroo-gold | ganesha |
+|---|---|---|
+| gpu-optix-mega-flat, cap 128 (mq3) | 86.6 | 306.5 |
+| gpu-optix-mega-flat, no cap (mq4: BONSAI_GPU_MAX_REGISTERS=0, ptxas's choice) | 86.4 | 306.0 |
+| gpu-optix-mega-ser-flat (mq3b: the flat launch with `vol_route.sort(vol_surface, materials[prim.material])`) | 59.4 | 269.8 |
+
+The register cap is not it: with no cap the flat megakernel is within
+0.3% of its capped self on both scenes, so Dr.Jit's leaving
+maxRegisterCount at OptiX's default buys nothing here, and the knob
+stays a harness variable (BONSAI_GPU_MAX_REGISTERS, 128 as before) with
+no schedule statement proposed. The SER sort on the flat launch is worth
+1.46x on killeroo-gold (86.6 -> 59.4) and 1.14x on ganesha (306.5 ->
+269.8), the same ratios it gave the samples-in-turn megakernel at night
+(181 -> 134 and 561 -> 490): the two gains compose, and
+gpu-optix-mega-ser-flat is the megakernel to beat now -- 2.51x of pbrt
+--gpu's kernel time on killeroo-gold (3.72x on wall) and 0.66x on
+ganesha, against the wavefront's 2.21x and 1.87x. The A/B owed from the
+night (mq5): gpu-optix-mega-ser-ray on killeroo-gold at 16 spp through
+the pre-barrier compiler (build/compiler at 0d73c5ff, copied to
+apps/pbrt/scratch/compiler-0d73c5ff) is 127.2 ms -- the pre-barrier run's
+127.3 (gpu-compare-out-explore) -- where the night's run under the
+barrier change (explore-b, a582c9fd) gave 115.0, and 462.8 against 510.3
+at 64 spp, 926.4 against 1021.4 at 128: the 10% was the barrier change,
+and it reproduces.
+
+**What remains of the gap, and what Dr.Jit does that we do not --
+proposals needing the user's word.** Where the day ends: the megakernel
+at 16 spp is 2.5x of pbrt --gpu's kernel time on killeroo-gold (181 ->
+59 ms over the day: 1.74x for one thread per path, 1.06x for one launch
+per frame, 1.12x for the field specialize reaching the callee, 1.46x for
+the SER sort on top), ahead of our own wavefront there (67.6), and 0.66x
+of pbrt on ganesha (561 -> 270), 2.8x behind the wavefront (94.9). So
+the answer to the morning's question is in two parts. Most of the
+distance to Dr.Jit's shape was ours to close in the schedule -- its
+megakernel is one lane per path for a launch of pixels x
+samples-per-pass, which `reorder(p, s)` plus `collapse(s, p, ps)` now
+writes -- and a compiler bug took a third of the rest. What is left is
+scene-shaped: ganesha is the scene where the megakernel's time is not in
+shading (one material, a short path) but around the trace, and the two
+things Dr.Jit's kernel has there that ours does not are (a) a raygen the
+size of the scene's own types -- its JIT compiles the two or three BSDFs
+the scene instantiates, where `__raygen__p$VolPath$False$False` carries
+every pbrt material, shape, light and texture at 221,206 PTX lines and
+holds a 544-byte continuation stack live across every `optixTrace` --
+and (b) polymorphic calls as OptiX direct callables with pruned
+inputs and outputs, so the raygen's register allocation is not the
+union of every arm's. The register cap is not among them (mq4). Which of
+the two it is on ganesha cannot be told from kernel time alone, and the
+GPU profilers stay off OptiX without the user's word. Proposals, each a
+new construct and so asked before built: (1) a `specialize` on the
+variants a table holds -- `render.specialize(materials)` copying the
+loop for the set of material tags the scene instantiates, decided at
+scene load, so that the raygen a scene runs carries its arms alone (the
+set form; the copies would be per distinct set seen, the dispatch at the
+launch); or, Dr.Jit's own answer, (2) a bind of a match's arms to OptiX
+direct callables (`materials.bind(DirectCallable)`), the raygen keeping
+the dispatch and each arm compiled apart; (3) the profiler on ganesha's
+two kernels (ours and pbrt's wavefront's trace) to settle (a) against
+(b) first. Also asked: whether the GPU wavefront figure
+(plot_gpu_wavefront.py, plots.sh's GPU_TABLES) should gain the flat
+megakernel sides -- gpu-optix-mega-flat and -mega-ser-flat -- which
+needs the five-scene, three-spp sweep (about 2 h of card); and the full
+pbrt redo (CPU and GPU) owed anyway once the loopify exit rewrite lands
+on top of aa4dbaaa's min/max change, into which that sweep would fold.

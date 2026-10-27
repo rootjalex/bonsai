@@ -1,0 +1,53 @@
+// The megakernel on the RT cores, one launch per sample: gpu-optix-mega's
+// program -- every path from its camera ray to its end in one thread, no
+// queues, the two ray queries answered by the hardware -- with the pixel
+// and sample loops interchanged, as the wavefront's are (`reorder(p, s)`:
+// the per-pixel prologue a loop of its own, then for each sample a raygen
+// launch over the frame's pixels). gpu-optix-mega launches once and has
+// each thread take a pixel and run its samples in turn; here a thread is
+// one path, as pbrt's wavefront work items, Mitsuba 3's megakernel under
+// Dr.Jit (one lane per sample of a pass) and the OptiX SDK's path tracers
+// have it. What it measures against gpu-optix-mega: what the samples in
+// turn cost -- a warp whose lanes drift apart in sample and bounce
+// executes the union of their paths, where lanes that all start a path
+// together only lose the ones that end early (10-27, Dr.Jit's megakernel
+// versus ours).
+import apps/pbrt/schedules/trees/optix;
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_probe_step.loopify();
+    vol_shadow_track.loopify();
+    render.specialize(integrator);
+    // pbrt's `haveMedia` and `haveSubsurface`, fixed per scene, the pixel
+    // loop copied per flag, as gpu-optix-mega has them.
+    render[VolPath].specialize(have_media);
+    render[VolPath].specialize(VolPath::have_subsurface);
+    // The sample loop outside the pixel loop: a launch per sample.
+    render[VolPath].reorder(p, s);
+    // The ray tracing hardware answers both queries.
+    trace.bind(RTCore);
+    trace_any.bind(RTCore);
+    // One thread per pixel of a sample's launch: the raygen launch. Every
+    // variant's, as gpu-optix-mega's bind is.
+    render.bind(p, OptixThread);
+    // The film pass over the frame after the paths, as a kernel of its own.
+    render.split(q, q_blk, q_thr, 256, true);
+    render.bind(q_blk, GPUBlock);
+    render.bind(q_thr, GPUThread);
+    texture_filter.bind(TextureUnit,
+                        |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                         dstdy : vec2f|
+                        texture_filter_unit(texture_handles[t.id], st, dstdx,
+                                            dstdy));
+    texture_filter_float.bind(TextureUnit,
+                              |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                               dstdy : vec2f|
+                              texture_filter_float_unit(
+                                  texture_handles[t.id], t.average_channels,
+                                  st, dstdx, dstdy));
+}

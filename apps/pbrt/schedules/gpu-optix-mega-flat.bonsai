@@ -1,0 +1,55 @@
+// The megakernel on the RT cores, one thread per path and one launch per
+// frame: gpu-optix-mega-pass's interchange (`reorder(p, s)`, the sample loop
+// outside the pixel loop) and then the two loops collapsed into one
+// (`collapse(s, p, ps)`), so that a sample's paths of every pixel and every
+// sample's are one raygen launch of spp x pixels threads. This is the shape
+// of Mitsuba 3's megakernel under Dr.Jit (every sample of the pass a lane
+// of one wavefront-sized launch) and of the OptiX SDK's path tracers;
+// gpu-optix-mega-pass launches per sample and pays each launch's tail --
+// the frame's longest path -- spp times, and this pays it once. The sum of
+// a pixel's samples is no longer in sample order (the collapsed loop binds
+// the sample index, so the accumulate is the atomic the program wrote),
+// which is the trade render.bonsai's pixel loop says a schedule may make.
+import apps/pbrt/schedules/trees/optix;
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_probe_step.loopify();
+    vol_shadow_track.loopify();
+    render.specialize(integrator);
+    // pbrt's `haveMedia` and `haveSubsurface`, fixed per scene, the pixel
+    // loop copied per flag, as gpu-optix-mega has them.
+    render[VolPath].specialize(have_media);
+    render[VolPath].specialize(VolPath::have_subsurface);
+    // The sample loop outside the pixel loop, then the two as one loop over
+    // (sample, pixel) pairs, the pixel fastest.
+    render[VolPath].reorder(p, s);
+    render[VolPath].collapse(s, p, ps);
+    // The ray tracing hardware answers both queries.
+    trace.bind(RTCore);
+    trace_any.bind(RTCore);
+    // One thread per (sample, pixel) of the frame: the raygen launch. `p`
+    // after the reorder names the per-pixel prologue loop of each volpath
+    // copy (a raygen of its own) and the other integrators' pixel loops.
+    render.bind(p, OptixThread);
+    render[VolPath].bind(ps, OptixThread);
+    // The film pass over the frame after the paths, as a kernel of its own.
+    render.split(q, q_blk, q_thr, 256, true);
+    render.bind(q_blk, GPUBlock);
+    render.bind(q_thr, GPUThread);
+    texture_filter.bind(TextureUnit,
+                        |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                         dstdy : vec2f|
+                        texture_filter_unit(texture_handles[t.id], st, dstdx,
+                                            dstdy));
+    texture_filter_float.bind(TextureUnit,
+                              |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                               dstdy : vec2f|
+                              texture_filter_float_unit(
+                                  texture_handles[t.id], t.average_channels,
+                                  st, dstdx, dstdy));
+}
