@@ -1727,6 +1727,120 @@ silhouette the cheap one -- and it names the next piece of codegen: the
 two-child ray visit on the CPU, whose machine code "The binary CPU walk's
 gap" above compared with FCPW's (the `vec3f` loads and horizontal sums).
 
+### The GPU tables remeasured under the barrier change, and the comb mesh's tie (2026-10-27)
+
+The user's ask (10-26 evening): with apps/rtq's plots current, rerun the
+wosx comparison, make its plots current, investigate every cell where we
+are worse, profile where we are better, GPU first. The before-copies are
+the 10-26 tables (commit 46e2b4e5, measured 03:15-04:07):
+results/wosx-gpu-results.before-2026-10-26-barrier.csv and
+wosx-stars-gpu-results.before-2026-10-26-barrier.csv with their logs in
+gpu-logs-before-2026-10-26-barrier/ (171) and
+stars-gpu-logs-before-2026-10-26-barrier/ (19). The reruns (`benchmark.sh
+--gpu`, `--stars --gpu`, 3 repeats a cell as before; commit f9065872, the
+compiler built at a582c9fd) ran 09:18-10:33 after bonsai-f9's night run;
+the stars table had to be resumed once (a peer's compiler at 100% of a
+core for ten minutes is "machine busy" to the harness, which stops), and
+the comb mesh was remeasured warm after its cold first cells (the same
+numbers, within 1%). The figures: plots/wosx-gpu-speedup.* (nine
+schedules, as before) and wosx-stars-gpu-speedup.*, each with its .txt.
+
+**The table, cell by cell against 10-26** (speedup geomeans over 19 meshes;
+"ours" and "WoSX" are each side's rate today over its rate then):
+
+| schedule | 10-26 | 10-27 | ours | WoSX |
+|---|---|---|---|---|
+| persistent (fcpwb-gpu, the matching one) | 1.294 | 1.258 | 0.975 | 0.999 |
+| persistent-256k | 1.390 | 1.373 | 0.983 | 0.996 |
+| persistent-reorder | 1.404 | 1.375 | 0.978 | 0.998 |
+| persistent-reorder-256k | 1.471 | 1.468 | 0.993 | 0.993 |
+| parallel | 1.200 | 1.309 | 1.100 | 1.010 |
+| parallel-reorder-blk64 | 1.430 | 1.504 | 1.060 | 1.007 |
+| persistent-point | 0.120 | 0.116 | 0.974 | 1.008 |
+| defer | 0.531 | 0.524 | 0.996 | 1.008 |
+| defer-block | 1.158 | 1.150 | 0.992 | 0.999 |
+| walk on stars, persistent | 1.473 | 1.484 | 1.001 | 0.988 |
+
+WoSX's rates reproduce to a percent on every mesh (the stars' to 1-2%,
+crown and landscape apart, whose few long walks scatter more). The one-
+launch schedules gained 6-10% on our side; the persistent family lost 1-3%
+on sportscar, rover, landscape and villa and held elsewhere; and every
+comb cell fell 10-26% on our side alone -- fcpwb-gpu 1.19 to 0.88,
+persistent-256k 1.09 to 0.93, defer-block 1.04 to 0.91, parallel-reorder-
+blk64 1.50 to 1.24 -- the only cells of a sound schedule under parity.
+parallel-reorder-blk64 is now the best of the seven on 12 of 18 meshes
+(persistent-reorder-256k on 5; it was 13 and 1). The walk on stars holds:
+1.15x (beast) to 1.72x (ivy), no cell moved beyond the scatter of three
+repeats of long walks (ours 0.93-1.13 per mesh, 1.001 in geomean).
+
+**The barrier change is not the comb drop.** The same program through
+build/compiler (built 22:14 at 0d73c5ff, before a582c9fd: two
+`barrier.sync` in the kernel, 60 registers) and through build-rtq's (the
+change: none, 54 registers) -- compare.sh told to rebuild neither
+(RTQ_SKIP_CMAKE=1, added to it today as apps/rtq's has) -- runs alike on
+comb (726/738 against 730/744 Msteps/s, two rounds of ten repeats,
+alternating), whale (244/245 against 245/242), sportscar (267/270 against
+266/267), rover (219/218 against 217/217) and dragon (44.4/44.6 against
+44.3/44.3). The PTX differs by the two barrier lines; ptxas reschedules
+(1600 to 1608 SASS instructions, 174 opcodes moved) with no effect on the
+rate. For the persistent kernel the barriers held finished warps (ncu:
+3.26 of a warp's ~9.5 cycles between issues stalled at the barrier) without
+delaying the kernel's end, which the longest walks set either way.
+
+**The comb drop is the two-child tie order, read from a compiler built at
+46e2b4e5** (apps/wosx/scratch/wt-46e2b4e5, a worktree with its own build
+and that commit's sources, apps/rtq's included -- today's
+`[[packed]]` fields do not parse there). Its kernel's PTX differs from
+0d73c5ff's by 62 lines, every one the operand order of the sort's
+`setp`/`selp`/`and.pred` -- 96229693's tie fix (10-26 12:30), by which a
+tie keeps the left child first as FCPW's bvh.slang does (`if
+(distToChildNodes[2] < distToChildNodes[0]) swap`, and nothing else) where
+the 10-26 kernel put the right child first; 38 of 1600 SASS opcode lines,
+60 registers both. Rates (that compiler against today's): comb 890 (1.08x)
+against 726-744 (0.90x), sportscar 273.9 against 266-270, whale 246.1
+against 242-245. Kernel-only under nsys (results/nsys/comb-fcpwb-gpu*.
+sqlite, apps/rtq/nsys_kernels.py): 0.935 ms then, 1.184 ms now, the least
+of six; WoSX's 1.11-1.31 ms in both runs. Under ncu (results/ncu/comb-
+fcpwb-gpu*, apps/rtq/ncu_kernels.py; clocks at base, so slower than
+nsys), our kernel then and now: warp instructions 844.7M to 894.6M
+(+5.9%), global loads 77.8M to 79.9M (+2.7% -- FCPW's own kernel makes
+79.1M: the new count is FCPW's visit), SM-active cycles 2.17M to 2.40M on
+the average SM (+10%) and 2.8-2.95M to 3.52-3.58M on the busiest (+22%),
+which sets the kernel's end. The reading: comb is a thin plate on which a
+step's sphere center lies inside both children's boxes at most nodes --
+`d2Min` is zero for both, the tie the rule decides -- and with FCPW's
+order our kernel enters the nodes FCPW enters, a few more per step on the
+average and many more on the longest walks (interior points, whose steps
+are the large spheres), which a persistent kernel waits for at its end.
+The 10-26 comb cell, 1.19x, was a tie order FCPW does not use; the
+matching one is FCPW's, and under it we stand at 0.88-0.93x on this mesh
+while at 1.11x ourselves-against-ourselves on every other. At FCPW's visit
+order we are still 5-10% behind FCPW on comb: 894.6M warp instructions to
+their 708M at 3.68 against 4.56 lanes active, over the same loads -- six
+steps a walk over a 421-node tree, so the per-step and per-walk code
+outside the traversal (the sphere step, the RNG, the claim, the per-point
+atomics) is the cost here, and there we spend more instructions than
+WoSX's shader. That is the one thing left to read on the GPU table; the
+tie order is right.
+
+**Why we are ahead where we are ahead** (head, the matching schedule, ncu,
+results/ncu/head-fcpwb-gpu.*; the 1.31x of the table is 1.31x kernel-only,
+27.03 against 20.56 ms): we execute 13% *more* warp instructions than
+WoSX's kernel (21.9G against 19.4G) in 76% of the time. Ours: 54 registers
+to their 82, so 46.6% achieved occupancy against 31.6% and 1.72 eligible
+warps a cycle against 0.67, issue slots 70.7% used against 47.1%, the
+long-scoreboard stall 2.87 against 3.56 cycles an issue -- more latency
+hidden; and fewer bytes: 2.25G against 2.58G load instructions fetching
+5.36G against 7.49G sectors (a node's two boxes read as the fields the
+test needs, not the row), the stack's traffic 0.6-0.7x theirs (108M
+against 156M local stores). Lanes active per instruction are about three
+on both sides (2.83 against 3.10), as read on 10-24: the lead is registers
+and bytes, not instructions or lanes. The walk on stars' profile is still
+owed: head's and dragon's stars kernels run 1.4 and 9.8 s a launch, and
+Nsight Compute's replay of WoSX's trips the display watchdog
+(CUDA_ERROR_LAUNCH_TIMEOUT in slang-rhi's cuEventRecord); comb (3 ms) or
+crown (0.24 s) will do.
+
 ### Next
 
 - The other binary-tree schedules measured again with the unrolled visit

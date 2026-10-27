@@ -242,7 +242,11 @@ the threaded schedule with the points handed to sixteen persistent workers
 cores) that claim a point at a time from a counter, against the same WoSX
 run: beside `fcpw4w16-threads` it measures what a dynamic claim is worth
 over TBB's partition of the points when points differ in cost.
-`RTQ_CPUS=<cpus>` pins any of them to another set.
+`RTQ_CPUS=<cpus>` pins any of them to another set. `RTQ_SKIP_CMAKE=1` runs
+the compiler in `BONSAI_BUILD_DIR` as built, without rebuilding it first:
+an A/B of two build directories, one at an older commit (PLAN.md,
+2026-10-27). `WOSX_KEEP=1` leaves the built program and driver
+(`wosx.out`) in place after the run, for a profile under nsys or ncu.
 
 A schedule named `*-gpu*` is the GPU comparison (`compare.sh --schedule
 fcpwb-gpu <mesh>`): the driver is built with `WOSX_GPU` against slang-rhi
@@ -511,7 +515,10 @@ in question (PLAN.md, the persistent schedule).
   The mesh reader and the copy of FCPW's tree into the layout are
   apps/rtq's (`apps/rtq/mesh.h`, `apps/rtq/fcpw_tree.h`), shared.
 - `results/`: the measured data, generated and gitignored -- the logs, one
-  CSV with one row per measured (mesh, schedule), the rover unzipped.
+  CSV with one row per measured (mesh, schedule), the rover unzipped;
+  `results/nsys/` and `results/ncu/` the Nsight Systems traces and Nsight
+  Compute reports of the GPU kernels with their CSV exports, read with
+  apps/rtq's `nsys_kernels.py` and `ncu_kernels.py` (PLAN.md, 2026-10-27).
 - `scratch/`: an agent's working files for this app, gitignored.
 
 The generated `wosx.h`, `wosx.o`, `wosx.bir` and `wosx.ll` are left in this

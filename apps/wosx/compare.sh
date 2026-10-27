@@ -57,7 +57,9 @@ set -euo pipefail
 # default the first of `build`, `build-*` that CMake has configured with the
 # LLVM the compiler needs, which is said when it is picked); BONSAI_CXX a
 # clang++ (default `clang++`; the generated header needs clang's
-# ext_vector_type); RTQ_CPUS as above; WOSX_KEEP set keeps the built
+# ext_vector_type); RTQ_CPUS as above; RTQ_SKIP_CMAKE=1 runs the compiler
+# as built, without rebuilding it first (an A/B of two build directories,
+# one of them deliberately at an older commit); WOSX_KEEP set keeps the built
 # program and driver (wosx.out, wosx.ll, ...) after the run, for a profile.
 if [[ "$(pwd)" == */apps/wosx ]]; then
   cd ../..
@@ -135,7 +137,12 @@ if [[ -z "${BONSAI_BUILD_DIR:-}" ]]; then
   fi
   echo "compiler build directory: $BONSAI_BUILD_DIR (BONSAI_BUILD_DIR names another)"
 fi
-cmake --build "$BONSAI_BUILD_DIR" -j
+# RTQ_SKIP_CMAKE=1 leaves the compiler as built, as apps/rtq/compare.sh
+# does: for a build directory that must stay at an older commit (an A/B of
+# two compilers over one program), or whose compiler is known current.
+if [[ -z "${RTQ_SKIP_CMAKE:-}" ]]; then
+  cmake --build "$BONSAI_BUILD_DIR" -j
+fi
 
 # The program with one schedule, as $PREFIX/wosx.out. The flags are
 # apps/rtq/compare.sh's: `-p ssa` because sort and loopify are SSA
