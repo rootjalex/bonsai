@@ -476,6 +476,18 @@ driver, the two sides' kernels told apart by symbol).
   their CSVs are kept under `results/nsys/` (gitignored), `summary.csv`
   there the kernel-only and wall-clock speedups per cell (PLAN.md, "What
   Nsight Systems says of the GPU win", 10-26).
+- `ncu_kernels.py`: two kernels of one Nsight Compute report side by side,
+  from its raw page as CSV (`ncu --set full --kernel-name
+  regex:'rayIntersection|_kernel_i_blk_2' --launch-count 4 -o
+  results/ncu/<mesh>-firsthit ./rtq.out <mesh.ply> --side 1024 --repeats 1
+  --batch primary --query intersect`, then `ncu --import ... --csv --page
+  raw > <stem>.raw.csv`): duration, throughputs, occupancy, issue rate,
+  instructions and active threads per instruction, the load counts and
+  cache hit rates, the local-memory (stack) traffic and the warp stall
+  reasons, with the ratio; and `<stem>-tidy.csv` beside it, every metric
+  of every profiled launch as (launch, kernel, metric, value), for plots.
+  The reports are under `results/ncu/` (gitignored); what they said is in
+  PLAN.md, "What Nsight Compute says of the two ray kernels" (10-26).
 - `results/`, `plots/`: the measured data -- one CSV, one row per measured
   cell (date, commit, reference, schedule, mesh, query, ray set, both rates,
   the speedup, the agreement) -- and the figures drawn from it. Generated,

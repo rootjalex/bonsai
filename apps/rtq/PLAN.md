@@ -7787,3 +7787,90 @@ for our any hit, 54 against 52 for the closest point; CUPTI reports no
 local memory allocated per thread for either (the stacks ptxas counted as
 512- and 256-byte frames). The GPC clock column of the sampled metrics
 exports as a wrapped integer in this nsys version and is not read.
+
+FCPW's GPU has one ray kernel: bvh.cs.slang's `rayIntersection` takes
+`uniform uint checkForOcclusion` and its leaf returns at the first hit
+under it, so its any hit runs at the first hit's 63 registers (the trace:
+every FCPW ray launch one function, one register count). Ours are three
+kernels, the any hit at 45. And WoSX's solvers never ask for an any hit:
+on the CPU (wosx/utils/fcpw_geometric_queries.h) every ray query is
+`intersect(ray, interaction, false)`, the first hit, beside the
+all-intersections form for the inside test and the sphere intersection
+that samples the boundary; on the GPU the library has one occlusion form,
+`intersectsWithBoundary` (a line of sight between two points,
+fcpw-geometric-queries.slang), wrapped once in core/geometric-queries.slang
+and called by no solver. The any-hit cells of the fcpwb figures are rtq's
+(Aila and Laine's ambient-occlusion set), not a walk's query.
+
+### What Nsight Compute says of the two ray kernels (2026-10-26, evening)
+
+The user's say-so. `ncu --set full` over landscape's primary rays (the
+first-hit pair: FCPW's rayIntersection and our trace_all kernel) and its
+ambient-occlusion rays (the any-hit pair: the same FCPW kernel under
+checkForOcclusion, our occluded_all kernel), the second profiled launch of
+each; results/ncu/ (the .ncu-rep, the raw and details pages as CSV, a
+tidy CSV of every metric per launch, landscape.txt), read by
+apps/rtq/ncu_kernels.py. Nsight Compute replays under clock control, so
+its durations (106.6 against 88.3 us, 1.21x; 40.3 against 34.7, 1.16x)
+are not the harness's (69 against 46 us at the card's own clocks, 1.49x);
+the counters are per launch and compare directly:
+
+| landscape, FCPW / ours                 | first hit (primary)      | any hit (ao)            |
+|----------------------------------------|--------------------------|-------------------------|
+| warp instructions executed             | 31.2M / 28.5M (1.09)     | 7.76M / 7.43M (1.05)    |
+| branch instructions                    | 3.02M / 1.51M (2.0)      | 707k / 184k (3.8)       |
+| threads active per instruction, of 32  | 13.9 / 19.1              | 19.8 / 17.9             |
+| global load sectors                    | 22.6M / 22.6M            | 2.36M / 2.33M           |
+| L1/tex hit rate                        | 86.8% / 86.7%            | 92.6% / 90.3%           |
+| L2 sectors read from L1/tex            | 3.07M / 3.02M            | 227k / 228k             |
+| local (stack) load / store instructions| 103k / 13.5k, 221k / 61k | 48k / 2.4k, 77k / 4.2k  |
+| local load / store sectors             | 951k / 46k, 1.35M / 89k  | 344k / 3.9k, 386k / 4.4k|
+| registers; block limit by registers    | 63 / 64; 4 / 4 blocks    | 63 / 45; 4 / 5 blocks   |
+| theoretical / achieved occupancy       | 67% / 67%; 38.6% / 61.9% | 67% / 83%; 26.4% / 32.9%|
+| issue slot utilization                 | 25.9% / 24.7%            | 30.4% / 30.7%           |
+| cycles between a warp's issues         | 18.9 / 30.5              | 11.4 / 12.5             |
+| of them stalled on memory (long scoreboard) | 13.8 / 15.2         | 6.5 / 6.6               |
+| of them stalled at a barrier           | 0 / 9.8                  | 0 / 2.0                 |
+| memory throughput, % of peak           | 43% / 53%                | 13% / 12%               |
+
+What it says, against the three suspects:
+
+- **Not the load path.** The two kernels fetch the same bytes -- the same
+  global load sectors to within 0.2%, the same L1/tex hit rate, the same
+  L2 sector reads -- and the read-only loads buy nothing measurable here:
+  the hypothesis of 10-25 does not hold. (FCPW's higher L2 hit rate, 42%
+  against 20%, is its stack: local memory lives in L1 and L2, and the hits
+  are its own pushes read back.)
+- **The stack, and the shape of the visit.** FCPW's kernel makes 7.6x our
+  stack loads and 3.6x our stack stores on the first hit, 20x and 18x on
+  the any hit (its push-both-pop-nearer discipline, and Slang keeping the
+  stack in local memory, against the nearer child entered directly and a
+  stack that mostly stays in registers); it executes twice our branch
+  instructions on the first hit and four times on the any hit; and on the
+  first hit it keeps 13.9 of 32 lanes busy per instruction against our
+  19.1 -- its warps diverge more over the same rays in the same order. The
+  instruction count differs less (9% and 5%); the work is organized
+  differently, not smaller.
+- **The barrier is ours, and it is a cost.** Our kernels stall 9.8 of
+  every 30.5 cycles between issues at a barrier on the first hit, 2.0 of
+  12.5 on the any hit; FCPW's stall none. It is CodeGen_PTX's
+  `barrier.sync 0` before and after a thread loop (emit_bound_parfor, "a
+  barrier on either side orders the block-level effects"), emitted whether
+  or not the block body has any effect outside the loop; these kernels
+  have none (no shared allocation, nothing before or after the thread
+  loop), so the barrier after the loop only holds a finished warp until the
+  slowest of its block is done, and the block's registers with it (four
+  blocks a multiprocessor), which is also why our achieved occupancy reads
+  62% against FCPW's 39%: warps resident and parked. The condition to drop
+  it is exact, not a heuristic -- a block body with one thread phase and no
+  block-level effect needs no barrier (SSA/ThreadPhases.h already knows the
+  phases) -- and pbrt's kernels with shared-memory queues keep theirs. Not
+  changed here: a codegen change, with its PTX goldens and the gpu-optix
+  compile the 10-25 rule asks for, for the user to call; on the traversal
+  kernels it is worth up to the stalled share, a quarter to a third of the
+  cycles.
+- The any hit at 45 registers lifts the occupancy limit from four blocks to
+  five; achieved occupancy follows (32.9% against 26.4%) but the kernel is
+  only 1.16x, since both sides issue at the same 30% and wait the same 6.5
+  cycles on memory: the rays are short, half a wave per multiprocessor,
+  and the kernel is latency-bound at a tail no occupancy fills.
