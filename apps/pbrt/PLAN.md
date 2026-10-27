@@ -17901,6 +17901,27 @@ render.o; the headers differ by 858c6d45's own `#include <array>` alone.
 Landed as the commit after 858c6d45 (rebased, fast-forwarded), suite
 1892/1892 on the rebased tree.
 
+**The Mesh row's `tris` word gone (the user, 10-26 evening: "start with the
+mesh row and unread tris word").** A set field bound to a group indexed by
+(holder, ordinal) stores nothing: the holder is the element the field is
+read off, so the stored Mesh is its mesh index alone and the stored Placed
+its two transforms and mesh, where each kept a `tris` word -- the hardware
+tree's run start, which a group computing its elements from the pair has no
+run for -- that nothing read. Lower/Layouts.cpp binds such a field to no
+reference type and leaves it out of the stored element; the reads through it
+are lowered before the stored-type rewrite (LowerHolderReads, the computed
+element factored out of LowerMatches), a build of the element drops the
+field's value and a match arm its binding. The variant constructors follow
+(`Primitive_Mesh(out, mesh)`, `Primitive_Placed(.., mesh, pool, fill)`), and
+render_hook.cpp builds its mesh and placed primitives through a template on
+whether the layout stores the triangles (make_mesh, make_placed), one call
+per layout compiled; the CPU layouts store rows and keep the word. GPU
+(gpu-compare-out-tris against gpu-compare-out-record): the same images, and
+the kernel time within noise -- 27.51 -> 27.59, 118.32 -> 118.30, 729.77 ->
+729.20 ms; a word per mesh primitive is not what these scenes wait on, and
+the point was the layout's honesty. CPU render.o byte-identical for scalar
+and wavefront-volpath.
+
 **`sort` on a call outside a ray tracing kernel is refused (the user,
 10-26, after asking which pbrt schedules sort a queue and which apply
 SER).** One directive, `f.sort(g, |args| key)`, means one thing -- the
