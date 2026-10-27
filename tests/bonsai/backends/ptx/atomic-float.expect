@@ -39,7 +39,6 @@ if_lane4:                                         ; preds = %if_lane_after
 
 if_lane_after5:                                   ; preds = %if_lane4, %if_lane_after
   tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
-  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
   %1 = uitofp nneg i32 %tid to float
   %2 = fmul nnan float %1, 5.000000e-01
   %3 = fmul nnan float %2, 2.000000e+00
@@ -97,7 +96,6 @@ if_lane_after5:                                   ; preds = %if_lane4, %if_lane_
   br label %"!par_body_2!done"
 
 "!par_body_2!done":                               ; preds = %"!par_body_2!leader", %reduce_warps_after27
-  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
   ret void
 
 if_lane11:                                        ; preds = %if_lane_after5
@@ -483,7 +481,6 @@ $L__BB0_2:
 $L__BB0_4:
 	cvt.u32.u64 	%r22, %rd2;
 	barrier.sync 	0;
-	barrier.sync 	0;
 	cvt.rn.f32.u32 	%r23, %r1;
 	mul.rn.f32 	%r2, %r23, 0f3F000000;
 	mov.u32 	%r24, %ntid.x;
@@ -690,7 +687,6 @@ $L__BB0_20:
 	st.global.b32 	[%rd4+8], %r134;
 	st.global.b64 	[%rd4], %rd22;
 $L__BB0_22:
-	barrier.sync 	0;
 	ret;
 
 }

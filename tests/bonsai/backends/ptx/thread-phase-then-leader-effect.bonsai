@@ -1,0 +1,32 @@
+//! flags: -p ssa -b ptx -o tests/bonsai/backends/ptx/thread-phase-then-leader-effect.ptx
+//! commands: grep -c barrier.sync $<>/thread-phase-then-leader-effect.ptx || true, rm $<>/thread-phase-then-leader-effect.ptx
+
+// Block-level code after the thread loop reading what the threads wrote,
+// and the leader storing the result: two barriers. One after the phase,
+// because code follows it that may read the threads' writes -- every
+// thread loads `tmp` here, uniformly, before the leader's store -- and one
+// the leader's store brings with it (CodeGen_PTX::after_once_effect). None
+// before the phase, which nothing precedes. What is counted: the
+// `barrier.sync` lines of the PTX.
+func run(tmp : mut array[i32, 8], out : mut array[i32, 2]) -> void {
+    parfor p in 0:2 {
+        parfor s in 0:4 {
+            tmp[p * 4 + s] = s + 1;
+        }
+        out[p] = tmp[p * 4] + tmp[p * 4 + 3];
+    }
+    return;
+}
+
+func main() -> i32 {
+    tmp : mut array[i32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    out : mut array[i32, 2] = {0, 0};
+    run(tmp, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+}

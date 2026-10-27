@@ -14,7 +14,6 @@ define ptx_kernel void @_kernel_p_0(i32 %_begin, i32 %_stride, float %scale, ptr
   %ctaid = tail call i32 @llvm.nvvm.read.ptx.sreg.ctaid.x()
   %0 = mul i32 %_stride, %ctaid
   %p = add i32 %0, %_begin
-  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
   %tid = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
   %1 = shl i32 %p, 2
   %2 = add i32 %1, %tid
@@ -66,7 +65,6 @@ define ptx_kernel void @_kernel_p_0(i32 %_begin, i32 %_stride, float %scale, ptr
   br label %"!par_body_2!done"
 
 "!par_body_2!done":                               ; preds = %"!par_body_2!leader", %reduce_warps_after
-  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
   ret void
 
 if_lane:                                          ; preds = %"!par_body_0"
@@ -172,9 +170,6 @@ reduce_warps_after:                               ; preds = %reduce_warps.epil, 
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare noundef range(i32 0, 2147483647) i32 @llvm.nvvm.read.ptx.sreg.ctaid.x() #1
 
-; Function Attrs: convergent nocallback nounwind
-declare void @llvm.nvvm.barrier.cta.sync.all(i32) #2
-
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare noundef range(i32 0, 1024) i32 @llvm.nvvm.read.ptx.sreg.tid.x() #1
 
@@ -182,7 +177,10 @@ declare noundef range(i32 0, 1024) i32 @llvm.nvvm.read.ptx.sreg.tid.x() #1
 declare noundef range(i32 1, 1025) i32 @llvm.nvvm.read.ptx.sreg.ntid.x() #1
 
 ; Function Attrs: convergent nocallback nounwind memory(inaccessiblemem: readwrite)
-declare { i32, i1 } @llvm.nvvm.shfl.sync.down.i32p(i32, i32, i32, i32) #3
+declare { i32, i1 } @llvm.nvvm.shfl.sync.down.i32p(i32, i32, i32, i32) #2
+
+; Function Attrs: convergent nocallback nounwind
+declare void @llvm.nvvm.barrier.cta.sync.all(i32) #3
 
 ; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare i32 @llvm.umin.i32(i32, i32) #4
@@ -192,8 +190,8 @@ declare void @llvm.assume(i1 noundef) #5
 
 attributes #0 = { mustprogress norecurse nounwind }
 attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #2 = { convergent nocallback nounwind }
-attributes #3 = { convergent nocallback nounwind memory(inaccessiblemem: readwrite) }
+attributes #2 = { convergent nocallback nounwind memory(inaccessiblemem: readwrite) }
+attributes #3 = { convergent nocallback nounwind }
 attributes #4 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #5 = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write) }
 
@@ -234,7 +232,6 @@ attributes #5 = { nocallback nofree nosync nounwind willreturn memory(inaccessib
 	ld.param.b32 	%r7, [_kernel_p_0_param_2];
 	mov.u32 	%r8, %ctaid.x;
 	mad.lo.s32 	%r1, %r6, %r8, %r5;
-	barrier.sync 	0;
 	mov.u32 	%r2, %tid.x;
 	shl.b32 	%r9, %r1, 2;
 	add.s32 	%r10, %r9, %r2;
@@ -325,7 +322,6 @@ $L__BB0_8:
 	add.s32 	%r58, %r57, %r62;
 	st.global.b32 	[%rd3], %r58;
 $L__BB0_10:
-	barrier.sync 	0;
 	ret;
 
 }

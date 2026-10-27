@@ -243,6 +243,12 @@ struct CodeGen_PTX : public CodeGen_LLVM {
     llvm::Value *block_index();
     // `bar.sync 0`: every thread of the block, and their writes so far.
     void barrier();
+    // Whether block-level code follows the thread loop `loop` of `func` in
+    // its block body -- anything but the body's yield or return, or another
+    // thread loop directly, which orders itself against this one. What
+    // decides if the phase ends in a barrier (emit_bound_parfor).
+    bool phase_is_followed(const ir::ssa::Function &func,
+                           const ir::ssa::Terminator::ParFor &loop) const;
 
     // The libdevice bitcode, wherever the CUDA toolkit put it.
     static std::string find_libdevice();
@@ -263,6 +269,12 @@ struct CodeGen_PTX : public CodeGen_LLVM {
     // (SSA/ThreadPhases.h), for which of them run under a predicate.
     Kernel *building = nullptr;
     std::vector<ir::ssa::ThreadPhase> phases;
+    // A thread phase has ended and nothing has ordered the block since: the
+    // next phase of the body begins with a barrier (emit_bound_parfor), so
+    // that its threads read what the last phase's other threads wrote.
+    // Cleared by every barrier, a leader effect's included (after_once_effect)
+    // -- one barrier between two things to order, never two.
+    bool phase_barrier_pending = false;
     // `extern .shared .b8 _bonsai_dynamic_shared[]`, made on the first
     // allocation that wants it: the one array the launch's dynamic shared
     // memory is, which every such allocation is a run of.

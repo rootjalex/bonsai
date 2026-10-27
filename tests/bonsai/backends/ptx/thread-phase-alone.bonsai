@@ -1,0 +1,33 @@
+//! flags: -p ssa -b ptx -o tests/bonsai/backends/ptx/thread-phase-alone.ptx
+//! commands: grep -c barrier.sync $<>/thread-phase-alone.ptx || true, rm $<>/thread-phase-alone.ptx
+
+// A block loop whose body is one thread loop and nothing else -- the shape
+// of a batch of independent queries, one a thread (apps/rtq's trace_all) --
+// needs no barrier at all: no block-level effect precedes the phase for
+// the threads to wait on, and nothing follows it to wait for them. The
+// backend used to put `barrier.sync 0` on either side of every thread loop
+// regardless, and the one at the join held every finished warp until the
+// slowest of its block was done, a quarter to a third of the issue cycles
+// of a traversal kernel (apps/rtq/PLAN.md, "What Nsight Compute says of
+// the two ray kernels", 10-26). What is counted: the `barrier.sync` lines
+// of the PTX, which must be none.
+func run(out : mut array[i32, 8]) -> void {
+    parfor p in 0:2 {
+        parfor s in 0:4 {
+            out[p * 4 + s] = p * 10 + s;
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    run(out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+}

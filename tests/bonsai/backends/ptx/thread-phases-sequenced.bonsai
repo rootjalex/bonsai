@@ -1,0 +1,35 @@
+//! flags: -p ssa -b ptx -o tests/bonsai/backends/ptx/thread-phases-sequenced.ptx
+//! commands: grep -c barrier.sync $<>/thread-phases-sequenced.ptx || true, rm $<>/thread-phases-sequenced.ptx
+
+// Two thread loops in sequence in one block body, the second reading what
+// the first's other threads wrote: exactly one barrier, between them, so
+// that every thread's write of the first phase is done before any thread's
+// read of the second. Not one before the first phase (nothing precedes it)
+// and not one after the second (nothing follows it); and not two between
+// them, which the old rule's "after the first, before the second" gave.
+// What is counted: the `barrier.sync` lines of the PTX.
+func run(tmp : mut array[i32, 8], out : mut array[i32, 8]) -> void {
+    parfor p in 0:2 {
+        parfor s in 0:4 {
+            tmp[p * 4 + s] = s * s;
+        }
+        parfor t in 0:4 {
+            out[p * 4 + t] = tmp[p * 4 + (3 - t)];
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    tmp : mut array[i32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    out : mut array[i32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    run(tmp, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+    run.bind(t, GPUThread);
+}

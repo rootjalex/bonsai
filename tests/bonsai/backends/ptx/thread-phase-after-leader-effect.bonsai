@@ -1,0 +1,31 @@
+//! flags: -p ssa -b ptx -o tests/bonsai/backends/ptx/thread-phase-after-leader-effect.ptx
+//! commands: grep -c barrier.sync $<>/thread-phase-after-leader-effect.ptx || true, rm $<>/thread-phase-after-leader-effect.ptx
+
+// A block-level store before the thread loop -- made once, by the block's
+// leader -- and the threads reading it in the phase: one barrier, the one
+// the leader's effect brings with it (CodeGen_PTX::after_once_effect), so
+// that every thread sees the store before its iteration reads. The phase
+// adds none of its own: no phase precedes it, and nothing follows it. What
+// is counted: the `barrier.sync` lines of the PTX.
+func run(base : mut array[i32, 2], out : mut array[i32, 8]) -> void {
+    parfor p in 0:2 {
+        base[p] = p * 10;
+        parfor s in 0:4 {
+            out[p * 4 + s] = base[p] + s;
+        }
+    }
+    return;
+}
+
+func main() -> i32 {
+    base : mut array[i32, 2] = {0, 0};
+    out : mut array[i32, 8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    run(base, out);
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+}

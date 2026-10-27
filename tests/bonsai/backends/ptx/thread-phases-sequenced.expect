@@ -1,0 +1,2 @@
+[test] grep -c barrier.sync tests/bonsai/backends/ptx/thread-phases-sequenced.ptx || true
+1

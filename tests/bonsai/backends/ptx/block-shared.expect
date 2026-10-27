@@ -56,7 +56,6 @@ if_lane14:                                        ; preds = %if_lane_after8
 
 if_lane_after15:                                  ; preds = %if_lane14, %if_lane_after8
   tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
-  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
   %1 = and i32 %tid, 1
   %2 = icmp eq i32 %1, 0
   %3 = mul i32 %p, 100
@@ -536,7 +535,6 @@ $L__BB0_4:
 	ld.b8 	%rs16, [%rd12];
 	st.shared.b8 	[_kernel_p_0_hist], %rs16;
 $L__BB0_6:
-	barrier.sync 	0;
 	barrier.sync 	0;
 	and.b32 	%r14, %r2, 1;
 	setp.eq.b32 	%p2, %r14, 0;

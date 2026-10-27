@@ -23,7 +23,6 @@ define ptx_kernel void @_kernel_p_0(i32 %_begin, i32 %_stride, i32 %n, ptr nofre
   br i1 %leader, label %if_lane, label %if_lane_after
 
 sums_rest:                                        ; preds = %sums_join, %s_join
-  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
   br i1 %in_phase, label %"sums_rest!run", label %sums_rest_join
 
 "sums!batch":                                     ; preds = %"sums!batch.lr.ph", %sums_join
@@ -84,7 +83,6 @@ if_lane42:                                        ; preds = %if_lane_after39
 
 if_lane_after43:                                  ; preds = %if_lane42, %if_lane_after39
   tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
-  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
   %in_phase = icmp ult i32 %tid, %n
   br i1 %in_phase, label %"!par_body_2", label %s_join
 
@@ -119,7 +117,6 @@ if_lane53:                                        ; preds = %"sums!batch"
   br label %if_lane_after54
 
 if_lane_after54:                                  ; preds = %"sums!batch", %if_lane53
-  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
   tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
   %ptr_array_deref = getelementptr inbounds nuw [32 x i8], ptr addrspacecast (ptr addrspace(3) @_kernel_p_0_sums_queue to ptr), i64 %_wide55
   %21 = icmp ult i32 %tid, %"@14.count100"
@@ -292,7 +289,6 @@ $L__BB0_4:
 $L__BB0_6:
 	mad.lo.s32 	%r1, %r9, %r10, %r8;
 	barrier.sync 	0;
-	barrier.sync 	0;
 	setp.ge.u32 	%p2, %r2, %r7;
 	@%p2 bra 	$L__BB0_8;
 	add.s32 	%r11, %r1, %r2;
@@ -350,7 +346,6 @@ $L__BB0_10:
 	st.shared.b32 	[%rd4], 0;
 $L__BB0_12:
 	barrier.sync 	0;
-	barrier.sync 	0;
 	min.u32 	%r14, %r7, %r21;
 	setp.gt.u32 	%p4, %r14, %r2;
 	@!%p4 bra 	$L__BB0_13;
@@ -371,7 +366,6 @@ $L__BB0_12:
 	st.shared.b32 	[%rd50], %r5;
 	bra.uni 	$L__BB0_13;
 $L__BB0_14:
-	barrier.sync 	0;
 	@%p2 bra 	$L__BB0_16;
 	mul.wide.u32 	%rd52, %r2, 4;
 	add.s64 	%rd2, %rd16, %rd52;

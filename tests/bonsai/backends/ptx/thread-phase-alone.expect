@@ -1,0 +1,2 @@
+[test] grep -c barrier.sync tests/bonsai/backends/ptx/thread-phase-alone.ptx || true
+0

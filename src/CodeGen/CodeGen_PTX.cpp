@@ -533,10 +533,12 @@ CodeGen_PTX::Kernel CodeGen_PTX::add_kernel(const ir::ssa::Function &host,
         // effects_once_guard. Without a thread loop the block is one thread
         // and there is nothing to guard.
         block_level = !kernel.thread_loops.empty();
+        phase_barrier_pending = false;
     });
     block_level = false;
     building = nullptr;
     phases.clear();
+    phase_barrier_pending = false;
     return kernel;
 }
 
@@ -603,6 +605,41 @@ void CodeGen_PTX::barrier() {
         llvm::Intrinsic::getOrInsertDeclaration(
             module.get(), llvm::Intrinsic::nvvm_barrier_cta_sync_all),
         {llvm::ConstantInt::get(i32_t, 0)});
+    phase_barrier_pending = false;
+}
+
+bool CodeGen_PTX::phase_is_followed(const ir::ssa::Function &func,
+                                    const ir::ssa::Terminator::ParFor &loop) const {
+    // From the loop's continuation, through empty blocks that only jump on:
+    // an instruction, or any terminator but a yield, a return or another
+    // thread loop, is code that may read what the threads wrote.
+    std::string name = loop.cont.name;
+    std::set<std::string> seen;
+    while (seen.insert(name).second) {
+        const Block *block = nullptr;
+        for (const auto &b : func.blocks) {
+            if (b->name == name) {
+                block = b.get();
+                break;
+            }
+        }
+        if (block == nullptr || !block->instrs.empty()) {
+            return true;
+        }
+        if (std::holds_alternative<Terminator::Yield>(block->terminator.data) ||
+            std::holds_alternative<Terminator::Return>(block->terminator.data)) {
+            return false;
+        }
+        if (const auto *next = std::get_if<Terminator::ParFor>(&block->terminator.data)) {
+            return !(next->binding.has_value() && *next->binding == Resource::GPUThread);
+        }
+        if (const auto *jump = std::get_if<Terminator::Jump>(&block->terminator.data)) {
+            name = jump->name;
+            continue;
+        }
+        return true;
+    }
+    return true;
 }
 
 void CodeGen_PTX::emit_bound_parfor(BoundLoop &loop) {
@@ -612,11 +649,29 @@ void CodeGen_PTX::emit_bound_parfor(BoundLoop &loop) {
     case Resource::GPUThread: {
         // Reached from a block loop's kernel body, where every thread of the
         // block runs and this is where they part: each takes the iteration
-        // its thread number names. A barrier on either side orders the
-        // block-level effects (made by one thread, see effects_once_guard)
-        // before and after the iterations. Anywhere else -- inside another
-        // thread loop, or in a function a kernel calls -- there is no block
-        // of threads waiting to be given iterations.
+        // its thread number names. Anywhere else -- inside another thread
+        // loop, or in a function a kernel calls -- there is no block of
+        // threads waiting to be given iterations.
+        //
+        // The barriers are where there is something to order, and only
+        // there (the user, 10-26; Halide's FuseGPUThreadLoops puts its
+        // barriers between the fused loops, not around each). Before the
+        // phase: one, if a phase came before it in this body and nothing has
+        // ordered the block since (phase_barrier_pending) -- its threads may
+        // read what that phase's other threads wrote; a leader's effect in
+        // between brought its own barrier (after_once_effect) and cleared
+        // the need. After the phase: one, if block-level code follows that
+        // may read what the threads wrote (phase_is_followed); none when the
+        // body ends with it, the block retiring as its threads finish, and
+        // none when another phase follows directly, which puts the one
+        // barrier between them itself. A body of one phase and nothing else
+        // -- a batch of independent queries, one a thread -- has no barrier:
+        // the one the join used to carry held every finished warp until the
+        // slowest of its block was done, and its registers with it, a
+        // quarter to a third of a traversal kernel's issue cycles
+        // (apps/rtq/PLAN.md, "What Nsight Compute says of the two ray
+        // kernels"). tests/bonsai/backends/ptx/thread-phase-*.bonsai count
+        // the barriers of the four shapes.
         internal_assert(block_level)
             << "bind(" << p.index << ", GPUThread): this loop is not directly "
             << "inside a loop bound to GPUBlock. A thread loop is the threads "
@@ -633,7 +688,9 @@ void CodeGen_PTX::emit_bound_parfor(BoundLoop &loop) {
                 whole_block = phase.whole_block;
             }
         }
-        barrier();
+        if (phase_barrier_pending) {
+            barrier();
+        }
         const Expr begin_e = loop.operand(p.start),
                    stride_e = loop.operand(p.stride);
         frames.push_frame();
@@ -679,7 +736,11 @@ void CodeGen_PTX::emit_bound_parfor(BoundLoop &loop) {
         loop.emit_body(body_bb, join);
         block_level = true;
         builder->SetInsertPoint(join);
-        barrier();
+        if (phase_is_followed(loop.func, p)) {
+            barrier();
+        } else {
+            phase_barrier_pending = true;
+        }
         frames.pop_frame();
         return;
     }

@@ -43,6 +43,10 @@ add_bonsai_tests(
     demote-atomics-loopify.bonsai
     blocks.bonsai
     blocks-threads.bonsai
+    thread-phase-alone.bonsai
+    thread-phases-sequenced.bonsai
+    thread-phase-after-leader-effect.bonsai
+    thread-phase-then-leader-effect.bonsai
     block-shared.bonsai
     queue-shared.bonsai
     defer-device.bonsai

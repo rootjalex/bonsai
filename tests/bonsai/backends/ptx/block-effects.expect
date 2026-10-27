@@ -40,7 +40,6 @@ if_lane6:                                         ; preds = %if_lane_after
 
 if_lane_after7:                                   ; preds = %if_lane6, %if_lane_after
   tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
-  tail call void @llvm.nvvm.barrier.cta.sync.all(i32 0)
   %ntid = tail call i32 @llvm.nvvm.read.ptx.sreg.ntid.x()
   %lane = and i32 %tid, 31
   %warp = lshr i32 %tid, 5
@@ -409,7 +408,6 @@ $L__BB0_2:
 	@%p1 bra 	$L__BB0_4;
 	st.global.b32 	[%rd4], 0;
 $L__BB0_4:
-	barrier.sync 	0;
 	barrier.sync 	0;
 	mov.u32 	%r14, %ntid.x;
 	and.b32 	%r3, %r1, 31;
