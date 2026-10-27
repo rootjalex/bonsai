@@ -17805,6 +17805,129 @@ mesh row into the hit-group record -- which takes the chain from four
 dependent loads (record, prims[top], the Mesh row, the mesh's arrays) to
 pbrt's.
 
+**Part (a), the holder element into the hit-group record (the user, 10-26
+~15:00: "go ahead"; built and measured 18:40-19:30, below).** What a hit program derives from the record alone, before
+any program function runs, is the holder element -- `prims[rec.holder]`,
+a tagged index -- and its arm's row, two dependent loads; pbrt's record
+holds the mesh pointer and the per-mesh attributes and loads the mesh
+struct through it, so carrying the holder's arm in our record reaches
+pbrt's count (record, the Mesh row `meshes[mesh]`, indices, positions);
+the mesh row itself is the step past pbrt, which needs the slicing through
+`triangle_geometric` and is not in this change. The general form, no
+knowledge of pbrt in it: the program's `_RTRecord` is base, holder, `_tag`
+(the holder's variant) and, for every arm of the flatten's match that
+holds a tree, that arm's non-set fields, each named
+ir::rt_record_field(variant index, field) (Lower/Trees.cpp
+record_type_of; one record per program). In the hit programs a held arm
+reads the holder as the new marker intrinsic `rt_sbt_element()` (typed as
+the element), and the layout lowering turns every `Access(f, Unwrap(k,
+rt_sbt_element()))` into the record's field read off `rt_sbt_record()`
+(LowerMatches::visit(Access)) -- the pair-group's `h.mesh` included, its
+bound expression lowered once more -- so no `prims[holder]` and no arm row
+is loaded; which arm the holder is, the record's tag says (lazy selects
+on `_tag` for the held arms, the own test before them; bind_elements).
+The tree's own elements keep `stored(tree, idx)`. The driver fills the
+record through a generated export, `bonsai_rt_record_fill(holder, out,
+<the tree>)`: `stored(tree, holder)` matched on, a record built per arm
+with its tag and fields and zeros in the others' (add_record_fill). The
+runtime (bonsai_optix.h) sizes its records by the generated header's
+`BONSAI_OPTIX_RECORD_BYTES` (= sizeof(_RTRecord), emitted before the
+include; 8 for a program without a record of its own), takes the
+element's bytes per input (`bonsai_optix_triangles::record`, for an input
+with a holder of its own) or per placement per input
+(`bonsai_optix_instance::records`), copies them when the geometry or scene
+is built, and writes them into each hit-group record after base and
+holder. The OptiX code generator loads the record at the intrinsic's own
+type.
+
+*Built (10-26 evening).* Two changes to the design above, from the first
+renderer compile: the record carries only the holder fields the hit
+programs read -- directly in the arm's expression, or through the layout
+group bound to the arm's set field, whose members compute the stored
+element from the holder (`mesh = h.mesh`; Lower/Trees.cpp fields_read) --
+because with every held field it was 288 bytes for apps/pbrt (the Placed
+and Inst transforms, four of them, which the hit programs never read; the
+raygen reads the instance's row after the trace as before), and is 20:
+base, holder, tag, `_1_mesh`, `_2_mesh`; the filler then needs the Placed
+pool alone. And a placement with one holder carries one record, one per
+input only with holder_per_input (bonsai_optix.h). Found and fixed at the
+root on the way: the old two-word `_RTRecord` (ir::rt_record_type) beside
+the program's was a second struct type of one name, which
+common-subexpression elimination took for the same expression (`_1_mesh`
+then read off the two-word one); every rewrite that rebuilds an intrinsic
+from its op alone -- Mutator, CSE's Rename and LVN, RenamePointerToExpr,
+the SSA-to-statement and SSA-to-LLVM code generators -- dropped a
+program-typed intrinsic's type (Intrinsic::make_like, typed_by_program);
+`#if BONSAI_OPTIX_RECORD_BYTES > 8` cannot see a `sizeof`, so the
+runtime's record is a template on the count; the header always declares
+`_RTRecord` (rtcore-alpha's driver found it missing); and the renderer's
+filler, a host call made before the buffers are staged, aborted on
+killeroo's empty Placed pool under --no-implicit-copies until the driver
+stages its four buffers first as it does for every other generated call.
+Tests: backends/ptx/rtcore-holder-reference re-blessed (the record read at
+bytes 0, 4, 12; the held side straight from the mesh index to the mesh's
+arrays; the own side loads its row under the holder test),
+correctness/gpu/rtcore-holder-reference's driver fills the mesh inputs'
+records (mesh 1 reports mesh 1, which only the record can say); every
+other rtcore golden unchanged, their records being the two words plus a
+tag. Suite 1892/1892 in the worktree.
+
+*GPU (gpu-compare-out-record against gpu-compare-out-holder, the same
+three scenes at 16 spp, least of 3, the same compiler but for this
+change):*
+
+    scene              before      after              pbrt --gpu
+    killeroo-simple    27.67 ms    27.51 ms  (-0.6%)   49.43 / 49.26
+    pavilion-day      118.53 ms   118.32 ms  (-0.2%)  179.06 / 178.32
+    kroken camera-1   729.22 ms   729.77 ms  (+0.1%) 1726.73 / 1743.63
+
+The radiance, albedo and normal images are byte-identical to the holder
+run's on all three scenes but one pixel of kroken's albedo, three low
+bytes, which the two previous runs (holder-base, holder) also differ in by
+six: the albedo accumulation's run-to-run noise, not this change's. The
+record removed one dependent load per held hit (`prims[holder]` and the
+arm's row -> the record's word), which these scenes do not resolve at 16
+spp: within the noise on kroken, under one percent on the two small ones.
+What is left of the chain is the Mesh row, `meshes[mesh]`, pbrt's
+TriangleMeshRecord fields (indices, positions, first_light, material,
+alpha, the media) -- the slicing through `triangle_geometric`, a later
+step; and the `Primitive_Mesh` row's `tris` word, which nothing on the
+GPU reads now.
+
+*CPU (cpu_unchanged_check.sh, 19:12-19:24):* the scalar and
+wavefront-volpath schedules compiled by the shared build's compiler (ajr/ssa
+at 858c6d45) and by the worktree's (this change) give byte-identical
+render.o; the headers differ by 858c6d45's own `#include <array>` alone.
+Landed as the commit after 858c6d45 (rebased, fast-forwarded), suite
+1892/1892 on the rebased tree.
+
+**`sort` on a call outside a ray tracing kernel is refused (the user,
+10-26, after asking which pbrt schedules sort a queue and which apply
+SER).** One directive, `f.sort(g, |args| key)`, means one thing -- the
+calls to `g` that `f` makes run in ascending key -- and is had three ways:
+exactly, when the calls are deferred onto a queue (wavefront-frame-packet-
+reorder, wavefront-thread-packet-sort, gpu-optix-sort, gpu-optix-sort36:
+the entries drained in key order); approximately, when the calls are made
+in place inside a loop bound to OptixThread (gpu-optix-mega-ser,
+gpu-optix-fused-ser, gpu-optix-mega-ser-ray: optixReorder before the
+call); and not at all when the calls are made in place anywhere else,
+which Lower/Sorts.cpp used to drop in silence and now refuses, naming the
+two ways (in_optix_raygen: the sorting function is, or is called from, a
+function with a loop bound to OptixThread). `trace.sort(primitives.
+Interior, ...)` is the third kind, the traversal's child order, neither.
+No pbrt schedule trips the refusal. Test error/sort-in-place-unbound;
+docs/schedule-semantics.md's sort paragraph states the three cases.
+lower/sort-call, which documented the in-place hint in a parfor bound to
+nothing, binds its loop to OptixThread under `-p ssa` now and is
+re-blessed: the three hints in their places, and each hint's let with a
+name of its own (`_rt_reordered0..2`; the use counting refused the
+shadowing that one statement with two sorted calls made). The
+third argument of `defer`/`stage`, asked about the same hour, names the
+first pass of a cut on the same queue (4.5), a cursor the directive
+creates rather than a loop it takes -- the paper's signature table has it
+as an input, and the grammar's own `C = f.transform(...)` convention would
+put it on the left; left as it is in the language, noted for the paper.
+
 **The composition built (10-26, landed as 190ffe86; apps/pbrt's gpu-optix
 schedule compiles and its render.o is byte for byte 99c5de0d's).** A
 deferral whose owner's call is an earlier deferral's
