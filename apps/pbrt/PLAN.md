@@ -18661,3 +18661,89 @@ A/B is dropped (the three heatmaps are it). Open with the user:
 proposal (1)'s word; the CPU sweep's redo (about four hours of idle
 CPU) against bonsai-ac's stars table's remaining four and a half
 during the day.
+
+**The A/B under a53c8f84 (07:41-08:04): the remainder is the
+funnel's.** The two flat megakernels compiled at once through the
+compiler at a53c8f84 (585 s each) and ran on killeroo-gold and
+killeroo-simple at 16 spp (gpu-compare-out-ab-a53c8f84, every image
+matching pbrt). Kernel ms, a53c8f84 / 39c67ab9 (the night) / 9846e3e6
+(run c): mk-ser-flat on killeroo-gold 59.62 / 64.28 / 71.55 -- mq3b's
+59.40 of 10-27 afternoon reproduced on the pre-funnel base with the
+device min/max and the specialize fix in, so the 8% the fix left is
+the funnel's own shape, with no stack cost (the SER raygens'
+continuation stacks are the pre-funnel widths exactly); mk-ser-flat on
+killeroo-simple 23.53 / 24.68 / 26.08, the fixed funnel 4.9%; mk-flat
+on killeroo-gold 87.02 / 86.15 / 88.69 and on killeroo-simple 42.05 /
+42.01 / 43.98 -- the flat megakernel without SER pays nothing for the
+fixed funnel, 1% in its favour on killeroo-gold. bonsai-ac's reading
+of the night (the saved PTX): every exit of a loop leaves a body block
+by a conditional branch, and LLVM places the funnel phis' copies in
+that block before the branch, so they run on every iteration -- the
+medium march's latch carries eight slot copies, seven zero fills and
+the tag per iteration under 39c67ab9 (the slots shared by type, so no
+slot can coalesce with the loop state's register; the +392 bytes of
+spills are 5 edges x 10 slots x 8 bytes), the SER raygen's bounce loop
+thirty zero fills before each of its six exits; NVPTX requires a
+structured control-flow graph, so the backend splits none of those
+edges, and PHI elimination's early exit (a value whose only uses are
+phis) is target-independent, so the copies sit in the body on the CPU
+too, where the greedy allocator's live-range splitting and
+rematerialized zeros hide them: their wosx solver CPU table under
+39c67ab9 (01:37-03:25, 114 cells) is a tie with the pre-funnel one,
+0.9997x geomean, no cell below 0.97x. They will propose to the user a
+payload keyed by SSA value (a slot per value, undefined on the edges
+that do not care, the back edge's own argument on the latch's exit for
+a loop-header parameter so that the phi cannot fold, zero only where a
+fold would stretch a value), so that the funnel needs no copies in the
+body: about a day of compiler work and every table again -- the
+user's call. Until then the funnel's standing on apps/pbrt is: the
+wavefront's medium march 26% slower on explosion (1.14x the frame),
+bunny-cloud 1.06x, disney-cloud 1.055x, plume 1.03x; the SER
+megakernels 5-8% slower on the killeroos; everything else within 2%.
+
+**The profiler on ganesha (07:39-07:41: Nsight Compute, the full
+section set, the user's approval of 10-27 for this scene).** Our flat
+megakernel's raygen, `__raygen__ps$VolPath$False$False` of
+gpu-optix-mega-flat at 16 spp (33.2 M threads: 1920 x 1080 pixels x
+16 samples, one launch; 384 ms under the profiler's replay, 315
+unprofiled; Nsight names every OptiX launch `optixLaunch`, so the
+filter is the launch's ordinal -- the first try on the raygen's name
+profiled nothing). What it reads: 128 registers per thread (the cap),
+so at most 16 warps of 48 per SM, 14.3 achieved (29.7% occupancy);
+issue slots busy 11.6% (0.46 instructions per cycle per SM); a warp
+eligible to issue in 11.6% of cycles, 0.13 eligible per scheduler of
+3.58 active; 30.8 warp-cycles per issued instruction, of which 14.0
+with no instruction to issue (the fetch after a jump or an
+instruction-cache miss -- a kernel far larger than the cache, its
+warps at different places in it), 9.3 stalled at a barrier (our raygen
+has no barrier of its own, so this is OptiX's: the warp's wait for the
+traversal hardware's answer), 2.9 on a memory dependency, 2.0 on a
+fixed-latency one, 1.0 issuing, the rest under one; 9.1 of 32 lanes
+active per warp instruction (8.6 not predicated off): a warp is mostly
+finished paths and skipped arms. Memory is not the wall: L1 throughput
+8%, L2 35%, DRAM 11%, L2 hit rate 97.7%; no register spill at all (the
+spilling counters are zero), but 1.87 G local loads and 1.80 G local
+stores of 4.8 G sectors each -- the OptiX continuation stack (1024
+bytes configured) saved and restored around every optixTrace --
+against 1.43 G global loads, the stack two thirds of what reaches L2
+(L1 hit 42% on its loads, 22% on its stores). 72.6 G warp instructions
+issued, 5% branches. Against the two readings of 10-27: (a), the
+raygen the size of every pbrt type, is what the profile shows -- the
+instruction fetch is the largest single stall and the stack the
+largest memory stream -- and (b), the register allocation as the union
+of every arm, is what holds the occupancy at 16 warps, so that nothing
+hides those stalls; the lanes' 29% is the megakernel's own (paths of
+unequal length in one warp), which SER mends in part (mk-ser-flat 277
+ms against 315) and the wavefront does not have (gpu-optix 95 ms). So
+the step that would move ganesha, if one is taken, is the one that
+shrinks the raygen's hot code and its register union: the match arms
+as direct callables (proposal (2), "probably fine"), or a build of the
+scene's own types alone (proposal (1) in its build-time form). pbrt's
+trace kernel (`__raygen__findClosest`: launches of 1,036,800 threads,
+540 scanlines of 1920 per pass, 128 registers, an 8192-byte stack
+configured) recorded launch statistics only -- kernel replay
+collected no counter on pbrt's three launches and logged no error --
+so its rerun with application replay (five to six minutes of the
+card) is asked of bonsai-ac's next gap. The reports (ours complete,
+pbrt's as it is) and the raw metrics are kept under
+apps/pbrt/scratch/ncu-ganesha-10-28/.
