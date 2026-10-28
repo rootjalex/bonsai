@@ -3,15 +3,15 @@
 // tests/bonsai/ssa/loopify-exits' recursion run by the threads of a GPU
 // block: one walk per thread, each leaving the loop at its own iteration
 // and by its own exit. What to read for, in the PTX: ONE copy of `finish`'s
-// arithmetic after the loop, where the ssa test shows the two exits folded
-// into one arm; and the empty inline asm (`// begin inline asm` / `// end
-// inline asm` with nothing between) at the block every exit jumps to -- the
-// reconvergence point, ir::Intrinsic::reconverge, which is what keeps LLVM
-// from sending each exit straight to its arm of the dispatch, so that ptxas
-// sees a loop with one exit and puts the warp's convergence barrier there.
-// Without it a lane ran its exit's code as soon as it left the loop, with
-// the warp's other lanes idle: the walk's terminal query at under two lanes
-// a warp against WoSX's five (apps/wosx/PLAN.md, 2026-10-27).
+// arithmetic, where the ssa test shows the two exits made one block
+// (merge_exits in SSA/Rewrite.cpp), reached by a branch from each of the
+// two; the `return 0f` exit's own branch out of the loop; and no inline asm
+// -- the loop has no reconvergence point of the compiler's making, where
+// from 2026-10-27 to 10-28 an empty `// begin inline asm` / `// end inline
+// asm` stood at the one block every exit jumped to. The values the two
+// exits hand `finish` are moved into the block's registers before each
+// exit's branch (NVPTX splits no edge from a two-way branch into a block
+// with several predecessors): the merge's whole cost, read here.
 func finish(x : f32, n : i32) -> f32 {
     return x * 0.5 + cast[[f32]](n);
 }

@@ -3,13 +3,11 @@
 
 // tests/bonsai/ssa/loopify-exits' recursion through the C++ backend, which
 // is what apps/wosx's CPU binaries are built with: a loopified recursion
-// whose exits were brought together after the loop (funnel_exits in
-// SSA/Rewrite.cpp) prints as a `do { ... break; } while (true)`, a
-// `reconverge()` that is a statement doing nothing in C++ (`((void)0)`, the
-// void `let` it is bound to declared as nothing), and a `switch` on which
-// exit was taken -- and computes what the recursion computed, by every
-// exit: the eight walks of tests/bonsai/correctness/gpu/loopify-exits, run
-// one after another here.
+// whose same-code exits were made one (merge_exits in SSA/Rewrite.cpp)
+// prints as a loop with the one `finish` entered from both of its exits
+// and the constant return where the program wrote it -- and computes what
+// the recursion computed, by every exit: the eight walks of
+// tests/bonsai/correctness/gpu/loopify-exits, run one after another here.
 func finish(x : f32, n : i32) -> f32 {
     return x * 0.5 + cast[[f32]](n);
 }

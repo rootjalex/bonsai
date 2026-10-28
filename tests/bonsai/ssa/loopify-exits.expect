@@ -38,27 +38,20 @@ func main() -> i32 {
 func pick(i : i32, x : f32) -> f32 {
   i!loop : mut i32
   x!loop : mut f32
-  which : mut u32
-  slot0 : mut f32
-  slot1 : mut (f32*)
   t : mut f32
   i!loop = i
   x!loop = x
   do {
     let @0 = (*i!loop) <= 0 in
     if (@0) {
-      which = 0u
-      slot0 = (*x!loop)
-      slot1 = undef
+      return (*x!loop)
     } else {
       t = 0f
       let y = (*x!loop) * 1.5f in
       put(t, y)
       let @2 = 50f < y in
       if (@2) {
-        which = 1u
-        slot0 = 0f
-        slot1 = t
+        break
       } else {
         let @4 = (*i!loop) - 1 in
         i!loop = @4
@@ -66,19 +59,9 @@ func pick(i : i32, x : f32) -> f32 {
         continue
       }
     }
-    break
   } while (true)
-  let _effect0 = reconverge() in
-  switch ((*which)) {
-  case 0: { // if of pick
-    x!loop = (*slot0)
-    return (*x!loop)
-  } break;
-  default: { // if of pick
-    let @3 = halve(t) in
-    return @3
-  }
-  }
+  let @3 = halve(t) in
+  return @3
 }
 
 func [[noinline]] put(out : mut (f32*), v : f32) -> void {
@@ -96,107 +79,58 @@ func scale(a : f32, b : f32, k : i32) -> f32 {
 func shared(i : i32, x : f32, k : i32) -> f32 {
   i!loop : mut i32
   x!loop : mut f32
-  which : mut u32
-  slot1 : mut i32
-  slot2 : mut f32
   i!loop = i
   x!loop = x
-  do {
-    let @0 = (*i!loop) <= 0 in
-    if (@0) {
-      which = 0u
-      slot1 = (*i!loop)
-      slot2 = 0f
+  while (!((*i!loop) <= 0)) {
+    let y = (*x!loop) * 1.5f in
+    let @5 = 50f < y in
+    if (@5) {
+      let @6 = (*x!loop) + y in
+      let @7 = cast<f32>(k) in
+      let @8 = @6 * @7 in
+      return @8
     } else {
-      let y = (*x!loop) * 1.5f in
-      let @5 = 50f < y in
-      if (@5) {
-        which = 1u
-        slot1 = 0
-        slot2 = y
-      } else {
-        let @9 = (*i!loop) - 1 in
-        i!loop = @9
-        x!loop = y
-        continue
-      }
+      let @9 = (*i!loop) - 1 in
+      i!loop = @9
+      x!loop = y
     }
-    break
-  } while (true)
-  let slot0 = (*x!loop) in
-  let _effect1 = reconverge() in
-  switch ((*which)) {
-  case 0: { // if of shared
-    x!loop = slot0
-    i!loop = (*slot1)
-    let @1 = (*x!loop) * 0.5f in
-    let @2 = cast<f32>((*i!loop)) in
-    let @3 = @1 + @2 in
-    return @3
-  } break;
-  default: { // if of shared
-    x!loop = slot0
-    let y = (*slot2) in
-    let @6 = (*x!loop) + y in
-    let @7 = cast<f32>(k) in
-    let @8 = @6 * @7 in
-    return @8
   }
-  }
+  let @1 = (*x!loop) * 0.5f in
+  let @2 = cast<f32>((*i!loop)) in
+  let @3 = @1 + @2 in
+  return @3
 }
 
 func step(i : i32, x : f32, limit : f32) -> f32 {
   i!loop : mut i32
   x!loop : mut f32
-  which : mut u32
-  slot0 : mut f32
-  slot1 : mut i32
   i!loop = i
   x!loop = x
-  do {
-    let @0 = (*i!loop) <= 0 in
-    if (@0) {
-      which = 0u
-      slot0 = (*x!loop)
-      slot1 = (*i!loop)
+  while (!((*i!loop) <= 0)) {
+    let y = (*x!loop) * 1.5f in
+    let @5 = limit < y in
+    if (@5) {
+      return 0f
     } else {
-      let y = (*x!loop) * 1.5f in
-      let @5 = limit < y in
-      if (@5) {
-        which = 1u
-        slot0 = 0f
-        slot1 = 0
+      let @6 = limit * 0.5f in
+      let @7 = @6 < y in
+      if (@7) {
+        x!loop = y
+        let @1 = (*x!loop) * 0.5f in
+        let @2 = cast<f32>((*i!loop)) in
+        let @3 = @1 + @2 in
+        return @3
       } else {
-        let @6 = limit * 0.5f in
-        let @7 = @6 < y in
-        if (@7) {
-          which = 0u
-          slot0 = y
-          slot1 = (*i!loop)
-        } else {
-          let @11 = (*i!loop) - 1 in
-          i!loop = @11
-          x!loop = y
-          continue
-        }
+        let @11 = (*i!loop) - 1 in
+        i!loop = @11
+        x!loop = y
       }
     }
-    break
-  } while (true)
-  let _effect2 = reconverge() in
-  switch ((*which)) {
-  case 0: { // if of step
-    x!loop = (*slot0)
-    i!loop = (*slot1)
-    let @1 = (*x!loop) * 0.5f in
-    let @2 = cast<f32>((*i!loop)) in
-    let @3 = @1 + @2 in
-    return @3
-  } break;
-  default: { // if of step
-    return 0f
   }
-  }
+  let @1 = (*x!loop) * 0.5f in
+  let @2 = cast<f32>((*i!loop)) in
+  let @3 = @1 + @2 in
+  return @3
 }
 
 func twice(i : i32, x : f32) -> f32 {

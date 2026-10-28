@@ -3,9 +3,10 @@
 // tests/bonsai/backends/ptx/loopify-exits' program, run on the card: eight
 // threads, each a walk of its own length ending by its own exit -- out of
 // steps (threads 0 and 2), past half the limit (3, 4, 6, 7), past the limit
-// (1 and 5) -- all leaving the loop into one block and dispatched from there
-// to the exits' code (funnel_exits in SSA/Rewrite.cpp), each with its own
-// values. The eight answers are the recursion's: thread 0 1 -> 1.5, then
+// (1 and 5) -- the first two kinds leaving the loop into the one `finish`
+// block the two same-code exits were made (merge_exits in SSA/Rewrite.cpp),
+// each with its own values, the third by its own exit. The eight answers
+// are the recursion's: thread 0 1 -> 1.5, then
 // finish(1.5, 0) = 0.75; thread 2 0.5 -> 0.75 -> 1.125 -> 1.6875, finish =
 // 0.84375; thread 3 2 -> 3 past half of 4, finish(3, 4) = 5.5; thread 4
 // 1 -> 1.5 -> 2.25, finish(2.25, 4) = 5.125; thread 6 0.25 doubled by 1.5

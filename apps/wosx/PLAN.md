@@ -2137,6 +2137,33 @@ times over. The solver's two CPU figures were redrawn from their table
 with the two bars (no cell remeasured); the geomeans of the parallel bars
 are as in the paragraph above.
 
+**The funnel replaced by the merge alone, and the walk keeps its gain**
+(10-28, 15:16-15:18). The user's reading of the funnel: its motivation was
+equal code at several ways out of a loop, not a place every exit must
+pass; a hub is not an optimization in general -- it is the precondition of
+AMDGPU's software-managed lane mask (LLVM's UnifyLoopExits before
+StructurizeCFG), and NVPTX runs no such pass and leaves where a warp
+reconverges to ptxas -- and a loopify argument switching it on would be a
+hack. So loopify now merges the exits whose code is the same code and
+brings nothing else together (merge_exits in src/SSA/Rewrite.cpp): the
+walk's two `return terminal(...)` are one block entered from both exits
+with that exit's values, its two `return {}` another, and no block after
+the loop carries a tag or waits. The A/B, this compiler against 39c67ab9's
+on comb and head, fcpwb-gpu, two rounds of ten repeats alternating with
+WoSX's rate as the control: our rate 941/931 -> 932/926 Msteps/s on comb
+(0.99x), 648/648 -> 653/648 on head (1.00x), WoSX's own 817/807 -> 788/805
+and 448/449 -> 451/444; the speedups 1.15x/1.16x -> 1.18x/1.15x on comb and
+1.44x/1.45x -> 1.45x/1.46x on head, against the pre-funnel 0.88x and 1.31x.
+So the gain of 9846e3e6 was the merged code -- the terminal traversal in
+the kernel once, entered from both exits -- and not the wait at one block,
+which the reading of 10-27 had credited; the march's 26% and the SER
+megakernel's 8% bought nothing. What the merge costs, read in
+tests/bonsai/backends/ptx/loopify-exits: one register move per differing
+value per exit per iteration (three moves where the funnel's body had
+twelve and the empty asm). Every wosx table is remeasured under this
+compiler next; pbrt's megakernel and medium march are bonsai-f9's to
+measure against a53c8f84.
+
 ### Next
 
 - The other binary-tree schedules measured again with the unrolled visit

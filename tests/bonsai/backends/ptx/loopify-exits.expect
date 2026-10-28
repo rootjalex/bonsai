@@ -4,7 +4,7 @@ source_filename = "bonsai_module"
 target datalayout = "e-p6:32:32-i64:64-i128:128-i256:256-v16:16-v32:32-n16:32:64"
 target triple = "nvptx64-nvidia-cuda"
 
-; Function Attrs: mustprogress nounwind memory(argmem: readwrite, inaccessiblemem: readwrite)
+; Function Attrs: mustprogress nofree norecurse nosync nounwind memory(argmem: readwrite)
 define ptx_kernel void @_kernel_t_0(i32 %_begin, i32 %_stride, ptr nofree readonly captures(none) %a, ptr nofree writeonly captures(none) %out) local_unnamed_addr #0 {
 "!par_body_0":
   %out.global = addrspacecast ptr %out to ptr addrspace(1)
@@ -19,33 +19,34 @@ define ptx_kernel void @_kernel_t_0(i32 %_begin, i32 %_stride, ptr nofree readon
   %extract_ptr = getelementptr inbounds [4 x i8], ptr %a.generic, i64 %t_wide
   %extract = load float, ptr %extract_ptr, align 4, !invariant.load !1
   %2 = icmp ugt i32 %t, 2147483646
-  br i1 %2, label %step.exit, label %"!merge_1.i"
+  br i1 %2, label %"!then_0.i", label %"!merge_1.i"
 
 "!merge_1.i":                                     ; preds = %"!par_body_0", %"!merge_5.i"
-  %"x!loop.i5" = phi float [ %3, %"!merge_5.i" ], [ %extract, %"!par_body_0" ]
-  %"i!loop.i4" = phi i32 [ %6, %"!merge_5.i" ], [ %1, %"!par_body_0" ]
-  %3 = fmul float %"x!loop.i5", 1.500000e+00
-  %4 = fcmp ule float %3, 4.000000e+00
-  br i1 %4, label %"!merge_3.i", label %step.exit
+  %"x!loop.i6" = phi float [ %3, %"!merge_5.i" ], [ %extract, %"!par_body_0" ]
+  %"i!loop.i5" = phi i32 [ %9, %"!merge_5.i" ], [ %1, %"!par_body_0" ]
+  %3 = fmul float %"x!loop.i6", 1.500000e+00
+  %4 = fcmp ogt float %3, 4.000000e+00
+  br i1 %4, label %step.exit, label %"!merge_3.i"
 
 "!merge_3.i":                                     ; preds = %"!merge_1.i"
   %5 = fcmp ogt float %3, 2.000000e+00
-  br i1 %5, label %step.exit, label %"!merge_5.i"
+  br i1 %5, label %"!then_0.i", label %"!merge_5.i"
+
+"!then_0.i":                                      ; preds = %"!merge_5.i", %"!merge_3.i", %"!par_body_0"
+  %"i!loop.i.lcssa" = phi i32 [ %1, %"!par_body_0" ], [ 0, %"!merge_5.i" ], [ %"i!loop.i5", %"!merge_3.i" ]
+  %"x!loop6.i" = phi float [ %extract, %"!par_body_0" ], [ %3, %"!merge_3.i" ], [ %3, %"!merge_5.i" ]
+  %6 = fmul float %"x!loop6.i", 5.000000e-01
+  %7 = sitofp i32 %"i!loop.i.lcssa" to float
+  %8 = fadd float %6, %7
+  br label %step.exit
 
 "!merge_5.i":                                     ; preds = %"!merge_3.i"
-  %6 = add nsw i32 %"i!loop.i4", -1
-  %7 = icmp slt i32 %"i!loop.i4", 2
-  br i1 %7, label %step.exit, label %"!merge_1.i"
+  %9 = add nsw i32 %"i!loop.i5", -1
+  %10 = icmp slt i32 %"i!loop.i5", 2
+  br i1 %10, label %"!then_0.i", label %"!merge_1.i"
 
-step.exit:                                        ; preds = %"!merge_3.i", %"!merge_1.i", %"!merge_5.i", %"!par_body_0"
-  %cond.i = phi i1 [ true, %"!par_body_0" ], [ %4, %"!merge_5.i" ], [ %4, %"!merge_1.i" ], [ %4, %"!merge_3.i" ]
-  %slot0.i = phi float [ %extract, %"!par_body_0" ], [ %3, %"!merge_3.i" ], [ 0.000000e+00, %"!merge_1.i" ], [ %3, %"!merge_5.i" ]
-  %slot1.i = phi i32 [ %1, %"!par_body_0" ], [ %"i!loop.i4", %"!merge_3.i" ], [ 0, %"!merge_1.i" ], [ 0, %"!merge_5.i" ]
-  tail call void asm sideeffect "", ""() #2
-  %8 = fmul float %slot0.i, 5.000000e-01
-  %9 = sitofp i32 %slot1.i to float
-  %10 = fadd float %8, %9
-  %common.ret.op.i = select i1 %cond.i, float %10, float 0.000000e+00
+step.exit:                                        ; preds = %"!merge_1.i", %"!then_0.i"
+  %common.ret.op.i = phi float [ %8, %"!then_0.i" ], [ 0.000000e+00, %"!merge_1.i" ]
   %out3 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %t_wide
   store float %common.ret.op.i, ptr %out3, align 4, !tbaa !2
   ret void
@@ -54,9 +55,8 @@ step.exit:                                        ; preds = %"!merge_3.i", %"!me
 ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare noundef range(i32 0, 1024) i32 @llvm.nvvm.read.ptx.sreg.tid.x() #1
 
-attributes #0 = { mustprogress nounwind memory(argmem: readwrite, inaccessiblemem: readwrite) }
+attributes #0 = { mustprogress nofree norecurse nosync nounwind memory(argmem: readwrite) }
 attributes #1 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #2 = { convergent noduplicate nounwind memory(inaccessiblemem: readwrite) }
 
 !llvm.module.flags = !{!0}
 
@@ -84,8 +84,8 @@ attributes #2 = { convergent noduplicate nounwind memory(inaccessiblemem: readwr
 	.param .u64 .ptr .align 1 _kernel_t_0_param_3
 )
 {
-	.reg .pred 	%p<7>;
-	.reg .b32 	%r<15>;
+	.reg .pred 	%p<5>;
+	.reg .b32 	%r<12>;
 	.reg .b64 	%rd<10>;
 
 	ld.param.b32 	%r2, [_kernel_t_0_param_0];
@@ -96,47 +96,35 @@ attributes #2 = { convergent noduplicate nounwind memory(inaccessiblemem: readwr
 	cvta.to.global.u64 	%rd5, %rd4;
 	mov.u32 	%r4, %tid.x;
 	mad.lo.s32 	%r5, %r3, %r4, %r2;
-	add.s32 	%r14, %r5, 1;
+	add.s32 	%r9, %r5, 1;
 	cvt.s64.s32 	%rd2, %r5;
 	mul.wide.s32 	%rd6, %r5, 4;
 	add.s64 	%rd7, %rd5, %rd6;
-	ld.global.nc.b32 	%r13, [%rd7];
-	setp.gt.u32 	%p2, %r5, 2147483646;
-	mov.pred 	%p1, -1;
-	mov.pred 	%p6, %p1;
-	@%p2 bra 	$L__BB0_5;
-	mov.b32 	%r11, %r13;
-	mov.b32 	%r12, %r14;
+	ld.global.nc.b32 	%r10, [%rd7];
+	setp.gt.u32 	%p1, %r5, 2147483646;
+	@%p1 bra 	$L__BB0_4;
+	mov.b32 	%r8, %r9;
 $L__BB0_2:
-	mul.rn.f32 	%r11, %r11, 0f3FC00000;
-	setp.gt.f32 	%p3, %r11, 0f40800000;
-	mov.b32 	%r6, 0;
-	mov.b32 	%r13, 0f00000000;
-	mov.pred 	%p6, 0;
-	mov.b32 	%r14, %r6;
-	@%p3 bra 	$L__BB0_5;
-	setp.gt.f32 	%p4, %r11, 0f40000000;
-	mov.pred 	%p6, %p1;
-	mov.b32 	%r13, %r11;
-	mov.b32 	%r14, %r12;
-	@%p4 bra 	$L__BB0_5;
-	add.s32 	%r1, %r12, -1;
-	setp.gt.s32 	%p5, %r12, 1;
-	mov.b32 	%r12, %r1;
-	mov.pred 	%p6, %p1;
-	mov.b32 	%r13, %r11;
-	mov.b32 	%r14, %r6;
-	@%p5 bra 	$L__BB0_2;
+	mul.rn.f32 	%r10, %r10, 0f3FC00000;
+	setp.gt.f32 	%p2, %r10, 0f40800000;
+	mov.b32 	%r11, 0f00000000;
+	@%p2 bra 	$L__BB0_5;
+	setp.leu.f32 	%p3, %r10, 0f40000000;
+	mov.b32 	%r9, %r8;
+	@!%p3 bra 	$L__BB0_4;
+	add.s32 	%r1, %r8, -1;
+	setp.lt.s32 	%p4, %r8, 2;
+	mov.b32 	%r9, 0;
+	mov.b32 	%r8, %r1;
+	@!%p4 bra 	$L__BB0_2;
+$L__BB0_4:
+	mul.rn.f32 	%r6, %r10, 0f3F000000;
+	cvt.rn.f32.s32 	%r7, %r9;
+	add.rn.f32 	%r11, %r6, %r7;
 $L__BB0_5:
-	// begin inline asm
-	// end inline asm
-	mul.rn.f32 	%r7, %r13, 0f3F000000;
-	cvt.rn.f32.s32 	%r8, %r14;
-	add.rn.f32 	%r9, %r7, %r8;
-	selp.f32 	%r10, %r9, 0f00000000, %p6;
 	shl.b64 	%rd8, %rd2, 2;
 	add.s64 	%rd9, %rd1, %rd8;
-	st.global.b32 	[%rd9], %r10;
+	st.global.b32 	[%rd9], %r11;
 	ret;
 
 }

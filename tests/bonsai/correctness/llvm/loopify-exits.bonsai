@@ -1,25 +1,23 @@
 //! flags: -p ssa -b llvm -e
 
 // tests/bonsai/ssa/loopify-exits' program, run: a loopified recursion whose
-// exits were brought together after the loop (funnel_exits in
-// SSA/Rewrite.cpp) computes what the recursion computed, by every exit --
-// the first walk runs out of steps (1 -> 1.5 -> 2.25 -> 3.375, then
-// finish(3.375, 0) = 1.6875), the second passes half the limit on its
-// second step (finish(2.25, 4) = 5.125), the third passes the limit at once
-// (0). The two `finish` exits are one arm after the loop, entered with
-// different values; the first and second walks check that each enters it
-// with its own. `twice` has only the two `finish` exits, which fold into
-// one with no funnel: run out of steps (1 -> 1.5 -> 2.25 -> 3.375,
-// finish(3.375, 0) = 1.6875) and past 100 on the second step (60 -> 90 ->
-// 135, finish(135, 4) = 71.5). `shared` has exits of different shapes,
-// `finish(x, i)` and `scale(x, y, k)`, whose arguments share the funnel's
-// slots by type, `k` handed to its arm directly: out of steps (1 -> 1.5 ->
-// 2.25 -> 3.375, finish(3.375, 0) = 1.6875), and past 50 on the third step
-// (20 -> 30 -> 45 -> 67.5, scale(45, 67.5, 3) = 337.5) -- each arm reading
-// its own values from the shared slots. `pick` hands the address of a local
-// of the body, `t`, to a held function at one exit: out of steps (3.375,
-// the `return x` exit), and past 50 on the third step (t = 67.5, halve(t) =
-// 33.75), the address slot undefined on the other exit's edge.
+// same-code exits were made one (merge_exits in SSA/Rewrite.cpp) computes
+// what the recursion computed, by every exit -- the first walk runs out of
+// steps (1 -> 1.5 -> 2.25 -> 3.375, then finish(3.375, 0) = 1.6875), the
+// second passes half the limit on its second step (finish(2.25, 4) =
+// 5.125), the third passes the limit at once (0). The two `finish` exits
+// are one block, entered from either exit with that exit's values; the
+// first and second walks check that each enters it with its own. `twice`
+// has only the two `finish` exits, one block the same way: run out of
+// steps (1 -> 1.5 -> 2.25 -> 3.375, finish(3.375, 0) = 1.6875) and past 100
+// on the second step (60 -> 90 -> 135, finish(135, 4) = 71.5). `shared` has
+// exits of different shapes, `finish(x, i)` and `scale(x, y, k)`, left
+// where they are: out of steps (1 -> 1.5 -> 2.25 -> 3.375, finish(3.375, 0)
+// = 1.6875), and past 50 on the third step (20 -> 30 -> 45 -> 67.5,
+// scale(45, 67.5, 3) = 337.5). `pick` hands the address of a local of the
+// body, `t`, to a held function at one exit: out of steps (3.375, the
+// `return x` exit), and past 50 on the third step (t = 67.5, halve(t) =
+// 33.75).
 func finish(x : f32, n : i32) -> f32 {
     return x * 0.5 + cast[[f32]](n);
 }

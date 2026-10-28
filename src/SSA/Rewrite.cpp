@@ -1427,40 +1427,52 @@ bool same_exit_region(const Cfg &cfg, const BlockSet &inside, BlockId a,
     return true;
 }
 
-// The loop's exits brought together after it. A recursion's returns sit
-// wherever the program wrote them, and loopify leaves each where it is: an
-// exit edge of the loop goes straight to the code of that return, and when
-// the return is a call -- `return terminal(x, steps)` at the walk's two ways
-// out -- the call runs where the lane left. On a warp that is as soon as the
-// lane leaves, with the warp's other lanes idle: the walk's terminal query,
-// a traversal as long as any step's, ran at under two of 32 lanes
-// (apps/wosx/PLAN.md, 2026-10-27), where WoSX's shader returns a completion
-// code from its loop and makes the query after it, once, with every lane
-// that has one. This gives the loop that shape: every edge out of it is
-// redirected to one block after the loop, `<func>!exit`, which carries a
-// tag saying which exit the lane took and every exit's arguments (the
-// others' slots undefined on that edge), reconverges (ir::Intrinsic::
-// reconverge: the point LLVM may not thread an edge past, and ptxas's
-// convergence barrier), and dispatches on the tag to the exits' code, which
-// now runs after the warp's lanes have all left the loop. Exits whose code
-// is the same code -- the two terminal calls, copied in at each
-// (same_exit_region) -- become one arm, so that the code is in the kernel
-// once and the lanes that left by either run it together. Every exit edge
-// leaves from a dispatch: a block with one successor is in the loop only if
-// that successor is (the latch is reached through it or not at all), so a
-// call's continuation, a jump's target or a join's next is never outside
-// the loop while the block is in it. The exits' code is unchanged: after an
-// exit the loop runs no more, so the arm sees the same
-// arguments whether it runs where the lane left or after the join, and on a
-// CPU, where there is nothing to reconverge, LLVM threads the funnel back
-// into the exits and the code is as it was, with the identical regions
-// merged. A loop with one exit (one target, after merging) needs no funnel
-// and gets none. Reconvergence at the loop's exit is where a SIMT machine
-// reconverges by construction -- Fung et al., "Dynamic Warp Formation and
-// Scheduling for Efficient GPU Control Flow", MICRO 2007 (reconvergence at
-// the immediate post-dominator); AMDGPU's StructurizeCFG does the same to
-// every loop by hand.
-void funnel_exits(const shared_ptr<Function> &f, const string &header_name) {
+// The loop's exits whose code is the same code, made one. A recursion's
+// returns sit wherever the program wrote them, and loopify leaves each
+// where it is: an exit edge of the loop goes straight to the code of that
+// return. When two returns are the same call -- `return terminal(x, steps)`
+// at a walk's two ways out, the callee copied in at each (SSA/Convert.cpp
+// inlines a non-recursive callee at its call) -- the kernel holds that code
+// twice, so the two exits are redirected to one copy (same_exit_region
+// says what "the same code" is), each handing it its own values, and the
+// other copy, unreachable, is removed. Tail merging: what a linker's
+// identical code folding does to functions (Tallam et al., "Safe ICF:
+// Pointer Safe and Unwinding Aware Identical Code Folding in Gold", CGO
+// 2010) and cross-jumping to basic blocks (Fraser, Myers and Wendt,
+// "Analyzing and Compressing Assembly Code", SIGPLAN 1984), which LLVM's
+// own tail merging (BranchFolding) would do for a CPU but not for PTX,
+// where it is switched off under NVPTX's structured-CFG requirement. An
+// exit whose code is its own is left where it is, its own way out of the
+// loop. What the merge costs: where the merged exits hand different
+// values, the one block's parameters are phis whose copies the GPU backend
+// places before each exit's branch, in the loop body, since NVPTX splits
+// no edge from a two-way branch into a block with several predecessors --
+// one register move per differing value per exit per iteration.
+// Why not more. From 2026-10-27 to 10-28 every exit of a loopified
+// recursion was redirected to one block after the loop (`<func>!exit`: a
+// tag, a payload of the exits' values in slots shared by type, a
+// reconvergence point, a dispatch to the exits' code), so that on a warp
+// each exit's code ran once after every lane had left the loop; the walk
+// on spheres' terminal query, which had run as each lane left at under two
+// of 32 lanes, gained 5-8% against WoSX on every GPU schedule. But the
+// hub's copies and zero fills ran in the body on every iteration for every
+// exit, for the reason above, and a value handed at an early exit must
+// either be copied there or have its register held to the loop's end for
+// the arm to read it: pbrt's medium march (five exits, three arms of 3-15
+// instructions, 5-9 values each) ran 26% slower and its SER megakernel 8%
+// (apps/pbrt/PLAN.md and apps/wosx/PLAN.md, 2026-10-28, which also measure
+// what the merge alone keeps of the walk's gain). Where a warp
+// reconverges is the hardware's to choose from the control flow it is
+// given (Fung et al., "Dynamic Warp Formation and Scheduling for Efficient
+// GPU Control Flow", MICRO 2007: at the immediate post-dominator; ptxas
+// places the convergence barriers), and the one backend that must build a
+// single exit per loop is AMDGPU, whose lane mask is managed in software
+// (LLVM's UnifyLoopExits before StructurizeCFG); this compiler builds
+// none. Every exit edge leaves from a dispatch: a block with one successor
+// is in the loop only if that successor is (the latch is reached through
+// it or not at all), so a call's continuation, a jump's target or a join's
+// next is never outside the loop while the block is in it.
+void merge_exits(const shared_ptr<Function> &f, const string &header_name) {
     Function &func = *f;
     const Cfg cfg(func);
     const DomTree dom = compute_dominator_tree(cfg);
@@ -1480,11 +1492,7 @@ void funnel_exits(const shared_ptr<Function> &f, const string &header_name) {
     // leaves: a block whose terminator has one successor is in the loop
     // only if that successor is, so the one successor of a jump, a call,
     // a spawn, a join or a parfor's continuation is inside too.
-    struct Exit {
-        shared_ptr<Block> from;
-        Terminator::Jump *slot;
-    };
-    vector<Exit> exits;
+    vector<Terminator::Jump *> exits;
     for (const BlockId b : cfg.rpo) {
         if (!inside.contains(b)) {
             continue;
@@ -1498,7 +1506,7 @@ void funnel_exits(const shared_ptr<Function> &f, const string &header_name) {
                        [&](Terminator::Dispatch &d) {
                            for (Terminator::Jump &t : d.targets) {
                                if (outside(t)) {
-                                   exits.push_back({block, &t});
+                                   exits.push_back(&t);
                                }
                            }
                        },
@@ -1539,7 +1547,7 @@ void funnel_exits(const shared_ptr<Function> &f, const string &header_name) {
     vector<BlockId> targets;
     vector<size_t> target_of(exits.size());
     for (size_t i = 0; i < exits.size(); i++) {
-        const BlockId t = cfg.find(exits[i].slot->name);
+        const BlockId t = cfg.find(exits[i]->name);
         const auto at = std::find(targets.begin(), targets.end(), t);
         target_of[i] = size_t(at - targets.begin());
         if (at == targets.end()) {
@@ -1559,220 +1567,15 @@ void funnel_exits(const shared_ptr<Function> &f, const string &header_name) {
             }
         }
     }
-    vector<size_t> arms; // the representatives, in order
-    vector<size_t> arm_of(targets.size(), 0);
-    for (size_t j = 0; j < targets.size(); j++) {
-        if (rep[j] == j) {
-            arm_of[j] = arms.size();
-            arms.push_back(j);
-        }
-    }
-
-    if (arms.size() == 1) {
-        // One way out once the same regions are one: the exit block itself
-        // is where the lanes come together, and the merged exits go there.
-        if (!merged) {
-            return;
-        }
-        for (size_t i = 0; i < exits.size(); i++) {
-            exits[i].slot->name = cfg.name(targets[rep[target_of[i]]]);
-        }
-        refresh_preds(func);
-        remove_unreachable_blocks(func);
+    if (!merged) {
         return;
     }
-
-    set<string> taken;
-    for (const auto &block : func.blocks) {
-        taken.insert(block->name);
-    }
-    const auto fresh = [&](const string &base) {
-        string name = base;
-        for (size_t i = 0; taken.count(name); i++) {
-            name = base + std::to_string(i);
-        }
-        taken.insert(name);
-        return name;
-    };
-
-    // What the funnel carries is the exit as a variant: the tag, and a
-    // payload laid out as a union of the arms' parameter lists -- slots
-    // shared by type, an arm's parameters in the first slots of their
-    // types -- so that the registers the payload takes are the largest
-    // arm's, not every arm's at once (a lane takes one exit). An arm's
-    // parameter that every edge of the arm hands one value defined before
-    // the loop -- a constant, a function argument, a value of a block that
-    // dominates the header -- gets no slot: the dispatch hands the arm that
-    // value, in scope after the loop as it was in it (apps/pbrt's bounce
-    // loop leaves with some thirty such, the scene's tables). A slot an
-    // exit does not fill is handed the zero of its type on its edge, not an
-    // undefined value: an undefined incoming lets LLVM fold the phi into
-    // the one defined incoming when that dominates the funnel, which the
-    // loop header's own arguments do, and the arm then reads the header's
-    // value past the loop -- live over the whole body, since every exit is
-    // a path to the use, where its last use in the body may be early (the
-    // previous hit's context in the bounce loop, the spectra of the medium
-    // march). Measured on 2026-10-27 before this: pbrt's megakernel raygen
-    // kept 17 more registers live across its reorder and 48 across its
-    // shadow trace, 64 to 96 bytes more of OptiX continuation stack per
-    // thread, the SER kernel 20% slower; the wavefront's medium march, at
-    // the 128-register cap, spilled 18% more and ran 26% slower on
-    // explosion. With a defined value on every edge the phi stands, the
-    // body's value dies at the edge, and the slot lives from the edge to
-    // the arm.
-    const auto defined_before_loop = [&](const shared_ptr<Value> &v) {
-        return std::visit(
-            overloads{
-                [&](const Constant &) { return true; },
-                [&](const std::shared_ptr<Instruction> &i) {
-                    const shared_ptr<Block> b = i->owner.lock();
-                    const BlockId id = b ? cfg.find(b->name) : NO_BLOCK;
-                    return id != NO_BLOCK && !inside.contains(id) &&
-                           dom.dominates(id, header);
-                },
-                [&](const Argument &a) {
-                    // Threaded onwards under its own name: defined where a
-                    // block outside the loop that dominates the header
-                    // takes it, the entry's being the function's own.
-                    for (const BlockId b : cfg.rpo) {
-                        if (inside.contains(b) || !dom.dominates(b, header)) {
-                            continue;
-                        }
-                        for (const Argument &p : cfg.block(b)->args) {
-                            if (p.name == a.name) {
-                                return true;
-                            }
-                        }
-                    }
-                    return false;
-                }},
-            v->data);
-    };
-    struct Param {
-        shared_ptr<Value> direct; // handed as is, or
-        size_t slot = 0;          // the payload slot it is read from
-    };
-    struct Slot {
-        Type type;
-        shared_ptr<Value> value; // the funnel's argument, once made
-    };
-    vector<vector<Param>> params(arms.size());
-    vector<Slot> slots;
-    for (size_t a = 0; a < arms.size(); a++) {
-        const Block &target = *cfg.block(targets[arms[a]]);
-        const size_t n = target.args.size();
-        params[a].resize(n);
-        // The one value each parameter is handed on every edge of the arm,
-        // when there is one.
-        vector<shared_ptr<Value>> common(n);
-        vector<bool> differs(n, false);
-        for (size_t i = 0; i < exits.size(); i++) {
-            if (arm_of[rep[target_of[i]]] != a) {
-                continue;
-            }
-            const vector<shared_ptr<Value>> &own = exits[i].slot->args;
-            internal_assert(own.size() == n)
-                << "loopify(" << func.blocks.front()->name
-                << "): the exit from " << exits[i].from->name << " passes "
-                << own.size() << " values where its target takes " << n;
-            for (size_t k = 0; k < n; k++) {
-                if (!common[k]) {
-                    common[k] = own[k];
-                } else if (!same_value(*common[k], *own[k])) {
-                    differs[k] = true;
-                }
-            }
-        }
-        vector<bool> claimed(slots.size(), false);
-        for (size_t k = 0; k < n; k++) {
-            if (!differs[k] && common[k] && defined_before_loop(common[k])) {
-                params[a][k].direct = common[k];
-                continue;
-            }
-            // The first slot of the type this arm has not claimed, else a
-            // new one.
-            size_t s = 0;
-            while (s < slots.size() &&
-                   (claimed[s] || !slots[s].type.same_as(target.args[k].type))) {
-                s++;
-            }
-            if (s == slots.size()) {
-                slots.push_back(Slot{target.args[k].type, nullptr});
-                claimed.push_back(false);
-            }
-            claimed[s] = true;
-            params[a][k].slot = s;
-        }
-    }
-
-    // The funnel: the tag, the payload, the reconvergence, the dispatch.
-    auto funnel = std::make_shared<Block>();
-    funnel->name = fresh(func.blocks.front()->name + "!exit");
-    funnel->owner = f;
-    const Type tag_type = UInt_t::make(32);
-    const shared_ptr<Value> which =
-        funnel->add_argument(Argument{tag_type, "which"});
-    for (size_t s = 0; s < slots.size(); s++) {
-        slots[s].value = funnel->add_argument(
-            Argument{slots[s].type, "slot" + std::to_string(s)});
-    }
-    funnel->make_side_effect(Instruction::Op::Intrinsic, {});
-    funnel->instrs.back()->intrinsic = ir::Intrinsic::reconverge;
-    Terminator::Dispatch dispatch;
-    dispatch.cond = which;
-    for (size_t a = 0; a < arms.size(); a++) {
-        vector<shared_ptr<Value>> args;
-        for (const Param &p : params[a]) {
-            args.push_back(p.direct ? p.direct : slots[p.slot].value);
-        }
-        dispatch.targets.push_back(
-            Terminator::Jump{cfg.name(targets[arms[a]]), std::move(args)});
-    }
-    funnel->terminator.data = std::move(dispatch);
-
-    // Every exit edge into the funnel: its tag, its own values in its arm's
-    // slots, the zero of the type in every other.
+    // Each exit of a merged pair goes to the first copy of the code, with
+    // the values it handed its own copy: same_exit_region paired the two
+    // copies' parameters by position and type.
     for (size_t i = 0; i < exits.size(); i++) {
-        Exit &e = exits[i];
-        const size_t a = arm_of[rep[target_of[i]]];
-        const vector<shared_ptr<Value>> own = e.slot->args;
-        vector<shared_ptr<Value>> args(1 + slots.size());
-        args[0] = std::make_shared<Value>(Constant{tag_type, uint64_t(a)});
-        vector<bool> filled(slots.size(), false);
-        for (size_t k = 0; k < own.size(); k++) {
-            const Param &p = params[a][k];
-            if (p.direct) {
-                continue;
-            }
-            args[1 + p.slot] = own[k];
-            filled[p.slot] = true;
-        }
-        for (size_t s = 0; s < slots.size(); s++) {
-            if (filled[s]) {
-                continue;
-            }
-            // A slot of data is handed the zero of its type (the comment
-            // above says why not undefined). A slot that holds an address
-            // is handed the undefined value after all: an address names
-            // storage, and the arm that takes it must see the one address
-            // the filling edge hands, which LLVM's fold of the phi gives it
-            // -- a local of the loop body whose address an exit hands on
-            // (apps/pbrt's medium march hands `segment_passed`, written by
-            // a call in the body, to the arm that reads it) stays a
-            // register that way, and with any other value in the slot the
-            // address is one of several the phi may hold, and the local is
-            // kept in memory (a 16-byte local depot in the wavefront's
-            // medium kernel, 2026-10-27). An address's own lifetime, the
-            // fold's cost on data, is a register or two.
-            const Type &t = slots[s].type;
-            args[1 + s] = (t.is<Ptr_t>() || t.is_reference())
-                              ? undef_value(t)
-                              : zero_value(t, func, e.from);
-        }
-        e.slot->name = funnel->name;
-        e.slot->args = std::move(args);
+        exits[i]->name = cfg.name(targets[rep[target_of[i]]]);
     }
-    func.blocks.push_back(funnel);
     refresh_preds(func);
     remove_unreachable_blocks(func);
 }
@@ -1986,8 +1789,9 @@ void loopify(FuncMap &funcs, std::string func, int size,
     // its own, entered from a preheader (see SSA/InsertPreheader.h).
     const std::string header = insert_preheader(*f, f->blocks[0]->name, latches);
 
-    // And the loop's exits brought together after it (funnel_exits above).
-    funnel_exits(f, header);
+    // And the loop's exits whose code is the same code made one
+    // (merge_exits above).
+    merge_exits(f, header);
 }
 
 } // namespace ssa

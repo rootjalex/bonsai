@@ -1,35 +1,26 @@
 //! flags: -p ssa
 
-// The exits of a loopified recursion brought together after the loop
-// (funnel_exits in SSA/Rewrite.cpp). `step` has three ways out besides its
+// The exits of a loopified recursion whose code is the same code, made one
+// (merge_exits in SSA/Rewrite.cpp). `step` has three ways out besides its
 // tail call: out of steps and past half the limit both `return finish(...)`,
 // past the limit returns a constant. `finish` is copied in at both of its
 // calls before the schedule runs, so the two exits are two copies of the same
 // code, as a walk's two `return terminal(...)` are.
 //
-// What to read for: every `return` inside the `while (true)` has become an
-// assignment of `which` and of that exit's arguments followed by a `break`;
-// after the loop, one `reconverge()` and one `switch (which)` with TWO arms,
-// not three -- the two copies of `finish` folded into one, entered from
-// either exit with that exit's values -- and the slots an exit does not fill
-// are the ZERO of their type on its edge, never `undef` (an undefined
-// incoming lets LLVM read the loop's own value past the loop, keeping it
-// live over the whole body; funnel_exits says what that cost). `twice` has
-// nothing but the two `finish` exits: folded into one they are the loop's
-// one way out, so it gets no funnel -- no `which`, no `reconverge()`, no
-// switch -- just the one `finish` after the loop, handed each exit's values
-// on its `break`. `shared` has two exits of different shapes, `finish(x, i)`
-// and `scale(x, y, k)`: the payload is laid out as a union, slots shared by
-// type -- an f32 and an i32 for `finish`, the same f32 and a second f32 for
-// `scale` -- three slots where the two arms' five parameters would be; and
-// `k`, a parameter of `shared` itself and so defined before the loop, gets
-// no slot at all: the switch's arm reads `k` as it is. `pick` hands an
-// ADDRESS out of the loop: `t` is a local of the body, written by the held
-// function `put` and read through the held `halve` at one exit, so that
-// exit's arm takes `t`'s address as a slot -- which the other exit's edge
-// leaves `undef`, not zero: an address names storage, and the arm must see
-// the one address for `t` to stay a register (the data slot beside it, `x`
-// for the other arm, is zero on the edge that does not fill it).
+// What to read for: ONE copy of `finish`'s arithmetic in `step`, entered
+// from both of its exits with that exit's values (the printer shows the one
+// block with two ways in once at the end of the body and once after the
+// loop), and the `return 0f` where the program wrote it -- no block after
+// the loop that every exit jumps to, no `which`, no `reconverge()`, no
+// `switch`: an exit whose code is its own stays its own way out. `twice`
+// has nothing but the two `finish` exits, made one the same way. `shared`
+// has two exits of different shapes, `finish(x, i)` and `scale(x, y, k)`,
+// and `pick` two, `return x` and `return halve(t)`, `t` a local of the body
+// written by the held `put`: nothing is the same code, so both loops are
+// left as loopify made them, each return in place. (From 2026-10-27 to
+// 10-28 every exit was redirected to one block after the loop that carried
+// a tag and the exits' values, reconverged and dispatched; merge_exits
+// says what that cost and why it is gone.)
 func finish(x : f32, n : i32) -> f32 {
     return x * 0.5 + cast[[f32]](n);
 }
