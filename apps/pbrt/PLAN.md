@@ -18866,3 +18866,174 @@ with its sampling data) and the three scripts are under
 apps/pbrt/scratch/ncu-ganesha-10-28/. The one method note for a next
 time: an OptiX 7-ABI process is profiled under kernel replay with
 short --metrics lists, never --set or --section.
+
+### The profile figure: the wavefront's trace kernel against the flat megakernels, on ganesha and on killeroo-gold (10-28, 12:10-16:25)
+
+The user's ask at 12:10, after the morning's two profiles: a figure for
+the paper with the relevant parts of this information, clean like the
+other plots, for ganesha (where the wavefront wins) and for a killeroo
+scene (where the megakernel wins), comparing our wavefront's trace
+kernel to our megakernel. Built: `profile_kernels.sh` (one OptiX launch
+of a renderer gpu_compare.sh compiled, chosen by its ordinal in the
+process, under Nsight Compute; `--list N` prints the first N launches to
+tell them apart; `--single-pass-timing` is explained below),
+`plot_gpu_profile.py` (a row of three panels per scene: the launch's
+SASS size on a log scale, the lanes active per warp instruction of 32,
+and where a warp's cycles between issues go as shares of the cycles per
+issued instruction -- the instruction fetch, the wait on the traversal
+hardware, memory, the rest -- with a .txt beside it listing every
+launch's numbers and the lanes of each function in it), and the fourth
+fixed name of plots.sh, `pbrt-gpu-profile`. The data is in
+apps/pbrt/profile-out/ (untracked, 400 MB a report); the renderers are
+the GPU figure's, gpu-compare-out-d, built under 39c67ab9, so the figure
+and the sweep figure are of one compiler. The card was bonsai-ac's for
+the walk on stars table until 14:26 and for their build, suite and walk
+A/B from 14:30 to 15:18; my windows were 14:26-14:29, 15:08-15:14 and
+15:19-15:31 (and 16:16-16:17, see the slip below), each under the lock
+with 'timing' and 'done'.
+
+**Which launches.** Nsight names every OptiX launch `optixLaunch`,
+whatever its raygen, so the launch is chosen by ordinal and the listing
+says what each is. The wavefront (gpu-optix) launches only bands:
+every one of its first twelve launches on ganesha has 1,036,800
+threads (half the frame's 1440 x 1440 pixels; the frame at 16 spp is 32
+bands), on killeroo-gold 701,952 (half of 1368 x 1026). Launch 0 is the
+first band's closest-hit trace: 430 us at 31.2 lanes on ganesha, 285 us
+at 31.5 on killeroo-gold, the launch whose functions are the trace's
+raygen (85 instructions before its optixTrace, 268 after), the
+closest-hit program (14,530 instructions: the hit record written) and
+the miss program. The flat megakernels launch twice: launch 0 the
+per-pixel prologue (2,073,600 threads at 64 registers, 172 us) and
+launch 1 the frame -- for mega-flat 33,177,600 threads (16 x the
+pixels) at 128 registers, 384 ms on ganesha and 100.7 ms (22,457,088
+threads) on killeroo-gold; for mega-ser-flat Nsight lists the dispatch
+as ONE block of 512 threads at 255 registers, 338 ms on ganesha and
+68.8 ms on killeroo-gold -- that is how a pipeline with shader execution
+reordering (SER, the sort of the paths by material at the call cursor)
+appears to the profiler, not a grid of its own; the duration is the
+frame's and the lanes, instruction counts and stalls are the launch's.
+
+**The distortion, and the measurement that avoids it.** Under the full
+section set the wavefront's trace launch on ganesha ran 20.17 ms, 47
+times its 430 us, with 1,867 cycles of load latency and 1,263 of
+traversal wait per issued instruction and an L2 hit rate of 47%; its
+launch 2 ran 8.25 ms against 262 us. The same launch on killeroo-gold
+ran 283 us under the full set, its listing's 285, and the megakernel's
+frame on ganesha 384 ms both ways. What the distorted launches did
+that the others did not: read system memory over PCIe --
+`lts__t_sectors_aperture_sysmem_lookup_miss` 7.8 M sectors (250 MB)
+for ganesha's launch 0 and 3.4 M for its launch 2, against 904 for
+killeroo-gold's trace and 3,101 for the megakernel's frame. The cause
+is on the profiler's side: Nsight's kernel replay runs the launch once
+per pass (some forty for the full set) and saves and restores the
+memory it may write between the passes; with the counter sections only
+(a handful of passes) the launch ran 15.3 ms and with the full set and
+the caches left warm 14.5 ms, so it is the multi-pass restore, not the
+cache flush and not the source counters -- what of the renderer's
+memory ends up on the host, and why on ganesha and not on killeroo-gold
+or under the megakernel, I did not pin down (no managed memory in the
+runtime; the card has 32 GB, the scene 196 MB). Application replay,
+which re-runs the renderer for every pass and restores nothing, is
+refused for our OptiX launches by this driver as it was for pbrt's
+this morning: Nsight lists only the compute kernels and the
+acceleration builds as profilable. What is true is a run of ONE pass,
+which restores nothing: the one-pass listing's 430 us, and a metric
+group small enough for one pass -- the duration, the cycles per issued
+instruction, the warps active and the issue slots busy together (422
+us), the lanes and the instruction counts together (430 us), but the
+five stall ratios together needed more than one pass (16 ms), and one
+of them, the load latency (`long_scoreboard`), needs two passes even
+alone -- asked for by itself, with its raw counters, or through the
+sampler (`smsp__pcsamp_aggregated_passes` = 2), its run took 15 ms
+every time. So `--single-pass-timing`: after the full set, the timing
+metrics are measured again in renderer runs of one pass each -- the
+timing group, then each of the five drawn stall ratios on its own --
+and merged into the .raw.csv over the full set's values (kept beside
+it as .multipass.raw.csv); a run whose duration is off the timing
+run's by more than a fifth took more than one pass and is not merged,
+and if exactly one drawn ratio fails that way, every other stall
+reason is measured in a one-pass run of its own (thirteen more, all
+true at 430 us) and the failed one is the remainder: the cycles per
+issued instruction less the sixteen measured reasons, 78.66 - 42.14 =
+36.52 for the load latency here; the .raw.csv carries a
+`bonsai__timing_provenance` column saying so, which the figure's .txt
+prints. `--merge-only` redoes the merge from the single-pass files
+beside the report, without the card -- the afternoon's measurements
+were made by the check scripts under apps/pbrt/scratch/ and merged
+that way; the tool's own run of the launch, one command, waits for
+the two-minute slot bonsai-ac grants after their remeasure (~19:50).
+The SASS and the per-instruction counts are counts, not cycles, and
+stand from the full set. Only ganesha's wavefront trace needed this;
+the other five launches of the figure are the full set's, and the
+distorted kernel-replay files are kept under
+apps/pbrt/scratch/profile-trace-check/. One slip to own: the last
+90-second run was announced to bonsai-ac at 15:31 and did not start
+until 16:16 -- the command sat queued in my session and I did not
+watch for its start -- so their three-and-a-half-hour remeasure waited
+45 minutes on my 'done'.
+
+**What the figure shows.** On ganesha the wavefront's trace kernel (the
+first band's closest-hit trace, 1,036,800 rays in 430 us) is a memory
+machine at full lanes: 78.7 cycles per issued instruction at 31.2 lanes
+of 32, 53% of them memory latency (the ray read from its queue, the
+hit's gathers, the interaction written -- 36.5 cycles of load latency
+by the remainder, 2.5 of load-queue and 2.3 of memory-unit throttling),
+39% the wait on the traversal hardware (30.7 cycles), 1% the fetch
+(1.1 cycles over 15k SASS instructions), the rest 7%; 15.9 warps per
+SM of the 16 the 128 registers allow, issuing in 5% of the cycles. It
+is pbrt's findClosest shape of this morning (85 cycles per instruction:
+54% load latency, a third barrier, 31 lanes) with more of the wait at
+the traversal and less at the loads. Against it the megakernel's frame
+on ganesha: 30.8 cycles per issued instruction at 9.1 lanes, 46% the
+fetch over 330k SASS instructions, 30% the traversal wait, 10% memory;
+with SER 47.8 cycles at 15.0 lanes, 84% the fetch over 349k
+instructions, the traversal wait gone from the stall counters.
+
+On killeroo-gold the trace kernel is the same machine as on ganesha and
+as pbrt's: 62 cycles per issued instruction at 31.3 lanes, 63% of them
+memory latency, 23% the traversal wait, 3% the fetch, 15k SASS
+instructions; it moves rays and hit records and waits, and its warps
+are full. The megakernel's frame on killeroo-gold costs 19.8 cycles per
+issued instruction at 14.5 lanes (the raygen's prologue up to the
+camera ray's trace at 31.9 lanes, the continuations after a trace at
+8.9 and 11.9), 18% of them the fetch, 29% the traversal wait, 27%
+memory, over 341k SASS instructions; with SER 23.3 cycles at 23.2
+lanes (the continuations at 14-23), half of them the fetch, the
+traversal wait gone from the stall counters (a reordered trace does not
+wait at a barrier; its cost is elsewhere), 360k instructions. On
+ganesha the megakernel's frame costs 30.8 cycles per issued instruction
+at 9.1 lanes (the continuations after the first trace at 6.0), 46% of
+them the fetch and 30% the traversal wait, over 330k instructions; with
+SER 47.8 cycles at 15.0 lanes (continuations at 9.4-11.4), 84% of them
+the fetch, 349k instructions. Read across the two scenes: the
+megakernel's lanes are what differ (14.5 and 23.2 of 32 on killeroo-
+gold, 9.1 and 15.0 on ganesha) and with them the fetch's share (a fifth
+to a half of the cycles without SER); the wavefront's trace pays
+neither -- full lanes, 15k instructions -- and pays instead a launch
+per queue per bounce and the queues' traffic, which this figure does
+not show and the sweep figure prices. SER lifts the lanes on both
+scenes (9.1 to 15.0, 14.5 to 23.2) and removes the barrier stall, and
+triples the fetch cycles per instruction (14.0 to 40.4 on ganesha, 3.5
+to 11.9 on killeroo-gold): the sorted warps run the arm their material
+chose, so a warp's instruction stream is a different region of the
+349k-instruction raygen from its neighbours', and the instruction cache
+serves them worse -- the counters say the fetch grew; that explanation
+of why is mine, not measured. The figure's lanes panel and the stall
+panel are the morning's reading (a), (b), (c) of ba02adc6 and
+0e41adf5 as a picture: the raygen's size is the fetch, the register
+union holds the occupancy that would hide it, and the lanes after the
+first bounce are the width every instruction is paid at.
+
+**Also this afternoon.** bonsai-ac's loopify exit funnel became a
+plain merge of identical exits (user-approved, committed by them after
+their walk A/B: the plain merge keeps the walk on spheres' gain, comb
+0.99x and head 1.00x of the funnel build); for pbrt it means the bounce
+loop's and the medium march's funnels are gone, so the mk-ser-flat and
+medium-march costs measured under 39c67ab9 (the 8% and the 26% of
+10-27) are of a compiler that no longer exists at HEAD. Their
+suggestion, which I pass to the user as a proposal: an A/B of HEAD
+against a53c8f84 on killeroo-gold (mk-ser-flat) and explosion (the
+medium march) at 16 spp, one gpu_compare.sh run per compiler, ~25
+minutes of card, would say whether both are recovered; and after it
+the three GPU figures redrawn under HEAD (sweep ~2 h 10, heatmap ~1 h
+45) so the paper's figures are of one compiler again.

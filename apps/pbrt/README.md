@@ -166,9 +166,17 @@ before it.
     order of the geometry pbrt built for them, volumes first (`--sort
     geometry`; plot_gpu_heatmap.py from the last heatmap run,
     compare-out-heatmap7), one band of thirty, the ratio in each cell to
-    two digits, the colour bar along the top.
+    two digits, the colour bar along the top;
+  - `pbrt-gpu-profile.pdf`: the wavefront's trace kernel against the two
+    flat megakernels under Nsight Compute, a row of three panels per
+    scene -- the launch's SASS instructions, the lanes active per warp
+    instruction, and where a warp's cycles go (instruction fetch, the
+    wait on the traversal hardware, memory, the rest) -- on ganesha,
+    where the wavefront wins, and killeroo-gold, where the SER megakernel
+    does, at 16 spp (plot_gpu_profile.py from profile-out, the reports
+    profile_kernels.sh writes; the user, 10-28).
 
-  All three are drawn for the paper's page (figure_style.py): ACM's
+  All four are drawn for the paper's page (figure_style.py): ACM's
   acmsmall format, a 5.478 in text block, so each PDF is exactly that
   wide and `\includegraphics[width=\textwidth]` does not rescale it;
   labels and legends 8 pt and tick labels 7 pt as printed (the user,
@@ -209,6 +217,42 @@ before it.
   5, 7; nine: the whole ramp). Only schedules on the ray tracing hardware
   are drawn (the user, 10-23): the software traversals never won a cell.
   The drawing is plot_cpu_wavefront.py's.
+- `profile_kernels.sh [--out DIR] [--renderers DIR] [--single-pass-timing]
+  SCHEDULE SCENE SPP LAUNCH` and `profile_kernels.sh --list N SCHEDULE
+  SCENE SPP`: one OptiX launch of a renderer gpu_compare.sh compiled
+  (RENDERERS/SCHEDULE/render.out, gpu-compare-out-d by default; SCENE as
+  gpu_compare.sh names it, `killeroos/killeroo-gold`, a bare name being
+  `<name>/<name>`) under Nsight Compute's full section set, kernel replay,
+  written to `profile-out/<name>-SPP-SCHEDULE-L<LAUNCH>.*`: the report,
+  its details page, every metric as one CSV row and the launch's SASS
+  with per-instruction counts. Nsight names every OptiX launch
+  `optixLaunch`, so the launch is chosen by its ordinal in the process;
+  `--list N` prints the first N (duration, grid, threads, lanes) to tell
+  them apart: the wavefront's first is its first band's closest-hit
+  trace, the flat megakernels' first is the per-pixel prologue and their
+  second the frame (a pipeline with shader execution reordering is listed
+  as one block of 512 threads at 255 registers: Nsight's view of its
+  dispatch, not a grid). `--single-pass-timing` re-measures the timing
+  metrics the figure draws in renderer runs of one Nsight pass each and
+  merges them over the full set's (kept as `.multipass.raw.csv`): kernel
+  replay restores the launch's memory between passes, and on ganesha that
+  made the wavefront's trace launch read 250 MB from system memory and
+  run 47x slow (10-28); a stall ratio that needs two passes even alone
+  (the load latency) is the remainder over every other stall reason,
+  each in a one-pass run, as the `bonsai__timing_provenance` column
+  says; `--merge-only` redoes the merge from the single-pass files
+  without the card. The profiler runs on an OptiX process only with the
+  user's say-so (10-20, after a driver crash); the lock is the caller's.
+- `plot_gpu_profile.py --cell SCENE:SPP [--cell ...] [--sides a,b,...]
+  [--profiles DIR] -o OUT.pdf`: the profile figure from those reports, a
+  row per cell and three panels across; `--sides` names the schedules in
+  drawing order (gpu-optix drawn `wf trace`, then `mk-flat` and
+  `mk-ser-flat`), a side without a profile left out of its row with a
+  note. Beside it `<figure>.txt`: every launch's duration, instructions,
+  registers, achieved warps, issue-slot use, the four stall components
+  in cycles, lanes, SASS size and the lanes of each function in the
+  launch (the raygen's continuations before and after the first trace,
+  the hit and miss programs), and where the reading is in PLAN.md.
 - `plot_gpu_table.py OUT.png TABLE.tsv...`: the tables gpu_compare.sh
   wrote, plotted -- each schedule's speedup over `pbrt --gpu` and every
   side's kernel time, a group of bars per scene and a row of panels per
