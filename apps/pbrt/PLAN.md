@@ -18387,3 +18387,130 @@ night's run b -- all twenty images byte-identical, kernel times within
 2.5% (the wavefront within 0.5% everywhere; the megakernel's +2.4% on
 sanmiguel and +1.4% on ganesha are its run-to-run), every verdict kept.
 The min/max change is invisible in pbrt's images, as expected.
+
+## 10-27 evening: the GPU figures redrawn from one compiler (9846e3e6), the exit funnel's cost to the megakernels and to the medium march, and the harness compiling its schedules at once
+
+**The runs.** The user (16:30): "update the pbrt/plots figures, fully
+update them". bonsai-ac's loopify exit funnel landed as 9846e3e6 (every
+loopified recursion's exits join after the loop at a `reconverge()`
+point and a switch; apps/wosx's walk 1.18x of WoSX from 0.97x), so the
+redo owed since the morning ran under it: the worktree
+apps/pbrt/scratch/wt-mq rebased onto 9846e3e6 and rebuilt (compiler and
+test runner both 16:33), then gpu_compare.sh with the paper figure's
+seven sides (gpu-optix-mega, -mega-pass, -mega-flat, -mega-ser,
+-mega-ser-flat, gpu-optix, gpu-optix-sort) on the figure's five scenes
+at 16/64/128 spp into apps/pbrt/gpu-compare-out-c -- seven compiles
+16:33-17:33 (nine to ten minutes each megakernel, six to seven each
+wavefront), 120 cells 17:33-18:40, no cell redone, every image matching
+pbrt -- plots.sh from that one table at 18:40, then heatmap.sh into
+apps/pbrt/compare-out-heatmap10 (gpu-optix on the thirty scenes at
+16/64/128 spp, 180 rows, no watchdog, 18:40-20:23) and plots.sh again.
+apps/pbrt/plots now holds pbrt-gpu-sweep and pbrt-gpu-heatmap from these
+two tables under one compiler, and plots.sh's defaults (GPU_TABLES,
+HEATMAP_TABLE) name them; the CPU sweep is still drawn from its 10-24
+tables, its redo having no window tonight (bonsai-ac's GPU tables
+21:30-23:30 and CPU tables 23:30-08:20; the user was asked at 17:30
+whether tomorrow morning, the default, or to displace the stars table).
+
+**What the figures say now.** The GPU sweep (wall speedup over pbrt
+--gpu, fifteen cells a side, geometric means): mk 0.70x, mk-pass 1.30x,
+mk-flat 1.37x, mk-ser 0.92x, mk-ser-flat 1.71x, wf 2.09x, wf-sort 1.47x.
+The readings: one thread per path over a pixel's samples in turn
+(mk-pass over mk) 1.86x, 1.51x (sanmiguel 64) to 2.43x (book 128); one
+launch per frame over a launch per sample (mk-flat over mk-pass) 1.05x,
+1.02x to 1.12x; the SER sort on the flat launch (mk-ser-flat over
+mk-flat) 1.25x, 0.94x (book 128) to 1.71x (killeroo-simple 128); the
+SER sort on the samples-in-turn megakernel 1.31x; the wavefront over the
+plain megakernel 2.98x; the ray sort 0.70x of the wavefront. Every side
+falls to 0.69-0.75x of its 16 spp speedup at 128. The flat SER
+megakernel is ahead of our wavefront on the two killeroos at 16 spp
+(4.20x against 3.24x on killeroo-simple, 3.08x against 2.78x on
+killeroo-gold) and behind it everywhere else; ganesha is still its worst
+(0.83x at 16 spp against the wavefront's 2.11x). The heatmap: gpu-optix
+over pbrt --gpu, ninety cells, geomean 1.80x (2.00x at 16 spp, 1.74x at
+64, 1.69x at 128), 1.23x (view-0 128) to 3.23x (killeroo-simple 16).
+Against the night's run b (the compiler before the specialize fix, the
+min/max change and the funnel), every gpu-optix cell of the sweep is
+within 0.4% and every image byte-identical; against compare-out-heatmap9
+(10-26's compiler), 87 gpu-optix cells, all images identical.
+
+**The funnel's cost, measured.** Two places, both cost alone (images
+identical everywhere). (1) The megakernels, A/B against the same
+compiler without the funnel (the mq3 and mq3b tables, 927fa485 = the
+specialize fix on ajr/ssa's head of the afternoon), kernel ms at 16 spp:
+
+| kernel ms, 16 spp | killeroo-gold, 927fa485 -> 9846e3e6 | ganesha |
+|---|---|---|
+| gpu-optix-mega-pass | 89.4 -> 93.1 (+4%) | 310.1 -> 316.7 (+2%) |
+| gpu-optix-mega-flat | 86.6 -> 88.7 (+2.4%) | 306.5 -> 311.0 (+1.5%) |
+| gpu-optix-mega-ser-flat | 59.4 -> 71.6 (+20%) | 269.8 -> 275.8 (+2%) |
+
+(gpu-optix-mega-ser against run b: +2-4% on all fifteen cells;
+gpu-optix-mega -3% to +2.4%.) The +20% holds at 64 and 128 spp (284 and
+567 ms: 71.1 and 70.9 per sixteen). The cause is in the OptiX stats: the
+continuation stack of the VolPath raygens -- what OptiX keeps per thread
+across a trace -- grew under the funnel: `$VolPath$False$False` 384 ->
+480 bytes/thread on mega-pass and mega-flat and 352 -> 416 on
+mega-ser-flat, `$False$True` 544 -> 640 and 512 -> 608, `$True$True` 704
+-> 768 and 672 -> 704, `$True$False` unchanged. The funnel's exit block
+keeps more values live across the trace in integrator_li!VolPath's bounce
+loop (the exit tag and every exit's arguments, where each exit's code
+ran in place before), and SER moves that live state when it reorders,
+so the flat SER kernel pays most where the reorder was worth most
+(killeroo-gold: 1.46x before, 1.24x now). (2) The wavefront, on the
+scenes with participating media, which the sweep's five have none of:
+compare-out-heatmap10 against -heatmap9, kernel time, explosion 1.14x
+slower at every spp, bunny-cloud 1.06x, disney-cloud 1.05x, plume 1.03x,
+the other 25 scenes within 3% (geomean over 87 cells 1.011x; pbrt's own
+cells within 1%). It is one kernel: on explosion at 16 spp
+`_kernel_medium_samples_blk$False_14`, the stage that marches the medium
+(the delta-tracking loop, a loopified recursion with several ways out),
+246.5 -> 310.9 ms (+26%), every other kernel of the cell within 2.5%.
+bonsai-ac has both findings (20:00-20:40) and reads the funnel's slots
+for integrator_li!VolPath and the medium march tonight (an IR dump of
+gpu-optix-mega-flat, CPU only); the A/B that separates the funnel from
+the two changes beneath it in the heatmap's compiler -- gpu-optix on
+explosion at 16 spp under a compiler at 9c191640 (everything but the
+funnel) against 9846e3e6 -- waits for the card tomorrow. No compiler
+edit while either session times; whatever the fix, the figures are
+redrawn after it.
+
+**The harness compiling its schedules at once (the user, 17:35: "do
+the harness-only speedups (2, 3, 4) after the sweep lands").** Edited
+after the runs ended, untested until the first free card window
+tomorrow (after bonsai-ac's stars table and the 08:30-08:50 profiler
+slot), then committed. gpu_compare.sh compiles every schedule in
+parallel, each into OUT/<schedule>/ -- the compiler's render.h and
+render.o there, the driver linked as render.out, compile.log, and
+render.key -- where it compiled them one after another into
+apps/pbrt/render.{h,o} because the driver's `#include "render.h"` found
+the copy beside the source first (the memory rule 'one compare at a
+time'); render_hook.cpp and nanovdb_shim.cpp now include the macro
+BONSAI_RENDER_H, "render.h" when the build does not name one, and
+gpu_compare.sh passes each compile's own. The shim and the schema header
+are built once before the compiles (both write under apps/pbrt).
+render.key is a sha256 over the compiler binary and its flags, every
+.bonsai under apps/pbrt and the stdlib's, the schedule and the trees,
+the driver's sources and headers, the runtime headers, the shim's
+source and build script, the GPU and the C++ compiler; `--reuse DIR`
+copies a schedule's renderer from an earlier run whose key is this
+run's and compiles only what has no match, `--resume` reuses this run's
+own renderers under the same test and recompiles one whose key moved
+(a renderer without a key -- every run before today's -- is compiled
+again); the converter (scene_dump, 16 s a run) is keyed and reused the
+same way. heatmap.sh passes `--reuse` through, so a heatmap after a
+sweep under the same compiler skips its one compile. Expected from
+today's timings: the seven-side sweep's compiles from an hour to about
+ten minutes (seven compilers at once on 32 cores and 186 GB; the peak
+memory of one is to be read off tomorrow's compile.log), and the
+heatmap's from six and a half minutes to none. The 'one compare at a
+time' rule still holds for compare.sh, render.sh, check_hits.sh and
+check_differentials.sh, which write apps/pbrt/render.{h,o} as before.
+
+**Standing from the day.** Proposal (1), the set form of specialize
+over the variants a table holds, awaits the user's word; (2), the
+match's arms as OptiX direct callables, "probably fine"; (3), the
+profiler on ganesha, approved and scheduled in bonsai-ac's slot
+08:30-08:50 tomorrow (gpu-optix-mega-flat, about twenty minutes of the
+card). The CPU sweep's redo under the current compiler: tomorrow
+morning unless the user says otherwise.
