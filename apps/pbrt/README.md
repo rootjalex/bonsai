@@ -55,7 +55,7 @@ before it.
   must not run locked. Locking takes root: `sudo nvidia-smi -lgc 2400,2400
   && sudo nvidia-smi -lmc 14001,14001`; `-rgc`/`-rmc` release.
 - `gpu_compare.sh [--spp N] [--repeats N] [--schedules "..."] [--scenes "..."]
-  [--out DIR] [--resume] [--clock MHZ]`: the GPU table. pbrt `--gpu` and every GPU
+  [--out DIR] [--resume] [--reuse DIR] [--clock MHZ]`: the GPU table. pbrt `--gpu` and every GPU
   schedule on every scene, no number ever one run's: pbrt's time is the
   least of three processes, ours the least of three renders in one process
   (the first is the warm-up, absorbing module loading and the GPU's climb
@@ -91,6 +91,26 @@ before it.
   holds the run between timed runs for as long as it exists, which is how
   to borrow the machine for a measurement of one's own. `--spp` takes one
   count or several (`--spp "16 64 256"`): every scene at each, one table.
+  The schedules compile at once, each into `DIR/<schedule>/` (the
+  generated `render.h`, the driver linked with it as `render.out`,
+  `compile.log`, and `render.key`: a hash of the compiler binary and its
+  flags, the renderer's and the schedule's `.bonsai` files, the driver's
+  sources and headers and the runtime headers), seven in the ten minutes
+  one takes; the driver's sources take the header's path from the macro
+  `BONSAI_RENDER_H`, `render.h` beside them by default, so the compiles
+  share nothing under `apps/pbrt`. `--reuse DIR2` copies a schedule's
+  renderer, and the converter (`scene_dump`, `scene_dump.key`), from an
+  earlier run's directory whose key is this run's, compiling only what
+  has no match; `--resume` recompiles a renderer whose key moved.
+- `heatmap.sh [--scenes "..."] [--spp "N ..."] [--out DIR] [--repeats N]
+  [--title TEXT] [--clock MHZ] [--reuse DIR]`: the heatmap's run --
+  `gpu_compare.sh` once per scene with `--resume` into one directory, the
+  gpu-optix schedule alone, on every scene the converter takes (thirty) at
+  16, 64 and 128 spp, each scene under a watchdog and no new scene after a
+  cutoff (`HEATMAP_SCENE_TIMEOUT`, `HEATMAP_CUTOFF`, seconds), the figure
+  drawn at the end; rerun the same command to finish an interrupted run.
+  `--reuse` is `gpu_compare.sh`'s: a heatmap after a sweep under the same
+  compiler skips its one compile.
 - `cpu_compare.sh [--spp "N ..."] [--repeats N] [--schedules "..."]
   [--scenes "..."] [--out DIR] [--resume]`: the CPU comparison -- pbrt's
   CPU wavefront against every CPU schedule, on the scenes given (five of

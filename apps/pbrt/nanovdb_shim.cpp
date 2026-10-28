@@ -49,7 +49,13 @@ typedef const void *NanoVDBGrid;
 #else
 #define BONSAI_SHIM extern "C"
 #if defined(BONSAI_SHIM_CHECK)
-#include "render.h"
+// The generated header, as render_hook.cpp finds it: beside the source,
+// or where the build's -DBONSAI_RENDER_H says (gpu_compare.sh's parallel
+// compiles, each with its own).
+#ifndef BONSAI_RENDER_H
+#define BONSAI_RENDER_H "render.h"
+#endif
+#include BONSAI_RENDER_H
 #else
 typedef const void *NanoVDBGrid;
 #endif

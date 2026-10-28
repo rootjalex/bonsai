@@ -12,7 +12,15 @@
 // shortcut -- bonsai has no file I/O to parse a .pbrt scene with, and PBRT's
 // hot path does not build transforms either.
 
-#include "render.h"
+// The generated header: render.h beside this file, as render.sh and
+// compare.sh write it, unless the build names another -- gpu_compare.sh
+// compiles its schedules at once, each into its own directory, and
+// passes -DBONSAI_RENDER_H='"<dir>/render.h"' so that no compile reads
+// another's header.
+#ifndef BONSAI_RENDER_H
+#define BONSAI_RENDER_H "render.h"
+#endif
+#include BONSAI_RENDER_H
 
 #include "cie_tables.h"
 #include "scene_io.h"

@@ -4,6 +4,7 @@
 #
 #     apps/pbrt/gpu_compare.sh [--spp "N ..."] [--repeats N] [--out DIR] [--resume]
 #                              [--schedules "a b c"] [--scenes "d/s ..."]
+#                              [--reuse DIR]
 #
 # `--spp` takes one count or several ("16 64 256"): every scene is run at
 # each, and the table holds a row per (scene, count, side), which is what
@@ -50,6 +51,22 @@
 # every row already in the table are skipped, a scene begun and not finished
 # is redone.
 #
+# The schedules are compiled at once, each into its own directory
+# (OUT/<schedule>/: the generated render.h, the driver linked with it as
+# render.out, compile.log, and render.key), so that seven take the ten
+# minutes one takes, where they took ten minutes each in turn; the
+# driver's sources take the header's path from the macro BONSAI_RENDER_H
+# (render_hook.cpp, nanovdb_shim.cpp), so the compiles share nothing
+# under apps/pbrt. render.key says what a renderer is made of -- the
+# compiler binary and its flags, every .bonsai of the renderer and of
+# its schedule, the driver's sources and headers, the runtime headers,
+# the GPU -- and `--reuse DIR` copies a schedule's renderer from an
+# earlier run's directory when its key is this run's, compiling only
+# what has no match (two runs under one compiler, the second adding a
+# scene or a count, compile once); `--resume` reuses this run's own
+# renderers under the same test, and recompiles one whose key moved.
+# The converter (OUT/scene_dump, scene_dump.key) is kept the same way.
+#
 # Scenes are named as `<dir>/<name>` under $SCENES_DIR (~/projects/
 # pbrt-v4-scenes): killeroos/killeroo-simple, pbrt-book/book. Only scenes
 # scene_dump converts can be given; the survey of the scene set is in
@@ -77,12 +94,14 @@ OUT="$PREFIX/gpu-compare-out"
 SCHEDULES="gpu-optix gpu-optix-sort gpu-optix-mega gpu-optix-mega-ser"
 SCENES="killeroos/killeroo-simple killeroos/killeroo-gold pbrt-book/book"
 RESUME=0
+REUSE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --spp) SPPS="$2"; shift 2 ;;
     --repeats) REPEATS="$2"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
     --resume) RESUME=1; shift ;;
+    --reuse) REUSE="$2"; shift 2 ;;
     --schedules) SCHEDULES="$2"; shift 2 ;;
     --scenes) SCENES="$2"; shift 2 ;;
     --clock) export BONSAI_GPU_CLOCK="$2" BONSAI_GPU_CLOCK_REQUIRED=1; shift 2 ;;
@@ -120,6 +139,9 @@ for s in $SCHEDULES; do
     echo "no schedule $PREFIX/schedules/$s.bonsai" >&2; fail=1
   fi
 done
+if [[ -n "$REUSE" && ! -d "$REUSE" ]]; then
+  echo "--reuse: no directory $REUSE" >&2; fail=1
+fi
 for sc in $SCENES; do
   if [[ ! -f "$SCENES_DIR/$sc.pbrt" ]]; then
     echo "no scene $SCENES_DIR/$sc.pbrt" >&2; fail=1
@@ -180,13 +202,37 @@ fi
 # Which compiler this run's numbers are of: the path, and the commit its
 # tree is at (a kept copy's is the commit it was built from), for the log.
 echo "compiler: $BONSAI_BUILD_DIR/compiler ($(git -C "$(dirname "$BONSAI_BUILD_DIR")" rev-parse --short HEAD 2>/dev/null || echo 'no git tree')); registers capped at $GPU_MAX_REGISTERS$([[ "$GPU_MAX_REGISTERS" == 0 ]] && echo " (none: ptxas's choice)")"
+if [[ -n "$REUSE" ]]; then REUSE="$(cd "$REUSE" && pwd)"; fi
+# What a binary is made of, for --resume and --reuse: a key over the
+# sources and tools behind it, written beside it when it is built. A
+# binary whose key is not this run's is of another compiler or of other
+# sources, and is built again rather than reused.
+key_of() { sha256sum "$@" | sha256sum | cut -c1-16; }
+# apps/pbrt's own headers, which the converter and the driver include;
+# not the generated ones (render.h is a compile's output, the schema's
+# header is made from the .fbs, which is in every key).
+APP_HEADERS=()
+for h in "$PREFIX"/*.h; do
+  case "$h" in */render.h|*_generated.h) ;; *) APP_HEADERS+=("$h") ;; esac
+done
 # The converter is one of the binaries --resume reuses, as the schedules'
 # are below: a sweep that calls this once per scene would otherwise rebuild
-# it every time.
-if [[ "$RESUME" -eq 1 && -x "$OUT/scene_dump" ]]; then
+# it every time. Its key: its source and the headers, the schema, its
+# build script, and pbrt itself, whose parser and library it links.
+converter_key="$(key_of "$PREFIX/scene_dump.cpp" "$PREFIX/scene_geometry.fbs" \
+    "$PREFIX/build_scene_dump.sh" "${APP_HEADERS[@]}" "$PBRT")"
+if [[ "$RESUME" -eq 1 && -x "$OUT/scene_dump" && \
+      "$(cat "$OUT/scene_dump.key" 2>/dev/null)" == "$converter_key" ]]; then
   echo "reusing $OUT/scene_dump"
+elif [[ -n "$REUSE" && -x "$REUSE/scene_dump" && \
+        "$(cat "$REUSE/scene_dump.key" 2>/dev/null)" == "$converter_key" ]]; then
+  echo "reusing $REUSE/scene_dump (the same sources and pbrt)"
+  cp "$REUSE/scene_dump" "$OUT/scene_dump"
+  echo "$converter_key" > "$OUT/scene_dump.key"
 else
+  rm -f "$OUT/scene_dump.key"
   bash $PREFIX/build_scene_dump.sh "$OUT/scene_dump"
+  echo "$converter_key" > "$OUT/scene_dump.key"
 fi
 
 # The machine has to be idle of everything before a timed run: the user's
@@ -285,33 +331,98 @@ note_of() {
   echo "${n:--}"
 }
 
-# The schedules, compiled once each. The compiler writes $PREFIX/render.h
-# and render.o, which the driver's include finds first, so one at a time.
-for s in $SCHEDULES; do
-  if [[ "$RESUME" -eq 1 && -x "$OUT/$s/render.out" ]]; then
-    echo "resuming with the compiled $s"
-    continue
-  fi
-  echo "compiling schedule $s"
-  mkdir -p "$OUT/$s"
-  # The NanoVDB shim (docs/foreign-functions.md, build_nanovdb_shim.sh):
-  # host bitcode and PTX for this GPU, linked into the generated module,
-  # and the same source compiled into the driver against the header.
-  if [[ -z "${SHIM_OUT:-}" ]]; then
-    SHIM_ARCH="sm_$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d '. ')"
-    SHIM_OUT=$(bash $PREFIX/build_nanovdb_shim.sh "$OUT" "$SHIM_ARCH")
-    NANOVDB_INCLUDE=$(echo "$SHIM_OUT" | sed -n 's/^NANOVDB_INCLUDE=//p')
-    mapfile -t LINK_FLAGS < <(echo "$SHIM_OUT" | grep -v '^NANOVDB_INCLUDE=')
-  fi
-  "$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract --fast-math \
-      "${REGISTER_FLAGS[@]}" "${LINK_FLAGS[@]}" -i $PREFIX/render.bonsai \
-      -i "$PREFIX/schedules/$s.bonsai" -b cpp -o $PREFIX/render
-  "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $(bash $PREFIX/scene_schema.sh) \
-      $PREFIX/render_hook.cpp \
+# The schedules, compiled at once, each into its own directory: the
+# compiler writes OUT/<s>/render.{h,o}, and the driver is compiled with
+# BONSAI_RENDER_H naming that header (render_hook.cpp and nanovdb_shim.cpp
+# include the macro, "render.h" beside the source when it is not given),
+# so that no compile reads another's header; compile.log holds each one's
+# output and render.key what it was made of. What the compiles would
+# share under apps/pbrt is made once, before them: the NanoVDB shim
+# (docs/foreign-functions.md, build_nanovdb_shim.sh: host bitcode and
+# device bitcode for this GPU, linked into the generated module, and the
+# same source compiled into the driver against the header) and the
+# scene schema's header (scene_schema.sh, which flatc writes beside the
+# .fbs).
+SHIM_ARCH="sm_$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d '. ')"
+SHIM_OUT=$(bash $PREFIX/build_nanovdb_shim.sh "$OUT" "$SHIM_ARCH")
+NANOVDB_INCLUDE=$(echo "$SHIM_OUT" | sed -n 's/^NANOVDB_INCLUDE=//p')
+mapfile -t LINK_FLAGS < <(echo "$SHIM_OUT" | grep -v '^NANOVDB_INCLUDE=')
+SCHEMA_FLAGS=$(bash $PREFIX/scene_schema.sh)
+COMPILER_FLAGS=(-p ssa --no-heap --ffp-contract --fast-math "${REGISTER_FLAGS[@]}")
+# A renderer's key: the compiler binary and its flags; the renderer's
+# .bonsai files (render.bonsai and what it imports, apps/pbrt's and the
+# stdlib's) and the trees a schedule may import; the driver's sources and
+# headers, the runtime headers the generated code includes, the shim's
+# source and build script, the schema; the GPU, the shim's include path
+# and the C++ compiler -- and the schedule's own file.
+common_key="$( { key_of "$BONSAI_BUILD_DIR/compiler" "$PREFIX"/*.bonsai stdlib/*.bonsai \
+        "$PREFIX"/schedules/trees/*.bonsai "$PREFIX/render_hook.cpp" \
+        "$PREFIX/nanovdb_shim.cpp" "${APP_HEADERS[@]}" "$PREFIX/scene_geometry.fbs" \
+        "$PREFIX/build_nanovdb_shim.sh" runtime/*.h
+      echo "${COMPILER_FLAGS[*]} $SHIM_ARCH $NANOVDB_INCLUDE"
+      "$BONSAI_CXX" --version | head -1; } | sha256sum | cut -c1-16)"
+renderer_key() {
+  { echo "$common_key"; sha256sum "$PREFIX/schedules/$1.bonsai"; } | sha256sum | cut -c1-16
+}
+compile_schedule() {
+  local s="$1" start=$SECONDS
+  "$BONSAI_BUILD_DIR/compiler" "${COMPILER_FLAGS[@]}" "${LINK_FLAGS[@]}" \
+      -i $PREFIX/render.bonsai -i "$PREFIX/schedules/$s.bonsai" -b cpp -o "$OUT/$s/render"
+  "$BONSAI_CXX" -g -std=c++20 -O3 -I. -I$PREFIX $SCHEMA_FLAGS \
+      -DBONSAI_RENDER_H="\"$OUT/$s/render.h\"" $PREFIX/render_hook.cpp \
       -DBONSAI_SHIM_CHECK "$NANOVDB_INCLUDE" $PREFIX/nanovdb_shim.cpp \
-      $PREFIX/render.o "${TBB_FLAGS[@]}" "${OPTIX_FLAGS[@]}" -o "$OUT/$s/render.out"
-  rm -f $PREFIX/render.o
+      "$OUT/$s/render.o" "${TBB_FLAGS[@]}" "${OPTIX_FLAGS[@]}" -o "$OUT/$s/render.out"
+  rm -f "$OUT/$s/render.o"
+  echo "compiled in $((SECONDS - start)) s"
+}
+declare -A RENDERER_KEY
+to_compile=()
+for s in $SCHEDULES; do
+  mkdir -p "$OUT/$s"
+  RENDERER_KEY[$s]="$(renderer_key "$s")"
+  if [[ "$RESUME" -eq 1 && -x "$OUT/$s/render.out" ]]; then
+    if [[ "$(cat "$OUT/$s/render.key" 2>/dev/null)" == "${RENDERER_KEY[$s]}" ]]; then
+      echo "resuming with the compiled $s"
+      continue
+    fi
+    echo "the compiled $s in $OUT is not of this compiler and these sources (no key, or another); compiling it again"
+  fi
+  if [[ -n "$REUSE" ]]; then
+    if [[ -x "$REUSE/$s/render.out" && \
+          "$(cat "$REUSE/$s/render.key" 2>/dev/null)" == "${RENDERER_KEY[$s]}" ]]; then
+      echo "reusing $REUSE/$s/render.out (the same compiler and sources)"
+      cp "$REUSE/$s/render.out" "$OUT/$s/render.out"
+      cp "$REUSE/$s/render.h" "$OUT/$s/render.h"
+      echo "${RENDERER_KEY[$s]}" > "$OUT/$s/render.key"
+      echo "copied from $REUSE/$s/render.out on $(date)" > "$OUT/$s/compile.log"
+      continue
+    fi
+    echo "nothing of $s to reuse in $REUSE (no renderer there, or one of another compiler or other sources); compiling"
+  fi
+  rm -f "$OUT/$s/render.key" "$OUT/$s/render.out"
+  to_compile+=("$s")
 done
+if (( ${#to_compile[@]} > 0 )); then
+  echo "compiling ${#to_compile[@]} schedule(s) at once: ${to_compile[*]} (each one's log is $OUT/<schedule>/compile.log)"
+  compile_pids=()
+  for s in "${to_compile[@]}"; do
+    compile_schedule "$s" > "$OUT/$s/compile.log" 2>&1 &
+    compile_pids+=("$!")
+  done
+  compile_failed=0
+  for i in "${!to_compile[@]}"; do
+    s="${to_compile[$i]}"
+    if wait "${compile_pids[$i]}"; then
+      echo "${RENDERER_KEY[$s]}" > "$OUT/$s/render.key"
+      echo "compiled $s ($(tail -1 "$OUT/$s/compile.log"))"
+    else
+      echo "compiling $s failed; the end of $OUT/$s/compile.log:" >&2
+      tail -20 "$OUT/$s/compile.log" >&2
+      compile_failed=1
+    fi
+  done
+  if (( compile_failed )); then exit 1; fi
+fi
 
 TABLE="$OUT/table.tsv"
 TAB=$'\t'

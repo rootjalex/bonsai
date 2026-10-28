@@ -7,7 +7,13 @@
 #
 #     apps/pbrt/heatmap.sh [--scenes "d/s ..."] [--spp "N ..."]
 #                          [--out DIR] [--repeats N] [--title TEXT]
-#                          [--clock MHZ]
+#                          [--clock MHZ] [--reuse DIR]
+#
+# `--reuse DIR` is gpu_compare.sh's: the gpu-optix renderer (and the
+# converter) of an earlier run's directory are copied in when they were
+# made of the same compiler and sources (their render.key and
+# scene_dump.key), so a heatmap that follows a sweep under one compiler
+# (apps/pbrt/gpu-compare-out-c, say) skips its one compile.
 #
 # The GPU's clock is read before the run and written to heatmap.log
 # (gpu_clock.sh): locked at `--clock N`, which requires the lock, or
@@ -59,6 +65,7 @@ SPPS="16 64 128"
 OUT="$PREFIX/compare-out-heatmap"
 REPEATS=3
 TITLE=""
+REUSE_ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --scenes) SCENES="$2"; shift 2 ;;
@@ -66,6 +73,7 @@ while [[ $# -gt 0 ]]; do
     --out) OUT="$2"; shift 2 ;;
     --repeats) REPEATS="$2"; shift 2 ;;
     --title) TITLE="$2"; shift 2 ;;
+    --reuse) REUSE_ARGS=(--reuse "$2"); shift 2 ;;
     --clock) export BONSAI_GPU_CLOCK="$2" BONSAI_GPU_CLOCK_REQUIRED=1; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 1 ;;
   esac
@@ -89,7 +97,7 @@ for sc in $SCENES; do
   echo "=== $sc ($(date +%H:%M:%S))" | tee -a "$OUT/heatmap.log"
   timeout "$SCENE_TIMEOUT" bash "$PREFIX/gpu_compare.sh" \
       --spp "$SPPS" --repeats "$REPEATS" --out "$OUT" --resume \
-      --schedules gpu-optix --scenes "$sc" \
+      --schedules gpu-optix --scenes "$sc" "${REUSE_ARGS[@]}" \
       >> "$OUT/heatmap.log" 2>&1
   status=$?
   if (( status == 124 )); then
