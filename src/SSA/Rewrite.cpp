@@ -1595,57 +1595,163 @@ void funnel_exits(const shared_ptr<Function> &f, const string &header_name) {
         return name;
     };
 
-    // The funnel: the tag, then each arm's parameters, suffixed by the arm.
+    // What the funnel carries is the exit as a variant: the tag, and a
+    // payload laid out as a union of the arms' parameter lists -- slots
+    // shared by type, an arm's parameters in the first slots of their
+    // types -- so that the registers the payload takes are the largest
+    // arm's, not every arm's at once (a lane takes one exit). An arm's
+    // parameter that every edge of the arm hands one value defined before
+    // the loop -- a constant, a function argument, a value of a block that
+    // dominates the header -- gets no slot: the dispatch hands the arm that
+    // value, in scope after the loop as it was in it (apps/pbrt's bounce
+    // loop leaves with some thirty such, the scene's tables). A slot an
+    // exit does not fill is handed the zero of its type on its edge, not an
+    // undefined value: an undefined incoming lets LLVM fold the phi into
+    // the one defined incoming when that dominates the funnel, which the
+    // loop header's own arguments do, and the arm then reads the header's
+    // value past the loop -- live over the whole body, since every exit is
+    // a path to the use, where its last use in the body may be early (the
+    // previous hit's context in the bounce loop, the spectra of the medium
+    // march). Measured on 2026-10-27 before this: pbrt's megakernel raygen
+    // kept 17 more registers live across its reorder and 48 across its
+    // shadow trace, 64 to 96 bytes more of OptiX continuation stack per
+    // thread, the SER kernel 20% slower; the wavefront's medium march, at
+    // the 128-register cap, spilled 18% more and ran 26% slower on
+    // explosion. With a defined value on every edge the phi stands, the
+    // body's value dies at the edge, and the slot lives from the edge to
+    // the arm.
+    const auto defined_before_loop = [&](const shared_ptr<Value> &v) {
+        return std::visit(
+            overloads{
+                [&](const Constant &) { return true; },
+                [&](const std::shared_ptr<Instruction> &i) {
+                    const shared_ptr<Block> b = i->owner.lock();
+                    const BlockId id = b ? cfg.find(b->name) : NO_BLOCK;
+                    return id != NO_BLOCK && !inside.contains(id) &&
+                           dom.dominates(id, header);
+                },
+                [&](const Argument &a) {
+                    // Threaded onwards under its own name: defined where a
+                    // block outside the loop that dominates the header
+                    // takes it, the entry's being the function's own.
+                    for (const BlockId b : cfg.rpo) {
+                        if (inside.contains(b) || !dom.dominates(b, header)) {
+                            continue;
+                        }
+                        for (const Argument &p : cfg.block(b)->args) {
+                            if (p.name == a.name) {
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                }},
+            v->data);
+    };
+    struct Param {
+        shared_ptr<Value> direct; // handed as is, or
+        size_t slot = 0;          // the payload slot it is read from
+    };
+    struct Slot {
+        Type type;
+        shared_ptr<Value> value; // the funnel's argument, once made
+    };
+    vector<vector<Param>> params(arms.size());
+    vector<Slot> slots;
+    for (size_t a = 0; a < arms.size(); a++) {
+        const Block &target = *cfg.block(targets[arms[a]]);
+        const size_t n = target.args.size();
+        params[a].resize(n);
+        // The one value each parameter is handed on every edge of the arm,
+        // when there is one.
+        vector<shared_ptr<Value>> common(n);
+        vector<bool> differs(n, false);
+        for (size_t i = 0; i < exits.size(); i++) {
+            if (arm_of[rep[target_of[i]]] != a) {
+                continue;
+            }
+            const vector<shared_ptr<Value>> &own = exits[i].slot->args;
+            internal_assert(own.size() == n)
+                << "loopify(" << func.blocks.front()->name
+                << "): the exit from " << exits[i].from->name << " passes "
+                << own.size() << " values where its target takes " << n;
+            for (size_t k = 0; k < n; k++) {
+                if (!common[k]) {
+                    common[k] = own[k];
+                } else if (!same_value(*common[k], *own[k])) {
+                    differs[k] = true;
+                }
+            }
+        }
+        vector<bool> claimed(slots.size(), false);
+        for (size_t k = 0; k < n; k++) {
+            if (!differs[k] && common[k] && defined_before_loop(common[k])) {
+                params[a][k].direct = common[k];
+                continue;
+            }
+            // The first slot of the type this arm has not claimed, else a
+            // new one.
+            size_t s = 0;
+            while (s < slots.size() &&
+                   (claimed[s] || !slots[s].type.same_as(target.args[k].type))) {
+                s++;
+            }
+            if (s == slots.size()) {
+                slots.push_back(Slot{target.args[k].type, nullptr});
+                claimed.push_back(false);
+            }
+            claimed[s] = true;
+            params[a][k].slot = s;
+        }
+    }
+
+    // The funnel: the tag, the payload, the reconvergence, the dispatch.
     auto funnel = std::make_shared<Block>();
     funnel->name = fresh(func.blocks.front()->name + "!exit");
     funnel->owner = f;
     const Type tag_type = UInt_t::make(32);
     const shared_ptr<Value> which =
         funnel->add_argument(Argument{tag_type, "which"});
-    vector<vector<shared_ptr<Value>>> slots(arms.size());
-    for (size_t a = 0; a < arms.size(); a++) {
-        const Block &target = *cfg.block(targets[arms[a]]);
-        for (const Argument &arg : target.args) {
-            slots[a].push_back(funnel->add_argument(
-                Argument{arg.type, arg.name + "!" + std::to_string(a)}));
-        }
+    for (size_t s = 0; s < slots.size(); s++) {
+        slots[s].value = funnel->add_argument(
+            Argument{slots[s].type, "slot" + std::to_string(s)});
     }
     funnel->make_side_effect(Instruction::Op::Intrinsic, {});
     funnel->instrs.back()->intrinsic = ir::Intrinsic::reconverge;
     Terminator::Dispatch dispatch;
     dispatch.cond = which;
     for (size_t a = 0; a < arms.size(); a++) {
+        vector<shared_ptr<Value>> args;
+        for (const Param &p : params[a]) {
+            args.push_back(p.direct ? p.direct : slots[p.slot].value);
+        }
         dispatch.targets.push_back(
-            Terminator::Jump{cfg.name(targets[arms[a]]), slots[a]});
+            Terminator::Jump{cfg.name(targets[arms[a]]), std::move(args)});
     }
     funnel->terminator.data = std::move(dispatch);
 
-    // Every exit edge into the funnel, with its tag, its own arguments in
-    // its arm's slots and nothing in the others'.
+    // Every exit edge into the funnel: its tag, its own values in its arm's
+    // slots, the zero of the type in every other.
     for (size_t i = 0; i < exits.size(); i++) {
         Exit &e = exits[i];
         const size_t a = arm_of[rep[target_of[i]]];
-        const auto funnel_args = [&](const vector<shared_ptr<Value>> &own) {
-            vector<shared_ptr<Value>> args;
-            args.push_back(
-                std::make_shared<Value>(Constant{tag_type, uint64_t(a)}));
-            for (size_t b = 0; b < arms.size(); b++) {
-                if (b == a) {
-                    internal_assert(own.size() == slots[a].size())
-                        << "loopify(" << func.blocks.front()->name
-                        << "): the exit from " << e.from->name << " passes "
-                        << own.size() << " values where its target takes "
-                        << slots[a].size();
-                    args.insert(args.end(), own.begin(), own.end());
-                } else {
-                    for (const auto &s : slots[b]) {
-                        args.push_back(undef_value(s->get_type()));
-                    }
-                }
+        const vector<shared_ptr<Value>> own = e.slot->args;
+        vector<shared_ptr<Value>> args(1 + slots.size());
+        args[0] = std::make_shared<Value>(Constant{tag_type, uint64_t(a)});
+        vector<bool> filled(slots.size(), false);
+        for (size_t k = 0; k < own.size(); k++) {
+            const Param &p = params[a][k];
+            if (p.direct) {
+                continue;
             }
-            return args;
-        };
-        vector<shared_ptr<Value>> args = funnel_args(e.slot->args);
+            args[1 + p.slot] = own[k];
+            filled[p.slot] = true;
+        }
+        for (size_t s = 0; s < slots.size(); s++) {
+            if (!filled[s]) {
+                args[1 + s] = zero_value(slots[s].type, func, e.from);
+            }
+        }
         e.slot->name = funnel->name;
         e.slot->args = std::move(args);
     }

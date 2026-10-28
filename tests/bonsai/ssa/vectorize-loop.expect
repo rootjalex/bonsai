@@ -69,31 +69,19 @@ func walk(n : i32, acc : i32, out : mut i32[8], i : i32) -> void {
   n!loop : mut i32
   acc!loop : mut i32
   which : mut u32
-  acc!loop!0 : mut i32
-  out!0 : mut i32[8]
-  i!0 : mut i32
-  out!1 : mut i32[8]
-  i!1 : mut i32
+  slot0 : mut i32
   n!loop = n
   acc!loop = acc
   do {
     let @0 = (*n!loop) <= 0 in
     if (@0) {
       which = 0u
-      acc!loop!0 = (*acc!loop)
-      out!0 = out
-      i!0 = i
-      out!1 = undef
-      i!1 = undef
+      slot0 = (*acc!loop)
     } else {
       let @2 = 20 < (*acc!loop) in
       if (@2) {
         which = 1u
-        acc!loop!0 = undef
-        out!0 = undef
-        i!0 = undef
-        out!1 = out
-        i!1 = i
+        slot0 = 0
       } else {
         let @4 = (*n!loop) - 1 in
         let @5 = (*acc!loop) + (*n!loop) in
@@ -107,7 +95,7 @@ func walk(n : i32, acc : i32, out : mut i32[8], i : i32) -> void {
   let _effect0 = reconverge() in
   switch ((*which)) {
   case 0: { // if of walk
-    acc!loop = (*acc!loop!0)
+    acc!loop = (*slot0)
     out[i] = (*acc!loop)
     return
   } break;
@@ -125,59 +113,59 @@ func walk$gang8_v0_v3(n : i32x8, acc : i32, out : mut i32[8], i : i32x8) -> void
   !exit.walk!exit : mut boolx8
   !track.walk!exit.0 : mut u32x8
   !track.walk!exit.1 : mut i32x8
-  let @46 = i32x8(acc) in
-  let @47 = boolx8(true) in
-  let @48 = boolx8(false) in
+  let @47 = i32x8(acc) in
+  let @48 = boolx8(true) in
+  let @49 = boolx8(false) in
   n!loop!loop = n
-  acc!loop!loop = @46
-  !live = @47
-  !exit.walk!exit = @48
+  acc!loop!loop = @47
+  !live = @48
+  !exit.walk!exit = @49
   !track.walk!exit.0 = undef
   !track.walk!exit.1 = undef
   while (reduce<any>((*!live))) {
     let @30 = i32x8(0) in
     let @0 = (*n!loop!loop) <= @30 in
-    let @49 = !@0 in
-    let @8 = (*!live) && @49 in
+    let @50 = !@0 in
+    let @8 = (*!live) && @50 in
     let @9 = (*!live) && @0 in
-    let @18 = select(@9, @48, (*!live)) in
-    let @21 = select(@9, @47, (*!exit.walk!exit)) in
+    let @18 = select(@9, @49, (*!live)) in
+    let @21 = select(@9, @48, (*!exit.walk!exit)) in
     let @35 = u32x8(0u) in
     let @24 = select(@9, @35, (*!track.walk!exit.0)) in
     let @27 = select(@9, (*acc!loop!loop), (*!track.walk!exit.1)) in
     let @36 = i32x8(20) in
     let @2 = @36 < (*acc!loop!loop) in
-    let @50 = !@2 in
-    let @11 = @8 && @50 in
+    let @51 = !@2 in
+    let @11 = @8 && @51 in
     let @12 = @8 && @2 in
-    let @19 = select(@12, @48, @18) in
-    let @22 = select(@12, @47, @21) in
+    let @19 = select(@12, @49, @18) in
+    let @22 = select(@12, @48, @21) in
     let @41 = u32x8(1u) in
     let @25 = select(@12, @41, @24) in
-    let @28 = select(@12, undef, @27) in
-    let @42 = i32x8(1) in
-    let @4 = (*n!loop!loop) - @42 in
+    let @28 = select(@12, @30, @27) in
+    let @43 = i32x8(1) in
+    let @4 = (*n!loop!loop) - @43 in
     let @5 = (*acc!loop!loop) + (*n!loop!loop) in
     let @17 = select(@11, @5, (*acc!loop!loop)) in
-    let @51 = select(@11, @47, @19) in
+    let @52 = select(@11, @48, @19) in
     let @23 = select(@11, (*!exit.walk!exit), @22) in
     let @26 = select(@11, (*!track.walk!exit.0), @25) in
     let @29 = select(@11, (*!track.walk!exit.1), @28) in
     n!loop!loop = @4
     acc!loop!loop = @17
-    !live = @51
+    !live = @52
     !exit.walk!exit = @23
     !track.walk!exit.0 = @26
     !track.walk!exit.1 = @29
   }
   let _effect1 = reconverge() in
-  let @43 = u32x8(0u) in
-  let @13 = (*!track.walk!exit.0) == @43 in
-  let @14 = (*!track.walk!exit.0) != @43 in
+  let @44 = u32x8(0u) in
+  let @13 = (*!track.walk!exit.0) == @44 in
+  let @14 = (*!track.walk!exit.0) != @44 in
   let @16 = reduce<any>(@14) in
   if (@16) {
-    let @45 = i32x8(-1) in
-    masked_store(out[i], @45, @14)
+    let @46 = i32x8(-1) in
+    masked_store(out[i], @46, @14)
   }
   let @15 = reduce<any>(@13) in
   if (@15) {

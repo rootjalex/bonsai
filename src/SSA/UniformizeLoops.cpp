@@ -685,10 +685,13 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
                     }
                     // An undefined value passed along an edge says nothing
                     // about the slot: no lane that takes the edge reads it
-                    // (the exit funnel a loopify builds hands every slot but
-                    // the taken arm's one, SSA/Rewrite.cpp), so it neither
-                    // fixes the slot nor makes it differ. A slot that is
-                    // undefined on every edge is handed the undefined value.
+                    // (a skipped call's continuation, a join's inactive
+                    // edge; the exit funnel a loopify builds handed one in
+                    // every slot but the taken arm's until 2026-10-27, and
+                    // hands the type's zero now, SSA/Rewrite.cpp), so it
+                    // neither fixes the slot nor makes it differ. A slot
+                    // that is undefined on every edge is handed the
+                    // undefined value.
                     if (const auto *c = std::get_if<Constant>(&v.data);
                         c != nullptr &&
                         std::holds_alternative<Undefined>(c->data)) {

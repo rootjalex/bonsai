@@ -23,28 +23,27 @@ define ptx_kernel void @_kernel_t_0(i32 %_begin, i32 %_stride, ptr nofree readon
 
 "!merge_1.i":                                     ; preds = %"!par_body_0", %"!merge_5.i"
   %"x!loop.i5" = phi float [ %3, %"!merge_5.i" ], [ %extract, %"!par_body_0" ]
-  %"i!loop.i4" = phi i32 [ %5, %"!merge_5.i" ], [ %1, %"!par_body_0" ]
+  %"i!loop.i4" = phi i32 [ %6, %"!merge_5.i" ], [ %1, %"!par_body_0" ]
   %3 = fmul float %"x!loop.i5", 1.500000e+00
-  %4 = fcmp ogt float %3, 2.000000e+00
-  br i1 %4, label %step.exit.loopexit, label %"!merge_5.i"
+  %4 = fcmp ule float %3, 4.000000e+00
+  br i1 %4, label %"!merge_3.i", label %step.exit
 
-"!merge_5.i":                                     ; preds = %"!merge_1.i"
-  %5 = add nsw i32 %"i!loop.i4", -1
-  %6 = icmp slt i32 %"i!loop.i4", 2
-  br i1 %6, label %step.exit.loopexit, label %"!merge_1.i"
+"!merge_3.i":                                     ; preds = %"!merge_1.i"
+  %5 = fcmp ogt float %3, 2.000000e+00
+  br i1 %5, label %step.exit, label %"!merge_5.i"
 
-step.exit.loopexit:                               ; preds = %"!merge_5.i", %"!merge_1.i"
-  %"i!loop.i.lcssa.ph" = phi i32 [ 0, %"!merge_5.i" ], [ %"i!loop.i4", %"!merge_1.i" ]
-  %7 = fcmp ule float %3, 4.000000e+00
-  br label %step.exit
+"!merge_5.i":                                     ; preds = %"!merge_3.i"
+  %6 = add nsw i32 %"i!loop.i4", -1
+  %7 = icmp slt i32 %"i!loop.i4", 2
+  br i1 %7, label %step.exit, label %"!merge_1.i"
 
-step.exit:                                        ; preds = %step.exit.loopexit, %"!par_body_0"
-  %"i!loop.i.lcssa" = phi i32 [ %1, %"!par_body_0" ], [ %"i!loop.i.lcssa.ph", %step.exit.loopexit ]
-  %cond.i = phi i1 [ true, %"!par_body_0" ], [ %7, %step.exit.loopexit ]
-  %"x!loop!0.i" = phi float [ %extract, %"!par_body_0" ], [ %3, %step.exit.loopexit ]
+step.exit:                                        ; preds = %"!merge_3.i", %"!merge_1.i", %"!merge_5.i", %"!par_body_0"
+  %cond.i = phi i1 [ true, %"!par_body_0" ], [ %4, %"!merge_5.i" ], [ %4, %"!merge_1.i" ], [ %4, %"!merge_3.i" ]
+  %slot0.i = phi float [ %extract, %"!par_body_0" ], [ %3, %"!merge_3.i" ], [ 0.000000e+00, %"!merge_1.i" ], [ %3, %"!merge_5.i" ]
+  %slot1.i = phi i32 [ %1, %"!par_body_0" ], [ %"i!loop.i4", %"!merge_3.i" ], [ 0, %"!merge_1.i" ], [ 0, %"!merge_5.i" ]
   tail call void asm sideeffect "", ""() #2
-  %8 = fmul float %"x!loop!0.i", 5.000000e-01
-  %9 = sitofp i32 %"i!loop.i.lcssa" to float
+  %8 = fmul float %slot0.i, 5.000000e-01
+  %9 = sitofp i32 %slot1.i to float
   %10 = fadd float %8, %9
   %common.ret.op.i = select i1 %cond.i, float %10, float 0.000000e+00
   %out3 = getelementptr inbounds [4 x i8], ptr %out.generic, i64 %t_wide
@@ -85,8 +84,8 @@ attributes #2 = { convergent noduplicate nounwind memory(inaccessiblemem: readwr
 	.param .u64 .ptr .align 1 _kernel_t_0_param_3
 )
 {
-	.reg .pred 	%p<5>;
-	.reg .b32 	%r<13>;
+	.reg .pred 	%p<7>;
+	.reg .b32 	%r<15>;
 	.reg .b64 	%rd<10>;
 
 	ld.param.b32 	%r2, [_kernel_t_0_param_0];
@@ -97,37 +96,47 @@ attributes #2 = { convergent noduplicate nounwind memory(inaccessiblemem: readwr
 	cvta.to.global.u64 	%rd5, %rd4;
 	mov.u32 	%r4, %tid.x;
 	mad.lo.s32 	%r5, %r3, %r4, %r2;
-	add.s32 	%r11, %r5, 1;
+	add.s32 	%r14, %r5, 1;
 	cvt.s64.s32 	%rd2, %r5;
 	mul.wide.s32 	%rd6, %r5, 4;
 	add.s64 	%rd7, %rd5, %rd6;
-	ld.global.nc.b32 	%r12, [%rd7];
-	setp.gt.u32 	%p1, %r5, 2147483646;
-	mov.pred 	%p4, -1;
-	@%p1 bra 	$L__BB0_5;
-	mov.b32 	%r10, %r11;
+	ld.global.nc.b32 	%r13, [%rd7];
+	setp.gt.u32 	%p2, %r5, 2147483646;
+	mov.pred 	%p1, -1;
+	mov.pred 	%p6, %p1;
+	@%p2 bra 	$L__BB0_5;
+	mov.b32 	%r11, %r13;
+	mov.b32 	%r12, %r14;
 $L__BB0_2:
-	mul.rn.f32 	%r12, %r12, 0f3FC00000;
-	setp.gt.f32 	%p2, %r12, 0f40000000;
-	mov.b32 	%r11, %r10;
-	@%p2 bra 	$L__BB0_4;
-	add.s32 	%r1, %r10, -1;
-	setp.gt.s32 	%p3, %r10, 1;
-	mov.b32 	%r11, 0;
-	mov.b32 	%r10, %r1;
-	@%p3 bra 	$L__BB0_2;
-$L__BB0_4:
-	setp.leu.f32 	%p4, %r12, 0f40800000;
+	mul.rn.f32 	%r11, %r11, 0f3FC00000;
+	setp.gt.f32 	%p3, %r11, 0f40800000;
+	mov.b32 	%r6, 0;
+	mov.b32 	%r13, 0f00000000;
+	mov.pred 	%p6, 0;
+	mov.b32 	%r14, %r6;
+	@%p3 bra 	$L__BB0_5;
+	setp.gt.f32 	%p4, %r11, 0f40000000;
+	mov.pred 	%p6, %p1;
+	mov.b32 	%r13, %r11;
+	mov.b32 	%r14, %r12;
+	@%p4 bra 	$L__BB0_5;
+	add.s32 	%r1, %r12, -1;
+	setp.gt.s32 	%p5, %r12, 1;
+	mov.b32 	%r12, %r1;
+	mov.pred 	%p6, %p1;
+	mov.b32 	%r13, %r11;
+	mov.b32 	%r14, %r6;
+	@%p5 bra 	$L__BB0_2;
 $L__BB0_5:
 	// begin inline asm
 	// end inline asm
-	mul.rn.f32 	%r6, %r12, 0f3F000000;
-	cvt.rn.f32.s32 	%r7, %r11;
-	add.rn.f32 	%r8, %r6, %r7;
-	selp.f32 	%r9, %r8, 0f00000000, %p4;
+	mul.rn.f32 	%r7, %r13, 0f3F000000;
+	cvt.rn.f32.s32 	%r8, %r14;
+	add.rn.f32 	%r9, %r7, %r8;
+	selp.f32 	%r10, %r9, 0f00000000, %p6;
 	shl.b64 	%rd8, %rd2, 2;
 	add.s64 	%rd9, %rd1, %rd8;
-	st.global.b32 	[%rd9], %r9;
+	st.global.b32 	[%rd9], %r10;
 	ret;
 
 }

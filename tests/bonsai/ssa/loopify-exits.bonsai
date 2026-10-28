@@ -12,12 +12,35 @@
 // after the loop, one `reconverge()` and one `switch (which)` with TWO arms,
 // not three -- the two copies of `finish` folded into one, entered from
 // either exit with that exit's values -- and the slots an exit does not fill
-// are `undef` on its edge. `twice` has nothing but the two `finish` exits:
-// folded into one they are the loop's one way out, so it gets no funnel --
-// no `which`, no `reconverge()`, no switch -- just the one `finish` after
-// the loop, handed each exit's values on its `break`.
+// are the ZERO of their type on its edge, never `undef` (an undefined
+// incoming lets LLVM read the loop's own value past the loop, keeping it
+// live over the whole body; funnel_exits says what that cost). `twice` has
+// nothing but the two `finish` exits: folded into one they are the loop's
+// one way out, so it gets no funnel -- no `which`, no `reconverge()`, no
+// switch -- just the one `finish` after the loop, handed each exit's values
+// on its `break`. `shared` has two exits of different shapes, `finish(x, i)`
+// and `scale(x, y, k)`: the payload is laid out as a union, slots shared by
+// type -- an f32 and an i32 for `finish`, the same f32 and a second f32 for
+// `scale` -- three slots where the two arms' five parameters would be; and
+// `k`, a parameter of `shared` itself and so defined before the loop, gets
+// no slot at all: the switch's arm reads `k` as it is.
 func finish(x : f32, n : i32) -> f32 {
     return x * 0.5 + cast[[f32]](n);
+}
+
+func scale(a : f32, b : f32, k : i32) -> f32 {
+    return (a + b) * cast[[f32]](k);
+}
+
+func shared(i : i32, x : f32, k : i32) -> f32 {
+    if i <= 0 {
+        return finish(x, i);
+    }
+    y = x * 1.5;
+    if y > 50.0 {
+        return scale(x, y, k);
+    }
+    return shared(i - 1, y, k);
 }
 
 func step(i : i32, x : f32, limit : f32) -> f32 {
@@ -51,10 +74,13 @@ func main() -> i32 {
     print(step(5, 10.0, 4.0));
     print(twice(3, 1.0));
     print(twice(5, 60.0));
+    print(shared(3, 1.0, 2));
+    print(shared(4, 20.0, 3));
     return 0;
 }
 
 schedule {
     step.loopify();
     twice.loopify();
+    shared.loopify();
 }

@@ -20,24 +20,21 @@ func step(n : i32, acc : i32) -> i32 {
   n!loop : mut i32
   acc!loop : mut i32
   which : mut u32
-  acc!loop!0 : mut i32
-  acc!inl0!1 : mut i32
+  slot0 : mut i32
   n!loop = n
   acc!loop = acc
   do {
     let @0 = (*n!loop) == 0 in
     if (@0) {
       which = 0u
-      acc!loop!0 = (*acc!loop)
-      acc!inl0!1 = undef
+      slot0 = (*acc!loop)
     } else {
       let @1 = (*acc!loop) + (*n!loop) in
       let acc!inl0 = @1 in
       let @3 = 1000 < acc!inl0 in
       if (@3) {
         which = 1u
-        acc!loop!0 = undef
-        acc!inl0!1 = acc!inl0
+        slot0 = acc!inl0
       } else {
         let @4 = (*n!loop) - 1 in
         n!loop = @4
@@ -50,12 +47,12 @@ func step(n : i32, acc : i32) -> i32 {
   let _effect0 = reconverge() in
   switch ((*which)) {
   case 0: { // if of step
-    acc!loop = (*acc!loop!0)
+    acc!loop = (*slot0)
     return (*acc!loop)
   } break;
   default: { // if of route
-    let acc!inl0 = (*acc!inl0!1) in
-    let @2 = (*acc!inl0!1) in
+    let acc!inl0 = (*slot0) in
+    let @2 = (*slot0) in
     return @2
   }
   }

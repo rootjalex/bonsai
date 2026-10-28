@@ -11,9 +11,29 @@
 // with its own. `twice` has only the two `finish` exits, which fold into
 // one with no funnel: run out of steps (1 -> 1.5 -> 2.25 -> 3.375,
 // finish(3.375, 0) = 1.6875) and past 100 on the second step (60 -> 90 ->
-// 135, finish(135, 4) = 71.5).
+// 135, finish(135, 4) = 71.5). `shared` has exits of different shapes,
+// `finish(x, i)` and `scale(x, y, k)`, whose arguments share the funnel's
+// slots by type, `k` handed to its arm directly: out of steps (1 -> 1.5 ->
+// 2.25 -> 3.375, finish(3.375, 0) = 1.6875), and past 50 on the third step
+// (20 -> 30 -> 45 -> 67.5, scale(45, 67.5, 3) = 337.5) -- each arm reading
+// its own values from the shared slots.
 func finish(x : f32, n : i32) -> f32 {
     return x * 0.5 + cast[[f32]](n);
+}
+
+func scale(a : f32, b : f32, k : i32) -> f32 {
+    return (a + b) * cast[[f32]](k);
+}
+
+func shared(i : i32, x : f32, k : i32) -> f32 {
+    if i <= 0 {
+        return finish(x, i);
+    }
+    y = x * 1.5;
+    if y > 50.0 {
+        return scale(x, y, k);
+    }
+    return shared(i - 1, y, k);
 }
 
 func step(i : i32, x : f32, limit : f32) -> f32 {
@@ -47,10 +67,13 @@ func main() -> i32 {
     print(step(5, 10.0, 4.0));
     print(twice(3, 1.0));
     print(twice(5, 60.0));
+    print(shared(3, 1.0, 2));
+    print(shared(4, 20.0, 3));
     return 0;
 }
 
 schedule {
     step.loopify();
     twice.loopify();
+    shared.loopify();
 }
