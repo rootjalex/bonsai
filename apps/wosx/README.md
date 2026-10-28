@@ -181,9 +181,11 @@ figures into `apps/wosx/plots`, one per tree:
 `wosx-cpu-fcpw4w16-speedup.*` (FCPW's four-wide tree, both sides
 vectorized) and `wosx-cpu-fcpwb-speedup.*` (WoSX's default binary tree,
 both sides as WoSX ships). In each (`plot.py`) the meshes run along the
-x axis by triangle count with three bars a mesh -- one thread against one
-thread, the threads against the threads, sixteen persistent workers
-against WoSX's threads -- each bonsai's rate over WoSX's, the y axis
+x axis by triangle count with two bars a mesh -- the threads against the
+threads, sixteen persistent workers against WoSX's threads -- each
+bonsai's rate over WoSX's (an application is measured in parallel under
+the schedule the reference runs; the one-thread cell below is a check by
+name, and no bar), the y axis
 Speedup and the dashed line at 1 WoSX, named in the legend, a colour a
 bar from the YlGnBu ramp apps/pbrt's figures use, drawn at the paper's
 page width in apps/pbrt/figure_style.py's style. Beside each figure a
@@ -229,7 +231,12 @@ binary BVH, both sides as WoSX ships, the same three ways (`fcpwb`,
 `fcpwb-threads`, `fcpwb-persistent`). `fcpw4w16` is one thread against one thread: WoSX's
 `solve` with `runSingleThreaded`, the program's parfor over the points
 left unbound by the schedule (a plain loop), both under numactl on the
-physical core the kernel ranks best, as apps/rtq measures.
+physical core the kernel ranks best, as apps/rtq measures -- a check of
+the compiled traversal against the hand-written one, run by name
+(benchmark.sh --schedules) and not by the tables, whose defaults are the
+two parallel schedules of each tree (the user, 2026-10-28: an application
+runs in parallel under the reference's schedule; on the large meshes the
+one-thread cell ran WoSX's single thread for an hour).
 `fcpw4w16-threads` is the threads against the threads: WoSX's `solve`
 through its `tbb::parallel_for` over the points, the program's parfor
 bound to the CPU threads (which the compiled code hands to the runtime's
@@ -500,9 +507,10 @@ in question (PLAN.md, the persistent schedule).
   distance with the cone and box tests at the parent; the ray by the slab
   entry), under a name an import can say (a schedule's name carries
   dashes, which an import path cannot); `schedules/wost-fcpwb.bonsai`
-  imports it and nothing more, the matching schedule one thread against
-  one thread; `wost-fcpwb-threads` and `wost-fcpwb-persistent` add the
-  threads and the persistent workers. `schedules/kernel/wost_fcpwb.bonsai`:
+  imports it and nothing more, one thread against one thread (a check by
+  name, as `fcpwb` above); `wost-fcpwb-threads` and `wost-fcpwb-persistent`
+  add the threads and the persistent workers, the table's two schedules.
+  `schedules/kernel/wost_fcpwb.bonsai`:
   the same traversals in WoSX's GPU kernel's order (the closest point by
   the box's distance alone); `schedules/wost-fcpwb-gpu.bonsai`: fcpwb-gpu's
   four directives over it, the schedule matching WoSX's GPU walk on stars.

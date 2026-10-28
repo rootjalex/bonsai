@@ -9,7 +9,7 @@ steps per second, the speedup).
     python apps/wosx/plot.py apps/wosx/results/wosx-stars-gpu-results.csv -o apps/wosx/plots/ --stars --gpu
 
 Two CPU figures, one per tree, the meshes along the x axis in order of
-triangle count and three bars a mesh; a bar is bonsai's rate over WoSX's
+triangle count and two bars a mesh; a bar is bonsai's rate over WoSX's
 on that cell, the y axis reads Speedup, and the dashed line at 1, in the
 legend, is WoSX:
 
@@ -18,12 +18,15 @@ legend, is WoSX:
   wosx-cpu-fcpwb-speedup     WoSX's default tree, FCPW's scalar binary BVH,
                              both sides as WoSX ships (`fcpwb*`)
 
-The three bars, on either tree: one thread against one thread (`fcpwb`,
-`fcpw4w16`); the threads against the threads (`-threads`: WoSX's
-tbb::parallel_for over the points against the program's parfor bound to the
-same pinned threads, the same TBB); and sixteen persistent workers against
-those same threads (`-persistent`: the workers claim points from a counter;
-WoSX has no persistent CPU solver, so its side is the threaded solve again).
+The two bars, on either tree: the threads against the threads (`-threads`:
+WoSX's tbb::parallel_for over the points against the program's parfor bound
+to the same pinned threads, the same TBB); and sixteen persistent workers
+against those same threads (`-persistent`: the workers claim points from a
+counter; WoSX has no persistent CPU solver, so its side is the threaded
+solve again). An application is measured in parallel under the schedule
+the reference runs; one thread against one thread (the bare `fcpwb`,
+`fcpw4w16`, a cell the tables once held) is a microbenchmark's question,
+apps/rtq's, and is no bar (the user, 2026-10-28).
 Walk on spheres has one schedule per thread count and no parameter the
 speedup is swept over: a step is one distance query, and the epsilon shell
 and the walk count set how many steps a point takes, not what a step costs
@@ -50,7 +53,7 @@ comparison for wost.bonsai against WoSX's WalkOnStars, each mesh split at
 the slice into an absorbing lower half and a reflecting upper half. On the
 CPU, wosx-stars-cpu-fcpwb-speedup: WoSX's default trees -- FCPW's scalar
 BVH of the absorbing boundary and its normal cone hierarchy of the
-reflecting one -- and the same three bars (`wost-fcpwb*`); with --gpu,
+reflecting one -- and the same two bars (`wost-fcpwb*`); with --gpu,
 wosx-stars-gpu-speedup: the matching schedule over WoSX's GPU walk on
 stars (`wost-fcpwb-gpu`, the schedule of `fcpwb-gpu` on the other program).
 The mesh table is wosx-stars-meshes.*: the walk lengths differ from the
@@ -102,10 +105,14 @@ from figure_style import (TEXT_WIDTH, YLGNBU, describe, lean_labels, paper_style
 EDGE = "#333333"  # every bar's thin edge, as apps/pbrt's figures
 
 # The CPU figures' bars, on either tree: (suffix of the tree's schedule,
-# legend label, colour), in drawing order. Three bars take classes 1, 4 and
-# 7 of the ramp, far enough apart to tell at a glance.
+# legend label, colour), in drawing order. Two bars take classes 4 and 7
+# of the ramp, far enough apart to tell at a glance. The one-thread cell
+# (the bare schedule, `fcpwb`: one thread against WoSX's runSingleThreaded)
+# is no bar: an application is measured in parallel under the schedule the
+# reference runs, and one thread against one thread is a microbenchmark's
+# question, apps/rtq's (the user, 2026-10-28). Its rows stay in the CSV
+# where they were measured; a table measured with it folds the same.
 CPU_BARS = [
-    ("", "single-threaded", YLGNBU[1]),
     ("-threads", "parallel", YLGNBU[4]),
     ("-persistent", "persistent", YLGNBU[7]),
 ]
@@ -117,7 +124,7 @@ CPU_TREES = [
      "WoSX's default tree, FCPW's scalar binary BVH, both sides as WoSX ships"),
 ]
 # The walk on stars' CPU figure (--stars): WoSX's default trees alone, the
-# same three bars on the `wost-fcpwb*` schedules.
+# same two bars on the `wost-fcpwb*` schedules.
 STARS_CPU_TREES = [
     ("wost-fcpwb", "wosx-stars-cpu-fcpwb-speedup",
      "the walk on stars on WoSX's default trees (FCPW's scalar BVH of the absorbing boundary, "
@@ -348,10 +355,11 @@ def mesh_table(rows, meshes, out_dir, exclude, name="wosx-meshes"):
 
 def cpu_notes(base, exclude):
     notes = [
-        "single-threaded: one thread against one thread, both sides' traversal over the same "
-        "tree; parallel: WoSX's tbb::parallel_for over the points against the parfor bound to "
-        "the same pinned threads; persistent: sixteen workers claiming points from a counter, "
-        "against WoSX's threaded solve (it has no persistent CPU solver)",
+        "parallel: WoSX's tbb::parallel_for over the points against the parfor bound to the "
+        "same pinned threads; persistent: sixteen workers claiming points from a counter, "
+        "against WoSX's threaded solve (it has no persistent CPU solver); one thread against "
+        "one thread is no bar: an application is measured in parallel under the reference's "
+        "schedule, the single thread's question is apps/rtq's (the user, 2026-10-28)",
     ]
     if base.startswith("wost-"):
         notes += [
@@ -367,7 +375,7 @@ def cpu_notes(base, exclude):
         ]
     elif base == "fcpwb":
         notes += [
-            "single-threaded: the two-child visit is FCPW's since 2026-10-25 -- two box tests, "
+            "the two-child visit is FCPW's since 2026-10-25 -- two box tests, "
             "one compare, a swap, the far child pushed and the near one entered (apps/wosx/"
             "PLAN.md, 'The binary node's visit made FCPW's'); what is left between the sides "
             "is in the generated code of the closest-point query itself, read in apps/rtq/"

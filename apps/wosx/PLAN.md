@@ -2101,6 +2101,42 @@ ptxas and cannot move them off the body. The figures
 plots/wosx-cpu-fcpw4w16-speedup.* and plots/wosx-cpu-fcpwb-speedup.* are
 drawn from this table; the walk on stars' CPU table follows in the day.
 
+**The walk on stars' CPU table under 39c67ab9, and the one-thread cell
+retired** (10-28: a head start 03:55-06:44, resumed 08:07-13:46 around
+bonsai-f9's morning window, the last cells 13:47-14:25; before-copy
+wosx-stars-results.before-2026-10-27-funnel.csv, which is the 10-25 table,
+edad5f6c, the last time this table was measured). Three meshes are new to
+it, lte-orb, ganesha and dragon, and their one-thread cell -- our thread
+against WoSX's `runSingleThreaded` -- ran WoSX's single thread for an hour
+each (ivy's 59 minutes, lte-orb's 69), which is where the day went and
+what brought the user's ruling: an application is measured in parallel
+under the schedule the reference runs, and one thread against one thread
+is a microbenchmark's question, apps/rtq's. So the one-thread schedules
+(fcpw4w16, fcpwb, wost-fcpwb) leave benchmark.sh's defaults and plot.py's
+bars -- the CPU figures have two bars a mesh now, the threads against
+WoSX's `tbb::parallel_for` and the persistent workers against the same --
+and stay runnable by name; the rows already measured stay in the CSVs, and
+ganesha and dragon have the two parallel cells alone. The figure
+plots/wosx-stars-cpu-fcpwb-speedup.*, over eighteen meshes (landscape left
+out as before): parallel 1.21x of WoSX (geomean; 1.08x dragon to 1.44x
+comb), persistent 1.23x (1.01x crown to 1.46x), no cell under 0.97. The
+10-25 figure had 0.94x and 0.95x over fifteen. The move is ours alone:
+cell by cell against the 10-25 table WoSX's rate is 0.99 of before and ours
+1.28 on the parallel cells (comb 1.64, dambreak 1.57, rover 1.56, ivy 1.41,
+head 1.14 the least) and 1.49 on the one-thread cells (comb 2.14, dambreak
+2.04, rover 1.96). It is not the funnel's: the solver's table above, whose
+before-copy is of 10-27, tied. It is the CPU work of 10-25 and 10-26 that
+this table had not been measured under -- the binary node's visit made
+FCPW's (3e45970c) and the two children's tests written out (71b720c2), the
+sorted run of two as a branch (96229693, 30059901), the CPU comparison
+reading the bytes FCPW's and WoSX's CPU read (86b5160d, 9132c286), an
+element's fields read where they are used (525f8b38), `[[packed]] vec3f`
+(858c6d45) -- which moved the solver's table at the time and which the
+walk on stars, three queries a step over the same trees, gains from three
+times over. The solver's two CPU figures were redrawn from their table
+with the two bars (no cell remeasured); the geomeans of the parallel bars
+are as in the paragraph above.
+
 ### Next
 
 - The other binary-tree schedules measured again with the unrolled visit

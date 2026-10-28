@@ -1,8 +1,9 @@
 #!/bin/bash
-# The wosx table, end to end: every mesh against WoSX under both matching
-# schedules -- one thread against one thread, the threads against the
-# threads -- the results folded into apps/wosx/results/wosx-results.csv, and
-# the table printed with its geomeans. One command to re-run after a
+# The wosx table, end to end: every mesh against WoSX in parallel under the
+# schedule WoSX runs -- its tbb::parallel_for over the points against the
+# program's parfor on the same threads, and the persistent workers against
+# the same -- the results folded into apps/wosx/results/wosx-results.csv,
+# and the table printed with its geomeans. One command to re-run after a
 # compiler change, from the repository root, inside the `bonsai` conda
 # environment, with the compiler built:
 #
@@ -15,9 +16,14 @@
 #
 # The figures (plot.py) go into apps/wosx/plots, one per tree
 # (wosx-cpu-fcpw4w16-speedup.*, wosx-cpu-fcpwb-speedup.*): the meshes along
-# the x axis by triangle count, three bars each -- one thread against one
-# thread, the threads against the threads, the persistent workers against
-# the threads.
+# the x axis by triangle count, two bars each -- the threads against the
+# threads, the persistent workers against the threads. One thread against
+# one thread (the bare schedules, `fcpwb`, `fcpw4w16`, `wost-fcpwb`) is
+# measured by name alone (--schedules) and drawn by none of the figures:
+# an application runs in parallel under the reference's schedule, and the
+# single thread's question -- does the compiled traversal match the
+# hand-written one -- is apps/rtq's, asked there (the user, 2026-10-28; on
+# the large meshes that cell ran WoSX's single thread for an hour).
 #
 # --gpu runs the GPU comparison instead: the schedules default to the GPU
 # ones (fcpwb-gpu, the schedule matching WoSX's persistent-thread kernel,
@@ -32,8 +38,8 @@
 # lie on into an absorbing lower half carrying the Dirichlet data and a
 # reflecting upper half with zero flux (compare.sh's wost-* rule builds
 # the driver for it). The schedules default to the walk on stars' matching
-# ones, wost-fcpwb, wost-fcpwb-threads and wost-fcpwb-persistent -- WoSX's
-# default trees, one thread, the threads, the persistent workers -- or
+# ones, wost-fcpwb-threads and wost-fcpwb-persistent -- WoSX's default
+# trees, the threads and the persistent workers -- or
 # with --gpu to wost-fcpwb-gpu, the schedule matching WoSX's GPU walk on
 # stars; the logs go to apps/wosx/results/stars-logs (stars-gpu-logs), the
 # CSV to apps/wosx/results/wosx-stars-results.csv (wosx-stars-gpu-
@@ -50,10 +56,10 @@
 # rim): closed, the sample points are the slice's interior; open, the
 # whole slice.
 #
-# Options: --schedules (default fcpw4w16,fcpw4w16-threads,fcpw4w16-persistent,
-# fcpwb,fcpwb-threads,fcpwb-persistent: on each of the two trees -- FCPW's
-# four-wide Mbvh, and WoSX's default, FCPW's scalar binary BVH -- one thread
-# each, the threads each, and the threads with the points claimed by sixteen
+# Options: --schedules (default fcpw4w16-threads,fcpw4w16-persistent,
+# fcpwb-threads,fcpwb-persistent: on each of the two trees -- FCPW's
+# four-wide Mbvh, and WoSX's default, FCPW's scalar binary BVH -- the
+# threads each, and the threads with the points claimed by sixteen
 # persistent workers instead of TBB's partition), --meshes
 # (default all, names as below), --out DIR for the logs (default
 # apps/wosx/results/logs) and --csv FILE for the table folded from them
@@ -123,16 +129,16 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown option $1" >&2; exit 1 ;;
   esac
 done
-# The CPU table's defaults -- the three schedules on each of the two trees,
-# FCPW's four-wide Mbvh (both sides vectorized) and WoSX's default, FCPW's
-# scalar binary BVH (both sides as WoSX ships) -- or the GPU table's; or
-# the walk on stars' tables, on WoSX's default trees alone.
+# The CPU table's defaults -- the two parallel schedules on each of the two
+# trees, FCPW's four-wide Mbvh (both sides vectorized) and WoSX's default,
+# FCPW's scalar binary BVH (both sides as WoSX ships) -- or the GPU
+# table's; or the walk on stars' tables, on WoSX's default trees alone.
 if (( STARS && GPU )); then
   SCHEDULES="${SCHEDULES:-wost-fcpwb-gpu}"
   OUT="${OUT:-apps/wosx/results/stars-gpu-logs}"
   CSV="${CSV:-apps/wosx/results/wosx-stars-gpu-results.csv}"
 elif (( STARS )); then
-  SCHEDULES="${SCHEDULES:-wost-fcpwb,wost-fcpwb-threads,wost-fcpwb-persistent}"
+  SCHEDULES="${SCHEDULES:-wost-fcpwb-threads,wost-fcpwb-persistent}"
   OUT="${OUT:-apps/wosx/results/stars-logs}"
   CSV="${CSV:-apps/wosx/results/wosx-stars-results.csv}"
 elif (( GPU )); then
@@ -140,7 +146,7 @@ elif (( GPU )); then
   OUT="${OUT:-apps/wosx/results/gpu-logs}"
   CSV="${CSV:-apps/wosx/results/wosx-gpu-results.csv}"
 else
-  SCHEDULES="${SCHEDULES:-fcpw4w16,fcpw4w16-threads,fcpw4w16-persistent,fcpwb,fcpwb-threads,fcpwb-persistent}"
+  SCHEDULES="${SCHEDULES:-fcpw4w16-threads,fcpw4w16-persistent,fcpwb-threads,fcpwb-persistent}"
   OUT="${OUT:-apps/wosx/results/logs}"
   CSV="${CSV:-apps/wosx/results/wosx-results.csv}"
 fi

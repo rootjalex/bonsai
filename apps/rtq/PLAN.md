@@ -7976,12 +7976,15 @@ min/max change is the device's alone (the CPU keeps its compare and select),
 the funnel is in none of rtq's loops, the barrier change is the GPU's, the
 field form of specialize is pbrt's. So either the two compilers emit the
 same machine code for fcpwb and the difference is the machine's hour, or
-they do not and something unaccounted for moved. To settle it, after
-bonsai-f9's morning window (08:50): compile fcpwb through build-rtq's
-compiler and through the one at aa4dbaaa (apps/wosx/scratch/wt-aa4dbaaa)
-and compare the two objects; if they differ, read the nearest and any-hit
-loops; if they are alike, an alternating A/B of the villa and ganesha
-any-hit cells. Twelve cells fell under 0.97 of their speedup: the four
+they do not and something unaccounted for moved. Settled at 08:08: fcpwb
+compiled through build-rtq's compiler and through the one at aa4dbaaa
+(apps/wosx/scratch/wt-aa4dbaaa) gives the same object to the byte (rtq.o
+and rtq.h the same checksum, the LLVM text and the SSA identical, no
+`!exit` block), so the drift is the measurement's conditions and not the
+compiler's: the 10-26 rows were taken over that day (logs from 03:25 to
+18:39) with both sessions at work on the machine, tonight's on a machine
+with nothing else running. Tonight's table is the one to keep; the drift
+is not read further. Twelve cells fell under 0.97 of their speedup: the four
 above ours, the other eight the reference's -- FCPW faster by 5 to 32% than
 on the 10-26 cell (pavilion's primary rays 1.63 -> 1.23 with our rate 0.996
 of before and FCPW's 1.32), the 10-26 reference low on those cells. The
