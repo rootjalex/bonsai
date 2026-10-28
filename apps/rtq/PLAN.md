@@ -7958,3 +7958,34 @@ tonight (~05:15, after the wosx solver table and bonsai-f9's pbrt window),
 the four plotted schedules; until then note that the folding stamps every
 row of the CSV with the tree's commit, so the CPU rows say 39c67ab9 while
 measured on the 26th.
+
+**The CPU table under 39c67ab9** (03:25-03:54 on 10-28, the four plotted
+schedules, 65 logs and 272 cells, five repeats, the machine idle; the 10-26
+logs in logs-cpu-before-2026-10-27-funnel/, the same before-copy). A tie on
+every query of every schedule within one percent -- our rate after/before
+as a geomean over the meshes: embree 1.000 to 1.002, fcpw4w16 0.995 to
+1.002, fcpws 1.001 to 1.004, the silhouette queries 1.001 (so their GPU loss
+above is the device's min/max alone), Embree's and FCPW's own rates 0.99 to
+1.01 as a group -- except the binary tree, fcpwb: its nearest query gained
+one to four percent on every mesh (x1.018, 1.104 -> 1.139) and its any-hit
+query lost on four (villa 0.908, ganesha 0.907, head 0.948, ivy 0.957;
+x0.985 as a group, 1.156 -> 1.147) while FCPW's rate on those cells held
+(0.99 to 1.01); its closest-point query 0.995. No compiler commit between
+the two tables touches what these schedules compile to on the CPU: the
+min/max change is the device's alone (the CPU keeps its compare and select),
+the funnel is in none of rtq's loops, the barrier change is the GPU's, the
+field form of specialize is pbrt's. So either the two compilers emit the
+same machine code for fcpwb and the difference is the machine's hour, or
+they do not and something unaccounted for moved. To settle it, after
+bonsai-f9's morning window (08:50): compile fcpwb through build-rtq's
+compiler and through the one at aa4dbaaa (apps/wosx/scratch/wt-aa4dbaaa)
+and compare the two objects; if they differ, read the nearest and any-hit
+loops; if they are alike, an alternating A/B of the villa and ganesha
+any-hit cells. Twelve cells fell under 0.97 of their speedup: the four
+above ours, the other eight the reference's -- FCPW faster by 5 to 32% than
+on the 10-26 cell (pavilion's primary rays 1.63 -> 1.23 with our rate 0.996
+of before and FCPW's 1.32), the 10-26 reference low on those cells. The
+figures (plots/rtq-*.png, .pdf, .txt) are redrawn from this table at 03:54
+and current. Its rows are stamped 2026-10-28 and e20b6ebe, the tree's head
+when folded, while the compiler is 39c67ab9's, built at 21:26 (the commits
+since touch apps/ and the PLAN files only).

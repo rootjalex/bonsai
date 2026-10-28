@@ -1987,6 +1987,76 @@ WoSX in every run as the control -- comb 0.89x and 0.94x / 1.15x and 1.13x
 Msteps/s, WoSX's 781-822), head 1.36x and 1.37x / 1.44x and 1.44x / 1.46x
 and 1.46x (608 and 613 / 645 and 644 / 646 and 649; WoSX 443-449).
 
+**The medium march's remainder, read in the PTX** (the night of 10-27/28,
+while the CPU tables ran). bonsai-f9's night run under 39c67ab9 settled what
+the two commits bought apps/pbrt: the flat SER megakernel recovered most of
+its loss (killeroo-gold 16 spp 71.6 -> 64.3 ms, 59.4 before the funnel; the
+four VolPath raygens' continuation stacks back to the pre-funnel 352/512/544/
+672 bytes), the other megakernels 1-3%, and the medium march NOTHING
+(heatmap11 vs heatmap10: 1.0004x over 180 rows; `_kernel_medium_samples_blk`
+on explosion 310.2 ms, 310.9 under 9846e3e6, 246.5 before the funnel). So the
+local depot of 39c67ab9 was a side issue there, and the residual spills are
+the whole 26%. The cause is in the kernel's PTX, saved from the evening's
+compiles (scratchpad funnel/medium-{aa4dbaaa,c,fix2}.ptx; the files differ by
+98 lines of 25,000, all of them the funnel): every exit of the march leaves a
+body block by a conditional branch -- the latch itself ends `@p bra header;
+bra funnel` -- and LLVM places the copies the funnel's phis need in that
+block, BEFORE the branch, where they run on every iteration of the march.
+Under 39c67ab9 the latch carries eight 64-bit copies of live values -- six
+of the loop's state into the union slots (slot0 is beta on one edge and
+T_maj on another, so no slot can share the state's own register and every
+one is a second copy of a live value) and two for the header's own phis,
+which the slots' interference keeps the coalescer from removing -- seven
+zero fills (the slots the latch's exit does not fill) and the tag; the two
+other exits carry five copies and four fills each; the no-funnel compiler's
+latch carries five 32-bit moves for the program's own merge after the arms,
+and no 64-bit ones. Under 9846e3e6 the latch carried the tag alone
+-- the undefined slots let the phis fold into the header's values, which is
+the live-range extension read in the SER raygen on Monday -- so both forms
+of the funnel load the latch, one with registers, one with copies, and ptxas
+spills either way: +392 bytes of spill stores is five edges times ten 64-bit
+slots times eight bytes, the slots stored on every edge and reloaded once
+(spill loads +44). The SER raygen's bounce-loop funnel has the same shape at
+a larger scale: six exits, each a conditional branch out of the body, each
+preceded under 39c67ab9 by thirty copies of one register, the materialized
+0f00000000 -- the zero fills -- and by none under 9846e3e6; that is the 8%
+of the 20% that remains on killeroo-gold, at no stack cost. Two facts of
+LLVM 23 (deps/llvm-project) say the copies cannot be moved off the body on
+the GPU by any option: PHIElimination's SplitPHIEdges (PHIElimination.cpp
+801-891) has the rule "if we are looking at a loop exiting edge, split it so
+we won't insert code in the loop", but an early exit skips it whenever the
+incoming value's only uses are phis (isLiveOutPastPHIs; LiveVariables does
+not count phi uses), which is every slot of ours -- the hidden option
+`-no-phi-elim-live-out-early-exit` lifts that -- and NVPTX sets
+RequiresStructuredCFG, under which MachineBasicBlock::canSplitCriticalEdge
+refuses every split that does not enter a loop header (its transitional
+flag `-disable-nvptx-require-structured-cfg` also turns tail duplication and
+tail merging back on, which LLVM disables for the PTX target on purpose).
+On the CPU the first option alone would do; on the GPU the funnel must need
+no copies in the body, which is a matter of what its phis receive. The
+payload to build, not yet built: slots keyed by VALUE, not by type -- an arm
+parameter handed one SSA value over all its edges shares slot_V with every
+other parameter handed that value, so the phi is the value's own LCSSA phi
+and coalesces with the value's register (the latch's eight state copies
+vanish: the slot IS the state's register); a parameter handed different
+values by different exits keeps a slot of its own (two distinct values, so
+the phi can never fold, and undefined is free on every edge that does not
+fill it); on an edge that does not fill a slot the phi receives undefined,
+except where undefined would let it fold into one value that dominates the
+funnel: a slot whose one value is the loop's parameter i receives, on the
+exit out of the back-edge block, the back edge's own argument i -- the
+parameter's next value, already in the parameter's register there, so the
+phi has two values and no copy -- and a slot whose one value is some other
+value dominating the funnel receives the zero of its type (data) or
+undefined (address), or is left to fold where the value is live to the
+latch anyway: that last choice to be measured, not guessed, on the medium
+kernel (ptxas spill stores, 2164 the mark) and the SER raygen (the live sets
+at the reorder and the shadow trace). With the tests: ssa/loopify-exits's
+slots per value, and a loop whose early exit hands the header's parameter
+while the latch's exit does not, the latch's edge showing the back edge's
+argument in the slot. A day of compiler work and every table again (CPU
+too: the funnel is in the CPU builds); when is the user's call.
+
 **The GPU tables under 39c67ab9** (21:44-22:26; before-copies
 wosx-gpu-results.before-2026-10-27-funnel.csv and
 wosx-stars-gpu-results.before-2026-10-27-funnel.csv, the morning's logs in
@@ -2008,6 +2078,28 @@ these tables. rtq's two GPU schedules were remeasured the same hour
 silhouette queries -1.5% and -2.5%, min/max's doing, rtq having no funnel).
 The CPU tables follow tonight after bonsai-f9's pbrt window: the solver's
 and rtq's by morning, the walk on stars' (5 h 50) in the day.
+
+**The solver's CPU table under 39c67ab9** (01:38-03:25 on 10-28, the machine
+otherwise idle after bonsai-f9's window ended at 01:34; before-copy
+wosx-results.before-2026-10-27-funnel.csv, the 10-26 logs in
+logs-before-2026-10-27-funnel/). The CPU builds carry the funnel as the GPU
+ones do, so this is the funnel's first CPU measurement, and it is a tie:
+over the 114 cells our rate is 0.9997 of before (geomean) and WoSX's own
+0.998, and no cell's speedup is below 0.97 of its before. Geomeans over the
+nineteen meshes, before -> after: fcpw4w16 1.195 -> 1.200, fcpw4w16-persistent
+1.328 -> 1.341, fcpw4w16-threads 1.243 -> 1.247, fcpwb 1.178 -> 1.177,
+fcpwb-persistent 1.275 -> 1.271, fcpwb-threads 1.194 -> 1.194. The cells
+that moved most moved for both sides at once -- landscape under
+fcpwb-persistent, our rate 0.93 of before and WoSX's 0.90, the speedup 1.99
+both times; comb under fcpwb-threads 1.31 -> 1.27, the lowest of the table
+at the 0.97 line, our rate 0.935 and WoSX's 0.964 -- the machine's hour, not
+the compiler's. This is the CPU half of the reading above: the copies the
+funnel puts in the loop body are in the CPU code too, and the CPU's
+register allocator, which splits live ranges and can rematerialize a zero,
+absorbs them; the GPU path has no allocator of its own between LLVM and
+ptxas and cannot move them off the body. The figures
+plots/wosx-cpu-fcpw4w16-speedup.* and plots/wosx-cpu-fcpwb-speedup.* are
+drawn from this table; the walk on stars' CPU table follows in the day.
 
 ### Next
 
