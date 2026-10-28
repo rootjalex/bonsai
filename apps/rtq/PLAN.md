@@ -7928,3 +7928,33 @@ stall share Nsight Compute showed (a quarter to a third of the issue
 cycles): a warp parked at the join was a slot another block's warp could
 partly fill, so the counter overstated what the barrier cost in time.
 Every ray agrees as before.
+
+### The GPU tables under the device's min and max (2026-10-27, night)
+
+The two GPU schedules measured again at 21:40 under 39c67ab9 -- the
+compiler of the evening: the device's own min and max (aa4dbaaa) and
+loopify's exit funnel with its slots fixed (9846e3e6, 9dbdebc9, 39c67ab9)
+-- against the 10-26 table (before-copy
+rtq-results.before-2026-10-27-funnel.csv, logs/../logs-gpu-before-2026-10-
+27-funnel/), five repeats, FCPW's own rates within 1% throughout. The
+funnel is not in these kernels: rtq's traversals are loops with one way
+out (nine loopified recursions, no `!exit` block in any schedule's SSA), so
+what moved is the min/max lowering. Geomeans over the twelve meshes, before
+-> after, with our rate's ratio:
+
+| over FCPW's GPUScene | primary | diffuse | ao | closest near | closest volume | silhouette near | silhouette volume |
+|---|---|---|---|---|---|---|---|
+| binary tree (fcpwb-gpu) | 1.42 -> 1.49 (x1.04) | 1.44 -> 1.49 (x1.04) | 1.43 -> 1.49 (x1.04) | 1.23 -> 1.26 (x1.02) | 1.16 -> 1.18 (x1.01) | | |
+| cone hierarchy (fcpws-gpu) | 1.31 -> 1.33 (x1.03) | 1.33 -> 1.37 (x1.03) | 1.33 -> 1.37 (x1.02) | 1.17 -> 1.18 (x1.01) | 1.15 -> 1.18 (x1.02) | 1.29 -> 1.27 (x0.985) | 1.33 -> 1.31 (x0.975) |
+
+The ray and point queries gained one to four percent -- `min.f32` and
+`max.f32` where a compare and a select were -- and the silhouette queries
+lost 1.5% and 2.5% as a group, ivy's 6% (2.01 -> 1.89 and 1.97 -> 1.86),
+dambreak's 4%, head's 4%; no other cell under 0.97 of before. The
+silhouette kernel is the one to read for it: what `maxnum`/`minnum` does
+to its cone tests that the compare-and-select did not (the NaN rule, or the
+scheduling around the paired f32 ops), tomorrow. The CPU table reruns
+tonight (~05:15, after the wosx solver table and bonsai-f9's pbrt window),
+the four plotted schedules; until then note that the folding stamps every
+row of the CSV with the tree's commit, so the CPU rows say 39c67ab9 while
+measured on the 26th.

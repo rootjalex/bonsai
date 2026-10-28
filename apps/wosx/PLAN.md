@@ -1930,6 +1930,85 @@ shader does (computeDistToAbsorbingBoundary in the loop,
 projectToAbsorbingBoundary after it); it held three. The GPU tables are to
 be remeasured under both changes, 21:30 tonight after f9's pbrt sweep.
 
+**What the funnel cost apps/pbrt, and the fix** (9dbdebc9, the evening).
+bonsai-f9's sweep and heatmap under 9846e3e6: the wavefront untouched on
+scenes without media (within 0.4%, images identical), but its medium march
+kernel 26% slower on explosion (246.5 -> 310.9 ms at 16 spp) and the
+megakernels 2-4%, the SER flat one 20% on killeroo-gold (59.4 -> 71.6 ms),
+with the OptiX continuation stack of its raygen grown 352 -> 416 bytes per
+thread. Read in the SER raygen's PTX, a liveness analysis at its
+continuation points (scratchpad funnel/ptx_live.py): 17 more 32-bit
+registers live across the reorder and 48 across the shadow trace than
+before the funnel, twelve of them the previous hit's ShapeSampleContext --
+the loop header's own value, read after the loop. The cause: a slot an exit
+did not fill was `undef` on its edge, and LLVM folds a phi of a value and
+undef into the value when the value dominates the funnel, which the
+header's arguments do; the arm then read the header's value past the loop,
+and it stayed live over the whole body, every exit being a path to the use,
+where its last use in the body was early. The SSA of the bounce loop's
+funnel also showed some twenty of the scene's tables, kernel arguments,
+carried as slots for nothing. The fix, in funnel_exits: the payload laid
+out as the variant it is -- slots shared by type across the arms, so the
+funnel costs the largest arm's registers rather than every arm's -- a
+parameter every edge of its arm hands one value defined before the loop
+handed to the arm directly, and a slot an exit does not fill handed the
+zero of its type, never undef. Under it the SER raygen's live set is the
+pre-funnel one again (189 registers across the reorder against 205 and 188,
+186 across the shadow trace against 213 and 185) and its continuation stack
+352 bytes; f9 times the three-way A/B (9c191640, 9846e3e6, 9dbdebc9)
+tomorrow. The medium march is another matter: its spill stores at the
+128-register cap are 2524 bytes under the fix, 2560 under the funnel, 2164
+before it, and the attribution compiles put the difference on neither the
+min/max and specialize changes (a compiler at aa4dbaaa spills the 2164) nor
+the reconvergence itself (the funnel with no device asm, threaded back by
+LLVM with its merged arms kept, spills the 2560) nor the folding of
+identical exit regions into one arm (the fix with no merging at all spills
+the same 2524): every form of the funnel has them and only no funnel does
+not, which is not understood and goes to f9's timed A/B on explosion
+tomorrow (9c191640, 9846e3e6, the fix), the medium kernel the cell to watch.
+One more thing the fix's PTX showed, and the second commit: the medium
+march has a local of its body, `segment_passed`, whose ADDRESS is one arm's
+slot, filled on one edge of five. Under the funnel the other edges handed
+undef, LLVM folded the phi to the one address and the local stayed in
+registers; under the fix's zero they handed a null, the address became one
+of several the phi might hold, and the local went to memory -- a 16-byte
+local depot in the medium kernel and the shadow raygens, a store and a
+load per lane. So a slot of data is zero (its lifetime is what the fold
+stretches) and a slot that holds an address is undefined (the arm must see
+the one address; an address's own lifetime is a register or two); the
+depot is gone, the wavefront recompiled and read through ptxas (9dbdebc9
+and 39c67ab9). For the walk on spheres the fix changes the funnel's slots
+alone (the terminal's `x` and `steps`, zero where undef was), and the
+three-way A/B on the matching GPU schedule says it keeps the funnel's win:
+the same program through a compiler at aa4dbaaa (no funnel), at 9846e3e6
+(the funnel) and at 39c67ab9 (the fix), two rounds of ten repeats in turn,
+WoSX in every run as the control -- comb 0.89x and 0.94x / 1.15x and 1.13x
+/ 1.18x and 1.22x of WoSX (our rate 732 and 761 / 939 and 927 / 926 and 956
+Msteps/s, WoSX's 781-822), head 1.36x and 1.37x / 1.44x and 1.44x / 1.46x
+and 1.46x (608 and 613 / 645 and 644 / 646 and 649; WoSX 443-449).
+
+**The GPU tables under 39c67ab9** (21:44-22:26; before-copies
+wosx-gpu-results.before-2026-10-27-funnel.csv and
+wosx-stars-gpu-results.before-2026-10-27-funnel.csv, the morning's logs in
+gpu-logs-before-2026-10-27-funnel/ and stars-gpu-logs-before-2026-10-27-
+funnel/). Against the morning's table (42901acc+, before the device's
+min/max and the funnel), WoSX's own rates within 0.6% throughout, geomeans
+over the nineteen meshes: persistent 1.258 -> 1.358 (our rate x1.08),
+persistent-256k 1.373 -> 1.487 (x1.08), parallel 1.309 -> 1.407 (x1.07),
+persistent-reorder 1.375 -> 1.482 (x1.08), persistent-reorder-256k 1.468 ->
+1.572 (x1.08), parallel-reorder-blk64 1.504 -> 1.584 (x1.05),
+persistent-point 0.116 -> 0.124 (x1.07); no cell below 0.97 of before. The
+walk on stars on the GPU 1.484 -> 1.543 (x1.03), dragon 1.59 -> 1.62. The
+table holds the harness's seven schedules; the two deferral schedules of
+10-25 (fcpwb-gpu-defer, fcpwb-gpu-defer-block) were rows left from their
+own runs and are in the before-copy, not remeasured. The figures
+(plots/wosx-gpu-speedup.*, plots/wosx-stars-gpu-speedup.*) are drawn from
+these tables. rtq's two GPU schedules were remeasured the same hour
+(apps/rtq/PLAN.md, 2026-10-27 night: the ray and point queries +1-4%, the
+silhouette queries -1.5% and -2.5%, min/max's doing, rtq having no funnel).
+The CPU tables follow tonight after bonsai-f9's pbrt window: the solver's
+and rtq's by morning, the walk on stars' (5 h 50) in the day.
+
 ### Next
 
 - The other binary-tree schedules measured again with the unrolled visit
