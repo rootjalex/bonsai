@@ -18747,3 +18747,102 @@ so its rerun with application replay (five to six minutes of the
 card) is asked of bonsai-ac's next gap. The reports (ours complete,
 pbrt's as it is) and the raw metrics are kept under
 apps/pbrt/scratch/ncu-ganesha-10-28/.
+
+### pbrt's trace kernel profiled, and read against the megakernel's (10-28, 11:47-11:53)
+
+The route, since the morning's run recorded nothing for it. pbrt is
+built against OptiX 7.7's SDK (PBRT_OPTIX_PATH in its CMake cache),
+and under the current driver its launches reach Nsight Compute as
+"cmdlist workloads": application replay refuses them outright
+("Cmdlist workloads are only supported in kernel replay mode", no
+kernel profiled, 11:47), and kernel replay with the full set or with
+named sections records the launch statistics and the two sampling
+passes only -- every hardware counter n/a, no error, the "Profiling
+optixLaunch: 0%" line and nothing after it -- where a --metrics list
+of eight or twelve names at a time comes back complete. So six pbrt
+runs of five seconds each (11:52-11:53, scratchpad/profile_pbrt_
+groups.sh, copied beside the reports), one metric group per run, the
+first trace launch each time and the first three launches in the
+last. Our raygen's profile of 07:40 (OptiX 9.1, the full set) has the
+same metrics, so the table below is the same counters on both sides;
+the morning's pbrt report also holds its PC-sampling stall counts,
+which were valid all along, and the sampled shares agree with the
+counters on both sides (pbrt: 54% long scoreboard, 33% barrier, 1% no
+instruction; ours: 45% no instruction, 30% barrier, 10% long
+scoreboard). bonsai-ac's card was mine 11:38-11:53; 'done' sent.
+
+What pbrt's launch is. `__raygen__findClosest` over 1,036,800 threads
+(540 scanlines of 1920 pixels, one camera sample each): the raygen
+reads its ray from the ray queue, one optixTrace, the closest-hit
+program gathers the triangle's vertices, normals and uvs, builds the
+surface interaction and writes it to the next queue. The first three
+launches of the frame: findClosest at bounce 0, 811 us; the shadow
+ray at bounce 0, 86 us; findClosest at bounce 1, 419 us (the rays
+still alive, 19.8 lanes of 32). The shading is in CUDA kernels
+between the launches, not profiled here. Ours is the whole frame:
+every bounce, every shadow ray, the shading, 33,177,600 paths.
+
+| | pbrt findClosest, bounce 0 | ours, gpu-optix-mega-flat raygen |
+|---|---|---|
+| duration | 0.81 ms (one bounce's trace of 1.04 M rays) | 384 ms under replay (315 plain), the frame |
+| registers per thread | 128 | 128 |
+| warps per SM achieved (16 fit at 128) | 15.9 (33.2%) | 14.3 (29.7%) |
+| issue slots busy | 4.7% | 11.6% |
+| instructions per cycle per SM | 0.19 | 0.46 |
+| eligible warps per scheduler (of active) | 0.06 of 3.99 | 0.13 of 3.58 |
+| warp-cycles per issued instruction | 85.3 | 30.8 |
+| ... waiting on a memory load (long scoreboard) | 45.7 | 2.9 |
+| ... at the barrier (the traversal's answer) | 28.0 | 9.3 |
+| ... load/store queue full (lg_throttle) | 4.2 | 0.1 |
+| ... a fixed-latency dependency | 2.1 | 2.0 |
+| ... no instruction to issue | 0.95 | 14.0 |
+| lanes active per warp instruction | 31.3 of 32 | 9.1 of 32 |
+| warp instructions issued | 59.5 M (1,838 per warp) | 72.6 G (70,000 per warp) |
+| global load / store sectors (32 B) | 23.0 M / 30.0 M | 3.54 G / none |
+| local load / store sectors (the OptiX stack) | 3.5 M / 11.1 M (8192 B configured) | 4.83 G / 4.74 G (1024 B) |
+| L1 hit / L2 hit | 19.9% / 73.7% | 44.5% / 97.7% |
+| SM / L1 / L2 / DRAM throughput, of peak | 6.1% / 28.6% / 57.0% / 51.5% | 11.6% / 8.0% / 35.1% / 11% |
+
+The reading. pbrt's trace kernel is a memory machine at full lanes:
+31 of 32 lanes on every instruction, and 54% of its warp-cycles
+waiting on loads from DRAM (half of DRAM's peak, L2 hits only 74%) --
+the ray read from its queue, the hit's gathers from the mesh, the
+interaction written (30 M sectors stored per launch, about 900 bytes a
+ray: the wavefront's queue traffic, 1.7 GB through L1 per million
+rays). The traversal's barrier is a third; the fetch is 1%, a kernel
+that fits the instruction cache. Ours is an instruction machine at a
+third of the lanes: 9 of 32, 45% of its warp-cycles with nothing
+fetched, 30% at the barrier, 10% on memory; DRAM at 11% and L2 hits
+97.7% -- the path's state in registers and the continuation stack in
+L1 and L2, no queue. Both sit at the register ceiling (128, so 16
+warps per SM) and neither hides its stalls (pbrt issues in 4.7% of its
+cycles with 0.06 eligible warps, we in 11.6% with 0.13), but pbrt has
+little to hide: 1,838 instructions per warp per launch, a million rays
+traced in 0.8 ms, the cost moved into the stores and loads of the
+queues and spread over the frame's launches. The megakernel's cost is
+in instructions: 70,000 per warp per path, each at 9 lanes, each 30.8
+cycles, 14 of them the fetch. Per ray traced pbrt waits about 1,600
+warp-cycles at the barrier (28.0 per instruction x 1,838 per warp,
+over 31 rays); ours cannot be split per ray from these counters (the
+frame's traces of every bounce are one launch), but every one of its
+trace instructions carries 9 rays where pbrt's carries 31, so the
+traversal hardware is asked three and a half times as often for the
+same rays, and the warp waits each time. So the morning's reading
+holds and gains a third part: (a) the raygen's size is the fetch, 45%
+of the cycles; (b) the register union is the 16-warp ceiling that
+hides none of it (pbrt is at the same ceiling and loses nothing to it
+because it has nothing to hide); and (c) the lanes -- a megakernel's
+warp carries 9 live paths of 32, every instruction and every trace
+paid at a third of its width, which SER mends in part (mk-ser-flat
+277 ms against 315 on ganesha) and the wavefront never pays, its
+warps full at every launch. The steps that would move ganesha are
+unchanged -- the match arms as direct callables (proposal (2)) or a
+build of the scene's own types alone (proposal (1), build-time) for
+(a) and (b) -- and (c) is the wavefront's argument on this scene,
+which the figure already makes (gpu-optix 1.80x at 16 spp). The
+reports of both sides (ours one .ncu-rep with the full set; pbrt's
+six, one per metric group, with their logs; the morning's pbrt report
+with its sampling data) and the three scripts are under
+apps/pbrt/scratch/ncu-ganesha-10-28/. The one method note for a next
+time: an OptiX 7-ABI process is profiled under kernel replay with
+short --metrics lists, never --set or --section.
