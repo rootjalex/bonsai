@@ -18616,29 +18616,48 @@ schedule stays in the figure as asked; a larger block (2^20, 2^21) is
 one number in the schedule if the question is worth another sweep
 (deferred, not asked for).
 
-**The figures (apps/pbrt/plots, 01:34).** pbrt-gpu-sweep: wall
-speedup over pbrt --gpu, geomeans of the fifteen cells, mk 0.71x,
-mk-pass 1.35x, mk-flat 1.41x, mk-blk 1.16x, mk-ser 0.94x, mk-ser-flat
-1.78x, wf 2.11x, wf-sort 1.49x; the reading, mk-pass over mk 1.91x,
-mk-flat over mk-pass 1.04x, mk-blk over mk-flat 0.83x, mk-ser-flat
-over mk-flat 1.27x, wf over mk 2.98x, wf-sort over wf 0.70x; every side
-falls to about 0.7x of its 16-spp speedup at 128 spp, as before.
-pbrt-gpu-heatmap: gpu-optix 1.80x geomean over the ninety cells, 1.23x
-(view-0 at 64 spp) to 3.21x (killeroo-simple at 16 spp). One caveat on
-the sweep: pbrt's own wall at killeroo-gold 64 spp came out 0.72 s
-against 0.62 in run c with its kernel time 598 against 590 ms, so the
-eight wall speedups of that column are 16% high (mk-ser-flat 2.83x
-where run c had 2.19x and the kernel ratio says 2.35x); the pbrt cell
-is re-measured at 06:45 on bonsai-ac's 'done' (the nine rows of the
-cell removed and the sweep resumed, which redoes a begun cell) and the
-figure redrawn, with a note here.
+**The figures (apps/pbrt/plots; drawn 01:34, one cell redone 07:36).**
+The night's table had one flaw: pbrt's own wall at killeroo-gold 64
+spp came out 0.72 s against 0.62 in run c with its kernel time 598
+against 590 ms, so the eight wall speedups of that column were 16% high
+(mk-ser-flat 2.83x where run c had 2.19x and the kernel ratio says
+2.35x). The cell was re-measured in the morning window (its nine rows
+removed from table.tsv and the sweep resumed, which redoes a begun
+cell; the renderers reused by key, no compile): pbrt's wall 0.62 s
+again (kernel 598.65 ms, one redo for a process beside it), our eight
+rows within 0.3% of the night's in kernel time (mk-ser-flat 255.16
+against 255.05 ms), every image matching pbrt, the column's speedups
+now mk 0.84x, mk-pass 1.74x, mk-flat 1.80x, mk-blk 1.40x, mk-ser
+1.18x, mk-ser-flat 2.43x, wf 2.08x, wf-sort 1.39x -- run c's within
+2%. The redo itself waited 45 minutes for an idle machine: a `wosx.out`
+of bonsai-ac's stars table, orphaned when they stopped its harness at
+06:44 (their stop script and their check after the kill named the
+harness scripts and our driver, not the reference binary -- the lesson
+of 10-26 in a new coat; both name wosx.out now), ran at 99% CPU until
+07:34, when they killed it on my message. pbrt-gpu-sweep after the
+redo: wall speedup over pbrt --gpu, geomeans of the fifteen cells, mk
+0.70x, mk-pass 1.34x, mk-flat 1.39x, mk-blk 1.15x, mk-ser 0.93x,
+mk-ser-flat 1.77x, wf 2.09x, wf-sort 1.47x; the reading, mk-pass over
+mk 1.91x, mk-flat over mk-pass 1.04x, mk-blk over mk-flat 0.83x,
+mk-ser-flat over mk-flat 1.27x, wf over mk 2.98x, wf-sort over wf
+0.70x; every side falls to about 0.7x of its 16-spp speedup at 128 spp,
+as before. pbrt-gpu-heatmap: gpu-optix 1.80x geomean over the ninety
+cells, 1.23x (view-0 at 64 spp) to 3.21x (killeroo-simple at 16 spp).
 
-**The morning (06:50-08:50, the card's window agreed with bonsai-ac,
-who hold the machine for CPU tables from 01:37 to 06:44).** The
-user-approved profiler on ganesha under gpu-optix-mega-flat (about
-twenty minutes of the card), then the killeroo-gold mk-ser-flat A/B
-under a compiler at 9c191640 (the worktree rebuilt there, the one
-schedule compiled, one cell at 16 spp), then 'done'. Open with the
-user: proposal (1)'s word; the CPU sweep's redo (about four hours of
-idle CPU) against bonsai-ac's stars table's remaining four and a half
+**The morning (the card's window agreed with bonsai-ac, who held the
+machine for CPU tables from 01:37 to 06:44: 06:44 to 08:50, extended
+to 09:35 for the orphan's 45 minutes).** After the cell: the
+user-approved profiler on ganesha under gpu-optix-mega-flat (Nsight
+Compute, our raygen and pbrt's trace kernel, about twenty minutes of
+the card), then the A/B owed since 10-27 under a compiler at a53c8f84
+-- everything of 39c67ab9 but the funnel and its fixes; no compiler
+source changed between 9c191640 and a53c8f84, and a53c8f84 has the
+register-cap knob the harness passes, which 9c191640 lacks -- built in
+its own worktree (apps/pbrt/scratch/wt-a53c8f84) so that wt-mq's
+compiler, the key of the night's renderers, stays: gpu-optix-mega-flat
+and -mega-ser-flat on killeroo-gold and killeroo-simple at 16 spp, the
+two schedules compiled at once, four cells; then 'done'. The explosion
+A/B is dropped (the three heatmaps are it). Open with the user:
+proposal (1)'s word; the CPU sweep's redo (about four hours of idle
+CPU) against bonsai-ac's stars table's remaining four and a half
 during the day.
