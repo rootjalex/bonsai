@@ -18514,3 +18514,131 @@ profiler on ganesha, approved and scheduled in bonsai-ac's slot
 08:30-08:50 tomorrow (gpu-optix-mega-flat, about twenty minutes of the
 card). The CPU sweep's redo under the current compiler: tomorrow
 morning unless the user says otherwise.
+
+## 10-28, the night: the GPU figures redrawn under 39c67ab9 with the blocked megakernel, the harness's parallel compile tested, what the funnel's fix recovered and what it did not
+
+**The night run (the user, 21:45: "when I get up in the morning, the
+pbrt plots up to date with the current compiler if possible ... include
+the blocked mk in the pbrt gpu sweep").** One script (the session's
+scratchpad, start_night.sh) waited for bonsai-ac's GPU remeasure to end
+(their lock gone, no harness, nothing on the card, for a full minute),
+took the lock at 22:27:34, rebased the wt-mq worktree onto 39c67ab9 (the
+exit funnel with both of its fixes: the payload a variant with data
+slots zero, address slots undefined) and rebuilt it (22:27:49), ran the
+GPU sweep of eight sides -- the seven of gpu-compare-out-c and
+gpu-optix-mega-blocked -- on the five scenes at 16/64/128 spp into
+gpu-compare-out-d (135 rows; cells 22:41 to 23:56), redrew the figures,
+ran the heatmap into compare-out-heatmap11 (180 rows; 23:56 to 01:34)
+with the sweep's gpu-optix renderer reused, redrew them again and gave
+the lock back at 01:34. Every one of the sweep's 120 compared images
+matches pbrt and is byte-identical to run c's; none was redone. The
+heatmap's verdicts are heatmap10's (pavilion-day at 16 spp within pbrt's
+own disagreement, camera-1 at 128 spp one non-finite pixel), its images
+identical to heatmap10's, disney-cloud at 128 spp redone once for a
+process beside it. plots.sh's defaults now name gpu-compare-out-d,
+compare-out-heatmap11 and the eight sides (gpu-optix-mega-blocked after
+gpu-optix-mega-flat, `mk-blk` in the legend).
+
+**The harness's first run: the compiles at once.** The eight schedules
+compiled in parallel from 22:27:49 to 22:41:21 -- 13.5 minutes, the two
+wavefront schedules 532 and 539 s, the six megakernels 765 to 812 s,
+the eight compilers' peak 24 GB of the machine's 186 -- where the seven
+of the afternoon's sweep had taken an hour in turn; the heatmap's one
+compile (six and a half minutes before) was skipped, its renderer
+copied from the sweep's by key (compile.log: "copied from
+.../gpu-compare-out-d/gpu-optix/render.out"), so its first scene began
+at once. Nothing else of the harness changed its numbers: run d's
+gpu-optix, gpu-optix-sort and gpu-optix-mega cells are within 0.5% of
+run c's in kernel time. The cells themselves still took 1 h 15 for the
+sweep and 1 h 38 for the heatmap: each schedule's first cell pays
+OptiX's own compile of the raygens (about three minutes per megakernel
+schedule, cached by the driver after), and the rest is rendering.
+
+**What the fix recovered (run c -> run d: the same schedules under
+9846e3e6 and 39c67ab9), kernel time.** The flat SER megakernel on
+killeroo-gold 71.6 -> 64.3 ms at 16 spp (0.90x, the same at 64 and
+128), the pre-funnel run mq3b (927fa485) having had 59.4; mk-ser on
+killeroo-gold 0.95x; mk-pass and mk-flat on killeroo-simple 0.94x and
+0.955x, on killeroo-gold 0.96x and 0.97x, on book and sanmiguel 0.98x;
+on ganesha mk-flat 1.014x and mk-ser-flat 1.006x (the one scene where
+the fix cost anything, within the noise). Geomeans over the fifteen
+cells: mk-ser-flat 0.966x, mk-pass 0.971x, mk-flat 0.982x, mk-ser
+0.987x; mk, wf and wf-sort 1.000x. The OptiX continuation stacks say
+where the fix landed: mk-ser-flat's four VolPath raygens are back to
+the pre-funnel widths exactly (352/512/544/672 bytes per thread for
+$False$False / $False$True / $True$False / $True$True, mq3b's own
+numbers, where 9846e3e6 had 416/608/544/704), and mk-flat's are
+384/544/576/736 against 480/640/576/768 under the funnel (mk-flat was
+written on 10-27 under the funnel, so no pre-funnel width of it
+exists). So the SER kernel's stack is what it was and its killeroo-gold
+time is still 8% over mq3b's -- either the two changes beneath the
+funnel in that compiler (the specialize fix and the device min/max,
+which 927fa485 lacks) or the funnel's shape with no stack cost; the
+A/B of that one cell under 9c191640 (everything but the funnel) is the
+morning window's, after the profiler.
+
+**What the fix did not recover: the wavefront's medium march.**
+heatmap11 against heatmap10 is 1.0004x geomean over the ninety
+gpu-optix cells with no cell beyond 3%; against heatmap9 (f2e47a10, the
+10-26 compiler) explosion is still 1.14x slower at every count,
+bunny-cloud 1.06x, disney-cloud 1.055x, plume 1.03x, the other
+twenty-six scenes within 1%. The medium march kernel on explosion at 16
+spp, `_kernel_medium_samples_blk$False_14`, 288 launches: 246.45 ms
+under heatmap9's compiler, 310.92 under 9846e3e6, 310.22 under
+39c67ab9. So the local depot 39c67ab9 removed from that kernel (the
+16-byte local of `segment_passed`) cost it nothing measurable, and the
+residual spills bonsai-ac read (2556 bytes against 2164 with no funnel,
+unexplained by the merging, the asm or the slots) are the whole 26%.
+The three heatmaps are the explosion three-way A/B that had been
+planned for the morning (the 10-26 compiler, the funnel, the fix), so
+that A/B is dropped; the cause is bonsai-ac's to read on the compiler
+side after 08:50 (they tell this session before any compiler edit).
+
+**The blocked megakernel (gpu-optix-mega-blocked: gpu-optix-mega-flat's
+one loop over (sample, pixel) pairs split into blocks of 2^18, the
+inner loop the raygen, the outer a plain loop on the host).** It
+compiles and renders every cell right (every image matches pbrt) and
+loses every cell: 0.83x of mk-flat geomean -- 1.11x slower on ganesha,
+1.17x on sanmiguel, 1.20x on killeroo-simple, 1.28x on book and 1.29x
+on killeroo-gold, the ratio the same at every sample count -- and
+slower than the launch per sample too (mk-pass: 1.09x on killeroo-simple
+to 1.25x on book and killeroo-gold). killeroo-simple at 16 spp is 30
+launches of 262,144 threads averaging 1.68 ms (50.5 ms) against the
+flat launch's one of 7.9 M threads (42.0 ms); ganesha at 128 spp is
+1013 launches (2826 ms) against one (2532 ms). The reading: 2^18
+threads are three waves of the card's residents under the 128-register
+cap (87,040 at 512 per SM), so every launch spends its last wave
+draining the block's longest path with the card part empty, and the
+frame pays that tail 30 to 1013 times; the per-sample launch pays it 16
+to 128 times over launches of 491 k to 2.07 M threads, and the flat
+launch once. ganesha, whose paths are long and alike, pays least. The
+schedule stays in the figure as asked; a larger block (2^20, 2^21) is
+one number in the schedule if the question is worth another sweep
+(deferred, not asked for).
+
+**The figures (apps/pbrt/plots, 01:34).** pbrt-gpu-sweep: wall
+speedup over pbrt --gpu, geomeans of the fifteen cells, mk 0.71x,
+mk-pass 1.35x, mk-flat 1.41x, mk-blk 1.16x, mk-ser 0.94x, mk-ser-flat
+1.78x, wf 2.11x, wf-sort 1.49x; the reading, mk-pass over mk 1.91x,
+mk-flat over mk-pass 1.04x, mk-blk over mk-flat 0.83x, mk-ser-flat
+over mk-flat 1.27x, wf over mk 2.98x, wf-sort over wf 0.70x; every side
+falls to about 0.7x of its 16-spp speedup at 128 spp, as before.
+pbrt-gpu-heatmap: gpu-optix 1.80x geomean over the ninety cells, 1.23x
+(view-0 at 64 spp) to 3.21x (killeroo-simple at 16 spp). One caveat on
+the sweep: pbrt's own wall at killeroo-gold 64 spp came out 0.72 s
+against 0.62 in run c with its kernel time 598 against 590 ms, so the
+eight wall speedups of that column are 16% high (mk-ser-flat 2.83x
+where run c had 2.19x and the kernel ratio says 2.35x); the pbrt cell
+is re-measured at 06:45 on bonsai-ac's 'done' (the nine rows of the
+cell removed and the sweep resumed, which redoes a begun cell) and the
+figure redrawn, with a note here.
+
+**The morning (06:50-08:50, the card's window agreed with bonsai-ac,
+who hold the machine for CPU tables from 01:37 to 06:44).** The
+user-approved profiler on ganesha under gpu-optix-mega-flat (about
+twenty minutes of the card), then the killeroo-gold mk-ser-flat A/B
+under a compiler at 9c191640 (the worktree rebuilt there, the one
+schedule compiled, one cell at 16 spp), then 'done'. Open with the
+user: proposal (1)'s word; the CPU sweep's redo (about four hours of
+idle CPU) against bonsai-ac's stars table's remaining four and a half
+during the day.

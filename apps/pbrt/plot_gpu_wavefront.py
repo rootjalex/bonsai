@@ -41,9 +41,11 @@ in the figure (the user: the GPU figures other than the heatmap gain
 them): one thread per path with a launch per sample (`Bonsai mk-pass`,
 gpu-optix-mega-pass), the same as one launch per frame (`Bonsai mk-flat`,
 gpu-optix-mega-flat), and that launch with the reordering (`Bonsai
-mk-ser-flat`, gpu-optix-mega-ser-flat); plots.sh names these seven as
-the paper figure's sides (GPU_SIDES), the exploration's five below being
-one more than the ramp holds beside them. `--sides` names a subset in its own order. The
+mk-ser-flat`, gpu-optix-mega-ser-flat), and since the night of 10-27 the
+flat launch in blocks of 2^18 paths from a host loop (`Bonsai mk-blk`,
+gpu-optix-mega-blocked); plots.sh names these eight as the paper
+figure's sides (GPU_SIDES), which with the exploration's six below would
+exceed the ramp. `--sides` names a subset in its own order. The
 colours are classes of the CPU figure's YlGnBu ramp spread evenly over the
 sides drawn, in drawing order, so that neighbours differ in lightness: four
 sides take the classes 1, 3, 5 and 7 (the paper figure), up to seven sides
@@ -86,6 +88,9 @@ SIDES = [
     # heatmap gain them.
     ("gpu-optix-mega-pass", "mk-pass"),
     ("gpu-optix-mega-flat", "mk-flat"),
+    # The flat launch in blocks of 2^18 paths, the host looping over the
+    # blocks (the user, 10-27 evening); drawn when a table has it.
+    ("gpu-optix-mega-blocked", "mk-blk"),
     ("gpu-optix-mega-ser", "mk-ser"),
     ("gpu-optix-mega-ser-flat", "mk-ser-flat"),
     # The exploration of 10-24 (apps/pbrt/schedules/gpu-optix-*.bonsai):
@@ -107,6 +112,7 @@ COMPARISONS = [
     ("wf", "mk", "pbrt's wavefront schedule, matched, against the OptiX megakernel"),
     ("mk-pass", "mk", "one thread per path and a launch per sample instead of a pixel's samples in turn"),
     ("mk-flat", "mk-pass", "the sample and pixel loops collapsed into one launch per frame"),
+    ("mk-blk", "mk-flat", "the frame's paths launched in blocks of 2^18 from a host loop instead of all at once"),
     ("mk-ser", "mk", "shader execution reordering before the material stage"),
     ("mk-ser-flat", "mk-flat", "shader execution reordering before the material stage, on the flat launch"),
     ("mk-ser-ray", "mk-ser", "reordering keyed by the ray instead of the material"),

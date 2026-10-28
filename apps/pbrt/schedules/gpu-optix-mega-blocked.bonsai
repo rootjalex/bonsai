@@ -1,0 +1,65 @@
+// The flat megakernel in blocks: gpu-optix-mega-flat's one loop over
+// (sample, pixel) pairs, split into an outer loop of blocks and an inner
+// loop of 262144 pairs, the inner loop the raygen launch and the outer a
+// plain loop on the host around it -- not parallel, not a launch of its
+// own -- so that a frame of spp x pixels paths is launched a block at a
+// time instead of all at once (the user, 10-27: a blocked megakernel that
+// does not overwhelm the machine; a thread count that fills it for the
+// inner tile; the outer tile not parallelized). The block is the card's
+// resident threads: the RTX 5090 has 170 SMs of 1536 threads (compute
+// capability 12.0), 261,120, rounded up to 2^18; under the 128-register
+// cap pbrt's build sets (gpu_compare.sh) an SM holds 512 threads, 87,040
+// across the card, so a block is three waves of residents, enough to keep
+// the card full while the launch's tail drains. Everything else is
+// gpu-optix-mega-flat's: one thread per path, the pixel's sum the atomic
+// the program wrote, the per-pixel prologue a raygen of its own. What it
+// gives up against the flat launch is gpu-optix-mega-pass's trade in
+// another form: a launch's tail, the block's longest path, is paid once
+// per block instead of once per frame (the flat launch was 1.05x over the
+// per-sample launches in the sweep of 10-27).
+import apps/pbrt/schedules/trees/optix;
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_probe_step.loopify();
+    vol_shadow_track.loopify();
+    render.specialize(integrator);
+    // pbrt's `haveMedia` and `haveSubsurface`, fixed per scene, the pixel
+    // loop copied per flag, as gpu-optix-mega has them.
+    render[VolPath].specialize(have_media);
+    render[VolPath].specialize(VolPath::have_subsurface);
+    // The sample loop outside the pixel loop, then the two as one loop over
+    // (sample, pixel) pairs, the pixel fastest; then that loop in blocks of
+    // 2^18 pairs, the last block guarded.
+    render[VolPath].reorder(p, s);
+    render[VolPath].collapse(s, p, ps);
+    render[VolPath].split(ps, ps_blk, ps_in, 262144, true);
+    // The ray tracing hardware answers both queries.
+    trace.bind(RTCore);
+    trace_any.bind(RTCore);
+    // One thread per (sample, pixel) of the block: the raygen launch, once
+    // per block of the host's ps_blk loop, which stays a loop. `p` after
+    // the reorder names the per-pixel prologue loop of each volpath copy (a
+    // raygen of its own) and the other integrators' pixel loops.
+    render.bind(p, OptixThread);
+    render[VolPath].bind(ps_in, OptixThread);
+    // The film pass over the frame after the paths, as a kernel of its own.
+    render.split(q, q_blk, q_thr, 256, true);
+    render.bind(q_blk, GPUBlock);
+    render.bind(q_thr, GPUThread);
+    texture_filter.bind(TextureUnit,
+                        |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                         dstdy : vec2f|
+                        texture_filter_unit(texture_handles[t.id], st, dstdx,
+                                            dstdy));
+    texture_filter_float.bind(TextureUnit,
+                              |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                               dstdy : vec2f|
+                              texture_filter_float_unit(
+                                  texture_handles[t.id], t.average_channels,
+                                  st, dstdx, dstdy));
+}

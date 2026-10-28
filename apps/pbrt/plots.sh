@@ -32,19 +32,19 @@ set -euo pipefail
 PREFIX=$(cd "$(dirname "$0")" && pwd)
 OUT="$PREFIX/plots"
 CPU_CSVS="${CPU_CSVS:-$PREFIX/cpu-compare-out/cpu-results.csv $PREFIX/cpu-compare-out-sortfix/cpu-results.csv}"
-# The GPU sweep of 10-27 evening: the paper figure's seven sides on the
-# five scenes at 16/64/128 spp under one compiler (9846e3e6, the loopify
-# exit funnel on top of the specialize fix and the device min/max). The
-# exploration sides of 10-24 (wf-b128, wf-b512, wf-fused, wf-fused-ser,
-# wf-sort36, mk-ser-ray) are in gpu-compare-out-explore-b/table.tsv, an
-# older compiler's; to draw them, list that table here too and name them
-# in GPU_SIDES.
-GPU_TABLES="${GPU_TABLES:-$PREFIX/gpu-compare-out-c/table.tsv}"
-# The heatmap's redo of the same evening under the same compiler.
-HEATMAP_TABLE="${HEATMAP_TABLE:-$PREFIX/compare-out-heatmap10/table.tsv}"
+# The GPU sweep of the night of 10-27: the paper figure's eight sides on
+# the five scenes at 16/64/128 spp under one compiler (39c67ab9, the
+# loopify exit funnel with both of its fixes on top of the specialize fix
+# and the device min/max). The exploration sides of 10-24 (wf-b128,
+# wf-b512, wf-fused, wf-fused-ser, wf-sort36, mk-ser-ray) are in
+# gpu-compare-out-explore-b/table.tsv, an older compiler's; to draw them,
+# list that table here too and name them in GPU_SIDES.
+GPU_TABLES="${GPU_TABLES:-$PREFIX/gpu-compare-out-d/table.tsv}"
+# The heatmap's redo of the same night under the same compiler.
+HEATMAP_TABLE="${HEATMAP_TABLE:-$PREFIX/compare-out-heatmap11/table.tsv}"
 # The GPU sweep's sides, in drawing order (plot_gpu_wavefront.py's SIDES
 # names them): the megakernel family, then the wavefront's.
-GPU_SIDES="${GPU_SIDES:-gpu-optix-mega,gpu-optix-mega-pass,gpu-optix-mega-flat,gpu-optix-mega-ser,gpu-optix-mega-ser-flat,gpu-optix,gpu-optix-sort}"
+GPU_SIDES="${GPU_SIDES:-gpu-optix-mega,gpu-optix-mega-pass,gpu-optix-mega-flat,gpu-optix-mega-blocked,gpu-optix-mega-ser,gpu-optix-mega-ser-flat,gpu-optix,gpu-optix-sort}"
 png=0
 [[ "${1:-}" == "--png" ]] && png=1
 
