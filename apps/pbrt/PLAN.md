@@ -18821,25 +18821,45 @@ little to hide: 1,838 instructions per warp per launch, a million rays
 traced in 0.8 ms, the cost moved into the stores and loads of the
 queues and spread over the frame's launches. The megakernel's cost is
 in instructions: 70,000 per warp per path, each at 9 lanes, each 30.8
-cycles, 14 of them the fetch. Per ray traced pbrt waits about 1,600
-warp-cycles at the barrier (28.0 per instruction x 1,838 per warp,
-over 31 rays); ours cannot be split per ray from these counters (the
-frame's traces of every bounce are one launch), but every one of its
-trace instructions carries 9 rays where pbrt's carries 31, so the
-traversal hardware is asked three and a half times as often for the
-same rays, and the warp waits each time. So the morning's reading
-holds and gains a third part: (a) the raygen's size is the fetch, 45%
-of the cycles; (b) the register union is the 16-warp ceiling that
-hides none of it (pbrt is at the same ceiling and loses nothing to it
-because it has nothing to hide); and (c) the lanes -- a megakernel's
-warp carries 9 live paths of 32, every instruction and every trace
-paid at a third of its width, which SER mends in part (mk-ser-flat
-277 ms against 315 on ganesha) and the wavefront never pays, its
-warps full at every launch. The steps that would move ganesha are
-unchanged -- the match arms as direct callables (proposal (2)) or a
-build of the scene's own types alone (proposal (1), build-time) for
-(a) and (b) -- and (c) is the wavefront's argument on this scene,
-which the figure already makes (gpu-optix 1.80x at 16 spp). The
+cycles, 14 of them the fetch. (A sentence here at 12:05 said the
+traversal hardware was "asked three and a half times as often" because
+our instructions carry 9 lanes to pbrt's 31; the user asked why, and
+it was wrong: the same rays are traced either way, and 9.1 is the
+lane count averaged over every instruction of the megakernel, the
+shading included, not at the trace. What the report's per-instruction
+page says instead (the SASS of our raygen, which OptiX splits at each
+optixTrace into continuations, `_ss_0` before the first trace, `_ss_1`
+and `_ss_2` after one): the prologue up to the camera ray's trace runs
+at 31.9 lanes (7.2 G of the 69 G warp instructions, 8% of the stall
+samples); the continuations after a trace run at 6.0 lanes (47.6 G
+and 14.4 G instructions, 71% and 21% of the samples); the closest-hit
+program runs at 12.3 lanes, the miss programs at 7.9 and 6.8. No
+trace instruction appears in the SASS -- the traversal runs between
+the continuations -- so the lanes at the trace are between the
+continuation's 6 and the hit program's 12, and the hardware's work per
+ray is the same as pbrt's. What the lanes cost is on the SM side:
+after the first bounce every shading instruction of a path is issued
+at 6 lanes of 32, so the frame's shading costs five times the warp
+instructions it would at full lanes, each fetched at 30.8 cycles. And
+the barrier wait per instruction is 28.0 in pbrt's launch against 9.3
+in ours: in pbrt's trace launch every warp of the SM is at the trace
+and the traversal hardware is the bottleneck, saturated, which is the
+ideal; in the megakernel a warp reaches the trace while the others
+shade or fetch, waits less per trace, and the hardware sits part
+idle. The traversal is not where the megakernel loses on ganesha.)
+So the morning's reading holds and gains a third part: (a) the
+raygen's size is the fetch, 45% of the cycles; (b) the register union
+is the 16-warp ceiling that hides none of it (pbrt is at the same
+ceiling and loses nothing to it because it has nothing to hide); and
+(c) the lanes -- after the first bounce a megakernel's warp carries 6
+live paths of 32, so every shading instruction is paid at a fifth of
+its width, which SER mends in part (mk-ser-flat 277 ms against 315 on
+ganesha) and the wavefront never pays, its warps full at every
+launch. The steps that would move ganesha are unchanged -- the match
+arms as direct callables (proposal (2)) or a build of the scene's own
+types alone (proposal (1), build-time) for (a) and (b) -- and (c) is
+the wavefront's argument on this scene, which the figure already
+makes (gpu-optix 1.80x at 16 spp). The
 reports of both sides (ours one .ncu-rep with the full set; pbrt's
 six, one per metric group, with their logs; the morning's pbrt report
 with its sampling data) and the three scripts are under
