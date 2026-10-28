@@ -1748,9 +1748,26 @@ void funnel_exits(const shared_ptr<Function> &f, const string &header_name) {
             filled[p.slot] = true;
         }
         for (size_t s = 0; s < slots.size(); s++) {
-            if (!filled[s]) {
-                args[1 + s] = zero_value(slots[s].type, func, e.from);
+            if (filled[s]) {
+                continue;
             }
+            // A slot of data is handed the zero of its type (the comment
+            // above says why not undefined). A slot that holds an address
+            // is handed the undefined value after all: an address names
+            // storage, and the arm that takes it must see the one address
+            // the filling edge hands, which LLVM's fold of the phi gives it
+            // -- a local of the loop body whose address an exit hands on
+            // (apps/pbrt's medium march hands `segment_passed`, written by
+            // a call in the body, to the arm that reads it) stays a
+            // register that way, and with any other value in the slot the
+            // address is one of several the phi may hold, and the local is
+            // kept in memory (a 16-byte local depot in the wavefront's
+            // medium kernel, 2026-10-27). An address's own lifetime, the
+            // fold's cost on data, is a register or two.
+            const Type &t = slots[s].type;
+            args[1 + s] = (t.is<Ptr_t>() || t.is_reference())
+                              ? undef_value(t)
+                              : zero_value(t, func, e.from);
         }
         e.slot->name = funnel->name;
         e.slot->args = std::move(args);

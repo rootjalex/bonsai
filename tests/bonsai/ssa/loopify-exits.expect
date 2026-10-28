@@ -5,6 +5,14 @@ func finish(x : f32, n : i32) -> f32 {
   return @2
 }
 
+func [[noinline]] halve(v : mut (f32*)) -> f32 {
+  let @0 = (*v) in
+  let @1 = @0 * 0.5f in
+  v = @1
+  let @2 = (*v) in
+  return @2
+}
+
 func main() -> i32 {
   let @0 = step(3, 1f, 100f) in
   print(@0)
@@ -20,7 +28,62 @@ func main() -> i32 {
   print(@5)
   let @6 = shared(4, 20f, 3) in
   print(@6)
+  let @7 = pick(3, 1f) in
+  print(@7)
+  let @8 = pick(4, 20f) in
+  print(@8)
   return 0
+}
+
+func pick(i : i32, x : f32) -> f32 {
+  i!loop : mut i32
+  x!loop : mut f32
+  which : mut u32
+  slot0 : mut f32
+  slot1 : mut (f32*)
+  t : mut f32
+  i!loop = i
+  x!loop = x
+  do {
+    let @0 = (*i!loop) <= 0 in
+    if (@0) {
+      which = 0u
+      slot0 = (*x!loop)
+      slot1 = undef
+    } else {
+      t = 0f
+      let y = (*x!loop) * 1.5f in
+      put(t, y)
+      let @2 = 50f < y in
+      if (@2) {
+        which = 1u
+        slot0 = 0f
+        slot1 = t
+      } else {
+        let @4 = (*i!loop) - 1 in
+        i!loop = @4
+        x!loop = y
+        continue
+      }
+    }
+    break
+  } while (true)
+  let _effect0 = reconverge() in
+  switch ((*which)) {
+  case 0: { // if of pick
+    x!loop = (*slot0)
+    return (*x!loop)
+  } break;
+  default: { // if of pick
+    let @3 = halve(t) in
+    return @3
+  }
+  }
+}
+
+func [[noinline]] put(out : mut (f32*), v : f32) -> void {
+  out = v
+  return
 }
 
 func scale(a : f32, b : f32, k : i32) -> f32 {
@@ -61,7 +124,7 @@ func shared(i : i32, x : f32, k : i32) -> f32 {
     break
   } while (true)
   let slot0 = (*x!loop) in
-  let _effect0 = reconverge() in
+  let _effect1 = reconverge() in
   switch ((*which)) {
   case 0: { // if of shared
     x!loop = slot0
@@ -120,7 +183,7 @@ func step(i : i32, x : f32, limit : f32) -> f32 {
     }
     break
   } while (true)
-  let _effect1 = reconverge() in
+  let _effect2 = reconverge() in
   switch ((*which)) {
   case 0: { // if of step
     x!loop = (*slot0)
@@ -164,6 +227,7 @@ func twice(i : i32, x : f32) -> f32 {
 
 
 schedule {
+    pick.loopify()
     shared.loopify()
     step.loopify()
     twice.loopify()

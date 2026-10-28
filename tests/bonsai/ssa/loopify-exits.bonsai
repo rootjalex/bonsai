@@ -23,9 +23,38 @@
 // type -- an f32 and an i32 for `finish`, the same f32 and a second f32 for
 // `scale` -- three slots where the two arms' five parameters would be; and
 // `k`, a parameter of `shared` itself and so defined before the loop, gets
-// no slot at all: the switch's arm reads `k` as it is.
+// no slot at all: the switch's arm reads `k` as it is. `pick` hands an
+// ADDRESS out of the loop: `t` is a local of the body, written by the held
+// function `put` and read through the held `halve` at one exit, so that
+// exit's arm takes `t`'s address as a slot -- which the other exit's edge
+// leaves `undef`, not zero: an address names storage, and the arm must see
+// the one address for `t` to stay a register (the data slot beside it, `x`
+// for the other arm, is zero on the edge that does not fill it).
 func finish(x : f32, n : i32) -> f32 {
     return x * 0.5 + cast[[f32]](n);
+}
+
+func [[noinline]] put(out : mut f32, v : f32) -> void {
+    out = v;
+    return;
+}
+
+func [[noinline]] halve(v : mut f32) -> f32 {
+    v = v * 0.5;
+    return v;
+}
+
+func pick(i : i32, x : f32) -> f32 {
+    if i <= 0 {
+        return x;
+    }
+    y = x * 1.5;
+    t : mut f32 = 0.0;
+    put(t, y);
+    if y > 50.0 {
+        return halve(t);
+    }
+    return pick(i - 1, y);
 }
 
 func scale(a : f32, b : f32, k : i32) -> f32 {
@@ -76,6 +105,8 @@ func main() -> i32 {
     print(twice(5, 60.0));
     print(shared(3, 1.0, 2));
     print(shared(4, 20.0, 3));
+    print(pick(3, 1.0));
+    print(pick(4, 20.0));
     return 0;
 }
 
@@ -83,4 +114,5 @@ schedule {
     step.loopify();
     twice.loopify();
     shared.loopify();
+    pick.loopify();
 }
