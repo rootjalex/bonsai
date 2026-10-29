@@ -74,10 +74,14 @@ llvm::Value *CodeGen_X86::gather_indexed(llvm::Type *elem_llvm,
                                          uint32_t lanes, llvm::Value *mask,
                                          const std::string &name) {
     // Eight or sixteen 32-bit lanes with 32-bit indices at a scale the
-    // addressing has, on a machine with the instruction: the shapes a gang's
-    // gathers have. Eight lanes is a 256-bit gather, AVX-512VL's with its mask
-    // in a k register or AVX2's with the mask in a vector; sixteen is the
-    // 512-bit gather AVX-512F has. Anything else takes the generic form.
+    // addressing has, from one base, on a machine with the instruction: the
+    // shapes a gang's gathers have. Eight lanes is a 256-bit gather,
+    // AVX-512VL's with its mask in a k register or AVX2's with the mask in a
+    // vector; sixteen is the 512-bit gather AVX-512F has. Anything else
+    // takes the generic form -- among it a base per lane (an element of one
+    // array handle per lane, Type::is_reference_per_lane), which the
+    // instruction's one base register cannot hold and the generic form's
+    // vector of addresses can.
     auto *indices_t = llvm::dyn_cast<llvm::FixedVectorType>(indices->getType());
     const bool word = elem_llvm->isIntegerTy(32) || elem_llvm->isFloatTy();
     const bool scaled = scale == 1 || scale == 2 || scale == 4 || scale == 8;
@@ -86,7 +90,8 @@ llvm::Value *CodeGen_X86::gather_indexed(llvm::Type *elem_llvm,
     const bool sixteen = lanes == 16 && has_feature("avx512f");
     if (!word || !scaled || !(eight || sixteen) || indices_t == nullptr ||
         indices_t->getNumElements() != lanes ||
-        !indices_t->getElementType()->isIntegerTy(32)) {
+        !indices_t->getElementType()->isIntegerTy(32) ||
+        base->getType()->isVectorTy()) {
         return CodeGen_LLVM::gather_indexed(elem_llvm, base, indices, scale, disp,
                                             align, lanes, mask, name);
     }

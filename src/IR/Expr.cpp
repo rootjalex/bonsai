@@ -898,15 +898,26 @@ Expr Extract::make(Expr vec, Expr idx, Expr mask) {
                     << "[" << idx << "]";
                 return Extract::make(std::move(vec), *as_const_int(idx));
             }
-            type = vec.type().element_of();
-            // One index per lane extracts one element per lane: a dense
-            // vector load when the index is a Ramp, a gather otherwise. One
-            // element per lane is the element's gang-wide form (ir::widen):
-            // a vector of a scalar, and for an aggregate the struct of
-            // gang-wide fields a gang carries it as, gathered a field at a
-            // time -- there being no vector whose element is an aggregate.
-            if (idx.type().is_vector()) {
-                type = widen(std::move(type), idx.type().lanes());
+            if (vec.type().is_reference_per_lane()) {
+                // One array handle per lane (Type::is_reference_per_lane):
+                // the element at the index, whether the index is each
+                // lane's own or one they share, is one element per lane --
+                // each lane's array's -- so the gang-wide form of the
+                // array's element, as below.
+                const Vector_t *handles = vec.type().as<Vector_t>();
+                type = widen(handles->etype.element_of(), handles->lanes);
+            } else {
+                type = vec.type().element_of();
+                // One index per lane extracts one element per lane: a dense
+                // vector load when the index is a Ramp, a gather otherwise.
+                // One element per lane is the element's gang-wide form
+                // (ir::widen): a vector of a scalar, and for an aggregate
+                // the struct of gang-wide fields a gang carries it as,
+                // gathered a field at a time -- there being no vector whose
+                // element is an aggregate.
+                if (idx.type().is_vector()) {
+                    type = widen(std::move(type), idx.type().lanes());
+                }
             }
         }
     }
@@ -2249,15 +2260,28 @@ Expr PtrTo::make(Expr expr) {
                                 deref->expr.type().element_of().is<Ptr_t>());
             readonly = deref->expr.type().is_readonly();
         }
-        return stepped_per_lane && expr.type().is<Vector_t>();
+        return stepped_per_lane &&
+               (expr.type().is<Vector_t>() ||
+                widened_lanes(expr.type()).has_value());
     }();
 
     PtrTo *node = new PtrTo;
-    node->type =
-        per_lane_place
-            ? Vector_t::make(Ptr_t::make(expr.type().element_of(), readonly),
-                             expr.type().lanes())
-            : Ptr_t::make(expr.type(), readonly);
+    if (per_lane_place) {
+        // What each lane's place holds: the element of a gang vector, or,
+        // for an aggregate -- a row of a `ptr group` at each lane's own
+        // address, a field of it that is a short vector -- the type the
+        // gang-wide struct is the widening of (ir::narrow), since the
+        // place in memory has the lane's own shape, not the gang's.
+        const uint32_t lanes = expr.type().is<Vector_t>()
+                                   ? expr.type().lanes()
+                                   : *widened_lanes(expr.type());
+        const Type held = expr.type().is<Vector_t>()
+                              ? expr.type().element_of()
+                              : narrow(expr.type(), lanes);
+        node->type = Vector_t::make(Ptr_t::make(held, readonly), lanes);
+    } else {
+        node->type = Ptr_t::make(expr.type(), readonly);
+    }
     node->expr = std::move(expr);
     return node;
 }

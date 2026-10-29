@@ -1,0 +1,42 @@
+[test] clang++ -std=c++20 -O3 -DBVH4_PTR_ARENA_PERLANE -c tests/bonsai/correctness/cpp/main_bvh4_ptr_arena.cpp -I. -o tests/bonsai/correctness/cpp/main_bvh4_ptr_arena_perlane.o
+[test] clang++ tests/bonsai/correctness/cpp/main_bvh4_ptr_arena_perlane.o tests/bonsai/correctness/cpp/bvh4_ptr_arena_perlane.o -o tests/bonsai/correctness/cpp/bvh4_ptr_arena_perlane
+[test] ./tests/bonsai/correctness/cpp/bvh4_ptr_arena_perlane
++x: wall at x=0 z=0, occluded -- ok
+-x: wall at x=70 z=0, occluded -- ok
++x from 35: wall at x=40 z=0, occluded -- ok
++x short: miss, clear -- ok
++x: wall at x=0 z=5, occluded -- ok
+-x: wall at x=70 z=5, occluded -- ok
++x from 35: wall at x=40 z=5, occluded -- ok
++x short: miss, clear -- ok
++x: wall at x=0 z=10, occluded -- ok
+-x: wall at x=70 z=10, occluded -- ok
++x from 35: wall at x=40 z=10, occluded -- ok
++x short: miss, clear -- ok
++x: wall at x=0 z=15, occluded -- ok
+-x: wall at x=70 z=15, occluded -- ok
++x from 35: wall at x=40 z=15, occluded -- ok
++x short: miss, clear -- ok
++x between lanes: miss, clear -- ok
+diagonal: wall at x=0 z=0, occluded -- ok
++z beside: miss, clear -- ok
+lane 0: 0 occluded
+lane 1: 70 occluded
+lane 2: 40 occluded
+lane 3: -1 clear
+lane 4: 5000 occluded
+lane 5: 5070 occluded
+lane 6: 5040 occluded
+lane 7: -1 clear
+lane 8: 10000 occluded
+lane 9: 10070 occluded
+lane 10: 10040 occluded
+lane 11: -1 clear
+lane 12: 15000 occluded
+lane 13: 15070 occluded
+lane 14: 15040 occluded
+lane 15: -1 clear
+lane 16: -1 clear
+lane 17: 0 occluded
+lane 18: -1 clear
+the batch agrees with the rays traced alone

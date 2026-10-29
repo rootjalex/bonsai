@@ -92,6 +92,14 @@ struct Type : public IRHandle<IRTypeNode> {
     // elements, so making one mutable adds no indirection, and wrapping it
     // in a Ptr_t would mean a pointer to a pointer.
     bool is_reference() const;
+    // One array handle per lane: a vector of array handles, which is what a
+    // reference that differs between a gang's lanes widens to -- a `ptr
+    // group`'s row at each lane's own address, a leaf's tiles at each lane's
+    // own leaf, when each lane walks the tree on its own (the per-lane
+    // traversal). An element of it is read from each lane's own base, a
+    // gather, and its element's address is one pointer per lane; the lanes
+    // that are off hold any handle at all, so such a read is masked.
+    bool is_reference_per_lane() const;
     // Whether a value of this type holds a reference to storage: a pointer,
     // an array handle, or an aggregate with one inside. What a store of the
     // value lets escape, and what a call may write through.

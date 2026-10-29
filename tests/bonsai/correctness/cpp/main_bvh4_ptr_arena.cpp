@@ -15,12 +15,26 @@
 // field a vector over the four, the lanes a leaf does not fill left as the
 // zero triangle. Each answer is checked against the one the scene was built
 // to give.
-#ifdef BVH4_PTR_ARENA_CHILDREN
+#if defined(BVH4_PTR_ARENA_CHILDREN)
 // bvh4_ptr_arena_children.bonsai: the same program over the same arena,
 // scheduled with the children tested one at a time (see there).
 #include "bvh4_ptr_arena_children.h"
+#elif defined(BVH4_PTR_ARENA_PACKET)
+// bvh4_ptr_arena_packet.bonsai: the rays in gangs of eight, the gang made
+// before the traversal is put on its stack (one node for the gang).
+#include "bvh4_ptr_arena_packet.h"
+#elif defined(BVH4_PTR_ARENA_PERLANE)
+// bvh4_ptr_arena_perlane.bonsai: the rays in gangs of eight, the traversal
+// put on its stack before the gang is made (a stack per lane).
+#include "bvh4_ptr_arena_perlane.h"
 #else
 #include "bvh4_ptr_arena.h"
+#endif
+
+// The two gang programs export the batch entry points the driver checks
+// below beside the scalar ones.
+#if defined(BVH4_PTR_ARENA_PACKET) || defined(BVH4_PTR_ARENA_PERLANE)
+#define BVH4_PTR_ARENA_BATCH 1
 #endif
 
 #include <algorithm>
@@ -222,11 +236,30 @@ _tree_layout0 build_tree(Builder &b) {
     return tree;
 }
 
+#ifdef BVH4_PTR_ARENA_BATCH
+// Built for bvh4_ptr_arena_packet.bonsai and bvh4_ptr_arena_perlane.bonsai:
+// every ray the scalar checks trace is kept, with the answer the scalar
+// trace gave it, and traced again as one batch afterwards -- the program's
+// `trace_all` and `occluded_all`, whose rays run in gangs of eight -- each
+// lane's answer required to match.
+struct Traced {
+    Ray ray;
+    float code; // what hit_code gives: x + 1000 (z + 1), or -1
+    int blocked;
+};
+std::vector<Traced> traced;
+#endif
+
 void report(const char *what, const Ray &r, const _tree_layout0 &tree,
             const Triangle *expected) {
     _option0 hit;
     trace(hit, r, tree);
     const bool blocked = occluded(r, tree);
+#ifdef BVH4_PTR_ARENA_BATCH
+    traced.push_back(
+        {r, hit.set ? hit.value.p0[0] + 1000.0f * (hit.value.p0[2] + 1.0f) : -1.0f,
+         blocked ? 1 : 0});
+#endif
     std::cout << what << ": ";
     if (!hit.set) {
         std::cout << "miss";
@@ -278,5 +311,31 @@ int main() {
     // Along z at a wall's x, past the walls' y: nothing.
     report("+z beside", Ray{float3{30.0f, 2.0f, -10.0f}, float3{0.0f, 0.0f, 1.0f}}, tree,
            nullptr);
+#ifdef BVH4_PTR_ARENA_BATCH
+    // The same rays as a batch: nineteen, two whole gangs of eight and a
+    // tail of three, each gang holding rays that want different children
+    // first and rays that want none.
+    std::vector<Ray> rays;
+    for (const Traced &t : traced) {
+        rays.push_back(t.ray);
+    }
+    std::vector<float> codes(rays.size(), 0.0f);
+    std::vector<int32_t> blocked(rays.size(), 0);
+    trace_all(uint32_t(rays.size()), rays.data(), codes.data(), tree);
+    occluded_all(uint32_t(rays.size()), rays.data(), blocked.data(), tree);
+    bool same = true;
+    for (size_t i = 0; i < rays.size(); i++) {
+        const bool ok = codes[i] == traced[i].code && blocked[i] == traced[i].blocked;
+        std::cout << "lane " << i << ": " << codes[i] << (blocked[i] ? " occluded" : " clear")
+                  << (ok ? "" : " -- DIFFERS from the ray traced alone") << '\n';
+        same = same && ok;
+    }
+    std::cout << (same ? "the batch agrees with the rays traced alone"
+                       : "the batch DISAGREES with the rays traced alone")
+              << '\n';
+    if (!same) {
+        return 1;
+    }
+#endif
     return 0;
 }

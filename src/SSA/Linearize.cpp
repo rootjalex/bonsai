@@ -328,6 +328,12 @@ bool math_library_call(ir::Intrinsic::OpType op) {
 bool touches_memory(const Instruction &instr) {
     switch (instr.op) {
     case Instruction::Op::ExtractIdx:
+        // An element of one array handle per lane (Type::is_reference_per_
+        // lane) is a read at each lane's own address, whatever the index.
+        if (!instr.operands.empty() &&
+            instr.operands[0]->get_type().is_reference_per_lane()) {
+            return true;
+        }
         // A lane of a value in registers -- a vector, or a vector of vectors
         // such as a node's eight boxes -- reads no memory at any index: where
         // a backend takes it through a stack slot the index is clamped to the
@@ -2377,10 +2383,59 @@ BlockMasks linearize(Function &func, const string &entry_name,
             // never read at it. (A read at one shared index is left alone,
             // as ispc leaves a uniform load: the address is one the program
             // reads whenever any lane reaches here.)
+            // The same for a read through an array handle that itself
+            // differs between the lanes -- a `ptr group`'s row at each
+            // lane's own address, the node of a traversal each lane walks
+            // on its own -- whatever the index: a lane that is off holds any
+            // handle at all, a reference no lane ever followed, and the
+            // original program never read there. The types are still a
+            // lane's here (widen_region comes after), so the handle's
+            // varying is the divergence analysis's word; after widening it
+            // would be the type's (Type::is_reference_per_lane).
             if (instr->op == Instruction::Op::ExtractIdx &&
                 instr->operands.size() == 2 &&
-                instr->operands[0]->get_type().is_reference() &&
-                divergence.is_varying(name, *instr->operands[1])) {
+                (instr->operands[0]->get_type().is_reference() ||
+                 instr->operands[0]->get_type().is_reference_per_lane()) &&
+                (divergence.is_varying(name, *instr->operands[1]) ||
+                 divergence.is_varying(name, *instr->operands[0]) ||
+                 instr->operands[0]->get_type().is_reference_per_lane())) {
+                instr->operands.push_back(*mask);
+                continue;
+            }
+            // And a load through an address rooted in a value the lanes
+            // disagree about -- a field of each lane's element, reached from
+            // the lane's own handle -- reads only for the lanes that are on
+            // (Deref::mask). Not a load whose address varies only by its
+            // index into one shared row -- the node's four children's
+            // bounds read as a dense ramp off the row's one address, which
+            // every lane's element lies inside of whether the lane is on or
+            // not; and a pointer into the gang's own per-lane memory is one
+            // address and is not varying (AnalyzeDivergence's pointee
+            // classes). The address chain is followed to its root: GEPs,
+            // field pointers, reinterpretations, an address-of.
+            const auto address_root = [](const shared_ptr<Value> &address) {
+                shared_ptr<Value> at = address;
+                while (true) {
+                    const auto *i =
+                        std::get_if<shared_ptr<Instruction>>(&at->data);
+                    if (i == nullptr || (*i)->operands.empty() ||
+                        ((*i)->op != Instruction::Op::GEP &&
+                         (*i)->op != Instruction::Op::FieldPtr &&
+                         (*i)->op != Instruction::Op::AddressOf &&
+                         (*i)->op != Instruction::Op::Reinterpret &&
+                         (*i)->op != Instruction::Op::Cast)) {
+                        return at;
+                    }
+                    at = (*i)->operands[0];
+                }
+            };
+            if (instr->op == Instruction::Op::Load &&
+                instr->operands.size() == 1 &&
+                ((instr->operands[0]->get_type().is<Ptr_t>() &&
+                  divergence.is_varying(name,
+                                        *address_root(instr->operands[0]))) ||
+                 (instr->operands[0]->get_type().is<Vector_t>() &&
+                  instr->operands[0]->get_type().element_of().is<Ptr_t>()))) {
                 instr->operands.push_back(*mask);
                 continue;
             }

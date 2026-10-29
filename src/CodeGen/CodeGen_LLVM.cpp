@@ -3155,6 +3155,39 @@ void CodeGen_LLVM::visit(const Extract *node) {
         return;
     }
 
+    // One array handle per lane (Type::is_reference_per_lane): the element
+    // at the index is read from each lane's own base -- a gather of the
+    // element's scalars at `lane base + index * size`, an aggregate a field
+    // at a time as gather_elements reads one (its base is then the vector
+    // of the lanes' bases, which the GEPs it forms carry through) -- the
+    // lanes the mask leaves off reading nothing, since their handles may be
+    // anything. The index is the gang's, or one the lanes share, splatted.
+    if (vec_expr.type().is_reference_per_lane()) {
+        const Vector_t *handles = vec_expr.type().as<Vector_t>();
+        const Type element = handles->etype.element_of();
+        const uint32_t lanes = handles->lanes;
+        llvm::Type *offsets_t = llvm::FixedVectorType::get(i32_t, lanes);
+        llvm::Value *idx = codegen_expr(node->idx);
+        if (!idx->getType()->isVectorTy()) {
+            idx = builder->CreateVectorSplat(lanes, idx, "extract_idx");
+        }
+        if (idx->getType() != offsets_t) {
+            idx = builder->CreateIntCast(idx, offsets_t, /*isSigned=*/true);
+        }
+        const llvm::DataLayout &dl = module->getDataLayout();
+        llvm::Type *elem_llvm = codegen_type(element);
+        const GatheredElement whole{
+            dl.getTypeAllocSize(elem_llvm).getFixedValue(),
+            element_alignment(handles->etype.as<Array_t>())};
+        llvm::Value *offsets = builder->CreateMul(
+            idx, llvm::ConstantInt::get(offsets_t, whole.bytes), "extract_off");
+        llvm::Value *mask =
+            node->mask.defined() ? codegen_expr(node->mask) : nullptr;
+        value = gather_elements(element, node->type, vec, offsets, 0, whole,
+                                lanes, mask, "extract");
+        return;
+    }
+
     llvm::Value *idx = codegen_expr(node->idx);
     if (const Vector_t *v = vec_expr.type().as<Vector_t>();
         v != nullptr && v->etype.is<Vector_t>()) {
@@ -4363,7 +4396,13 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
         while (root.is<Extract, Access>()) {
             root = root.is<Extract>() ? root.as<Extract>()->vec
                                       : root.as<Access>()->value;
-            if (root.type().is_reference()) {
+            // One array, or one array handle per lane (a per-lane
+            // reference): either is the address of its elements, and an
+            // element's address an offset from it -- one pointer per lane
+            // for the latter, which the GEPs below form from a vector of
+            // bases.
+            if (root.type().is_reference() ||
+                root.type().is_reference_per_lane()) {
                 array_root = root;
                 return true;
             }
@@ -4415,6 +4454,11 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
         if (array_root.defined()) {
             ptr = codegen_expr(array_root);
             bonsai_type = array_root.type();
+            // One handle per lane: `ptr` is the vector of the lanes' bases,
+            // and what is indexed is each lane's array.
+            if (bonsai_type.is_reference_per_lane()) {
+                bonsai_type = bonsai_type.element_of();
+            }
             elements_in_hand = true;
         } else {
             const Deref *deref = expr.as<Deref>();
@@ -4423,12 +4467,19 @@ void CodeGen_LLVM::visit(const PtrTo *node) {
             bonsai_type = deref->type;
             // A vector of pointers dereferences to a per-lane place (see
             // Deref::make), typed as a vector of what each lane's pointer
-            // points at. The offsets below are into that pointee, and a GEP
-            // over a vector of pointers with scalar indices yields a vector
-            // of pointers, which is the address of the per-lane place.
-            if (const Vector_t *per_lane = bonsai_type.as<Vector_t>();
-                per_lane != nullptr && ptr->getType()->isVectorTy()) {
-                bonsai_type = per_lane->etype;
+            // points at -- or, for an aggregate, as the gang-wide struct
+            // that aggregate widens to, whose lane's own shape is what lies
+            // in memory (ir::narrow). The offsets below are into that
+            // pointee, and a GEP over a vector of pointers with scalar
+            // indices yields a vector of pointers, which is the address of
+            // the per-lane place.
+            if (ptr->getType()->isVectorTy()) {
+                if (const Vector_t *per_lane = bonsai_type.as<Vector_t>()) {
+                    bonsai_type = per_lane->etype;
+                } else if (const std::optional<uint32_t> wide =
+                               widened_lanes(bonsai_type)) {
+                    bonsai_type = narrow(bonsai_type, *wide);
+                }
             }
         }
         llvm::Type *llvm_t = codegen_type(bonsai_type);

@@ -183,7 +183,11 @@ struct CodeGen_LLVM::SSALowering {
             internal_assert(instr->operands.size() == 2)
                 << "A GEP has a base and an index";
             Expr base = operand(instr->operands[0]);
-            internal_assert(base.type().is_reference())
+            // One array, or one array handle per lane (see
+            // Type::is_reference_per_lane): the element's address is then
+            // one pointer per lane.
+            internal_assert(base.type().is_reference() ||
+                            base.type().is_reference_per_lane())
                 << "[unimplemented] the address of an element of " << base
                 << ", which is not an array";
             return PtrTo::make(
@@ -435,8 +439,12 @@ struct CodeGen_LLVM::SSALowering {
             internal_assert(args.empty()) << "inf takes no operands";
             return Extrema::make(instr.type, Extrema::inf);
         case Instruction::Op::Load:
-            internal_assert(n == 1) << "load takes a pointer";
-            return Deref::make(std::move(args[0]));
+            // A second operand is the execution mask of a load through one
+            // pointer per lane (see Deref::mask): the lanes that read at all.
+            internal_assert(n == 1 || n == 2)
+                << "load takes a pointer and maybe a mask";
+            return Deref::make(std::move(args[0]),
+                               n == 2 ? std::move(args[1]) : Expr());
         case Instruction::Op::Cast:
             internal_assert(n == 1) << "cast takes one value";
             return Cast::make(instr.type, std::move(args[0]));

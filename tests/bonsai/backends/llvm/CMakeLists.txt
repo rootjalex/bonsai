@@ -88,6 +88,7 @@ add_bonsai_tests(
     tiled-elements-derived.bonsai
     tiled-elements-where.bonsai
     layout-tile-group-reads.bonsai
+    ptr-rows-packet.bonsai
     narrow-loads-build.bonsai
     unroll-let-names.bonsai
     argmin-tighten-children.bonsai

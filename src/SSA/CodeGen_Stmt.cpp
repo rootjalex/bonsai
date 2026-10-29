@@ -52,7 +52,11 @@ Expr codegen_value(const std::shared_ptr<Value> &v) {
                     internal_assert(i->operands.size() == 2)
                         << "Malformed GEP: expected 2 operands";
                     Expr base = codegen_value(i->operands[0]);
-                    internal_assert(base.type().is_reference())
+                    // One array, or one array handle per lane (see
+                    // Type::is_reference_per_lane): the element's address is
+                    // then one pointer per lane.
+                    internal_assert(base.type().is_reference() ||
+                                    base.type().is_reference_per_lane())
                         << "[unimplemented] the address of an element of "
                         << base << " : " << base.type()
                         << ", which is not an array";
@@ -840,8 +844,11 @@ Expr pure_expr(const Instruction &instr, std::vector<Expr> args) {
         break;
     }
     case Instruction::Op::Load: {
-        internal_assert(args.size() == 1) << args.size();
-        value = Deref::make(std::move(args[0]));
+        // A second operand is the execution mask of a load through one
+        // pointer per lane (see Deref::mask): the lanes that read at all.
+        internal_assert(args.size() == 1 || args.size() == 2) << args.size();
+        value = Deref::make(std::move(args[0]),
+                            args.size() == 2 ? std::move(args[1]) : Expr());
         break;
     }
     case Instruction::Op::LoadField: {

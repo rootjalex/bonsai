@@ -44,6 +44,7 @@ add_bonsai_tests(
     tiled-elements-one.bonsai
     layout-row-read.bonsai
     layout-tile-group-reads.bonsai
+    ptr-rows-packet.bonsai
     packed-field.bonsai
     skip-leaf-helper.bonsai
     skip-geometric-op.bonsai

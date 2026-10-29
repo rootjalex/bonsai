@@ -142,6 +142,11 @@ bool Type::is_vector() const {
 
 bool Type::is_reference() const { return this->is<Array_t, DynArray_t>(); }
 
+bool Type::is_reference_per_lane() const {
+    const Vector_t *v = this->as<Vector_t>();
+    return v != nullptr && !v->packed && v->etype.is<Array_t>();
+}
+
 bool Type::is_readonly() const {
     if (const Array_t *a = this->as<Array_t>()) {
         return a->readonly;
