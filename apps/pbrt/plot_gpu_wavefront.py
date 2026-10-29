@@ -143,9 +143,13 @@ WHY = [
     "the ray sort (wf-sort) never pays on the GPU: 9-15% over the unsorted wavefront by kernel",
     "  time and 20-31% by wall -- a dozen small launches before every trace (96 sorts in a 30 ms",
     "  frame at 16 spp) for coherence the traversal hardware's own scheduling already had.",
-    "with more samples every speedup falls, to about 0.7x of its 16-spp value at 128 spp: pbrt's",
-    "  per-frame costs (launch setup, queue resets, camera rays) are a smaller share of a longer",
-    "  render.",
+    "with more samples every speedup falls, to 0.82-0.86x of its 16-spp value at 128 spp over the",
+    "  eight scenes (about 0.7x on the five cheap scenes of 10-28 alone): pbrt's per-frame costs",
+    "  (launch setup, queue resets, camera rays) are a smaller share of a longer render.",
+    "over the eight scenes (10-29), the wavefront is best on seven and the SER flat megakernel on",
+    "  killeroo-gold alone; where the trace is heavy (ganesha, bistro, kroken) every megakernel",
+    "  is below pbrt's wavefront at 128 spp, and SER's gain on the flat launch runs from a loss",
+    "  (bistro, 0.79x) to a doubling (kroken 2.1x, watercolor 2.0x) -- the figure's spread.",
 ]
 READINGS = {
     "killeroo-simple": [
@@ -188,11 +192,49 @@ READINGS = {
         "(CoatedDiffuse, Dielectric, Diffuse, DiffuseTransmission -- the most of the five) and the",
         "heaviest trace per sample (0.22 ms a trace launch at 64 spp against 0.15 on book): both sides",
         "spend most of the frame in the same RT-core traversal, so what the schedule saves around it",
-        "is the smallest share here and the wavefront's margin the smallest of the five, falling",
-        "fastest with spp. The fused wavefront of 10-24 cost nothing on this scene where it cost the",
-        "others a fifth to a third -- the reading being that the trace is bound by the traversal's",
-        "latency, not by occupancy, so a bigger program rides along -- which is also why the SER flat",
-        "megakernel is nearest the wavefront here at 16 spp (1.88x against 2.03x).",
+        "is the smallest share here and the wavefront's margin the smallest of the five of 10-28",
+        "(landscape's is smaller), falling fastest with spp. The fused wavefront of 10-24 cost nothing",
+        "on this scene where it cost the others a fifth to a third -- the reading being that the trace",
+        "is bound by the traversal's latency, not by occupancy, so a bigger program rides along --",
+        "which is also why the SER flat megakernel is nearest the wavefront here (1.49x against 1.61x",
+        "at 16 spp on 10-29; pbrt's own 16-spp wall moved from 0.24 s to 0.19 s between the two runs",
+        "while ours did not, so the 16-spp speedups read 2.03x on 10-28 and 1.61x now).",
+    ],
+    # The four scenes added on 10-29 (the user: eight scenes at 16 and 128
+    # spp). What the table shows; the causes are not yet measured (no
+    # profile of these scenes), and are said so.
+    "bistro": [
+        "2.9M triangles in 1,693 meshes, 133 materials, 20,638 area lights (the light BVH's scene): the",
+        "wavefront wins every cell (2.16x, 1.76x) by 2.5x over the best megakernel, and this is the one",
+        "scene where shader execution reordering costs -- mk-ser-flat 0.67x against mk-flat's 0.85x at 16",
+        "spp (0.52x against 0.66x at 128), and the per-sample SER megakernel 0.33x and 0.25x, the worst",
+        "cells of the sweep. Why SER loses here is not measured (no profile of bistro); the suspicion is",
+        "the light sampling's share of the frame -- a sort by material does nothing for a stage that",
+        "walks a light BVH of twenty thousand emitters -- and it is a reading, not a measurement.",
+    ],
+    "landscape": [
+        "27.9M triangles, 30,034 instances of 32 objects (a two-level traversal through the deepest",
+        "instancing of the set), 638 materials, 1,611 textures, 3840x2160: the flattest scene -- the",
+        "wavefront 1.30x and 1.20x, the heatmap's lowest, the SER flat megakernel within 5% of it (1.25x,",
+        "1.14x) and the flat megakernels at parity (1.02x, 0.92x), only the per-sample forms well below.",
+        "Both sides spend the frame in the same instanced RT-core trace, so the schedule has the least to",
+        "save (sanmiguel's reading at a larger scale); not profiled.",
+    ],
+    "kroken": [
+        "288M triangles (248M from displacement, 10 instances of 10 objects), 80 materials, 2,175 area",
+        "lights, depth 15 and 6.75 rays a camera ray, the deepest paths of the set: the wavefront wins",
+        "every cell (2.30x, 1.94x) with the sort behind it; SER doubles the flat megakernel (0.64x ->",
+        "1.33x at 16 spp, 0.53x -> 1.10x at 128), the largest SER gain of the eight with watercolor's,",
+        "and still leaves it 1.7x behind the wavefront. Not profiled; the long paths (a lane alive to",
+        "bounce 15 holds its warp) are the reading for the megakernels' loss.",
+    ],
+    "watercolor": [
+        "58M triangles (34M from displacement), 944 meshes, 261 materials, 412 textures, depth 15, 4.1",
+        "rays a camera ray: the highest speedups of the sweep -- the wavefront 2.83x and 2.59x (the",
+        "heatmap's highest), the SER flat megakernel 2.61x and 2.38x, within 9% of it, SER doubling the",
+        "flat launch (1.31x -> 2.61x, 1.19x -> 2.38x), the per-sample megakernels 0.73-1.35x. Why pbrt's",
+        "wavefront is slowest here relative to ours is not measured; the 1.86 GiB of image maps and the",
+        "261 materials make the material stage the suspect.",
     ],
 }
 CAUSES = [

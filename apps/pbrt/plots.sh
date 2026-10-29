@@ -11,8 +11,9 @@
 #                              wavefront, five scenes x 16/64/128 spp, from
 #                              cpu_compare.sh's CSVs (plot_cpu_wavefront.py)
 #   plots/pbrt-gpu-sweep.pdf   every measured OptiX schedule's speedup over
-#                              pbrt --gpu on the same cells, from
-#                              gpu_compare.sh's tables (plot_gpu_wavefront.py)
+#                              pbrt --gpu, eight scenes x 16/128 spp (the
+#                              user's set, 10-29), from gpu_compare.sh's
+#                              tables (plot_gpu_wavefront.py)
 #   plots/pbrt-gpu-heatmap.pdf the matching GPU wavefront (gpu-optix) over
 #                              pbrt --gpu on all thirty scenes x 16/64/128
 #                              spp, from the last heatmap run
@@ -54,17 +55,20 @@ OUT="$PREFIX/plots"
 # 7af5bd86 (the exit merge in place of the funnel). The 10-23/24 tables
 # it replaces are cpu-compare-out/ and cpu-compare-out-sortfix/.
 CPU_CSVS="${CPU_CSVS:-$PREFIX/cpu-compare-out-head/cpu-results.csv}"
-# The GPU sweep of the same night (23:15-00:45): the paper figure's eight
-# sides on the five scenes at 16/64/128 spp under the same compiler,
-# every schedule's registers at OptiX's own choice (BONSAI_GPU_MAX_REGISTERS=0,
-# as pbrt compiles its own modules; the raygens land at 128, the SER
-# pipeline at 255 -- see the profiles). The night of 10-27's tables under
-# 39c67ab9 (the exit funnel) are gpu-compare-out-d/. The exploration sides
-# of 10-24 (wf-b128, wf-b512, wf-fused, wf-fused-ser, wf-sort36,
-# mk-ser-ray) are in gpu-compare-out-explore-b/table.tsv, an older
-# compiler's; to draw them, list that table here too and name them in
-# GPU_SIDES.
-GPU_TABLES="${GPU_TABLES:-$PREFIX/gpu-compare-out-e/table.tsv}"
+# The GPU sweep of 10-29 afternoon (14:42-16:37, scratch/run_eight_scenes.sh):
+# the paper figure's eight sides on the eight scenes at 16 and 128 spp
+# (the user's set: killeroo-gold, book, sanmiguel-courtyard, ganesha,
+# bistro_vespa, landscape, kroken, watercolor) under the compiler at
+# d14da45b, every schedule's registers at OptiX's own choice
+# (BONSAI_GPU_MAX_REGISTERS=0, as pbrt compiles its own modules; the
+# raygens land at 128, the SER pipeline at 255 -- see the profiles). The
+# night of 10-28's five scenes at 16/64/128 spp under 7af5bd86 are
+# gpu-compare-out-e/, the night of 10-27's under 39c67ab9 (the exit
+# funnel) gpu-compare-out-d/. The exploration sides of 10-24 (wf-b128,
+# wf-b512, wf-fused, wf-fused-ser, wf-sort36, mk-ser-ray) are in
+# gpu-compare-out-explore-b/table.tsv, an older compiler's; to draw them,
+# list that table here too and name them in GPU_SIDES.
+GPU_TABLES="${GPU_TABLES:-$PREFIX/gpu-compare-out-eight/table.tsv}"
 # The heatmap of the same night (00:45-02:22), the gpu-optix renderer
 # reused from the sweep; compare-out-heatmap11/ is 10-27's under 39c67ab9.
 HEATMAP_TABLE="${HEATMAP_TABLE:-$PREFIX/compare-out-heatmap12/table.tsv}"

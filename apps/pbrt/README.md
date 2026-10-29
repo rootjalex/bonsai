@@ -182,8 +182,9 @@ before it.
     five scenes x 16/64/128 spp (plot_cpu_wavefront.py from
     cpu-compare-out-head, the night of 10-28's run);
   - `pbrt-gpu-sweep.pdf`: every measured OptiX schedule over `pbrt --gpu`
-    on the same cells (plot_gpu_wavefront.py from gpu-compare-out-e, the
-    same night's run under the same compiler);
+    on the paper's eight scenes x 16/128 spp (plot_gpu_wavefront.py from
+    gpu-compare-out-eight, the afternoon of 10-29's run under d14da45b;
+    the CPU sweep moves to the same eight scenes when its run lands);
   - `pbrt-gpu-heatmap.pdf`: the matching GPU wavefront (gpu-optix) over
     `pbrt --gpu` on all thirty scenes x 16/64/128 spp, the scenes in
     order of the geometry pbrt built for them, volumes first (`--sort
