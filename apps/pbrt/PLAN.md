@@ -19037,3 +19037,35 @@ medium march) at 16 spp, one gpu_compare.sh run per compiler, ~25
 minutes of card, would say whether both are recovered; and after it
 the three GPU figures redrawn under HEAD (sweep ~2 h 10, heatmap ~1 h
 45) so the paper's figures are of one compiler again.
+
+**The tool's own run of the ganesha trace launch (19:29-19:31).** The
+16:21 figure's ganesha wavefront panel was drawn from a merge I did by
+hand (the full set's counters, the timing metrics from single-pass
+runs, the load latency by remainder); the tool that does the same
+merge in one command, `profile_kernels.sh --single-pass-timing`, had
+not yet run on the card. bonsai-ac's wosx remeasure ended at 19:27 and
+they sent 'done'; I sent 'timing' at 19:29 and ran
+apps/pbrt/scratch/profile_wf_ganesha_singlepass.sh under my lock,
+19:29:25-19:30:42 (the lock on at 19:29:27 and off at 19:30:45 by the
+watcher armed in the same response as the message; the 15:31 late
+start did not recur), 'done' at 19:31 after the redraw. The tool's
+merge, now the files apps/pbrt/profile-out/ganesha-16-gpu-optix-L0.*
+in place of the hand-made ones: duration 420 us in one pass; 77.1
+warp-cycles per issued instruction against the hand merge's 78.7 --
+fetch 1.0 (1%), traversal wait 30.4 (39%), memory 40.1 (52%, was 53%),
+other 5.6 (7%); the load latency 35.0 by remainder of 77.1 over the
+sixteen other reasons (the hand merge had 36.5 = 78.7 - 42.1); barrier
+30.4, lg_throttle 2.6, mio_throttle 2.5, no_instruction 1.0; lanes
+31.17 of 32, warps 15.9 of 48 per SM, issue slots 5.1%; per function
+the closest-hit program 14,530 instructions at 30.6 lanes (52% of the
+executed instructions), the raygen's prologue 85 at 32.0 and its
+continuation 268 at 31.4, the miss program 3 at 30.8. Every number
+within a cycle or a point of the hand merge, which is the
+run-to-run spread of a one-pass measurement; the reading stands. All
+four figures redrawn at 19:31 (`plots.sh --png`): pbrt-gpu-profile.*
+now carries the tool's numbers and its provenance column. The card is
+bonsai-ac's from 19:31 for their wosx schedule exploration (~1 h, then
+their tables); nothing of mine runs until their next 'done'. Still
+open with the user: bonsai-ac's A/B proposal (HEAD vs a53c8f84, ~25
+min), the GPU figures' redo under HEAD (~4 h of card), and the CPU
+sweep's redo (~4 h of idle CPU).
