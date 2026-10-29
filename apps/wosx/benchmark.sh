@@ -17,7 +17,11 @@
 # The figures (plot.py) go into apps/wosx/plots, one per tree
 # (wosx-cpu-fcpw4w16-speedup.*, wosx-cpu-fcpwb-speedup.*): the meshes along
 # the x axis by triangle count, two bars each -- the threads against the
-# threads, the persistent workers against the threads. One thread against
+# threads, the persistent workers against the threads -- and on WoSX's
+# default tree the exploration's bars beside them (plot.py's
+# CPU_EXTRA_BARS: the layout where a node holds its children's boxes,
+# threaded and persistent; the walk vectorized over a point's walks in
+# gangs of 32 and of 16 lanes, threaded). One thread against
 # one thread (the bare schedules, `fcpwb`, `fcpw4w16`, `wost-fcpwb`) is
 # measured by name alone (--schedules) and drawn by none of the figures:
 # an application runs in parallel under the reference's schedule, and the
@@ -27,7 +31,9 @@
 #
 # --gpu runs the GPU comparison instead: the schedules default to the GPU
 # ones (fcpwb-gpu, the schedule matching WoSX's persistent-thread kernel,
-# and its six variants, README.md's list; compare.sh's *-gpu* rule builds the driver against
+# its variants and the launches through OptiX, README.md's list;
+# fcpwb-gpu-point, a point a claim, left the defaults and the figure on
+# 2026-10-28 at a tenth of WoSX's rate; compare.sh's *-gpu* rule builds the driver against
 # slang-rhi and runs both sides on the card), the logs go to
 # apps/wosx/results/gpu-logs, the CSV to apps/wosx/results/wosx-gpu-results.csv
 # and the plot to apps/wosx/plots/wosx-gpu-speedup.*; the idle check also
@@ -41,7 +47,8 @@
 # ones, wost-fcpwb-threads and wost-fcpwb-persistent -- WoSX's default
 # trees, the threads and the persistent workers -- or
 # with --gpu to wost-fcpwb-gpu, the schedule matching WoSX's GPU walk on
-# stars; the logs go to apps/wosx/results/stars-logs (stars-gpu-logs), the
+# stars, and the walk on spheres' GPU variants on this walk (wost-fcpwb-gpu-*,
+# the same names); the logs go to apps/wosx/results/stars-logs (stars-gpu-logs), the
 # CSV to apps/wosx/results/wosx-stars-results.csv (wosx-stars-gpu-
 # results.csv) and the figures to wosx-stars-cpu-fcpwb-speedup.* and
 # wosx-stars-gpu-speedup.*. The error column is the root-mean-square
@@ -57,10 +64,12 @@
 # whole slice.
 #
 # Options: --schedules (default fcpw4w16-threads,fcpw4w16-persistent,
-# fcpwb-threads,fcpwb-persistent: on each of the two trees -- FCPW's
-# four-wide Mbvh, and WoSX's default, FCPW's scalar binary BVH -- the
-# threads each, and the threads with the points claimed by sixteen
-# persistent workers instead of TBB's partition), --meshes
+# fcpwb-threads,fcpwb-persistent, then the exploration's fcpwb2-threads,
+# fcpwb2-persistent, fcpwb-packet-threads, fcpwb-packet-16-threads: on
+# each of the two trees -- FCPW's four-wide Mbvh, and WoSX's default,
+# FCPW's scalar binary BVH -- the threads each, and the threads with the
+# points claimed by sixteen persistent workers instead of TBB's partition;
+# on WoSX's default tree also the other layout and the two packets), --meshes
 # (default all, names as below), --out DIR for the logs (default
 # apps/wosx/results/logs) and --csv FILE for the table folded from them
 # (default apps/wosx/results/wosx-results.csv; an exploration names both,
@@ -131,10 +140,16 @@ while [[ $# -gt 0 ]]; do
 done
 # The CPU table's defaults -- the two parallel schedules on each of the two
 # trees, FCPW's four-wide Mbvh (both sides vectorized) and WoSX's default,
-# FCPW's scalar binary BVH (both sides as WoSX ships) -- or the GPU
-# table's; or the walk on stars' tables, on WoSX's default trees alone.
+# FCPW's scalar binary BVH (both sides as WoSX ships), and on WoSX's tree
+# the exploration's four (the fcpwb2 layout threaded and persistent, the
+# packets of 32 and 16 lanes threaded) -- or the GPU table's: the matching
+# schedule, its variants, and the launches through OptiX (the plain
+# ray-generation launch, the same with the threads reordered by position
+# before every step, and the persistent claim under that reordering); or
+# the walk on stars' tables, on WoSX's default trees alone, its GPU table
+# the walk on spheres' schedules on that walk with the per-point deferral.
 if (( STARS && GPU )); then
-  SCHEDULES="${SCHEDULES:-wost-fcpwb-gpu}"
+  SCHEDULES="${SCHEDULES:-wost-fcpwb-gpu,wost-fcpwb-gpu-parallel,wost-fcpwb-gpu-reorder,wost-fcpwb-gpu-256k,wost-fcpwb-gpu-reorder-256k,wost-fcpwb-gpu-parallel-reorder-blk64,wost-fcpwb-gpu-optix,wost-fcpwb-gpu-optix-ser,wost-fcpwb-gpu-optix-ser-persistent,wost-fcpwb-gpu-defer-block}"
   OUT="${OUT:-apps/wosx/results/stars-gpu-logs}"
   CSV="${CSV:-apps/wosx/results/wosx-stars-gpu-results.csv}"
 elif (( STARS )); then
@@ -142,11 +157,11 @@ elif (( STARS )); then
   OUT="${OUT:-apps/wosx/results/stars-logs}"
   CSV="${CSV:-apps/wosx/results/wosx-stars-results.csv}"
 elif (( GPU )); then
-  SCHEDULES="${SCHEDULES:-fcpwb-gpu,fcpwb-gpu-parallel,fcpwb-gpu-reorder,fcpwb-gpu-point,fcpwb-gpu-256k,fcpwb-gpu-reorder-256k,fcpwb-gpu-parallel-reorder-blk64}"
+  SCHEDULES="${SCHEDULES:-fcpwb-gpu,fcpwb-gpu-parallel,fcpwb-gpu-reorder,fcpwb-gpu-256k,fcpwb-gpu-reorder-256k,fcpwb-gpu-parallel-reorder-blk64,fcpwb-gpu-optix,fcpwb-gpu-optix-ser,fcpwb-gpu-optix-ser-persistent}"
   OUT="${OUT:-apps/wosx/results/gpu-logs}"
   CSV="${CSV:-apps/wosx/results/wosx-gpu-results.csv}"
 else
-  SCHEDULES="${SCHEDULES:-fcpw4w16-threads,fcpw4w16-persistent,fcpwb-threads,fcpwb-persistent}"
+  SCHEDULES="${SCHEDULES:-fcpw4w16-threads,fcpw4w16-persistent,fcpwb-threads,fcpwb-persistent,fcpwb2-threads,fcpwb2-persistent,fcpwb-packet-threads,fcpwb-packet-16-threads}"
   OUT="${OUT:-apps/wosx/results/logs}"
   CSV="${CSV:-apps/wosx/results/wosx-results.csv}"
 fi

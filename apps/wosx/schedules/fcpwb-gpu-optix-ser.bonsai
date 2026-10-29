@@ -1,0 +1,41 @@
+// fcpwb-gpu-optix.bonsai with the walks reordered at every step: shader
+// execution reordering (OptiX's `optixReorder`, Ada and later), written as
+// a sort on the walk's own recursive call -- `walk.sort(walk, |x, problem|
+// key)`, the calls to `walk` ordered by a key of what the call passes
+// (docs/schedule-semantics.md, the sort on a call; Lower/Sorts.cpp) --
+// which in a loop bound to OptixThread is the hint before the call: the
+// launch's threads about to take their next step are regrouped so that
+// those whose keys agree run together on a warp from there on. The key
+// (walk_keys.bonsai) is the cell of a 32x32x32 grid over the problem's box
+// the walk stands in, a fifteen-bit Morton code, so that a warp's lanes
+// ask the tree about one neighbourhood: the lanes of a warp in WoSX's
+// kernel and in the matching schedule hold walks that started together and
+// are spread over the mesh a few steps later, each traversal its own, about
+// three lanes of 32 active per instruction (PLAN.md, "The lanes of a warp").
+// The distance query itself stays the kernel's software traversal; the
+// hardware is asked only to regroup the threads. What it costs: the
+// reorder's call per step, and the registers the raygen keeps across it.
+//
+// A function's sorts come before its other directives (Lower/Sorts.cpp
+// lowers them first), so this file does not import kernel/fcpwb.bonsai,
+// whose `walk.loopify()` would come first: the sort is written first, then
+// the walk's loop and the kernel's traversal, directive for directive as
+// kernel/fcpwb.bonsai has them, over the same layout.
+import apps/rtq/schedules/layouts/fcpwb_gpu;
+import apps/wosx/walk_keys;
+
+schedule {
+    walk.sort(walk, |x : vec3f, problem : Problem| walk_sort_key(x, problem.lo, problem.hi));
+    walk.loopify();
+
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        distmin(s, AABB{lo[i], hi[i]}))
+                  .unroll(triangles.Interior.children)
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
+
+    solve_all.reorder(i, w);
+    solve_all.collapse(w, i, k);
+    solve_all.bind(k, OptixThread);
+}

@@ -1,0 +1,30 @@
+// fcpwb-gpu-optix-ser.bonsai with the persistent claim: fcpwb-gpu.bonsai's
+// 131072 workers claiming one walk at a time from a counter (WoSX's
+// kernel's shape), run as one ray-generation launch of that many threads
+// instead of blocks of 256 -- `bind(t, OptixThread)` on the workers' loop
+// -- and the walks reordered at every step by where they stand
+// (walk_keys.bonsai's cell key; the sort on the walk's recursive call, as
+// fcpwb-gpu-optix-ser.bonsai says, written first since a function's sorts
+// come before its other directives). Against fcpwb-gpu-optix-ser it
+// measures the claim under the reordering: a finished lane claims the next
+// walk at once where the plain launch's warp lives as long as its longest
+// walk; against fcpwb-gpu, the matching schedule, the reordering alone.
+import apps/rtq/schedules/layouts/fcpwb_gpu;
+import apps/wosx/walk_keys;
+
+schedule {
+    walk.sort(walk, |x : vec3f, problem : Problem| walk_sort_key(x, problem.lo, problem.hi));
+    walk.loopify();
+
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        distmin(s, AABB{lo[i], hi[i]}))
+                  .unroll(triangles.Interior.children)
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
+
+    solve_all.reorder(i, w);
+    solve_all.collapse(w, i, k);
+    solve_all.persistent(k, t, 131072);
+    solve_all.bind(t, OptixThread);
+}

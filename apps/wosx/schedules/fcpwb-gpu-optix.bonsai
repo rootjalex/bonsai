@@ -1,0 +1,18 @@
+// fcpwb-gpu-parallel.bonsai's launch made through OptiX: every (walk, point)
+// pair is a thread of one ray-generation launch -- `bind(k, OptixThread)`,
+// the loop's body the raygen program of an OptiX module of its own
+// (docs/schedule-semantics.md, 3; CodeGen_OptiX) -- with no query on the
+// ray tracing hardware: the distance query is the kernel's software
+// traversal of FCPW's tree, as in every schedule of this table. OptiX
+// chooses the launch's block shape; nothing else differs from the plain
+// launch. Against fcpwb-gpu-parallel it measures what the OptiX launch
+// itself costs or gives, and it is the control for fcpwb-gpu-optix-ser,
+// which adds the one thing only such a launch can have: the threads
+// reordered between the steps.
+import apps/wosx/schedules/kernel/fcpwb;
+
+schedule {
+    solve_all.reorder(i, w);
+    solve_all.collapse(w, i, k);
+    solve_all.bind(k, OptixThread);
+}

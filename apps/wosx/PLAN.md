@@ -2196,19 +2196,218 @@ run. So after the merge: spheres GPU persistent 1.38x over 18 meshes
 1.21x/1.31x on the wide tree and 1.17x/1.23x on WoSX's default, stars CPU
 1.21x/1.24x -- the figures of 16:52, 17:00, 17:29 and 19:27.
 
+### The schedule exploration of 10-28: the point schedule out, OptiX with reordering, the stars' variants, the CPU's layout and packets
+
+The user, 10-28 evening: the persistent-point schedule's bar gone from
+the GPU figure; whether persistent-reorder-256k is a loop reorder or SER;
+a schedule using OptiX with shader execution reordering at each step of
+the walk; more schedules on the walk on stars' GPU figure and on the CPU
+figures, vectorization on fcpwb among them -- "be creative, try some
+things".
+
+**The answers before measuring.** persistent-reorder-256k is a loop
+interchange: `reorder(i, w)` then `reorder(w, i)` swaps the two loops of
+the nest before `collapse`, so the work items are numbered walk-fastest
+and a warp's 32 consecutive claims are one point's walks; nothing in any
+wosx schedule reordered threads at run time. The compiler has the
+construct, written for pbrt (docs/schedule-semantics.md, the sort on a
+call; Lower/Sorts.cpp apply_reorder): `f.sort(g, |args| key)` inside a
+loop bound to OptixThread is `optixReorder(key, bits)` before the call,
+the hint the key's low bits, at most sixteen. The stars' variants had
+been planned in this file's Next list on 10-25 and never run; the CPU's
+packet forms were measured one thread against one thread on 10-09 at a
+tenth of WoSX's rate and left out of the defaults since.
+
+**What was built** (apps/wosx/schedules, README.md's list). The walk on
+spheres through OptiX: `fcpwb-gpu-optix` (the flat launch as a
+ray-generation program, `bind(k, OptixThread)`, the traversal the
+kernel's software one -- the control), `fcpwb-gpu-optix-ser` (the same
+with `walk.sort(walk, |x, problem| walk_sort_key(x, problem.lo,
+problem.hi))`: before every step the launch's threads are regrouped by
+the cell of a 32x32x32 grid over the box the walk stands in, a fifteen-bit
+Morton code -- walk_keys.bonsai, a file only the reordering schedules
+import) and `fcpwb-gpu-optix-ser-persistent` (the 131072-worker claim
+under that reordering, `bind(t, OptixThread)` on the workers' loop, a
+combination the suite had no test of; it compiles and computes the right
+estimate). The walk on stars' GPU variants: parallel, reorder, 256k,
+reorder-256k, parallel-reorder-blk64, the per-point deferral
+(defer-block), optix, optix-ser and optix-ser-persistent, each the walk
+on spheres' directives on solve_stars. The CPU: `fcpwb2-threads` and
+`fcpwb2-persistent` (the layout where a node's row holds its children's
+boxes, one row read a visit where FCPW's take three, in parallel; WoSX's
+side unchanged on FCPW's own rows), `fcpwb-packet-threads` and
+`fcpwb-packet-16-threads` (a point's walks vectorized in gangs of 32 and
+of 16 lanes, the points over the threads). One rule met on the way: a
+function's `sort` directives come before its other directives
+(Lower/Sorts.cpp:738), so the reordering schedules cannot import
+kernel/fcpwb.bonsai, whose `walk.loopify()` would come first; they import
+the layout and spell the traversal out, as the deferral schedules do.
+compare.sh gives every GPU build the OptiX SDK's and CUDA's include
+paths, which the generated header of an OptiX program needs
+(runtime/bonsai_optix.h); plot.py draws the new bars (GPU_BARS,
+STARS_GPU_BARS, CPU_EXTRA_BARS) and no longer draws persistent-point by
+default (its rows stay in the CSV, its file runnable by name).
+
+**Measured on the comb and the head** (scratch/explore: the comb one
+repeat as a check that each schedule builds and computes WoSX's estimate
+-- every one did, the same walks ended on both sides, the mean lengths
+and errors equal, z within 2 -- then the head with three repeats beside
+each schedule's control; speedups over WoSX):
+
+| walk on spheres, GPU | head |
+|---|---|
+| persistent (matching, CUDA) | 1.45x |
+| parallel (one launch, CUDA) | 1.47x |
+| optix | 1.07x |
+| optix-ser | 1.02x |
+| optix-ser-persistent | 0.93x |
+
+| walk on stars, GPU | head |
+|---|---|
+| persistent (matching) | 1.65x |
+| parallel | 1.00x |
+| persistent-reorder | 1.74x |
+| persistent-256k | 1.62x |
+| persistent-reorder-256k | 1.81x |
+| parallel-reorder-blk64 | 1.44x |
+| defer-block | 0.90x |
+| optix | 0.94x |
+| optix-ser | 1.21x |
+| optix-ser-persistent | 1.19x |
+
+| CPU, WoSX's default tree | head | comb |
+|---|---|---|
+| fcpwb-threads | 1.16x | 1.06x |
+| fcpwb2-threads | 1.18x | 1.24x |
+| fcpwb2-persistent (fcpwb-persistent 1.17x) | 1.18x | 1.25x |
+| fcpwb-packet-threads (32 lanes) | 0.49x | 1.95x |
+| fcpwb-packet-16-threads | 0.65x | 2.01x |
+
+Three readings. (1) The reordering is real and the OptiX launch eats it:
+on the stars walk, three traversals a step, regrouping the threads by
+position lifts the same launch from 0.94x to 1.21x; on the spheres walk,
+one short traversal a step (13.7 steps a walk on the head), the reorder's
+call per step costs more than the coherence gives (1.07x -> 1.02x). Both
+ways the plain ray-generation launch of this software traversal runs far
+under the CUDA launch of the same code (spheres 1.07x against 1.47x,
+stars 0.94x against 1.00x), and the persistent claim under OptiX adds
+nothing (spheres 0.93x, stars 1.19x), so no OptiX schedule reaches the
+CUDA persistent ones. The runtime compiles the module at OptiX's default
+optimization with no debug or exception flags (bonsai_optix.h; the
+validating mode is off), so the cost is the raygen's own -- what OptiX
+makes of a 64-entry traversal stack and a long loop in a program meant
+to trace -- and a profile would say where, which for an OptiX launch
+needs the user's yes. (2) The walk on stars rewards the walk on spheres'
+best schedules more than that walk did: reorder-256k 1.81x on the head
+against the matching 1.65x (the spheres' 1.75x against 1.45x, the 10-28
+table), and the plain one-launch form collapses to 1.00x on this walk,
+whose 78-step walks have a long tail that a warp of the plain launch
+waits out; the per-point deferral, which the Next list expected a
+three-query step to reward, is at 0.90x -- a block of one point's 64
+walks idles on its barriers once they thin, as on the spheres. (3)
+Vectorizing over a point's walks is the mesh's call: on the comb, whose
+walks are six steps and stay together, the packet doubles the rate
+(1.95x and 2.01x against 1.06x); on the head it halves it, and sixteen
+lanes beat thirty-two by a third (0.65x against 0.49x: a gang of sixteen
+is one vector instruction where thirty-two is two, and the leaves it
+reaches are the union of sixteen walks' rather than thirty-two). The
+fcpwb2 layout buys 2% on the head and 18% on the comb in parallel.
+
+**The tables** (10-28, 19:44-22:07: benchmark.sh --gpu, --stars --gpu,
+then the CPU table, each resuming from its logs so that only the new
+schedules' cells ran -- 57, 171 and 76 cells -- and each figure redrawn
+as its table folded; every new cell computed WoSX's estimate, the same
+walks ended, lengths and errors equal). Speedups over WoSX by geomean
+over 18 meshes:
+
+| walk on spheres, GPU | geomean | min | max |
+|---|---|---|---|
+| persistent (matching) | 1.38x | 1.13 beast | 1.53 ivy |
+| parallel | 1.37x | 1.08 comb | 1.53 ivy |
+| persistent-reorder | 1.51x | 1.10 beast | 1.72 ganesha |
+| persistent-256k | 1.54x | 1.17 beast | 1.71 ivy |
+| persistent-reorder-256k | 1.64x | 1.10 beast | 1.98 ganesha |
+| parallel-reorder-blk64 | 1.59x | 1.08 beast | 1.91 ganesha |
+| optix | 1.03x | 0.77 comb | 1.12 ganesha |
+| optix-ser | 0.97x | 0.65 comb | 1.12 ivy |
+| optix-ser-persistent | 0.90x | 0.62 comb | 1.05 ivy |
+
+| walk on stars, GPU | geomean | min | max |
+|---|---|---|---|
+| persistent (matching) | 1.54x | 1.27 whale | 1.80 dambreak |
+| parallel | 1.07x | 0.82 zero-day | 1.46 comb |
+| persistent-reorder | 1.64x | 1.21 beast | 1.98 dambreak |
+| persistent-256k | 1.52x | 0.96 crown | 1.82 dambreak |
+| persistent-reorder-256k | 1.66x | 1.28 octopus | 1.97 ivy |
+| parallel-reorder-blk64 | 1.45x | 1.17 zero-day | 1.82 comb |
+| optix | 0.97x | 0.82 zero-day | 1.17 dambreak |
+| optix-ser | 1.04x | 0.35 whale | 1.88 ivy |
+| optix-ser-persistent | 0.99x | 0.36 whale | 1.80 ivy |
+| defer-block | 0.99x | 0.72 zero-day | 1.35 dambreak |
+
+| CPU, WoSX's default tree | geomean | min | max |
+|---|---|---|---|
+| fcpwb-threads (matching) | 1.17x | 1.06 dragon | 1.30 comb |
+| fcpwb-persistent | 1.23x | 1.16 whale | 1.46 dragon |
+| fcpwb2-threads | 1.22x | 1.15 crown | 1.35 ganesha |
+| fcpwb2-persistent | 1.27x | 1.18 crown | 1.64 ganesha |
+| fcpwb-packet-threads (32 lanes) | 0.39x | 0.26 rover | 1.86 comb |
+| fcpwb-packet-16-threads | 0.55x | 0.39 rover | 2.03 comb |
+
+What the tables add to the head's readings. (1) The OptiX launch of the
+software traversal runs at 0.75x of the CUDA launch of the same code on
+the spheres (optix over parallel, 0.70 ivy to 0.82 beast, every mesh)
+and at 0.91x on the stars. The reordering over it is 0.93x on the
+spheres (one short traversal a step) and 1.07x by geomean on the stars,
+but that geomean hides two populations: on the five million-walk meshes
+with the longest walks it is at or near the best of the ten -- ivy 1.88x
+over WoSX (656 steps a walk), rover 1.72x (405 steps; the best of the
+ten there), dambreak 1.64x (351), ganesha 1.41x (235), car 1.39x (109)
+-- and on the three launches of 150 to 305 thousand walks it runs at a
+third to a half of the plain OptiX launch (whale 0.35x over WoSX against
+optix's 0.96x, octopus 0.43x against 0.91x, comb 0.87x against 1.08x),
+the same three meshes where the spheres' reordering loses most (0.65x,
+0.69x, 0.83x). The correlate in the table is the launch's walk count,
+not the walk's length (whale's 30 steps, octopus's 75, car's 109) nor
+the tree's size (whale's 100k triangles against bmw's 111k, which gains);
+what the hardware does with a reorder among fewer threads in flight is a
+profile's question, and so the user's. The persistent claim under OptiX
+stays under the plain OptiX launch on both walks (0.93x and 0.96x of
+optix-ser). (2) On the stars the loop interchange alone is the move:
+persistent-reorder 1.64x and persistent-reorder-256k 1.66x (the head's
+1.74x and 1.81x were the head's), the best of the ten on 7 and 5 meshes,
+and twice the threads buys nothing without it (persistent-256k 0.99x of
+persistent, where the spheres' was 1.12x); the plain launch is 0.69x of
+the persistent claim on the stars against 0.99x on the spheres -- the
+long tail of a 78-to-656-step walk waited out by its warp -- and
+parallel-reorder-blk64 recovers 1.36x of that, the best of the ten on
+comb, crown and beast, the launches too small to fill the card.
+defer-block is 0.99x over WoSX, 0.64x of the persistent claim, as the
+head said. (3) On the CPU the fcpwb2 layout is worth 1.04x over the
+threads (0.96 comb to 1.18 dragon), and persistent fcpwb2 at 1.27x is
+the best CPU bar on WoSX's own tree; the packets lose on seventeen of
+eighteen meshes, 0.34x and 0.47x of the threads by geomean, the comb
+alone gaining (1.43x and 1.56x of the threads), sixteen lanes over
+thirty-two by a third everywhere -- so they stay in the defaults and the
+figure as the measured answer to the question, not as a candidate. The
+figures: wosx-gpu-speedup (nine bars a mesh), wosx-stars-gpu-speedup
+(ten), wosx-cpu-fcpwb-speedup (six), each with its .txt.
+
 ### Next
 
-- The other binary-tree schedules measured again with the unrolled visit
-  (`fcpwb-threads`, `fcpwb-persistent`, `fcpwb2`, the GPU kernels, whose
-  bvh.slang orders the two children the same way), and the walk on stars'
-  tables under it; the user's question of whether the rest of the comb's
-  gap -- the `vec3f` loads and reductions -- is worth a codegen change.
-- The walk on stars' tables (`benchmark.sh --stars`, then `--stars
-  --gpu`), their figures and summaries; then its GPU variants beside the
-  matching schedule (the walk on spheres' best, reorder-256k, and the
-  per-block deferral, which a step of three queries should reward more
-  than the one-query walk did), and the CPU gap read from the machine as
-  for the walk on spheres.
+- The user's question of whether the rest of the comb's CPU gap -- the
+  `vec3f` loads and reductions -- is worth a codegen change; the
+  binary-tree schedules, fcpwb2 and the walk on stars' tables are
+  measured under the unrolled visit (cd2300a2, bb4759e9, the exploration
+  of 10-28 above).
+- The walk on stars' CPU gap read from the machine as for the walk on
+  spheres; its GPU variants are measured (the exploration of 10-28).
+- A profile of the OptiX ray-generation launch of the software traversal
+  (fcpwb-gpu-optix at 0.75x of fcpwb-gpu-parallel, the same code), and
+  of the reordering's two populations on the stars (a third to a half of
+  the plain launch on whale, octopus and comb; at or near the best of
+  the ten on the million-walk meshes): Nsight Compute on an OptiX
+  launch, which needs the user's yes.
 - The argmin typing question above, for the user; `closest_within`'s and
   `closest_absorbing`'s dead `if !c`, to be rewritten as the filter form
   or dropped once it is decided.

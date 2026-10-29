@@ -436,7 +436,13 @@ in question (PLAN.md, the persistent schedule).
   peel, sixty instructions over FCPW's visit); `fcpwb-threads` and
   `fcpwb-persistent`: the threads and the persistent workers on it;
   `schedules/fcpwb-packet.bonsai` and `schedules/fcpwb-packet-points.bonsai`:
-  the two packets over it. The comparison builds FCPW scalar for these
+  the two packets over it, one thread; `schedules/fcpwb-packet-threads.bonsai`
+  and `schedules/fcpwb-packet-16-threads.bonsai`: the packet over a point's
+  walks with the points over the threads, in gangs of thirty-two lanes and
+  of sixteen (the machine's vector width), the CPU figure's exploration
+  bars for vectorization on this tree (the user, 2026-10-28; the packet's
+  cost is PLAN.md's, "The packet over the points": a point's walks spread
+  over the mesh a few steps in). The comparison builds FCPW scalar for these
   (`compare.sh --schedule fcpwb,fcpwb-packet`), so WoSX's side runs as it
   ships, and compiles the program over `apps/rtq/metrics/fcpw_scalar.bonsai`,
   the scalar build's arithmetic (true divisions, FCPW's GPU kernels'
@@ -448,16 +454,31 @@ in question (PLAN.md, the persistent schedule).
   `schedules/fcpwb-gpu.bonsai`: the schedule matching WoSX's GPU solver
   (above), and its variants `fcpwb-gpu-parallel` (every walk a thread of one
   launch, no persistent workers), `fcpwb-gpu-reorder` (the walks fastest: a
-  warp's claims are one point's walks), `fcpwb-gpu-point` (a point a
-  claim, its walks in sequence), `fcpwb-gpu-256k` (262144 workers where
-  WoSX has 131072: more than the card holds, so the hardware fills its
-  residency), `fcpwb-gpu-reorder-256k` (the walks fastest with those
+  warp's claims are one point's walks), `fcpwb-gpu-256k` (262144 workers
+  where WoSX has 131072: more than the card holds, so the hardware fills
+  its residency), `fcpwb-gpu-reorder-256k` (the walks fastest with those
   workers) and `fcpwb-gpu-parallel-reorder-blk64` (the flat launch with the
-  walks fastest, in blocks of 64). The figure's legend names them
-  persistent, parallel, persistent-reorder, persistent-point,
-  persistent-256k, persistent-reorder-256k and parallel-reorder-blk64;
-  the last three came out of the exploration PLAN.md records (2026-10-24),
-  each the best schedule on at least one mesh. All seven take their
+  walks fastest, in blocks of 64); and the launch made through OptiX:
+  `fcpwb-gpu-optix` (the flat launch as a ray-generation program, the
+  traversal the kernel's software one, no query on the ray tracing
+  hardware -- the control), `fcpwb-gpu-optix-ser` (the same with the
+  threads reordered before every step by the cell of a 32x32x32 grid over
+  the box their walk stands in -- shader execution reordering, OptiX's
+  `optixReorder`, written as a sort on the walk's recursive call,
+  `walk.sort(walk, |x, problem| walk_sort_key(...))`, the key in
+  `walk_keys.bonsai`) and `fcpwb-gpu-optix-ser-persistent` (the persistent
+  claim of a walk at a time under that reordering). The figure's legend
+  names them persistent, parallel, persistent-reorder, persistent-256k,
+  persistent-reorder-256k, parallel-reorder-blk64, optix, optix-ser and
+  optix-ser-persistent; the 256k and blk64 ones came out of the exploration
+  PLAN.md records (2026-10-24), each the best schedule on at least one
+  mesh; the OptiX ones out of the user's ask of 2026-10-28 for the
+  reordering at each step of the walk. `fcpwb-gpu-point` (a point a claim,
+  its walks in sequence; "persistent-point") was a bar until 2026-10-28:
+  a tenth of WoSX's rate on every mesh, since a point a claim leaves most
+  of the card's threads with no point to claim, and the user had it
+  removed from the table's defaults and the figure; its rows stay in the
+  CSV and its file stays runnable by name. All of them take their
   traversal from
   `schedules/kernel/fcpwb.bonsai`, which orders the children as WoSX's GPU
   kernel does (bvh.slang: by the distance to the box alone, the left
@@ -476,6 +497,12 @@ in question (PLAN.md, the persistent schedule).
   that a visit reads one row where FCPW's layout reads three; the
   triangles as for fcpwb. `schedules/fcpwb2.bonsai`: the matching
   schedule's traversal on it on one thread, in FCPW's CPU order;
+  `schedules/fcpwb2-threads.bonsai` and `schedules/fcpwb2-persistent.bonsai`:
+  the same with the points over the threads and with the persistent
+  workers, run as the CPU table's cells are and drawn on the fcpwb CPU
+  figure as its exploration bars (parallel-fcpwb2, persistent-fcpwb2:
+  what the layout alone is worth in parallel, WoSX's side unchanged on
+  FCPW's own rows; the user, 2026-10-28);
   `schedules/fcpwb2-gpu.bonsai`: WoSX's GPU kernel over it, in the
   kernel's order (`schedules/kernel/fcpwb2.bonsai`), a candidate for the
   optimized schedule.
@@ -513,7 +540,16 @@ in question (PLAN.md, the persistent schedule).
   `schedules/kernel/wost_fcpwb.bonsai`:
   the same traversals in WoSX's GPU kernel's order (the closest point by
   the box's distance alone); `schedules/wost-fcpwb-gpu.bonsai`: fcpwb-gpu's
-  four directives over it, the schedule matching WoSX's GPU walk on stars.
+  four directives over it, the schedule matching WoSX's GPU walk on stars;
+  and the walk on spheres' GPU variants on this walk, each the same
+  directives on `solve_stars` under the same legend label --
+  `wost-fcpwb-gpu-parallel`, `-reorder`, `-256k`, `-reorder-256k`,
+  `-parallel-reorder-blk64`, `-optix` and `-optix-ser` (the reordering
+  before each step of a walk whose step is three traversals) -- with
+  `wost-fcpwb-gpu-defer-block`, the per-point deferral of
+  fcpwb-gpu-defer-block on this walk (the three traversals written out,
+  the walk deferred rather than loopified), the exploration the user asked
+  for on 2026-10-28.
 - `gpu/wosx-pde-definition.slang`: the PDE WoSX's GPU solver is given,
   the Laplace problem with the program's Dirichlet data, in the shape
   WoSX asks for (a module named `wosx_pde_definition` with a `PDEType`).

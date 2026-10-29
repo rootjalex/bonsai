@@ -257,6 +257,24 @@ build_schedule() {
     # the Slang release's, and nanoflann's.
     gpu_includes=(-isystem "$rhi_src/include" -isystem "$rhi_build/include"
                   -isystem "$slang_src/include" -isystem "$WOSX/deps/nanoflann/include")
+    # A schedule that launches through OptiX (a loop bound to OptixThread:
+    # the *-gpu-optix* schedules, the ray-generation launch with or without
+    # the threads reordered between steps) makes the generated header
+    # include the OptiX runtime (runtime/bonsai_optix.h), which needs the
+    # OptiX SDK's headers and CUDA's on the include path -- the 9.1.0 SDK,
+    # for shader execution reordering, where apps/pbrt/gpu_compare.sh
+    # finds it (BONSAI_OPTIX_SDK, CUDA_HOME). Given to every GPU build
+    # (harmless to one that includes neither); their absence stops only a
+    # schedule that needs them.
+    local optix_sdk="${BONSAI_OPTIX_SDK:-$HOME/installs/NVIDIA-OptiX-SDK-9.1.0-linux64-x86_64}"
+    local cuda_dir="${CUDA_HOME:-/usr/local/cuda}"
+    if [[ -f "$optix_sdk/include/optix.h" && -f "$cuda_dir/include/cuda.h" ]]; then
+      gpu_includes+=(-isystem "$optix_sdk/include" -isystem "$cuda_dir/include")
+    elif [[ "$schedule" == *-optix* ]]; then
+      echo "an OptiX schedule's driver needs the OptiX SDK's headers and CUDA's: none at" >&2
+      echo "    $optix_sdk/include/optix.h, $cuda_dir/include/cuda.h (BONSAI_OPTIX_SDK, CUDA_HOME)" >&2
+      exit 1
+    fi
     # slang-rhi's own library, then the resources its build embeds through
     # CMakeRC (libslang-rhi-resources.a, which the first refers to), then
     # Slang's shared library, found at run time through the rpath.

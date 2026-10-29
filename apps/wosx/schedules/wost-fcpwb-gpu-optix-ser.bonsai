@@ -1,0 +1,44 @@
+// wost-fcpwb-gpu-optix.bonsai with the walks reordered at every step by
+// where they stand: shader execution reordering as fcpwb-gpu-optix-ser.
+// bonsai has it, the sort on the walk's recursive call with the cell key
+// of walk_keys.bonsai. A step of the walk on stars asks three traversals
+// of two trees -- the silhouette query and the ray cast on the reflecting
+// boundary's normal cone hierarchy, the distance on the absorbing
+// boundary's tree -- so a warp regrouped onto one cell of the box shares
+// three traversals' neighbourhoods per step, where the walk on spheres'
+// shares one. The sort is written first (a function's sorts come before
+// its other directives), so the traversals are kernel/wost_fcpwb.bonsai's
+// written out here over the same layout rather than imported.
+import apps/wosx/schedules/layouts/fcpw_stars_gpu;
+import apps/wosx/walk_keys;
+
+schedule {
+    walk_stars.sort(walk_stars,
+                    |x : vec3f, problem : StarProblem| walk_sort_key(x, problem.lo, problem.hi));
+    walk_stars.loopify();
+
+    closest_absorbing.sort(absorbing.Interior,
+                           |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                           distmin(s, AABB{lo[i], hi[i]}))
+                     .unroll(absorbing.Interior.children)
+                     .loopify(64);
+    closest_absorbing.skip(closest_point_fcpw);
+    hit_reflecting.sort(reflecting.Interior,
+                        |i : u32, r : Ray, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                         axis : vector[vec3f, 2], half_angle : vector[f32, 2],
+                         radius : vector[f32, 2]|
+                        distmin(r, AABB{lo[i], hi[i]}))
+                  .unroll(reflecting.Interior.children)
+                  .loopify(64);
+    closest_silhouette.sort(silhouettes.Interior,
+                            |i : u32, q : SilhouetteQuery, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                             axis : vector[vec3f, 2], half_angle : vector[f32, 2],
+                             radius : vector[f32, 2]|
+                            distmin(q, ConeBox{lo[i], hi[i], axis[i], half_angle[i], radius[i]}))
+                      .unroll(silhouettes.Interior.children)
+                      .loopify(64);
+
+    solve_stars.reorder(i, w);
+    solve_stars.collapse(w, i, k);
+    solve_stars.bind(k, OptixThread);
+}

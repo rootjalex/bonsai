@@ -26,7 +26,13 @@ counter; WoSX has no persistent CPU solver, so its side is the threaded
 solve again). An application is measured in parallel under the schedule
 the reference runs; one thread against one thread (the bare `fcpwb`,
 `fcpw4w16`, a cell the tables once held) is a microbenchmark's question,
-apps/rtq's, and is no bar (the user, 2026-10-28).
+apps/rtq's, and is no bar (the user, 2026-10-28). On WoSX's default tree
+the exploration's bars stand beside the two (CPU_EXTRA_BARS; the user,
+2026-10-28: more schedules, vectorization among them): the same tree in the
+layout where a node holds its children's boxes (`fcpwb2-threads`,
+`fcpwb2-persistent`), and the walk vectorized over a point's walks in gangs
+of thirty-two and of sixteen lanes (`fcpwb-packet-threads`,
+`fcpwb-packet-16-threads`), each run in parallel under WoSX's schedule.
 Walk on spheres has one schedule per thread count and no parameter the
 speedup is swept over: a step is one distance query, and the epsilon shell
 and the walk count set how many steps a point takes, not what a step costs
@@ -43,10 +49,16 @@ consecutive claims neighbouring points. The matching schedule (`fcpwb-gpu`,
 "persistent") does the same; the variants each change the schedule and
 nothing else (--gpu-schedules names them; README.md's schedule list says
 what each is): one launch with a thread per walk ("parallel"), a warp's
-claims one point's walks ("persistent-reorder"), a point a claim with its
-walks in sequence ("persistent-point"), twice the threads so the card is
-full ("persistent-256k", "persistent-reorder-256k"), and one launch with
-the walk fastest in blocks of 64 ("parallel-reorder-blk64").
+claims one point's walks ("persistent-reorder"), twice the threads so the
+card is full ("persistent-256k", "persistent-reorder-256k"), one launch
+with the walk fastest in blocks of 64 ("parallel-reorder-blk64"), and the
+launch made through OptiX -- as it is ("optix"), with the threads
+reordered by where their walks stand before every step, shader execution
+reordering ("optix-ser"), and the persistent claim under that reordering
+("optix-ser-persistent"). A point a claim with its walks in sequence
+("persistent-point", `fcpwb-gpu-point`) was a bar until 2026-10-28: at a
+tenth of WoSX's rate on every mesh it left most of the card's threads with
+no point to claim, and the user had it removed; its rows stay in the CSV.
 
 --stars draws the walk on stars' figures (benchmark.sh --stars): the same
 comparison for wost.bonsai against WoSX's WalkOnStars, each mesh split at
@@ -55,7 +67,11 @@ CPU, wosx-stars-cpu-fcpwb-speedup: WoSX's default trees -- FCPW's scalar
 BVH of the absorbing boundary and its normal cone hierarchy of the
 reflecting one -- and the same two bars (`wost-fcpwb*`); with --gpu,
 wosx-stars-gpu-speedup: the matching schedule over WoSX's GPU walk on
-stars (`wost-fcpwb-gpu`, the schedule of `fcpwb-gpu` on the other program).
+stars (`wost-fcpwb-gpu`, the schedule of `fcpwb-gpu` on the other program)
+and the walk on spheres' variants on this walk under the same labels, with
+the per-point deferral beside them ("defer-block": a point per block, its
+walks' steps on a queue in shared memory, a round running the next step of
+every walk still going).
 The mesh table is wosx-stars-meshes.*: the walk lengths differ from the
 walk on spheres', since a star is bounded by the reflecting boundary's
 silhouettes as well as by the absorbing boundary.
@@ -123,6 +139,32 @@ CPU_TREES = [
     ("fcpwb", "wosx-cpu-fcpwb-speedup",
      "WoSX's default tree, FCPW's scalar binary BVH, both sides as WoSX ships"),
 ]
+# The exploration's bars beside the two, per tree base: (schedule, legend
+# label, colour, what it changes against the parallel bar), drawn after
+# the two and only where the table has their rows. On WoSX's default tree
+# (the user, 2026-10-28: more CPU schedules, vectorization among them):
+# the same tree in the layout where each node's row holds its children's
+# boxes, one row read a visit where FCPW's rows take three (fcpwb2*, WoSX's
+# side unchanged on FCPW's own rows); and the walk vectorized over a
+# point's walks -- the lanes are walks, the traversal one node for the
+# gang, each child entered by the lanes whose query reaches it -- in gangs
+# of thirty-two lanes and of sixteen, the machine's vector width. The
+# packet forms ran at a tenth of WoSX's rate one thread against one thread
+# on 2026-10-09 (PLAN.md, "The packet over the points"): a point's walks
+# spread over the mesh a few steps in, and a leaf any lane reaches is
+# tested gang-wide for a lane or two.
+CPU_EXTRA_BARS = {
+    "fcpwb": [
+        ("fcpwb2-threads", "parallel-fcpwb2", YLGNBU[2],
+         "the node's row holding its children's boxes (layouts/fcpwb2), the threads"),
+        ("fcpwb2-persistent", "persistent-fcpwb2", YLGNBU[5],
+         "the node's row holding its children's boxes, the persistent workers"),
+        ("fcpwb-packet-threads", "parallel-packet32", YLGNBU[1],
+         "a point's walks vectorized in gangs of thirty-two lanes, the threads"),
+        ("fcpwb-packet-16-threads", "parallel-packet16", YLGNBU[3],
+         "a point's walks vectorized in gangs of sixteen lanes, the threads"),
+    ],
+}
 # The walk on stars' CPU figure (--stars): WoSX's default trees alone, the
 # same two bars on the `wost-fcpwb*` schedules.
 STARS_CPU_TREES = [
@@ -139,33 +181,67 @@ GPU_BARS = [
     ("fcpwb-gpu", "persistent", YLGNBU[1]),
     ("fcpwb-gpu-parallel", "parallel", YLGNBU[2]),
     ("fcpwb-gpu-reorder", "persistent-reorder", YLGNBU[3]),
-    ("fcpwb-gpu-point", "persistent-point", YLGNBU[4]),
     ("fcpwb-gpu-256k", "persistent-256k", YLGNBU[5]),
     ("fcpwb-gpu-reorder-256k", "persistent-reorder-256k", YLGNBU[6]),
     ("fcpwb-gpu-parallel-reorder-blk64", "parallel-reorder-blk64", YLGNBU[7]),
+    # The launch through OptiX: the plain launch as a ray-generation
+    # program (a control), the same with the threads reordered by where
+    # their walks stand before every step (shader execution reordering,
+    # `walk.sort(walk, ...)`), and the persistent claim under that
+    # reordering.
+    ("fcpwb-gpu-optix", "optix", YLGNBU[4]),
+    ("fcpwb-gpu-optix-ser", "optix-ser", YLGNBU[8]),
+    ("fcpwb-gpu-optix-ser-persistent", "optix-ser-persistent", YLGNBU[0]),
     # The two deferrals: the walks' steps on a queue, a round of the drain
     # running the next step of every walk still going -- one queue across
-    # the card, or one per point in the block's shared memory. The ramp's
-    # ends, the light one with the bars' edge to show it.
+    # the card, or one per point in the block's shared memory. Measured on
+    # 2026-10-25 and not in the table's defaults since; drawn where the
+    # table has their rows.
     ("fcpwb-gpu-defer", "defer", YLGNBU[0]),
     ("fcpwb-gpu-defer-block", "defer-block", YLGNBU[8]),
+    # A point a claim, its walks in sequence: a tenth of WoSX's rate on
+    # every mesh, the card left nearly empty; removed from the table's
+    # defaults and the figure on 2026-10-28 (the user). Named here so that
+    # a table carrying its rows is drawn with a label, if asked for by
+    # --gpu-schedules.
+    ("fcpwb-gpu-point", "persistent-point", YLGNBU[4]),
 ]
 # The walk on stars' GPU figure (--stars --gpu): the matching schedule over
-# WoSX's GPU walk on stars, the same persistent claim of a walk at a time.
+# WoSX's GPU walk on stars, the same persistent claim of a walk at a time,
+# and the walk on spheres' variants on this walk under the same labels
+# (wost-fcpwb-gpu-*.bonsai: each the same directives on solve_stars), with
+# the per-point deferral, which a step of three traversals should reward
+# more than the one-query walk did.
 STARS_GPU_BARS = [
     ("wost-fcpwb-gpu", "persistent", YLGNBU[1]),
+    ("wost-fcpwb-gpu-parallel", "parallel", YLGNBU[2]),
+    ("wost-fcpwb-gpu-reorder", "persistent-reorder", YLGNBU[3]),
+    ("wost-fcpwb-gpu-256k", "persistent-256k", YLGNBU[5]),
+    ("wost-fcpwb-gpu-reorder-256k", "persistent-reorder-256k", YLGNBU[6]),
+    ("wost-fcpwb-gpu-parallel-reorder-blk64", "parallel-reorder-blk64", YLGNBU[7]),
+    ("wost-fcpwb-gpu-optix", "optix", YLGNBU[4]),
+    ("wost-fcpwb-gpu-optix-ser", "optix-ser", YLGNBU[8]),
+    ("wost-fcpwb-gpu-optix-ser-persistent", "optix-ser-persistent", YLGNBU[0]),
+    # A tenth bar, past the ramp's nine classes: a neutral grey.
+    ("wost-fcpwb-gpu-defer-block", "defer-block", "#9E9E9E"),
 ]
 # What each GPU schedule changed against another, for the summary: (label
-# of the schedule, label of the one it differs from in one thing, the thing).
+# of the schedule, label of the one it differs from in one thing, the
+# thing). The labels are the same on both walks' figures.
 GPU_STEPS = [
     ("parallel", "persistent", "one launch, a thread per walk, instead of the persistent claim"),
     ("persistent-reorder", "persistent", "a warp's claims one point's walks instead of neighbouring points"),
     ("persistent-256k", "persistent", "twice the threads, the card full"),
     ("persistent-reorder-256k", "persistent-reorder", "twice the threads with the walk-fastest claims"),
     ("parallel-reorder-blk64", "parallel", "the walk fastest and blocks of 64 in the one launch"),
+    ("optix", "parallel", "the same one launch made through OptiX as a ray-generation program, no reordering"),
+    ("optix-ser", "optix", "the threads reordered by the cell their walks stand in before every step (shader execution reordering)"),
+    ("optix-ser-persistent", "optix-ser", "the persistent claim of a walk at a time under the reordering"),
+    ("optix-ser-persistent", "persistent", "the reordering alone, both with the persistent claim"),
     ("persistent-point", "persistent", "a point a claim, its walks in sequence"),
     ("defer", "parallel", "the walk's steps deferred onto one card-wide queue, a launch per round"),
     ("defer-block", "defer", "a queue per point in the block's shared memory, the rounds inside the kernel"),
+    ("defer-block", "persistent", "a point per block, its walks' steps on a queue in shared memory, against the persistent claim"),
 ]
 REFERENCE = "WoSX"
 
@@ -396,17 +472,25 @@ def cpu_notes(base, exclude):
     return notes
 
 
+def cpu_bars(base):
+    """The two bars of a tree and, where the exploration has them, its extra
+    bars: (schedule, label, colour) in drawing order."""
+    bars = [(base + suffix, label, colour) for suffix, label, colour in CPU_BARS]
+    bars += [(s, label, colour) for s, label, colour, _ in CPU_EXTRA_BARS.get(base, [])]
+    return bars
+
+
 def draw_cpu(rows, out_dir, formats, exclude, trees, width=TEXT_WIDTH):
     meshes, tris = meshes_by_triangles(rows, exclude)
     for base, name, what in trees:
-        bars = [(base + suffix, label, colour) for suffix, label, colour in CPU_BARS]
+        bars = cpu_bars(base)
         fig, drawn = figure(rows, meshes, bars, "Speedup", height=1.7, fig_width=width)
         if fig is None:
             print(f"{name}: no rows for {base}'s schedules; skipped", file=sys.stderr)
             continue
         path = save(fig, out_dir, name, formats)
         data = {s: cells(rows, s) for s in drawn}
-        label = {base + suffix: lab for suffix, lab, _ in CPU_BARS}
+        label = {s: lab for s, lab, _ in bars}
         sections = [("every mesh, over WoSX", [(label[s], points(data[s], meshes)) for s in drawn])]
         notes = cpu_notes(base, exclude)
         threads, persistent = base + "-threads", base + "-persistent"
@@ -414,6 +498,13 @@ def draw_cpu(rows, out_dir, formats, exclude, trees, width=TEXT_WIDTH):
             notes.append("the persistent workers over TBB's partition, the same reference: "
                          + describe(ratios(points(data[persistent], meshes),
                                            points(data[threads], meshes))))
+        # Each exploration bar against the parallel one: what it changes,
+        # and what the change bought cell by cell.
+        for s, lab, _, thing in CPU_EXTRA_BARS.get(base, []):
+            if s in data and threads in data:
+                notes.append(f"{thing} ({lab} over parallel): "
+                             + describe(ratios(points(data[s], meshes),
+                                               points(data[threads], meshes))))
         print(write_summary(path, f"Speedup over WoSX on the CPU, {what}, {len(meshes)} meshes",
                             sections, notes))
 
@@ -438,20 +529,17 @@ def draw_gpu(rows, schedules, out_dir, formats, exclude, stars, width=TEXT_WIDTH
             "persistent is the matching schedule of the walk on stars (131072 threads claiming "
             "a walk at a time from a counter, a warp's claims neighbouring points), over WoSX's "
             "GPU walk on stars run the same way; a step is the three queries of the CPU figure, "
-            "the distance bounded on both sides by 1.001 times the old distance plus the step",
+            "the distance bounded on both sides by 1.001 times the old distance plus the step; "
+            "the others change one thing of it each, the walk on spheres' variants on this walk",
             "no closed-form solution with a reflecting boundary: the error column is the rms "
             "difference between the two sides' estimates",
         ]
-        if exclude:
-            notes.append(f"left out: {', '.join(sorted(exclude))} (nearly every walk escapes on "
-                         "its first step)")
-        print(write_summary(path, f"Speedup over WoSX's GPU walk on stars, {len(meshes)} meshes",
-                            sections, notes))
-        return
-    notes = [
-        "persistent is the matching schedule (131072 threads claiming a walk at a time from a "
-        "counter, a warp's claims neighbouring points); the others change one thing of it each",
-    ]
+    else:
+        notes = [
+            "persistent is the matching schedule (131072 threads claiming a walk at a time from "
+            "a counter, a warp's claims neighbouring points); the others change one thing of it "
+            "each",
+        ]
     for over, base, thing in GPU_STEPS:
         if over in by_label and base in by_label:
             notes.append(f"{thing} ({over} over {base}): "
@@ -465,8 +553,15 @@ def draw_gpu(rows, schedules, out_dir, formats, exclude, stars, width=TEXT_WIDTH
     for m, lab in best.items():
         counts.setdefault(lab, []).append(m)
     for lab, ms in sorted(counts.items(), key=lambda kv: -len(kv[1])):
-        notes.append(f"{lab} is the best of the seven on {len(ms)} of {len(meshes)} meshes"
+        notes.append(f"{lab} is the best of the {len(drawn)} on {len(ms)} of {len(meshes)} meshes"
                      + (f" ({', '.join(ms)})" if len(ms) <= 4 else ""))
+    if stars:
+        if exclude:
+            notes.append(f"left out: {', '.join(sorted(exclude))} (nearly every walk escapes on "
+                         "its first step)")
+        print(write_summary(path, f"Speedup over WoSX's GPU walk on stars, {len(meshes)} meshes, "
+                                  f"{len(drawn)} schedules of the one program", sections, notes))
+        return
     notes += [
         "crown and beast have fewer walks (29440, 86016) than the kernel has threads, so a "
         "thread claims one walk and the card runs nearly empty (15-25% achieved occupancy "
@@ -479,14 +574,15 @@ def draw_gpu(rows, schedules, out_dir, formats, exclude, stars, width=TEXT_WIDTH
         "warp holds its 32 walks until the longest ends, and the lanes' traversals diverge "
         "within a step; our lead is in the registers (64 against 82, 49% occupancy against "
         "32%), not the lanes. apps/wosx/PLAN.md, 'The lanes of a warp'",
-        "persistent-point: a point a claim leaves 460 to 16348 threads busy of 131072, an empty "
-        "card",
     ]
+    if "persistent-point" in by_label:
+        notes.append("persistent-point: a point a claim leaves 460 to 16348 threads busy of "
+                     "131072, an empty card")
     if exclude:
         notes.append(f"left out: {', '.join(sorted(exclude))} (nearly every walk escapes on its "
                      "first step)")
-    print(write_summary(path, f"Speedup over WoSX's GPU solver, {len(meshes)} meshes, seven "
-                              "schedules of the one program", sections, notes))
+    print(write_summary(path, f"Speedup over WoSX's GPU solver, {len(meshes)} meshes, "
+                              f"{len(drawn)} schedules of the one program", sections, notes))
 
 
 def main():
@@ -516,11 +612,14 @@ def main():
     trees = STARS_CPU_TREES if a.stars else CPU_TREES
     if a.gpu:
         gpu_bars = STARS_GPU_BARS if a.stars else GPU_BARS
-        named = a.gpu_schedules if a.gpu_schedules is not None else ",".join(s for s, _, _ in gpu_bars)
+        # The figure's bars by default: every schedule of the list but the
+        # retired one, each drawn where the table has its rows.
+        named = (a.gpu_schedules if a.gpu_schedules is not None
+                 else ",".join(s for s, _, _ in gpu_bars if s != "fcpwb-gpu-point"))
         schedules = [s for s in named.split(",") if s]
         draw_gpu(rows, schedules, a.out, a.format.split(","), exclude, a.stars, a.width)
     else:
-        schedules = [base + suffix for base, _, _ in trees for suffix, _, _ in CPU_BARS]
+        schedules = [s for base, _, _ in trees for s, _, _ in cpu_bars(base)]
         draw_cpu(rows, a.out, a.format.split(","), exclude, trees, a.width)
     meshes, _ = meshes_by_triangles(rows, exclude)
     mesh_table(rows, meshes, a.out, exclude, "wosx-stars-meshes" if a.stars else "wosx-meshes")

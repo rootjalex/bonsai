@@ -1,0 +1,17 @@
+// fcpwb2.bonsai with the points over the threads: WoSX's default binary
+// tree in the other layout -- each interior node's row holding its two
+// children's boxes and rows (layouts/fcpwb2.bonsai, 56 bytes), so that a
+// visit reads one row where FCPW's layout reads the node's and its two
+// children's (three rows of 32) -- the same tree, FCPW's CPU traversal
+// order, and the parfor over the points bound to the pinned threads
+// against WoSX's tbb::parallel_for, WoSX's side as it ships on FCPW's own
+// rows. Against fcpwb-threads this measures what the layout alone is worth
+// in parallel, a candidate for the optimized CPU schedule and one WoSX has
+// no counterpart for; the driver copies FCPW's tree into these rows
+// (fcpw_bvh2.h, WOSX_BINARY_BVH2). compare.sh runs it with the driver's
+// --threads, pinned to the performance cores.
+import apps/wosx/schedules/fcpwb2;
+
+schedule {
+    solve_all.bind(i, CPUThread);
+}

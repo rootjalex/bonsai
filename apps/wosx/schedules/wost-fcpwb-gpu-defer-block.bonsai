@@ -1,0 +1,48 @@
+// The walk on stars with its walks deferred step by step onto a queue per
+// point in the block's shared memory: fcpwb-gpu-defer-block.bonsai's shape
+// (apps/wosx/PLAN.md, "The lanes of a warp, and two deferral trials"; "Both
+// deferrals built") on the walk on stars -- a point per block, its walks
+// the block's threads, the first thread phase pushing every walk's first
+// step, the drain a phase per round over the queue's capacity with the
+// round loop inside the kernel, and the pass over the record adding each
+// walk's value into the point's sums in shared memory. Each round keeps
+// the lanes full while at least 32 of the point's 64 walks live. On the
+// walk on spheres this came within 14% of the matching schedule and ahead
+// of it on the largest meshes; a step of the walk on stars is three
+// traversals (the silhouette, the ray, the distance), so the lanes a round
+// keeps full are worth three times as much per entry written and read.
+// The traversals are kernel/wost_fcpwb.bonsai's, written out here since the
+// walk is deferred, not loopified; the layout the GPU rows of the three
+// trees.
+import apps/wosx/schedules/layouts/fcpw_stars_gpu;
+
+schedule {
+    closest_absorbing.sort(absorbing.Interior,
+                           |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                           distmin(s, AABB{lo[i], hi[i]}))
+                     .unroll(absorbing.Interior.children)
+                     .loopify(64);
+    closest_absorbing.skip(closest_point_fcpw);
+    hit_reflecting.sort(reflecting.Interior,
+                        |i : u32, r : Ray, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                         axis : vector[vec3f, 2], half_angle : vector[f32, 2],
+                         radius : vector[f32, 2]|
+                        distmin(r, AABB{lo[i], hi[i]}))
+                  .unroll(reflecting.Interior.children)
+                  .loopify(64);
+    closest_silhouette.sort(silhouettes.Interior,
+                            |i : u32, q : SilhouetteQuery, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                             axis : vector[vec3f, 2], half_angle : vector[f32, 2],
+                             radius : vector[f32, 2]|
+                            distmin(q, ConeBox{lo[i], hi[i], axis[i], half_angle[i], radius[i]}))
+                      .unroll(silhouettes.Interior.children)
+                      .loopify(64);
+
+    steps = solve_stars.queue(i, DeviceShared);
+    solve_stars.defer(walk_stars, steps);
+    walk_stars.defer(walk_stars, steps);
+    solve_stars.bind(i, GPUBlock);
+    solve_stars.bind(w, GPUThread);
+    solve_stars.bind(steps, GPUThread);
+    solve_stars.bind(steps_rest, GPUThread);
+}

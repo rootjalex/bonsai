@@ -1,0 +1,13 @@
+// wost-fcpwb-gpu-parallel.bonsai's launch made through OptiX: every (walk,
+// point) pair a thread of one ray-generation launch (`bind(k, OptixThread)`;
+// fcpwb-gpu-optix.bonsai says what that is), the three traversals the
+// kernel's software ones, no query on the ray tracing hardware. The
+// control for wost-fcpwb-gpu-optix-ser, which reorders the threads between
+// the steps.
+import apps/wosx/schedules/kernel/wost_fcpwb;
+
+schedule {
+    solve_stars.reorder(i, w);
+    solve_stars.collapse(w, i, k);
+    solve_stars.bind(k, OptixThread);
+}

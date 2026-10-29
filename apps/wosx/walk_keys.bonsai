@@ -1,0 +1,41 @@
+// The key a schedule reorders the walks by at each step: `walk.sort(walk,
+// |x : vec3f, problem : Problem| walk_sort_key(x, problem.lo, problem.hi))`
+// in a loop bound to OptixThread (schedules/fcpwb-gpu-optix-ser.bonsai;
+// docs/schedule-semantics.md, the sort on a call) is shader execution
+// reordering, OptiX's `optixReorder`: the launch's threads about to take
+// their next step are regrouped so that those whose keys agree on their
+// low bits run together on a warp from there on. The key is the walk's
+// position quantized to five bits per axis inside the problem's box and
+// interleaved into a fifteen-bit Morton code -- the cell of a 32x32x32 grid
+// over the box the walk stands in -- so that a warp's lanes ask the tree
+// about the same region: the one-point key of Meister, Boksansky, Guthe
+// and Bittner, "On Ray Reordering Techniques for Faster GPU Ray Tracing"
+// (2025), at the bits the hint takes (the hardware sorts on at most
+// sixteen; Lower/Sorts.cpp). The walk's next query is at most its next step
+// away from this position, which is at most the distance to the boundary,
+// so walks of one cell query one neighbourhood of the tree. Written as
+// masked shifts, as pbrt's ray_sort_key is (apps/pbrt/render.bonsai), so
+// that the bits a key can have are plain: 0..14 and no others. A file of
+// its own, imported by the schedules that reorder, so that no other
+// schedule's program carries it.
+import stdlib/numerics;
+
+// Five bits of `v` spread to every third bit (bit k to bit 3k), so that
+// three such values at offsets 0..2 interleave into one Morton code.
+func spread_bits_5(v : u32) -> u32 {
+    x = v & 31u;
+    return (x & 1u) | ((x & 2u) << 2u) | ((x & 4u) << 4u) | ((x & 8u) << 6u) |
+           ((x & 16u) << 8u);
+}
+
+// The position quantized to 0..31 per axis inside the box, clamped (a
+// walk a step put outside the box sorts with the face it left through),
+// then interleaved: x's bits highest, as pbrt's key has the origin's.
+func walk_sort_key(x : vec3f, lo : vec3f, hi : vec3f) -> u32 {
+    extent = max(hi - lo, vec3f{1e-30, 1e-30, 1e-30});
+    t = min(max((x - lo) / extent, vec3f{0.0, 0.0, 0.0}), vec3f{1.0, 1.0, 1.0});
+    q = t * 31.0;
+    return (spread_bits_5(cast[[u32]](q.x)) << 2u) |
+           (spread_bits_5(cast[[u32]](q.y)) << 1u) |
+           spread_bits_5(cast[[u32]](q.z));
+}

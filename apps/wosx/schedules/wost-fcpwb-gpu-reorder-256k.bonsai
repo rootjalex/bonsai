@@ -1,0 +1,17 @@
+// wost-fcpwb-gpu-reorder.bonsai with twice the resident workers: the walk
+// fastest, so that a warp's claims are one point's walks, and 262144
+// workers where WoSX's kernel has 131072 -- the walk on spheres' best
+// schedule of the GPU table (fcpwb-gpu-reorder-256k.bonsai) on the walk on
+// stars, whose step of three traversals should reward a warp of one
+// point's walks more than the one-query walk did.
+import apps/wosx/schedules/kernel/wost_fcpwb;
+
+schedule {
+    solve_stars.reorder(i, w);
+    solve_stars.reorder(w, i);
+    solve_stars.collapse(i, w, k);
+    solve_stars.persistent(k, t, 262144);
+    solve_stars.split(t, t_blk, t_thr, 256, true);
+    solve_stars.bind(t_blk, GPUBlock);
+    solve_stars.bind(t_thr, GPUThread);
+}

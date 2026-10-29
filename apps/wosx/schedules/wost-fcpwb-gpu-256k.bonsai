@@ -1,0 +1,16 @@
+// wost-fcpwb-gpu.bonsai with twice the resident workers: 262144 claiming
+// walks where WoSX's kernel (and the matching schedule) has 131072 -- the
+// card's whole residency, if the walk on stars' registers allow it (its
+// step holds a star radius, a ray and a hit beside the walk on spheres'
+// position and distance), against half of it. fcpwb-gpu-256k.bonsai's
+// directives on the walk on stars.
+import apps/wosx/schedules/kernel/wost_fcpwb;
+
+schedule {
+    solve_stars.reorder(i, w);
+    solve_stars.collapse(w, i, k);
+    solve_stars.persistent(k, t, 262144);
+    solve_stars.split(t, t_blk, t_thr, 256, true);
+    solve_stars.bind(t_blk, GPUBlock);
+    solve_stars.bind(t_thr, GPUThread);
+}

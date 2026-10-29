@@ -1,0 +1,12 @@
+// fcpwb2-threads.bonsai with persistent workers: the parfor over the points
+// handed to sixteen workers that claim points from a counter until none
+// are left, the workers bound to the CPU threads -- what fcpwb-persistent.
+// bonsai is on FCPW's own rows, here on the layout where a node holds its
+// children's boxes (layouts/fcpwb2.bonsai). compare.sh runs it as a
+// threaded schedule, WoSX's side its threaded solve.
+import apps/wosx/schedules/fcpwb2;
+
+schedule {
+    solve_all.persistent(i, t, 16);
+    solve_all.bind(t, CPUThread);
+}

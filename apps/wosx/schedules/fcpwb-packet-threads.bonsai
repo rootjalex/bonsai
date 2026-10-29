@@ -1,0 +1,32 @@
+// fcpwb-packet.bonsai with the points over the threads: the walk on
+// spheres vectorized on WoSX's default tree -- a point's walks in gangs of
+// thirty-two lanes, each lane stepping its own walk, the closest-point
+// traversal one node for the gang with the two children ordered by the
+// majority of the lanes' keys (FCPW's CPU rule) and each child entered by
+// the lanes whose query reaches its box -- run as the table's CPU cells
+// are, in parallel under WoSX's schedule: the parfor over the points bound
+// to the pinned threads against WoSX's tbb::parallel_for, WoSX's side as
+// it ships (FCPW scalar). The packet over a point's walks ran one thread
+// against one thread on 2026-10-09 at a tenth of WoSX's rate (PLAN.md, "The
+// packet over the points, and WoSX's default binary tree": a point's walks
+// start together and are spread over the mesh a few steps later, so a
+// leaf any lane reaches is tested thirty-two wide for a lane or two); this
+// is that schedule under today's compiler and the table's rule. The tree
+// and its bytes are FCPW's own (apps/rtq's fcpwb layout), WoSX's side
+// unchanged.
+import apps/rtq/schedules/layouts/fcpwb;
+
+schedule {
+    walk.loopify();
+    solve_all.split(w, w_gang, w_lane, 32, true)
+             .vectorize(w_lane);
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        select(distmin(s, AABB{lo[0u], hi[0u]}) == 0.0 &&
+                               distmin(s, AABB{lo[1u], hi[1u]}) == 0.0,
+                               distmax(s, AABB{lo[i], hi[i]}),
+                               distmin(s, AABB{lo[i], hi[i]})))
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
+    solve_all.bind(i, CPUThread);
+}

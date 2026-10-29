@@ -1,0 +1,18 @@
+// wost-fcpwb-gpu.bonsai with the walk fastest: the work item `k` names the
+// walk as `k % walks` and the point as `k / walks`, so that a warp's
+// consecutive claims are consecutive walks of ONE point -- thirty-two walks
+// that start at the same place and ask the same first three questions --
+// where WoSX's order (wost-fcpwb-gpu) gives a warp thirty-two neighbouring
+// points. fcpwb-gpu-reorder.bonsai's directives on the walk on stars (it
+// says why the nest is interchanged twice before the collapse).
+import apps/wosx/schedules/kernel/wost_fcpwb;
+
+schedule {
+    solve_stars.reorder(i, w);
+    solve_stars.reorder(w, i);
+    solve_stars.collapse(i, w, k);
+    solve_stars.persistent(k, t, 131072);
+    solve_stars.split(t, t_blk, t_thr, 256, true);
+    solve_stars.bind(t_blk, GPUBlock);
+    solve_stars.bind(t_thr, GPUThread);
+}
