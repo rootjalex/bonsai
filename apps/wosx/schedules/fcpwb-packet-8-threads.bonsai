@@ -1,0 +1,27 @@
+// fcpwb-packet-threads.bonsai with gangs of eight: a point's walks in
+// gangs of eight lanes, half the machine's vector width (AVX-512, sixteen
+// floats a register; eight floats fill a 256-bit one). A lane's work is
+// the same; a gang of eight issues as many vector instructions a step as
+// a gang of sixteen, but the leaves it reaches are the union of eight
+// walks' rather than sixteen, each tested eight wide for the lane or two
+// that are there once the walks have spread (PLAN.md, "The packet over the
+// points"). Against fcpwb-packet-16-threads this measures the gang below
+// the register's width, where the useful lanes and the wasted ones both
+// halve; against fcpwb-threads, whether a vectorized walk can reach the
+// scalar one on this tree (the user, 2026-10-28: "try packet4 and packet8").
+import apps/rtq/schedules/layouts/fcpwb;
+
+schedule {
+    walk.loopify();
+    solve_all.split(w, w_gang, w_lane, 8, true)
+             .vectorize(w_lane);
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        select(distmin(s, AABB{lo[0u], hi[0u]}) == 0.0 &&
+                               distmin(s, AABB{lo[1u], hi[1u]}) == 0.0,
+                               distmax(s, AABB{lo[i], hi[i]}),
+                               distmin(s, AABB{lo[i], hi[i]})))
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
+    solve_all.bind(i, CPUThread);
+}

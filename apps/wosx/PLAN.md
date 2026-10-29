@@ -2353,6 +2353,8 @@ over 18 meshes:
 | fcpwb2-persistent | 1.27x | 1.18 crown | 1.64 ganesha |
 | fcpwb-packet-threads (32 lanes) | 0.39x | 0.26 rover | 1.86 comb |
 | fcpwb-packet-16-threads | 0.55x | 0.39 rover | 2.03 comb |
+| fcpwb-packet-8-threads (the user's ask, 23:12) | 0.56x | 0.44 rover | 1.41 comb |
+| fcpwb-packet-4-threads (the same) | 0.57x | 0.47 ganesha | 1.00 comb |
 
 What the tables add to the head's readings. (1) The OptiX launch of the
 software traversal runs at 0.75x of the CUDA launch of the same code on
@@ -2388,13 +2390,173 @@ threads (0.96 comb to 1.18 dragon), and persistent fcpwb2 at 1.27x is
 the best CPU bar on WoSX's own tree; the packets lose on seventeen of
 eighteen meshes, 0.34x and 0.47x of the threads by geomean, the comb
 alone gaining (1.43x and 1.56x of the threads), sixteen lanes over
-thirty-two by a third everywhere -- so they stay in the defaults and the
-figure as the measured answer to the question, not as a candidate. The
-figures: wosx-gpu-speedup (nine bars a mesh), wosx-stars-gpu-speedup
-(ten), wosx-cpu-fcpwb-speedup (six), each with its .txt.
+thirty-two by a third everywhere. The user then asked for gangs of eight
+and of four (23:12, 38 cells): 0.56x and 0.57x -- the geomean flat from
+sixteen down, the comb's gain gone (1.41x, then 1.00x) and the worst mesh
+a little higher (0.44, 0.47). So below the register's width the gang's
+width does not matter: the vectorized walk runs at about half the scalar
+threaded walk at sixteen, eight and four lanes alike, and the cost is the
+packet's -- a leaf any lane reaches tested gang-wide for the lane or two
+that are there, and the gang held to its slowest walk -- not the lane
+count; the one gain, thirty-two to sixteen, was the two vector
+instructions a gang of thirty-two issues where sixteen issue one. The
+packets stay in the defaults and the figure as the measured answer to the
+question, not as a candidate. The figures: wosx-gpu-speedup (nine bars a
+mesh), wosx-stars-gpu-speedup (ten), wosx-cpu-fcpwb-speedup (eight), each
+with its .txt.
+
+### The OptiX launch under Nsight Compute (2026-10-28, night)
+
+The user, on the exploration's reading that the OptiX launch of the
+software traversal runs at 0.75x of the CUDA launch of the same code: use
+Nsight Compute on it -- "I suspect it is a register allocation issue".
+The programs kept from compare.sh (WOSX_KEEP) on the head, 1042176 walks:
+fcpwb-gpu-parallel (the CUDA launch, `_kernel_k_blk_0`) and fcpwb-gpu-optix
+(the same code as the ray-generation program `__raygen__k`), the full
+section set under kernel replay on the second, timed launch of each run;
+then the reordering launch (fcpwb-gpu-optix-ser) on the head and on the
+whale, and the plain OptiX launch on the whale. The reports, raw metrics
+and SASS listings are results/ncu/optix/ (not in git); the scripts that
+read them, scratch/ncu-optix/.
+
+| head, the timed launch | CUDA | OptiX |
+|---|---|---|
+| duration | 15.7 ms | 21.3 ms (1.36x) |
+| block x grid | 256 x 4071 | 128 x 8142 |
+| registers a thread | 50 | 67 |
+| achieved occupancy | 51.8% | 45.5% |
+| warp instructions | 18.6 G | 23.6 G (1.27x) |
+| lane instructions | 55.1 G | 57.0 G (1.03x) |
+| lanes active per warp instruction | 2.96 | 2.43 |
+| issue slots busy | 68% | 62% |
+| L1 hit rate | 89% | 87% |
+| spills | none | none |
+| SASS instructions | 1208 | 1080 |
+
+The time is accounted for twice over: 1.27x the warp instructions times
+1.10x the issue rate (68% against 62%) is 1.39x, against the measured
+1.36x. The per-lane work is the same (1.03x); the warps execute it with
+fewer lanes together.
+
+**Where the instructions come from** (both SASS listings by opcode with
+their executed counts, scratch/ncu-optix/sass-agg.py). The traversal's
+node-visit loop is the same on both sides: 103.8 million warp iterations
+at 3.00 lanes (the stack pushes). The leaf's triangle code is not: 66.4
+million warp passes at 3.21 lanes under CUDA, 105.1 million at 2.03 under
+OptiX -- the same 213 million lane passes. In the CUDA kernel's SASS the
+lanes that reach a leaf leave the node loop (BREAK) and wait at a
+reconvergence barrier (BSYNC) until the warp's other lanes have reached
+theirs, then test their triangles together, as pseudocode:
+
+    loop {                        // one traversal step
+        loop { visit node; if leaf: break }   // lanes leaving wait here
+        test the leaf's triangles           // with every lane that left
+    }
+
+In OptiX's SASS the triangle code is inside the one loop's divergent
+body:
+
+    loop {
+        visit node
+        if leaf: test the leaf's triangles  // this iteration's leaf lanes only
+    }
+
+so a lane at a leaf tests its triangles while the lanes still descending
+are masked, every iteration; the arithmetic of the triangle test is where
+the warp instructions grow (FADD +1.5 G, FFMA +0.87 G, FMUL +0.43 G, the
+same loads at 2.67 lanes instead of 3.10: LDG +0.34 G). Three smaller
+costs of OptiX's compilation beside it: 300 million BMOV (barrier
+registers saved around OptiX's calls -- the division slow paths are
+CALL.ABS into OptiX's own copies where the CUDA kernel's are CALL.REL
+within the function; 22 lines against none), 133 million LDC (the launch
+parameters re-read from constant bank 3 through a register index on every
+use, where the CUDA kernel's parameters ride the uniform datapath -- LDCU,
+USHF, ULOP3 -- and are read once), and no read-only-path loads (51
+LDG.E.STRONG.SM, where the CUDA kernel's 55 are LDG.E.CONSTANT).
+
+**Whose code it is.** The two PTX bodies differ -- the CUDA kernel's
+parameters are kernel arguments and the raygen's a constant-memory struct
+(`params`), so the launch_readonly analysis (CodeGen_LLVM_SSA.cpp) marks
+every load of the CUDA kernel `.nc` and 24 of the raygen's 50: the triangle
+vertices' loads reach their array through a pointer read from `params`,
+whose root it does not see, an issue of ours listed below; and the CUDA
+path's paired-float arithmetic (f32x2) is switched off for OptiX on
+purpose, which sm_120's SASS unpacks anyway (no packed instruction on
+either side). But the raygen's PTX through plain ptxas, its one OptiX call
+replaced by `%tid.x`, is a 48-register kernel with the CUDA kernel's
+structure: 30 reconvergence barriers against 29, 8 BREAK against 6, no
+BMOV, 28 read-only-path loads, 86 branches against 87. Through OptiX's
+compiler the same PTX is 67 registers, 22 BMOV lines, no read-only loads
+and the one loop. The overhead is OptiX's compilation of the program, not
+our PTX. The thread mapping is ruled out too: fcpwb-gpu-optix-persistent
+(the 131072-worker claim under OptiX, no reordering, so a warp's 32 claims
+are the same walks as the CUDA persistent kernel's) is 1.04x over WoSX
+against the CUDA persistent 1.44x and the plain OptiX launch 1.07x (head,
+3 repeats).
+
+**The registers.** The directive the compiler writes for
+--gpu-max-registers, `.maxnreg`, OptiX ignores: a raygen carrying
+`.maxnreg 48` compiled to 67 registers, the same SASS to the instruction.
+What OptiX honors is the module's maxRegisterCount, which the runtime had
+left at OptiX's choice; it now reads the directive out of the PTX and
+passes it (66b6590d: max_registers_of in runtime/bonsai_optix.h; the
+tests backends/ptx/raygen-max-registers and correctness/gpu/
+raygen-max-registers; compare.sh's WOSX_FLAGS passes compiler flags for a
+run). The cap swept on the head, 3 repeats each:
+
+| --gpu-max-registers | registers OptiX used | occupancy | issue | duration | over WoSX |
+|---|---|---|---|---|---|
+| none | 67 | 45.5% | 62% | 21.3 ms | 1.07x |
+| 32, 40, 48, 56, 64 | 64 each | 52% | 66% | 20.0-20.4 ms | 1.12-1.15x |
+| the CUDA launch | 50 | 51.8% | 68% | 15.7 ms | 1.44-1.51x |
+
+OptiX compiles to 64 under any cap below it -- its floor -- and the
+instruction count does not move (23.6 G), so the register allocation is
+part of the answer, five to seven percent of the launch, and the loop
+structure the rest, which no option reaches. The same commit makes
+pbrt's --gpu-max-registers 128 real on its OptiX path for the first time
+(bonsai-f9: its raygens ran at OptiX's own 128, the SER megakernel's
+pipeline at 255); whether pbrt's figures run capped or at OptiX's choice,
+as pbrt itself does, is bonsai-f9's question to the user.
+
+**The reordering launches.** A pipeline with shader execution reordering
+reports to Nsight Compute as one block of 512 threads at 255 registers,
+OptiX's execution mode for it (pbrt's profile saw the same shape); the
+counters are the hardware's. On the head against the plain OptiX launch:
+4.79 lanes active per warp instruction against 2.43 and 16.2 G warp
+instructions against 23.6 G (fewer than the CUDA kernel's 18.6 G) -- the
+coherence the reordering promises -- but 32.7% warps active against
+45.5%, 0.72 eligible warps a cycle against 1.35, 47.7% issue against 62%,
+L1 hit 76% against 87% (a point's walks no longer share a warp's cache
+lines), and the SMs active for 78% of the launch's elapsed cycles against
+94%: 22.5 ms against 21.3. On the whale (the walk on spheres', 309056
+walks, the table's 0.83x): lanes 3.71 against 2.20, instructions 0.76x,
+warps active 31.9% against 43.6%, the SMs active 60% of the elapsed cycles
+against 90%, 24.0 ms against 17.1. The reordering buys its coherence and
+loses it to the SER mode's thinner residency and to SMs with nothing to
+run, the more the smaller the launch -- the table's correlate: the three
+launches of 150 to 305 thousand walks lose, the million-walk launches
+gain where a step is three traversals (the stars). The stars' whale
+(0.35x) was not profiled; the same mechanism over a longer tail is the
+reading, not a measurement.
 
 ### Next
 
+- OptiX's one loop: a form of the traversal that survives OptiX's
+  compiler with the leaf visit as the exit of an inner loop over the
+  interior nodes -- the lanes gathered before the triangle tests, as ptxas
+  structures the CUDA kernel on its own -- written so in the PTX, tried on
+  fcpwb-gpu-optix and measured against the 1.27x of warp instructions
+  above; a codegen question, the user's to open.
+- The read-only root through `params`: 26 of the raygen's 50 loads are
+  plain where the CUDA kernel's are `.nc`, the triangle vertices' among
+  them, because launch_readonly's roots_of does not see through a pointer
+  read from the launch parameters; OptiX's SASS takes no read-only path
+  in either case, so the gain would be the PTX's equality, not the
+  launch's time.
+- Whether wosx's OptiX schedules pass --gpu-max-registers 64 by default
+  (five to seven percent of the launch) -- the user's call, as for pbrt's
+  128.
 - The user's question of whether the rest of the comb's CPU gap -- the
   `vec3f` loads and reductions -- is worth a codegen change; the
   binary-tree schedules, fcpwb2 and the walk on stars' tables are

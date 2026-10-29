@@ -60,7 +60,9 @@ set -euo pipefail
 # ext_vector_type); RTQ_CPUS as above; RTQ_SKIP_CMAKE=1 runs the compiler
 # as built, without rebuilding it first (an A/B of two build directories,
 # one of them deliberately at an older commit); WOSX_KEEP set keeps the built
-# program and driver (wosx.out, wosx.ll, ...) after the run, for a profile.
+# program and driver (wosx.out, wosx.ll, ...) after the run, for a profile;
+# WOSX_FLAGS adds compiler flags to every schedule of the run, space
+# separated (`--gpu-max-registers 64`, say), for an experiment.
 if [[ "$(pwd)" == */apps/wosx ]]; then
   cd ../..
 fi
@@ -157,6 +159,14 @@ fi
 build_schedule() {
   local schedule="$1"
   local flags=(-p ssa --no-heap --ffp-contract)
+  # WOSX_FLAGS: more compiler flags for every schedule of this run, space
+  # separated -- `--gpu-max-registers 48` to cap a kernel's registers, say
+  # -- for an experiment on one build (the OptiX profile of 2026-10-28).
+  if [[ -n "${WOSX_FLAGS:-}" ]]; then
+    local extra
+    read -r -a extra <<< "$WOSX_FLAGS"
+    flags+=("${extra[@]}")
+  fi
   # The program: the walk on spheres (wosx.bonsai) unless the schedule is
   # named wost-*, which is the walk on stars (wost.bonsai, over apps/rtq's
   # silhouette query and the FCPW scalar metric's cone and edge arithmetic),

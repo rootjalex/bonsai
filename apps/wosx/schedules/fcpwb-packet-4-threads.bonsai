@@ -1,0 +1,28 @@
+// fcpwb-packet-threads.bonsai with gangs of four: a point's walks in
+// gangs of four lanes, a quarter of the machine's vector width (AVX-512,
+// sixteen floats a register; four floats fill a 128-bit one, the width
+// FCPW's own four-wide tree is laid out for). A lane's work is the same;
+// the gang issues as many vector instructions a step as a wider one, and
+// the leaves it reaches are the union of four walks' only, so once the
+// walks have spread a gang of four wastes the fewest lanes a leaf test
+// and does the most leaf tests a point (PLAN.md, "The packet over the
+// points"). The narrowest of the four packet widths (32, 16, 8, 4) the
+// CPU table measures; against fcpwb-threads, whether a vectorized walk can
+// reach the scalar one on this tree (the user, 2026-10-28: "try packet4
+// and packet8").
+import apps/rtq/schedules/layouts/fcpwb;
+
+schedule {
+    walk.loopify();
+    solve_all.split(w, w_gang, w_lane, 4, true)
+             .vectorize(w_lane);
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        select(distmin(s, AABB{lo[0u], hi[0u]}) == 0.0 &&
+                               distmin(s, AABB{lo[1u], hi[1u]}) == 0.0,
+                               distmax(s, AABB{lo[i], hi[i]}),
+                               distmin(s, AABB{lo[i], hi[i]})))
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
+    solve_all.bind(i, CPUThread);
+}

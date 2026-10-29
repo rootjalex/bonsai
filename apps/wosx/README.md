@@ -254,6 +254,10 @@ the compiler in `BONSAI_BUILD_DIR` as built, without rebuilding it first:
 an A/B of two build directories, one at an older commit (PLAN.md,
 2026-10-27). `WOSX_KEEP=1` leaves the built program and driver
 (`wosx.out`) in place after the run, for a profile under nsys or ncu.
+`WOSX_FLAGS="..."` adds compiler flags to every schedule of the run
+(`--gpu-max-registers 64`, say, which caps a kernel's registers -- on the
+OptiX path through the module's maxRegisterCount since 2026-10-28, OptiX
+ignoring the PTX's own directive), for an experiment on one build.
 
 A schedule named `*-gpu*` is the GPU comparison (`compare.sh --schedule
 fcpwb-gpu <mesh>`): the driver is built with `WOSX_GPU` against slang-rhi
@@ -436,10 +440,11 @@ in question (PLAN.md, the persistent schedule).
   peel, sixty instructions over FCPW's visit); `fcpwb-threads` and
   `fcpwb-persistent`: the threads and the persistent workers on it;
   `schedules/fcpwb-packet.bonsai` and `schedules/fcpwb-packet-points.bonsai`:
-  the two packets over it, one thread; `schedules/fcpwb-packet-threads.bonsai`
-  and `schedules/fcpwb-packet-16-threads.bonsai`: the packet over a point's
-  walks with the points over the threads, in gangs of thirty-two lanes and
-  of sixteen (the machine's vector width), the CPU figure's exploration
+  the two packets over it, one thread; `schedules/fcpwb-packet-threads.bonsai`,
+  `fcpwb-packet-16-threads.bonsai`, `fcpwb-packet-8-threads.bonsai` and
+  `fcpwb-packet-4-threads.bonsai`: the packet over a point's walks with the
+  points over the threads, in gangs of thirty-two lanes, of sixteen (the
+  machine's vector width), of eight and of four, the CPU figure's exploration
   bars for vectorization on this tree (the user, 2026-10-28; the packet's
   cost is PLAN.md's, "The packet over the points": a point's walks spread
   over the mesh a few steps in). The comparison builds FCPW scalar for these
@@ -467,7 +472,12 @@ in question (PLAN.md, the persistent schedule).
   `optixReorder`, written as a sort on the walk's recursive call,
   `walk.sort(walk, |x, problem| walk_sort_key(...))`, the key in
   `walk_keys.bonsai`) and `fcpwb-gpu-optix-ser-persistent` (the persistent
-  claim of a walk at a time under that reordering). The figure's legend
+  claim of a walk at a time under that reordering); beside them, runnable
+  by name and not a bar, `fcpwb-gpu-optix-persistent` (the persistent
+  claim under OptiX with no reordering: against `fcpwb-gpu` it measures
+  OptiX's compilation of the same kernel with the same warps -- 1.04x
+  against 1.44x on the head, PLAN.md "The OptiX launch under Nsight
+  Compute"). The figure's legend
   names them persistent, parallel, persistent-reorder, persistent-256k,
   persistent-reorder-256k, parallel-reorder-blk64, optix, optix-ser and
   optix-ser-persistent; the 256k and blk64 ones came out of the exploration
