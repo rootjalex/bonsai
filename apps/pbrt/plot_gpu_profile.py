@@ -122,6 +122,24 @@ def read_raw(path):
             for h, u, v in zip(header, units, data[0])}
 
 
+def read_singlepass(stem, reason):
+    """The stall reason's ratio from the launch's single-pass run of it,
+    `<stem>.singlepass-<reason>.csv` (profile_kernels.sh --single-pass-
+    timing: Nsight's CSV, the header row the one starting `ID`, then the
+    units, then the launch); None when there is no such file or value."""
+    path = f"{stem}.singlepass-{reason}.csv"
+    if not os.path.exists(path):
+        return None
+    with open(path, newline="") as f:
+        rows = list(csv.reader(f))
+    start = next((k for k, row in enumerate(rows) if row and row[0] == "ID"), None)
+    if start is None or len(rows) <= start + 2:
+        return None
+    header, data = rows[start], rows[start + 2]
+    metric = STALL_METRIC.format(reason)
+    return number(data[header.index(metric)]) if metric in header else None
+
+
 def read_source(path):
     """The functions of a .source.csv: [(name, instructions, executed warp
     instructions, executed thread instructions)] -- the static size of the
@@ -183,12 +201,22 @@ def load(profiles, cells, sides):
                 else:
                     parts.append((name, sum(value(STALL_METRIC.format(m)) or 0.0 for m in metrics), colour))
             # What "other" is made of: every stall reason Nsight reports
-            # that no named group holds, largest first (the .txt lists them).
+            # that no named group holds, largest first (the .txt lists
+            # them). A launch timed in single passes (profile_kernels.sh
+            # --single-pass-timing) has each reason's single-pass value
+            # beside it, .singlepass-<reason>.csv; the merge writes only
+            # the drawn reasons into .raw.csv, so the rest are read from
+            # those files, the replay's distorted counters standing in
+            # only where a file is missing.
             named = {m for _, metrics, _ in STALLS if metrics for m in metrics}
-            other_parts = sorted(((m.group(1), v) for key, (v, _) in raw.items()
-                                  for m in [STALL_METRIC_RE.match(key)]
-                                  if m and m.group(1) not in named and v),
-                                 key=lambda kv: -kv[1])
+            other_parts = []
+            for key, (v, _) in raw.items():
+                m = STALL_METRIC_RE.match(key)
+                if not m or m.group(1) in named:
+                    continue
+                single = read_singlepass(stem, m.group(1))
+                other_parts.append((m.group(1), single if single is not None else v))
+            other_parts = sorted(((r, v) for r, v in other_parts if v), key=lambda kv: -kv[1])
             functions = read_source(stem + ".source.csv") if os.path.exists(stem + ".source.csv") else []
             row.append({
                 "side": side, "label": LABELS.get(side, side), "stem": stem,
