@@ -13,20 +13,15 @@
 // lane keeps the scalar's order and visit count, and what the gang
 // shares is nothing but the instruction stream; the loads are gathers.
 //
-// DOES NOT COMPILE TODAY (2026-10-29): the compiler stops in the LLVM
-// backend's extract of a lane (CodeGen_LLVM::extract_lane, ir::Extract)
-// with LLVM's assertion `isValidOperands(Val, Index)` -- the final SSA
-// shows the vectorized traversal `_recloop_func1$gang16_p2_v4_p5$masked`
-// with a uniform node index and bound (`triangles_index : u32`, `_bound1 :
-// f32`) where a per-lane traversal needs a lane's own, so a lane extract
-// is asked of a scalar. The same two directives in this order compile
-// apps/pbrt's perlane.bonsai; what differs here is the drain, the sort's
-// far-corner select, or the leaf's skip. PLAN.md's Next list has it; the
-// file stays as the reproducer:
-//
-//     ./build/compiler -p ssa --no-heap --ffp-contract -i apps/rtq/elements.bonsai \
-//         -i apps/rtq/metrics/fcpw_scalar.bonsai -i apps/wosx/wosx.bonsai \
-//         -i apps/wosx/schedules/fcpwb-packet-defer-sort-fine-perlane-threads.bonsai -b llvm -o /tmp/x.ll
+// Measured 2026-10-29 (the head, 16 threads, 3 repeats): 8.0 Msteps/s,
+// 0.54x over WoSX, against the sorted gang's 1.19-1.21x -- a lane's own
+// order saves the leaves the vote cost it and pays a gather at every node,
+// 2.5x the sorted gang's instructions (PLAN.md, "The per-lane drain
+// compiled"). Until that morning the compiler stopped on this schedule in
+// the LLVM backend's lane extract: a lane that walks on its own reads the
+// leaf's Triangle object through its own pointer, and the vectorizer's one
+// array handle per lane (Type::is_reference_per_lane) was a type nothing
+// after it knew; fixed at the root in the compiler that day.
 import apps/rtq/schedules/layouts/fcpwb;
 import apps/wosx/walk_keys;
 

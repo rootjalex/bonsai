@@ -2729,6 +2729,80 @@ scalar ones, fcpwb2-persistent at 1.27x. The two ways left to a
 vectorized walk that pays are the per-lane order and the hybrid switch
 (Next).
 
+### The per-lane drain compiled, and the vote's order measured (2026-10-29, afternoon)
+
+The user: "Please fix that bug, and see what schedules can be made to
+alleviate these issues. Be explorative!"
+
+**The bug.** The per-lane form of the sorted drain -- the closest-point
+traversal sorted and put on its stack *before* the drain is vectorized,
+so that each lane walks the tree over a stack of its own -- stopped the
+compiler in the LLVM backend's lane extract. The cause, read off the final
+SSA: a lane that walks on its own reads the leaf's Triangle object through
+its own pointer (FCPW's leaf holds pointers to its objects; the layout's
+`ptr group objects`), and the vectorizer widened that reference to one
+array handle per lane, `const _tree_layout2[]x16`, a type nothing after it
+knew. The element read of it was typed as the vector of handles itself,
+the backend took the handles for a value in registers and asked for a lane
+of them, the C++ backend's path refused the address of an element of it,
+and the linearizer -- whose rule masks a gather by its *index* varying --
+left a read at per-lane addresses unmasked whatever the lanes held: once
+the first two were mended the program compiled and faulted, a `vpgatherqd`
+under an all-ones mask through the off lanes' handles. Fixed at the root
+in the compiler (the commit names each piece): the type named
+(Type::is_reference_per_lane), the element read typed as the gang-wide
+form of the array's element and gathered from the lanes' bases a field at
+a time, the x86 gather's one-base form bypassed for a base per lane, the
+address of an element of a per-lane handle one pointer per lane also when
+the element is an aggregate, and the linearizer masking a read through a
+handle that varies and a load through a pointer that varies, whatever the
+index. The same handle turned out to be what a packet traversal's best
+hit leaves each lane with, dereferenced after the walk, which is why
+tests/bonsai/correctness/cpp/bvh4_ptr_arena_packet, written on 10-09,
+never passed: it passes now, and with ssa/ptr-rows-packet and
+backends/llvm/ptr-rows-packet pins the form (the tile's address a `gep` on
+the vector of handles, every load through it a masked gather). The
+per-lane arena test itself hits an older limitation of the divergence
+analysis and sits in tests/bonsai/pending (Next).
+
+**What the per-lane drain measures** (`fcpwb-packet-defer-sort-fine-
+perlane-threads`, the sorted chunk's drain with each lane's own order; the
+head, 16 threads, 3 repeats): 8.0 Msteps/s, 0.54x over WoSX, against the
+sorted gang's 17.7-18.0 (1.19-1.21x) and the plain packet's 9.9 (0.66x),
+WoSX's estimate to the walk. So the vote's order is not what to fix: a
+lane keeping its own nearer-first order saves the 1.4x of leaves the
+majority's order cost it, and pays for it with a gather at every node --
+the node's row read from sixteen addresses instead of one broadcast, 237 G
+of our instructions for the run against the sorted gang's 93 G (2.5x) --
+and the gang shares nothing but its instruction stream. On a CPU the
+shared node is the packet's whole gain, and a traversal whose lanes
+disagree about the order is better served by lanes that agree, which is
+the sort, than by lanes that each go their own way.
+
+**A gang of eight for the sorted drain** (`fcpwb-packet-defer-sort-8-
+threads`: the same sorted chunk, the drain in gangs of eight), the Next
+list's question -- four lanes of sixteen live at a node pass would be four
+of eight: the head 1.03x over WoSX against the gangs of sixteen's 1.19x,
+the rover 0.58x against 0.59x, the comb 1.37x against 1.90x. Sixteen wins
+everywhere: a gang of eight runs twice the passes for the same lanes, and
+a 256-bit pass costs what a 512-bit one does, so the fuller gang buys
+nothing and the halved width is paid in full. The vector width is the
+right gang, and the lanes it holds are the sort's to fill.
+
+**Where the exploration stands** (over WoSX, the head / the rover): the
+scalar threads 1.17x / 1.17x; the packet of sixteen 0.66x / 0.39x; the
+walks deferred and compacted 0.68x / 0.38x; the sorted drain 1.19x /
+0.59x (gangs of eight 1.03x / 0.58x; the thirty-bit key 1.21x / 0.58x;
+chunks of 256 1.21x / 0.61x; chunks of 16 1.10x / --); the per-lane
+sorted drain 0.54x / --. The sort is the one directive that moved the
+vectorized walk, by 1.8x; nothing after it moved it further, and the two
+forms that attack the vote's order (per-lane) and the gang's emptiness
+(eight lanes) each cost more than they return. A vectorized walk on WoSX's
+default tree that beats the scalar one wants a shared node *and* lanes
+that agree on the order *and* a leaf test that is not sixteen wide for
+two lanes -- the hybrid switch, which remains the one schedule word not
+yet in the language (Next).
+
 ### Next
 
 - OptiX's one loop: a form of the traversal that survives OptiX's
@@ -2817,20 +2891,16 @@ vectorized walk that pays are the per-lane order and the hybrid switch
   keeps each lane's own nearer-first order and so the scalar's visit count
   where the gang's majority vote costs a lane 1.4x the leaves, once it
   compiles (the next item).
-- The per-lane drain does not compile: `closest_within.sort(...)
-  .loopify(64)` before `solve_all.split(steps, ..., 16, true)
-  .vectorize(steps_lane)` on the deferred drain stops the compiler in the
-  LLVM backend's lane extract (CodeGen_LLVM::extract_lane on an
-  ir::Extract; LLVM's `isValidOperands` assertion), the final SSA showing
-  the vectorized traversal `_recloop_func1$gang16_p2_v4_p5$masked` with
-  a uniform node index and bound where a per-lane traversal needs a
-  lane's own. The same order of the two directives compiles apps/pbrt's
-  perlane.bonsai; what differs is the drain as the caller, the sort key's
-  far-corner select, or the leaf's skip. The schedule file stays as the
-  reproducer, its header says the command.
-- A gang of eight for the sorted drain: at four lanes of sixteen live at
-  a node, a gang of eight is half full for the same passes per lane; one
-  schedule file, two meshes to measure.
+- The per-lane traversal over Embree's pointer arena
+  (tests/bonsai/pending/bvh4_ptr_arena_perlane): the argmin's one record
+  pointer, carried round the loopified loop as a block argument, is named
+  `_best0!loop` at the uniformized header and `_best0` on the entry edge,
+  and the divergence analysis, telling values apart by name, reads the
+  join as two values the lanes disagree about and refuses the function
+  ("a per-lane pointer into per-lane memory"). The wosx per-lane drain
+  does not hit it (its record pointer stays the function's parameter). A
+  skip of the latch's self-pass was tried on 10-29 and made other carried
+  values uniform; the fix belongs where the two names are made one.
 - FCPW's scalar arithmetic for WoSX's default configuration (issue 1) is
   now metrics/fcpw_scalar.bonsai in apps/rtq.
 - The extensions, one at a time against WoSX: a source term (Poisson),
