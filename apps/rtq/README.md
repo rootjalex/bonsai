@@ -445,12 +445,13 @@ driver, the two sides' kernels told apart by symbol).
   reference) from the results CSV, `python apps/rtq/plot.py
   apps/rtq/results/rtq-results.csv -o apps/rtq/plots`, drawn at the
   paper's page width in apps/pbrt/figure_style.py's style; the same three
-  queries in one figure a quarter inch taller than one of them,
+  queries in one figure four tenths of an inch taller than one of them,
   `rtq-queries`, for the page without
-  the room for three (ten bars a mesh, each reference's five sets side by
-  side in the figures' order with their hatches, the legend two rows with
-  the first entry of each query naming it; the three are drawn as before
-  beside it); and, where the
+  the room for three (ten bars a mesh: the reference by colour, the set
+  by its hatch from the three figures, the query by place -- a query's
+  bars together with a bar's width between queries, in the three
+  figures' order, and the legend the colours over a block a query
+  headed by its name; the three are drawn as before beside it); and, where the
   CSV has the rows, the two figures of the walks' queries over FCPW's
   scalar trees, `rtq-fcpwb-fcpws-cpu` (over FCPW's scalar build) and
   `rtq-fcpwb-fcpws-gpu` (over its GPUScene, which takes only the binary

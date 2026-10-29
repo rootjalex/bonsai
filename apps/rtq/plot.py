@@ -24,16 +24,19 @@ closest point over FCPW's binary BVH (`fcpwb`, `fcpwb-gpu`) and the closest
 silhouette point over its normal cone hierarchy (`fcpws`, `fcpws-gpu`), the
 query by colour and the set by hatching.
 
-The three are also drawn as one, `rtq-queries`, a figure a quarter inch
-taller than one of them (the legend's second row, as the scalar figures)
-for the page that has not the room for three: ten bars a mesh, each
-reference's five sets side by side in the figures' order -- the first
-hit's primary and diffuse rays, the any hit's ambient-occlusion rays, the
-closest point's near-surface and in-volume points -- the colour the
-reference and each set's hatch the one it has in the three, and the legend
-two rows with the first entry of each query naming it. The y axis is the
-closest point's, so the ray queries' bars over Embree stand at the line.
-The three are drawn as before beside it.
+The three are also drawn as one, `rtq-queries`, a figure four tenths of
+an inch taller than one of them (the legend's two more rows) for the page
+that has not the room for three. Three things vary in a
+mesh's ten bars and each has its own mark: the reference by colour, as
+in every figure; the ray or point set by hatch, the five hatches of the
+three figures; and the query by place -- a query's bars stand together,
+a bar's width of space between queries, in the three figures' order (the
+first hit's primary and diffuse rays, the any hit's ambient-occlusion
+rays, the closest point's near-surface and in-volume points), and the
+legend is grouped the same way, the query's name heading a block of its
+sets. Within a set Embree's bar then FCPW's, as in the three. The y axis
+is the closest point's, so the ray queries' bars over Embree stand at the
+line. The three are drawn as before beside it.
 
 Each reference on its own default tree: Embree's BVH8 (`embree`) and FCPW's
 four-wide Mbvh with sixteen-lane leaves (`fcpw4w16`, FCPW's default branching
@@ -73,8 +76,10 @@ import sys
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib.legend import Legend  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 from matplotlib.ticker import MaxNLocator  # noqa: E402
+from matplotlib.transforms import ScaledTranslation  # noqa: E402
 
 # The paper's figure style, apps/pbrt's module: acmsmall's text width, the
 # font sizes, the YlGnBu ramp, Liberation Sans embedded as TrueType, and
@@ -111,20 +116,6 @@ FIGURES = [
     ("anyhit", "any", ["ao"], "Any hit"),
     ("closestpoint", "closest", ["near", "volume"], "Closest point"),
 ]
-
-
-def combined_sets():
-    """The ten-bar figure's sets, (query, set, legend label): the three
-    figures' sets in their order, the first of each query's labelled with
-    the query -- "first hit: primary" then "diffuse" -- since every entry
-    naming its query ran the legend past the text block."""
-    out = []
-    for _, query, sets, title in FIGURES:
-        for j, s in enumerate(sets):
-            out.append((query, s, f"{title.lower()}: {LABEL[s]}" if j == 0 else LABEL[s]))
-    return out
-
-
 # The two figures of the queries apps/wosx's walks make, over FCPW's scalar
 # trees (the build WoSX ships): one for the CPU, bonsai over FCPW's scalar
 # build, one for the GPU, bonsai over FCPW's GPUScene. Seven bars a mesh,
@@ -263,34 +254,65 @@ def finish_axes(ax, meshes, top):
     ax.set_axisbelow(True)
 
 
-def legend_above(ax, handles, ncol=None, **spacing):
+def legend_above(ax, handles, ncol=None):
     """The legend in one row above the axes, clear of the tallest bar; no
     title (the figure's caption says which query it is, and which
     schedules). `ncol` makes it rows of that many, where one row of all
-    the handles would be wider than the figure; `spacing` overrides the
-    legend's column spacing and handle padding. Returns the legend."""
-    spacing = {"columnspacing": 1.0, **spacing}
-    return ax.legend(handles=handles, ncol=ncol or len(handles), loc="lower left",
-                     frameon=False, bbox_to_anchor=(0, 1.0), borderaxespad=0, **spacing)
+    the handles would be wider than the figure."""
+    ax.legend(handles=handles, ncol=ncol or len(handles), loc="lower left", frameon=False,
+              bbox_to_anchor=(0, 1.0), borderaxespad=0, columnspacing=1.0)
 
 
-def save(fig, out_dir, name, formats, legend=None):
+def legends_above(ax, rows, gap=0.15):
+    """Legends in rows above the axes, the first row the topmost: each row
+    a list of (title, handles) blocks, a block its handles in one row
+    under its title (None for none), the blocks of a row placed left to
+    right by measurement, `gap` inches apart. Every block is anchored in
+    inches from the axes' top left corner, so that the layout's later
+    resizing of the axes does not move the blocks against each other. The
+    boxes are measured on the figure as it stands, so the caller draws the
+    bars first. Returns the legends."""
+    fig = ax.figure
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    legends = []
+    y = 0.0
+    for row in reversed(rows):
+        x, height = 0.0, 0.0
+        for title, handles in row:
+            legend = Legend(ax, handles, [h.get_label() for h in handles], title=title,
+                            ncols=len(handles), alignment="left", loc="lower left",
+                            frameon=False, borderaxespad=0, columnspacing=1.0)
+            ax.add_artist(legend)
+            box = legend.get_window_extent(renderer)
+            legend.set_bbox_to_anchor((0, 1.0), ax.transAxes + ScaledTranslation(
+                x, y, fig.dpi_scale_trans))
+            x += box.width / fig.dpi + gap
+            height = max(height, box.height / fig.dpi)
+            legends.append(legend)
+        y += height + 0.03
+    return legends
+
+
+def save(fig, out_dir, name, formats, legends=()):
     """The page exactly the figure's size (no cropping to the content, which
     would leave LaTeX to rescale it): the layout fits the labels and the
-    legend inside it. With `legend`, that legend is kept out of
-    tight_layout's reckoning and the height it measures reserved above the
-    axes instead: tight_layout takes a legend wider than the axes' first
-    guess for a margin the axes must leave on the right, and squeezes them
-    (the scalar figures' one-row legend halved theirs, 3eeb61ad); left out,
-    the legend runs from the axes' left edge as wide as the page allows.
-    Returns the path of the first format written."""
+    legend inside it. With `legends`, those legends are kept out of
+    tight_layout's reckoning and the height they measure together reserved
+    above the axes instead: tight_layout takes a legend wider than the
+    axes' first guess for a margin the axes must leave on the right, and
+    squeezes them (the scalar figures' one-row legend halved theirs,
+    3eeb61ad); left out, the legends run from the axes' left edge as wide
+    as the page allows. Returns the path of the first format written."""
     pad = 0.3
-    if legend is None:
+    if not legends:
         fig.tight_layout(pad=pad)
     else:
-        legend.set_in_layout(False)
+        for legend in legends:
+            legend.set_in_layout(False)
         fig.canvas.draw()
-        height = legend.get_window_extent(fig.canvas.get_renderer()).height / fig.dpi
+        boxes = [legend.get_window_extent(fig.canvas.get_renderer()) for legend in legends]
+        height = (max(b.y1 for b in boxes) - min(b.y0 for b in boxes)) / fig.dpi
         gap = pad * plt.rcParams["font.size"] / 72
         fig.tight_layout(pad=pad, rect=(0, 0, 1, 1 - (height + gap) / fig.get_figheight()))
     paths = []
@@ -549,16 +571,27 @@ def draw(rows, schedules, out_dir, suffix, formats, exclude, tuned):
 
 
 def draw_combined(rows, schedules, out_dir, suffix, formats, exclude, tuned):
-    """The three figures' cells in one figure of their size, `rtq-queries`
-    (the user, 10-29: the three on one plot, to save the page): ten bars a
-    mesh, each reference's five sets side by side in the figures' order,
-    the colour the reference and the hatch the set as in the three, so
-    that a mesh reads as two profiles -- over Embree the rays level and
-    the points well over, over FCPW the rays well over and the points
-    least."""
+    """The three figures' cells in one figure, `rtq-queries` (the user,
+    10-29: the three on one plot, to save the page). Three things vary in
+    a mesh's bars and each has its own mark: the reference by colour, as
+    in every figure (the legend says what the bar is over); the ray or
+    point set by hatch, the five hatches the three figures use; and the
+    query by place -- a query's bars stand together, a bar's width of
+    space between queries, in the order of the three figures, and the
+    legend is grouped the same way, the query's name heading a block of
+    its sets. Within a set Embree's bar then FCPW's, as in the three (the
+    user, 10-29). The user's question of 10-29, how three things are told
+    apart in one bar chart, has this answer because the set is nested in
+    the query (a set belongs to one query, so there are five pairs, not
+    fifteen): the hatch alone fixes the query, and the grouping of the
+    bars and of the legend makes that readable without decoding. The
+    other ways considered: the query by hatch and the set by a tint of the
+    reference's colour (two tints of Embree's light yellow are white and
+    green, and the paper keeps one colour a system); three panels across
+    the width (twelve meshes by four bars in 1.6 inches cannot be read,
+    and the mesh names would take half the height)."""
     meshes, _ = meshes_by_triangles(rows, exclude)
     refs = [("embree", schedules["embree"]), ("fcpw", schedules["fcpw"])]
-    sets = combined_sets()
     data = {}
     for ref, sched in refs:
         for _, query, _, _ in FIGURES:
@@ -567,48 +600,48 @@ def draw_combined(rows, schedules, out_dir, suffix, formats, exclude, tuned):
     if not any(data.values()):
         print(f"queries: no rows for {schedules}; skipped", file=sys.stderr)
         return
-    width = 0.8 / (len(sets) * len(refs))
+    # A mesh's slots, one a bar: a query's sets together, each set's two
+    # references side by side, and an empty slot between queries.
+    slots = []
+    for n, (_, query, sets, _) in enumerate(FIGURES):
+        if n:
+            slots.append(None)
+        slots += [(query, s, ref) for s in sets for ref, _ in refs]
+    width = 0.8 / len(slots)
     paper_style()
-    # The bars are 2.6 pt wide here against the three figures' 4.4 to 6.6,
+    # The bars are 2.2 pt wide here against the three figures' 4.4 to 6.6,
     # and matplotlib's 1 pt hatch lines fill them: the crosses and the
     # diagonals read as dark bars. Thinner lines for this figure alone; the
     # setting is read as the figure is drawn, so the block runs to the save.
     with plt.rc_context({"hatch.linewidth": 0.6}):
-        # A quarter inch taller than the three for the legend's second row,
-        # as the scalar figures are; another for the tuned labels' third.
-        fig, ax = plt.subplots(figsize=(TEXT_WIDTH, HEIGHT + (0.4 if tuned else 0.25)))
+        # Taller than the three by the legend's two more rows: a quarter
+        # inch for the second, as the scalar figures, and the third's 0.15.
+        fig, ax = plt.subplots(figsize=(TEXT_WIDTH, HEIGHT + 0.4))
         top = 1.0
         for i, mesh in enumerate(meshes):
-            for k, (ref, _) in enumerate(refs):
-                for j, (query, rays, _) in enumerate(sets):
-                    v = data[(ref, query)].get((mesh, rays))
-                    if v is None:
-                        continue
-                    x = i - 0.4 + width * (k * len(sets) + j + 0.5)
-                    ax.bar(x, v, width, color=COLOUR[ref], hatch=HATCH[rays],
-                           edgecolor=hatch_colour(COLOUR[ref]), linewidth=0.4)
-                    top = max(top, v)
+            for j, slot in enumerate(slots):
+                if slot is None:
+                    continue
+                query, rays, ref = slot
+                v = data[(ref, query)].get((mesh, rays))
+                if v is None:
+                    continue
+                ax.bar(i - 0.4 + width * (j + 0.5), v, width, color=COLOUR[ref],
+                       hatch=HATCH[rays], edgecolor=hatch_colour(COLOUR[ref]), linewidth=0.4)
+                top = max(top, v)
         finish_axes(ax, meshes, top)
+        # The legend: the colours in the top row, saying what the bars are
+        # over; under them a block a query, its name heading its sets'
+        # hatches, in the bars' order.
         colours = [Patch(facecolor=COLOUR[ref], edgecolor=EDGE, linewidth=0.4,
                          label=(f"{NAME[ref]}'s tree, over matching" if tuned
                                 else f"over {NAME[ref]}"))
                    for ref, _ in refs]
-        hatches = [Patch(facecolor="white", edgecolor=EDGE, linewidth=0.4, hatch=HATCH[rays],
-                         label=label) for _, rays, label in sets]
-        # The legend's rows: two of four, a colour first in each, the first
-        # hit and the any hit along the top, the closest point along the
-        # bottom -- or, with the tuned labels (twice as long), three of
-        # three with the any hit under the colours, so that the rows stay
-        # within the page. It fills down the columns; each column here top
-        # to bottom.
-        first, diffuse, ao, near, volume = hatches
-        if tuned:
-            columns = [colours + [ao], [first, diffuse], [near, volume]]
-        else:
-            columns = [colours, [first, near], [diffuse, volume], [ao]]
-        legend = legend_above(ax, [h for column in columns for h in column],
-                              ncol=len(columns), columnspacing=0.8, handletextpad=0.6)
-        path = save(fig, out_dir, f"rtq-queries{suffix}", formats, legend)
+        queries = [(title, [Patch(facecolor="white", edgecolor=EDGE, linewidth=0.4,
+                                  hatch=HATCH[s], label=LABEL[s]) for s in sets])
+                   for _, _, sets, title in FIGURES]
+        legends = legends_above(ax, [[(None, colours)], queries])
+        path = save(fig, out_dir, f"rtq-queries{suffix}", formats, legends)
     what = "tuned schedule over matching" if tuned else "bonsai over the reference"
     sections = []
     for ref, _ in refs:
