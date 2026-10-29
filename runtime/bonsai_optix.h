@@ -5,6 +5,7 @@
 #include <dlfcn.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -609,6 +610,34 @@ inline OptixPipelineCompileOptions pipeline_options(int payload_values) {
     return options;
 }
 
+// The most registers a thread of `ptx`'s kernels may use: the largest
+// `.maxnreg N` the compiler wrote on an entry for --gpu-max-registers
+// (CodeGen_PTX.cpp and CodeGen_OptiX.cpp put the directive on every
+// kernel), or 0 when no entry carries one. OptiX's compiler ignores the
+// directive in the PTX it is given: a ray-generation program carrying
+// `.maxnreg 48` compiled to 67 registers, the same SASS to the instruction
+// as without the directive, where ptxas on the same PTX used 48
+// (2026-10-28, apps/wosx/PLAN.md, the OptiX profile). The one place the
+// option reaches OptiX is the module's maxRegisterCount, so module_of
+// reads the directive and passes it there.
+inline unsigned max_registers_of(const char *ptx) {
+    const std::string text(ptx);
+    const std::string marker = ".maxnreg ";
+    unsigned most = 0;
+    size_t at = 0;
+    while ((at = text.find(marker, at)) != std::string::npos) {
+        at += marker.size();
+        unsigned n = 0;
+        while (at < text.size() &&
+               std::isdigit(static_cast<unsigned char>(text[at]))) {
+            n = n * 10 + unsigned(text[at] - '0');
+            at++;
+        }
+        most = std::max(most, n);
+    }
+    return most;
+}
+
 inline Module &module_of(Api &a, State &s, const char *ptx,
                          int64_t payload_values) {
     if (const auto it = s.modules.find(ptx); it != s.modules.end()) {
@@ -621,7 +650,12 @@ inline Module &module_of(Api &a, State &s, const char *ptx,
     Module m;
     m.payload_values = payload_values;
     OptixModuleCompileOptions module_options = {};
-    module_options.maxRegisterCount = OPTIX_COMPILE_DEFAULT_MAX_REGISTER_COUNT;
+    // The compiler's --gpu-max-registers, from the PTX (max_registers_of);
+    // OptiX's own choice when the program carries none.
+    const unsigned max_registers = max_registers_of(ptx);
+    module_options.maxRegisterCount =
+        max_registers != 0 ? int(max_registers)
+                           : OPTIX_COMPILE_DEFAULT_MAX_REGISTER_COUNT;
     module_options.optLevel = validating() ? OPTIX_COMPILE_OPTIMIZATION_LEVEL_0
                                            : OPTIX_COMPILE_OPTIMIZATION_DEFAULT;
     module_options.debugLevel = validating() ? OPTIX_COMPILE_DEBUG_LEVEL_FULL

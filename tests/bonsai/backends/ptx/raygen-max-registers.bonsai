@@ -1,0 +1,28 @@
+//! flags: -p ssa -b ptx --gpu-max-registers 64
+
+// raygen.bonsai under --gpu-max-registers 64: the `__raygen__` entry carries
+// `.maxnreg 64` (CodeGen_OptiX puts the directive on the raygen as
+// CodeGen_PTX puts it on a CUDA kernel), which is the one thing the option
+// writes into an OptiX module's PTX. OptiX's compiler ignores the directive
+// where ptxas honors it, so the runtime reads it back out of the PTX and
+// passes it as the module's maxRegisterCount (runtime/bonsai_optix.h,
+// max_registers_of; correctness/gpu/raygen-max-registers runs it).
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = i * i;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    run(out);
+    // {0, 1, 4, 9, 16, 25, 36, 49}
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.bind(i, OptixThread);
+}

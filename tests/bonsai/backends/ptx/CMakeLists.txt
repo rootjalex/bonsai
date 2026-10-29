@@ -63,6 +63,7 @@ add_bonsai_tests(
     print.bonsai
     rand.bonsai
     raygen.bonsai
+    raygen-max-registers.bonsai
     reorder.bonsai
     rtcore-any.bonsai
     rtcore-sink-loads.bonsai

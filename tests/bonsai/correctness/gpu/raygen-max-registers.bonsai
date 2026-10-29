@@ -1,0 +1,30 @@
+//! flags: -p ssa -b llvm -e --gpu-max-registers 64
+
+// raygen.bonsai under --gpu-max-registers: the loop bound to OptixThread is
+// a ray-generation program whose PTX carries `.maxnreg 64`, a directive
+// OptiX's compiler ignores in the PTX it is given, so the runtime reads it
+// and hands it to the module as maxRegisterCount (runtime/bonsai_optix.h,
+// max_registers_of; 2026-10-28, apps/wosx/PLAN.md: a raygen at 67
+// registers under OptiX's own choice compiled to 64 under the cap, the
+// floor OptiX goes down to). What this test holds: a program compiled with
+// the cap builds its OptiX module and prints the CPU program's answer --
+// the register count itself is a profiler's to read.
+
+func run(out : mut array[i32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = i * i;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    run(out);
+    // {0, 1, 4, 9, 16, 25, 36, 49}
+    print(out);
+    return 0;
+}
+
+schedule {
+    run.bind(i, OptixThread);
+}
