@@ -24,7 +24,7 @@
 # already beside the report, without the card.
 #
 # SCHEDULE names a renderer gpu_compare.sh compiled, RENDERERS/SCHEDULE/
-# render.out (--renderers, default apps/pbrt/gpu-compare-out-d, the GPU
+# render.out (--renderers, default apps/pbrt/gpu-compare-out-e, the GPU
 # figure's run); SCENE is a converted scene as gpu_compare.sh names it,
 # <dir>/<name> under apps/pbrt/scenes/converted/ (killeroos/killeroo-gold;
 # a bare name is <name>/<name>, as ganesha), the files named by <name>;
@@ -40,7 +40,8 @@
 # The profile is the full section set under kernel replay (the renderer
 # runs once, the launch is replayed some forty times with its memory saved
 # and restored; BONSAI_REPEATS=1 so the frame renders once). Written to
-# OUT (--out, default apps/pbrt/profile-out), four files per launch, named
+# OUT (--out, default apps/pbrt/profile-out-e, the profile figure's run;
+# profile-out/ is 10-28 daytime's under 39c67ab9), four files per launch, named
 # SCENE-SPP-SCHEDULE-L<LAUNCH>: .ncu-rep (the report), .txt (its details
 # page), .raw.csv (every metric, one row), .source.csv (the SASS of every
 # function in the launch with its executed-instruction, thread and stall
@@ -55,8 +56,8 @@
 # the caller's: run this through a wrapper that takes and removes it.
 set -euo pipefail
 PREFIX=$(cd "$(dirname "$0")" && pwd)
-OUT="$PREFIX/profile-out"
-RENDERERS="$PREFIX/gpu-compare-out-d"
+OUT="$PREFIX/profile-out-e"
+RENDERERS="$PREFIX/gpu-compare-out-e"
 LIST=0
 SINGLE_PASS=0
 MERGE_ONLY=0

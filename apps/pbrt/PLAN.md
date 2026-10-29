@@ -19069,3 +19069,119 @@ their tables); nothing of mine runs until their next 'done'. Still
 open with the user: bonsai-ac's A/B proposal (HEAD vs a53c8f84, ~25
 min), the GPU figures' redo under HEAD (~4 h of card), and the CPU
 sweep's redo (~4 h of idle CPU).
+
+## 10-29, the night: all four figures remeasured under one compiler, 7af5bd86 (the exit merge), registers at OptiX's choice
+
+**The run (23:14:50-07:41:09, one lock).** apps/pbrt/scratch/
+redo_gpu_figures_head.sh --then-cpu, started on bonsai-ac's 'done' of
+23:13 ('timing' sent 23:15, the lock watcher armed in the same response,
+the lock on at 23:14:50; logs apps/pbrt/scratch/redo_gpu_figures_head-
+2314.log and redo_cpu_sweep_head-0228.log). Stage 1, the sweep:
+gpu_compare.sh's eight sides on the five scenes at 16/64/128 spp, three
+repeats, the eight schedules compiled at once, into gpu-compare-out-e
+(135 rows, 23:15-00:45). Stage 2, the heatmap: heatmap.sh over the
+thirty scenes with the sweep's gpu-optix renderer reused by key, into
+compare-out-heatmap12 (180 rows, 00:45-02:22). Stage 3: the launch
+listings (profile-out-e/listings.txt), then profile_kernels.sh's six
+launches on the sweep's renderers into profile-out-e (02:22-02:28,
+ganesha's trace with --single-pass-timing). Then the CPU sweep,
+cpu_compare.sh's nine schedules on the five scenes, three repeats, into
+cpu-compare-out-head (150 rows, 02:28-07:41). Every stage rc 0; every
+image check ok but the one that has failed since 10-23 (sanmiguel 16 spp,
+the scalar schedule against pbrt's volpath: pbrt's own two renders
+disagree, 853,108 lit pixels here against 856,648, 853,111 on 10-23).
+The stall watch on my own lock (scratch/own_stall_watch.sh) never
+fired; 'done' to bonsai-ac at 07:41.
+
+**Registers: both nights at OptiX's choice.** The run was to settle
+whether the SER megakernel's 255 registers and the raygens' 128 were a
+cap's doing: bonsai-ac found on 10-28 that OptiX ignores the PTX's
+`.maxnreg`, so --gpu-max-registers reaches OptiX only since 66b6590d.
+This run passed no cap (BONSAI_GPU_MAX_REGISTERS=0, as pbrt builds its
+own OptiX modules, OPTIX_COMPILE_DEFAULT_MAX_REGISTER_COUNT in
+gpu/optix/aggregate.cpp; its `-maxrregcount 128` is its CUDA kernels').
+The profiles show the counts 10-28's showed: 128 for the wavefront's
+trace and the flat megakernel, 255 for the SER pipeline, on both scenes.
+So the night of 10-27's tables under 39c67ab9 were at OptiX's choice too
+(the 128 the harness asked for never arrived), and what differs between
+the two nights is the compiler alone, 39c67ab9's exit funnel against
+7af5bd86's exit merge. gpu_compare.sh's default cap is now 0, its
+comment saying why; BONSAI_GPU_MAX_REGISTERS=N is a real cap from now on,
+and the log's compiler line and the table's footer say which.
+
+**The sweep, cell by cell against gpu-compare-out-d.** pbrt --gpu's own
+kernel times tie within 1% on every cell. mk-ser-flat moved as the merge
+was expected to move it: 0.93-0.95 of its previous kernel time on the
+six killeroo cells (killeroo-gold 128 spp 511 -> 474 ms), 0.99-1.00 on
+book, ganesha and sanmiguel; its geomean over PBRT wf 1.77x -> 1.82x
+(kernel 1.38x -> 1.42x), the SER megakernel's gain over mk-flat 1.27x ->
+1.31x. The plain megakernel moved the other way on the two big scenes:
+1.04-1.05 of its previous time on ganesha and sanmiguel-courtyard
+(ganesha 128 spp 4,347 -> 4,540 ms), flat on the other three, geomean
+0.70x -> 0.69x. mk-blk 1.01-1.03 slower on most cells (1.15x -> 1.14x);
+mk-pass and mk-flat 0.98 on ganesha, 1.01-1.02 elsewhere (1.34x ->
+1.33x, 1.39x -> 1.39x); mk-ser 0.98-0.99 (0.93x -> 0.94x); wf 1.02 on
+ganesha and sanmiguel, 1.00 on the rest (2.09x -> 2.08x); wf-sort 1.47x
+-> 1.47x. These are moves against our previous measurement, not against
+pbrt, and none changes the figure's reading: the SER flat megakernel is
+the best side on the two killeroos at every sample count, the wavefront
+on book, ganesha and sanmiguel, as before.
+
+**The heatmap against compare-out-heatmap11.** gpu-optix over pbrt --gpu
+on the thirty scenes at three sample counts: geomean 1.80x -> 1.80x
+(kernel ratio 1.663 -> 1.668; our kernel times 0.997 of before by
+geomean over the ninety cells). The cells that moved by more than 3%,
+each the same at all three sample counts: faster on plume (0.89 of
+before), bunny-cloud (0.92), watercolor (0.94) and explosion (0.96-0.97)
+-- four of the six media scenes; slower on lte-orb-simple-ball (1.11,
+the one large move: 1.64x -> 1.51x at 16 spp), disney-cloud (1.04-1.05),
+bistro_vespa (1.03-1.04), sanmiguel-courtyard-second and landscape
+(1.03). The rest within 2%. lte-orb-simple-ball's 11% is unexplained --
+the same renderer runs every scene, so it is the merge's code on the
+paths that scene's dielectric ball exercises -- and is the one cell to
+profile if it matters.
+
+**The profiles against profile-out.** The same registers and the same
+kernel sizes within 1% on every launch. ganesha's wavefront trace: 78.2
+warp-cycles per issued instruction (77.1 on 10-28, the one-pass spread),
+instruction fetch 1%, traversal wait 39%, memory 53%, other 7%, lanes
+31.2 of 32; mk-flat 30.3 (30.8), lanes 9.2; mk-ser-flat 47.0 (47.8),
+329 ms under the profiler (338), lanes 15.0, instruction fetch 84%.
+killeroo-gold: wf 61.9 (62.1), mk-flat 20.0 (19.8), mk-ser-flat 22.5
+(23.3) at 65.2 ms (68.7). The figure's reading is unchanged.
+
+**The CPU sweep against 10-23/24 (cpu-compare-out, -sortfix).** The
+eight wavefront schedules tie their previous seconds within 0.6% by
+geomean (wavefront-frame 1.001, -packet 1.002, -packet-reorder 1.004,
+wavefront-thread 1.001, -packet 1.003, -packet-reorder 1.001,
+-packet-sort 1.006), pbrt's wavefront 1.001 and its volpath 1.000, so
+the figure's bars stand where they were. The scalar schedule alone
+moved: 1.028 of its previous seconds by geomean, 1.04-1.06 on the
+killeroos (killeroo-gold 16 spp 2.00 -> 2.12 s) and on ganesha 128 spp
+(28.3 -> 29.3 s), 1.01-1.02 on book and sanmiguel; over pbrt's volpath
+8.00x -> 7.55x on killeroo-gold 16 spp. pbrt's volpath itself moved
+0.96-1.06 both ways on the same sub-3 s cells, so those are noise, but
+ganesha 128 at 29 s is not: the scalar render loop under the merge is
+about 3% slower on the geometry-heavy scenes, a move against our
+previous measurement (the exits merged where the funnel was, in the one
+schedule whose loop is not a wavefront). Not pursued.
+
+**Figures and defaults.** plots.sh now draws from gpu-compare-out-e,
+compare-out-heatmap12, profile-out-e and cpu-compare-out-head (its
+comments carry each run's night and compiler; profile_kernels.sh's
+--renderers and --out defaults follow; the README's list likewise), all
+four redrawn 07:45. The wrapper's own two plots.sh calls had each drawn
+the other figures from the old defaults; the redraw replaced that. The
+heatmap's description no longer says 256 spp (three sample counts).
+The night of 10-27's directories stay beside the new ones for the
+comparison above. Two source comments corrected while nothing of mine
+ran: the Safe ICF venue (src/SSA/Rewrite.cpp, GCC Developers' Summit
+2010, not CGO) and the Meister reordering paper's year (src/Lower/
+Sorts.cpp, I3D 2020, not 2025).
+
+**Open with the user.** The two moves against our own measurement
+(lte-orb-simple-ball's wavefront 11%, the scalar schedule's 3%); the
+register cap kept at OptiX's choice (pbrt's own; a 128 cap is now a
+one-variable rerun of the sweep, ~1.5 h); a larger mk-blk block;
+ganesha's megakernel raygen size (direct callables, or a build per scene
+type); bonsai-ac's wosx parallel-schedule A/B.

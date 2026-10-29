@@ -157,15 +157,15 @@ before it.
   exactly these and is not committed:
   - `pbrt-cpu-sweep.pdf`: the CPU schedules over pbrt's CPU wavefront,
     five scenes x 16/64/128 spp (plot_cpu_wavefront.py from
-    cpu-compare-out and cpu-compare-out-sortfix);
+    cpu-compare-out-head, the night of 10-28's run);
   - `pbrt-gpu-sweep.pdf`: every measured OptiX schedule over `pbrt --gpu`
-    on the same cells (plot_gpu_wavefront.py from gpu-compare-out,
-    gpu-compare-out-sort and gpu-compare-out-explore);
+    on the same cells (plot_gpu_wavefront.py from gpu-compare-out-e, the
+    same night's run under the same compiler);
   - `pbrt-gpu-heatmap.pdf`: the matching GPU wavefront (gpu-optix) over
-    `pbrt --gpu` on all thirty scenes x 16/64/128/256 spp, the scenes in
+    `pbrt --gpu` on all thirty scenes x 16/64/128 spp, the scenes in
     order of the geometry pbrt built for them, volumes first (`--sort
     geometry`; plot_gpu_heatmap.py from the last heatmap run,
-    compare-out-heatmap7), one band of thirty, the ratio in each cell to
+    compare-out-heatmap12), one band of thirty, the ratio in each cell to
     two digits, the colour bar along the top;
   - `pbrt-gpu-profile.pdf`: the wavefront's trace kernel against the two
     flat megakernels under Nsight Compute, a row of three panels per
@@ -173,7 +173,7 @@ before it.
     instruction, and where a warp's cycles go (instruction fetch, the
     wait on the traversal hardware, memory, the rest) -- on ganesha,
     where the wavefront wins, and killeroo-gold, where the SER megakernel
-    does, at 16 spp (plot_gpu_profile.py from profile-out, the reports
+    does, at 16 spp (plot_gpu_profile.py from profile-out-e, the reports
     profile_kernels.sh writes; the user, 10-28).
 
   All four are drawn for the paper's page (figure_style.py): ACM's
@@ -220,10 +220,10 @@ before it.
 - `profile_kernels.sh [--out DIR] [--renderers DIR] [--single-pass-timing]
   SCHEDULE SCENE SPP LAUNCH` and `profile_kernels.sh --list N SCHEDULE
   SCENE SPP`: one OptiX launch of a renderer gpu_compare.sh compiled
-  (RENDERERS/SCHEDULE/render.out, gpu-compare-out-d by default; SCENE as
+  (RENDERERS/SCHEDULE/render.out, gpu-compare-out-e by default; SCENE as
   gpu_compare.sh names it, `killeroos/killeroo-gold`, a bare name being
   `<name>/<name>`) under Nsight Compute's full section set, kernel replay,
-  written to `profile-out/<name>-SPP-SCHEDULE-L<LAUNCH>.*`: the report,
+  written to `profile-out-e/<name>-SPP-SCHEDULE-L<LAUNCH>.*`: the report,
   its details page, every metric as one CSV row and the launch's SASS
   with per-instruction counts. Nsight names every OptiX launch
   `optixLaunch`, so the launch is chosen by its ordinal in the process;
