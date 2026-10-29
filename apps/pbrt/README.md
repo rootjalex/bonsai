@@ -113,16 +113,20 @@ before it.
   compiler skips its one compile.
 - `cpu_compare.sh [--spp "N ..."] [--repeats N] [--schedules "..."]
   [--scenes "..."] [--out DIR] [--resume]`: the CPU comparison -- pbrt's
-  CPU wavefront against every CPU schedule, on the scenes given (five of
-  rising cost by default) at the sample counts given, each schedule's
+  CPU wavefront against every CPU schedule, on the scenes given (the
+  paper's eight by default, in order of `pbrt --gpu`'s time: killeroo-gold,
+  book, sanmiguel-courtyard, ganesha, bistro_vespa, landscape/view-0,
+  kroken/camera-1, watercolor/camera-1; the user, 10-29) at the sample
+  counts given (16 and 128 by default), each schedule's
   renderer compiled once up front (`DIR/renderers`), then one compare.sh run
   per schedule per cell, `scalar` against pbrt's volpath and the wavefront
   schedules against `pbrt --wavefront`, pbrt rendered once per cell and
   kept for the cell's schedules (`compare.sh --pbrt-cache`). Writes
   `DIR/cpu-results.csv` (a row per scene, spp and side: seconds, speedup,
-  verdict, load, time, log), the logs it was read from, and both sides'
-  images; `--resume` skips rows already in the CSV. Every number in the
-  CSV comes from a log beside it.
+  verdict, load, time, log, and the scene's path under the scene set,
+  which tells kroken's camera-1 from watercolor's), the logs it was read
+  from, and both sides' images, named by the path; `--resume` skips rows
+  already in the CSV. Every number in the CSV comes from a log beside it.
 - `plot_cpu_wavefront.py DIR/cpu-results.csv -o OUT.pdf [--sides a,b,...]
   [--log] [--values] [--width W --height H]`: that CSV as one figure --
   every side's speedup over pbrt's CPU wavefront (the dashed line at 1), a
@@ -140,7 +144,25 @@ before it.
   `ps`/`sp` (pixels outer or samples outer), `-sort` when the rays are
   sorted before the trace -- so `scalar` is mk-b-s-ps,
   `wavefront-thread-packet` is wf-t-v-ps and `wavefront-thread-packet-sort`
-  is wf-t-v-ps-sort (the table is in the script).
+  is wf-t-v-ps-sort (the table is in the script). A scene is keyed by its
+  path under the scene set and named on one line by
+  `figure_style.scene_label` (the directory for a camera or view number:
+  kroken, watercolor, landscape; `sanmiguel` and `bistro` for the two long
+  names; the user, 10-29: no name broken over two lines); the GPU plotter
+  shares all of this.
+- `scene_statistics.py TABLE.tsv [...] --sweep TABLE.tsv [...] -o
+  plots/scene_statistics.txt`: every scene the tables hold described, one
+  block each and a one-line table at the end -- resolution, sampler and
+  depth, triangles (pbrt's count, displacement included), meshes, other
+  shapes, instances placed and object definitions (the converter's
+  count), materials and the kinds shaded, textures, lights and area
+  lights, acceleration-structure and image-map memory, rays per camera
+  ray and the deepest bounce, `pbrt --gpu`'s time and the wavefront's
+  speedup -- each read from pbrt's `.stats` beside the table's pbrt image
+  at the highest spp, the converter's log and header under
+  `scenes/converted/`, and the table itself; the `--sweep` tables' scenes
+  come first and are marked `*`. Writes a `.tex` twin (a booktabs
+  tabular of the counts) the paper can `\input`. `plots.sh` runs it.
 - `compare_runs.py OLD_TABLE NEW_TABLE [--images] [--threshold 0.03]`: two
   runs of `gpu_compare.sh` or `heatmap.sh` cell by cell -- the kernel and
   wall times as new/old ratios, a verdict that matched pbrt before and does
@@ -174,9 +196,15 @@ before it.
     wait on the traversal hardware, memory, the rest) -- on ganesha,
     where the wavefront wins, and killeroo-gold, where the SER megakernel
     does, at 16 spp (plot_gpu_profile.py from profile-out-e, the reports
-    profile_kernels.sh writes; the user, 10-28).
+    profile_kernels.sh writes; the user, 10-28);
+  - `scene_statistics.txt` (and `.tex`): every scene of the figures
+    described -- triangles, meshes, instances, materials and their kinds,
+    textures, lights, resolution, depth, rays per camera ray, `pbrt
+    --gpu`'s time, the wavefront's speedup -- from pbrt's `.stats` beside
+    the tables' images and the converter's logs, the sweep's scenes first
+    (scene_statistics.py; the user, 10-29).
 
-  All four are drawn for the paper's page (figure_style.py): ACM's
+  The four figures are drawn for the paper's page (figure_style.py): ACM's
   acmsmall format, a 5.478 in text block, so each PDF is exactly that
   wide and `\includegraphics[width=\textwidth]` does not rescale it;
   labels and legends 8 pt and tick labels 7 pt as printed (the user,

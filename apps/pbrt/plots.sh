@@ -23,6 +23,14 @@
 #                              active, where a warp's cycles go), from
 #                              profile_kernels.sh's reports in profile-out
 #                              (plot_gpu_profile.py; the user, 10-28)
+#   plots/scene_statistics.txt every scene of the figures described -- its
+#                              triangles, meshes, instances, materials and
+#                              their kinds, textures, lights, resolution,
+#                              depth, rays per camera ray, pbrt --gpu's time
+#                              -- from pbrt's .stats beside the tables'
+#                              images and the converter's logs, the sweep's
+#                              scenes first (scene_statistics.py; the user,
+#                              10-29), with a .tex twin the paper can input
 #
 # Each plotter also writes <figure>.txt beside its figure: the tables it
 # was drawn from, the summary statistics the paper quotes (geomeans, min
@@ -81,6 +89,10 @@ done
 cells=()
 for c in $PROFILE_CELLS; do cells+=(--cell "$c"); done
 mkdir -p "$OUT"
+
+# The scenes described: the sweep's (the GPU tables') first, then the
+# heatmap's, from pbrt's .stats beside each table's pbrt image.
+python3 "$PREFIX/scene_statistics.py" $HEATMAP_TABLE --sweep $GPU_TABLES -o "$OUT/scene_statistics.txt"
 
 formats=(pdf)
 (( png )) && formats+=(png)

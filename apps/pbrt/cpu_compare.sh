@@ -33,8 +33,11 @@
 #
 # The CSV (--out/cpu-results.csv) has one row per (scene, spp, side):
 #
-#     scene,spp,side,seconds,speedup,verdict,repeats,load,measured,log
+#     scene,spp,side,seconds,speedup,verdict,repeats,load,measured,log,path
 #
+# `scene` is the scene file's name and `path` its `<dir>/<name>` under the
+# scene set, which tells apart two scenes named alike (kroken's and
+# watercolor's are both camera-1; the plotter keys a scene by its path);
 # `side` is `pbrt-wavefront`, `pbrt-volpath` or a schedule's name; `seconds`
 # is that side's render time; `speedup` is pbrt's wavefront time over this
 # side's, blank on pbrt's wavefront row; `verdict` is compare.sh's
@@ -43,29 +46,41 @@
 # core count when a number looks slow; `measured` is when the run finished;
 # `log` the compare.sh log the row was read from. `--resume` continues a
 # run into the same --out: a row already in the CSV is not measured again.
+# (The CSVs before 10-29 have no path column; the plotter keys those rows
+# by the scene's name.)
 #
 # Scenes are named `<dir>/<name>` under $SCENES_DIR (~/projects/
-# pbrt-v4-scenes); the default five are of rising cost -- two shapes and a
-# diffuse floor (killeroo-simple), the same under a conductor (killeroo-gold),
-# a textured mesh (book), a million-triangle mesh (ganesha), and a large
-# architectural scene of many materials (sanmiguel-courtyard) -- and
-# `--scenes` takes any list scene_dump converts. The default schedules are
-# the CPU wavefront study's (REPORT.md, 2026-10-21); `--schedules` takes any
-# list from schedules/ and `scalar` is always run first against pbrt's
-# volpath. Everything the run acts on is checked before any of it starts.
+# pbrt-v4-scenes); the default eight are the paper's sweep (the user,
+# 10-29: eight scenes at 16 and 128 spp, the same eight on the CPU and
+# the GPU figures), in order of pbrt --gpu's time at 128 spp -- two
+# shapes under a conductor over a diffuse floor (killeroo-gold, 532k
+# triangles), a textured mesh (book, 21k), a large architectural scene of
+# many materials, instanced (sanmiguel-courtyard, 2.5M), a four-million-
+# triangle statue (ganesha), a production street of 1,693 meshes and
+# 20,638 area lights (bistro_vespa, 2.9M), a landscape of 30,034 instances
+# (landscape/view-0, 27.9M), the largest geometry (kroken/camera-1, 288M
+# triangles, 248M from displacement) and the heaviest frame (watercolor/
+# camera-1, 58M triangles, 34M displaced; the highest GPU wavefront
+# speedup on the heatmap) -- and `--scenes` takes any list scene_dump
+# converts (the five of 10-21..10-28 were killeroo-simple, killeroo-gold,
+# book, ganesha, sanmiguel-courtyard at 16/64/128 spp). The default
+# schedules are the CPU wavefront study's (REPORT.md, 2026-10-21);
+# `--schedules` takes any list from schedules/ and `scalar` is always run
+# first against pbrt's volpath. Everything the run acts on is checked
+# before any of it starts.
 set -uo pipefail
 if [[ "$(pwd)" == */apps/pbrt ]]; then
   cd ../..
 fi
 PREFIX="apps/pbrt"
 
-SPPS="16 64"
+SPPS="16 128"
 REPEATS=3
 OUT="$PREFIX/cpu-compare-out"
 SCHEDULES="scalar wavefront-frame wavefront-frame-packet wavefront-frame-packet-reorder \
 wavefront-thread wavefront-thread-packet wavefront-thread-packet-reorder wavefront-thread-packet-sort"
-SCENES="killeroos/killeroo-simple killeroos/killeroo-gold pbrt-book/book \
-ganesha/ganesha sanmiguel/sanmiguel-courtyard"
+SCENES="killeroos/killeroo-gold pbrt-book/book sanmiguel/sanmiguel-courtyard \
+ganesha/ganesha bistro/bistro_vespa landscape/view-0 kroken/camera-1 watercolor/camera-1"
 RESUME=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -114,7 +129,7 @@ if [[ "$fail" == 1 ]]; then exit 1; fi
 mkdir -p "$OUT/logs" "$OUT/images"
 CSV="$OUT/cpu-results.csv"
 if [[ ! -f "$CSV" ]]; then
-  echo "scene,spp,side,seconds,speedup,verdict,repeats,load,measured,log" > "$CSV"
+  echo "scene,spp,side,seconds,speedup,verdict,repeats,load,measured,log,path" > "$CSV"
 fi
 
 # `scalar` first (against pbrt's volpath), then the rest in the order given.
@@ -123,8 +138,16 @@ for s in $SCHEDULES; do
   if [[ "$s" != scalar ]]; then WAVEFRONT_SCHEDULES="$WAVEFRONT_SCHEDULES $s"; fi
 done
 
-have_row() {  # scene spp side
-  awk -F, -v a="$1" -v b="$2" -v c="$3" '$1==a && $2==b && $3==c {found=1} END {exit !found}' "$CSV"
+# A row of the CSV for (scene path, spp, side): the scene's name is its
+# path's last component, and the path column (the eleventh) must match too
+# where a row has one, so that kroken's camera-1 is not watercolor's.
+have_row() {  # path spp side
+  awk -F, -v p="$1" -v a="$(basename "$1")" -v b="$2" -v c="$3" \
+    '$1==a && $2==b && $3==c && (NF < 11 || $11 == p) {found=1} END {exit !found}' "$CSV"
+}
+seconds_of() {  # path spp side -> the seconds column of that row
+  awk -F, -v p="$1" -v a="$(basename "$1")" -v b="$2" -v c="$3" \
+    '$1==a && $2==b && $3==c && (NF < 11 || $11 == p) {print $4; exit}' "$CSV"
 }
 
 # A field of a compare.sh log. The lines read are the ones compare.sh prints:
@@ -136,15 +159,19 @@ verdict_in() { grep -m1 -E '^(ok|FAILED)' "$1" | tr ',' ';' | cut -c1-160; }
 speedup_of() { awk -v a="$1" -v b="$2" 'BEGIN { if (a != "" && b != "" && b > 0) printf "%.3f", a / b; }'; }
 load_now() { cut -d' ' -f1 /proc/loadavg; }
 
-csv_row() {  # scene spp side seconds speedup verdict load log
-  echo "$1,$2,$3,$4,$5,\"$6\",$REPEATS,$7,$(date '+%Y-%m-%d %H:%M:%S'),$8" >> "$CSV"
+csv_row() {  # path spp side seconds speedup verdict load log
+  echo "$(basename "$1"),$2,$3,$4,$5,\"$6\",$REPEATS,$7,$(date '+%Y-%m-%d %H:%M:%S'),$8,$1" >> "$CSV"
 }
 
 # One compare.sh run: the log, the images copied out, the rows written.
-# $1 scene, $2 spp, $3 schedule, $4 pbrt side name, $5... extra compare.sh flags.
+# $1 scene path, $2 spp, $3 schedule, $4 pbrt side name, $5... extra
+# compare.sh flags. The log and the images are named by the path with its
+# slash as a dash (kroken-camera-1-s16-...), as gpu_compare.sh names its
+# cells, so two scenes of one name do not overwrite each other.
 run_cell() {
   local sc="$1" spp="$2" sd="$3" pside="$4"; shift 4
-  local name; name="$(basename "$sc")-s$spp-$sd"
+  local stem; stem="${sc//\//-}"
+  local name; name="$stem-s$spp-$sd"
   local log="$OUT/logs/$name.log"
   local load; load="$(load_now)"
   local t0; t0=$(date +%s)
@@ -161,15 +188,15 @@ run_cell() {
     v="${v:-FAILED: compare.sh exit $st}"
   fi
   cp "$OUT/work/bonsai-radiance.png" "$OUT/images/$name.png" 2>/dev/null
-  cp "$OUT/work/pbrt-radiance.png" "$OUT/images/$(basename "$sc")-s$spp-$pside.png" 2>/dev/null
-  if ! have_row "$(basename "$sc")" "$spp" "$pside"; then
-    csv_row "$(basename "$sc")" "$spp" "$pside" "$p" "" "-" "$load" "$log"
+  cp "$OUT/work/pbrt-radiance.png" "$OUT/images/$stem-s$spp-$pside.png" 2>/dev/null
+  if ! have_row "$sc" "$spp" "$pside"; then
+    csv_row "$sc" "$spp" "$pside" "$p" "" "-" "$load" "$log"
   fi
   # The speedup is over pbrt's wavefront: this run's pbrt when that is what
   # it ran against, else the cell's wavefront time already in the table.
   local ref="$PBRT_WAVEFRONT_SECONDS"
   if [[ "$pside" == pbrt-wavefront ]]; then ref="$p"; fi
-  csv_row "$(basename "$sc")" "$spp" "$sd" "$o" "$(speedup_of "$ref" "$o")" "$v" "$load" "$log"
+  csv_row "$sc" "$spp" "$sd" "$o" "$(speedup_of "$ref" "$o")" "$v" "$load" "$log"
   echo "   pbrt $pside ${p}s, $sd ${o}s, $v; $(( $(date +%s) - t0 )) s"
 }
 
@@ -197,21 +224,20 @@ done
 
 for sc in $SCENES; do
   for spp in $SPPS; do
-    scene="$(basename "$sc")"
     # pbrt's wavefront time for the speedup column, rendered by the first
     # wavefront run of the cell and read back by the rest from the cache.
     PBRT_WAVEFRONT_SECONDS=""
     for sd in $WAVEFRONT_SCHEDULES; do
-      if have_row "$scene" "$spp" "$sd"; then
-        PBRT_WAVEFRONT_SECONDS="$(awk -F, -v a="$scene" -v b="$spp" '$1==a && $2==b && $3=="pbrt-wavefront" {print $4}' "$CSV" | head -1)"
+      if have_row "$sc" "$spp" "$sd"; then
+        PBRT_WAVEFRONT_SECONDS="$(seconds_of "$sc" "$spp" pbrt-wavefront)"
         continue
       fi
       run_cell "$sc" "$spp" "$sd" pbrt-wavefront --pbrt-wavefront --pbrt-cache "$OUT/pbrt-cache"
       if [[ -z "$PBRT_WAVEFRONT_SECONDS" ]]; then
-        PBRT_WAVEFRONT_SECONDS="$(awk -F, -v a="$scene" -v b="$spp" '$1==a && $2==b && $3=="pbrt-wavefront" {print $4}' "$CSV" | head -1)"
+        PBRT_WAVEFRONT_SECONDS="$(seconds_of "$sc" "$spp" pbrt-wavefront)"
       fi
     done
-    if [[ " $SCHEDULES " == *" scalar "* ]] && ! have_row "$scene" "$spp" scalar; then
+    if [[ " $SCHEDULES " == *" scalar "* ]] && ! have_row "$sc" "$spp" scalar; then
       run_cell "$sc" "$spp" scalar pbrt-volpath --pbrt-cache "$OUT/pbrt-cache"
     fi
   done

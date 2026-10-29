@@ -58,7 +58,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.colors import LinearSegmentedColormap, Normalize  # noqa: E402
 
 from figure_style import (TEXT_WIDTH, TICK_FONT, YLGNBU, geomean, lean_angle,  # noqa: E402
-                          lean_height, lean_labels, paper_style, write_summary)
+                          lean_height, lean_labels, paper_style, scene_label,
+                          write_summary)
 
 
 BELOW = "#d7301f"       # a cell below parity, off the ramp
@@ -105,10 +106,14 @@ def read_tables(paths, schedule):
                 cells[(key, spp)] = (v, r["verdict"].startswith("ok"))
     labels = {}
     for key in scenes:
-        # Two scenes named alike (kroken/camera-1, watercolor/camera-1) are
-        # told apart by their directory, the scene's own name.
+        # A scene named by a camera or view number (kroken/camera-1,
+        # watercolor/camera-1, landscape/view-0) is labelled by its
+        # directory, the scene's own name (figure_style.scene_label; the
+        # full names otherwise, this figure having room to lean them), as
+        # is any scene whose name another scene shares.
         shared = sum(1 for k in scenes if names[k] == names[key]) > 1
-        labels[key] = key.split("/")[0] if shared and "/" in key else names[key]
+        labels[key] = (key.split("/")[0] if shared and "/" in key
+                       else scene_label(key, short=False))
     return scenes, sorted(spps), cells, labels, stats
 
 

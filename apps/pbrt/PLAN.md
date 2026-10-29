@@ -19285,3 +19285,104 @@ largest instanced scene, the highest heatmap speedup, a production scene
 with 1,693 meshes and alpha-masked lights, the heaviest metal shading),
 with explosion or plume in place of one if a medium belongs in the sweep;
 ~2 h of card and ~16 h of CPU. Awaiting the word; nothing runs.
+
+## 10-29, afternoon: the sweeps go to eight scenes at 16 and 128 spp -- the choice, the scene statistics file, one-line scene names
+
+**The word (the user, 10-29 afternoon).** "Let's do 8 x 2 spp. Choose
+roughly evenly spaced scenes, ideally that have different shapes of their
+performance eval across the different schedules. Start with GPU because I
+think that's faster, and we'll just use the same 8 x 2spp for CPU for
+consistency. Do 8 scenes at 16 and 128 spp. Definitely add kroken and
+landscape, and make sure the script generates a scene_statistics.txt file
+in the pbrt/plots directory that gives information on each scene, like
+triangle count, material count, instance count, and any other useful
+statistics." And: "to save whitespace, please don't have that weird scene
+text rendering that splits the scene name in half (two lines) for no
+reason."
+
+**The eight, in the figures' order (pbrt --gpu's wall at 128 spp, the
+heatmap of 10-29).** Of the five, four stay, each with a measured shape
+of its own on the GPU figure: killeroo-gold (532k triangles, 1.22 s; the
+SER flat megakernel wins every cell, 3.66x at 16 spp; the profile
+figure's scene), book (21k, 1.33 s; the wavefront wins with the flat
+megakernel within 7% and SER buying nothing -- the one such scene),
+sanmiguel-courtyard (2.5M in 796 meshes, 69,040 instances; 1.34 s; the
+wavefront by the least margin, falling fastest with spp, the two-level
+trace latency-bound), ganesha (4.3M, 1.53 s; the wavefront by the most,
+every megakernel below pbrt). killeroo-simple goes: its shape is
+killeroo-gold's (the SER megakernel wins by the cheap trace) and it is the
+cheapest scene. Added, filling the span above: bistro_vespa (2.9M
+triangles in 1,693 meshes, 133 materials, 20,638 area lights -- the light
+sampling's scene; 2.79 s), landscape/view-0 (27.9M triangles, 30,034
+instances of 32 objects, 638 materials, 1,611 textures, 3840x2160; 8.79 s;
+the heatmap's lowest wavefront speedup, 1.30x -> 1.20x), kroken/camera-1
+(288M triangles, 248M of them from displacement, 2,175 area lights, depth
+15, 6.75 rays a camera ray; 11.39 s; the largest geometry), watercolor/
+camera-1 (58M triangles, 34M displaced, 261 materials, depth 15; 16.47 s;
+the heatmap's highest wavefront speedup, 2.83x -> 2.60x). The span runs
+21k to 288M triangles and 1.2 to 16.5 s; the four kept bunch at 1.2-1.5 s
+and the gap from bistro's 2.8 s to landscape's 8.8 s is the one hole
+(dambreak0 at 5.7 s -- 621k triangles of water at depth 64, 5.7 rays a
+camera ray -- and crown at 10.1 s are the alternates; a medium scene was
+left out, the sweep being the geometry's). The shapes of the four new
+scenes across the megakernels are unknown until measured: the heatmap
+has only the wavefront's.
+
+**The fit.** Eight scenes x two sample counts x nine sides: 177 bar
+widths across 4.9 in, a bar 2.0 pt on the CPU figure and 2.2 pt on the
+GPU's (today's). Mock-ups drawn from the current rows under the eight
+names (scratchpad, not kept): every name on one line, the longest
+(killeroo-gold, 0.70 in at 7 pt) clear of its neighbours at a scene pitch
+of 0.62 in.
+
+**One-line scene names.** plot_cpu_wavefront.py broke a name longer than
+ten characters at its last hyphen onto a second line; gone. The scenes'
+names on the figures are figure_style.scene_label's: a scene is keyed by
+its path under the scene set (kroken/camera-1 -- two scenes are files
+named camera-1, kroken's and watercolor's; the GPU tables carry the path
+and cpu_compare.sh's CSV now does, its eleventh column, the plotters
+keying by it where present and by the name in the older CSVs), labelled
+by the file's name, except a camera or view number (camera-1, view-0),
+which is labelled by the scene's directory (kroken, watercolor,
+landscape; the heatmap does the same now, where it had said view-0), and
+the sweeps' two long names shortened (sanmiguel, bistro) so eight stand
+side by side. The .txt files print the label and the path. cpu_compare.sh
+names its logs and images by the path with the slash a dash, as
+gpu_compare.sh names its cells; its defaults are the eight scenes at 16
+and 128 spp.
+
+**scene_statistics.txt (apps/pbrt/scene_statistics.py, run by
+plots.sh).** Every scene of the figures described, nothing typed in:
+from pbrt's .stats beside each table's pbrt image at the highest spp
+(the Geometry section's triangles, meshes, displaced triangles and other
+shapes; the Scene section's materials, textures, lights, area lights and
+object definitions; the Memory section's acceleration structures and
+image maps; the integrator's rays per camera ray and deepest bounce; the
+kernel profile's material kinds, media, subsurface, sampler), from the
+converter's log and header under scenes/converted (resolution, instances
+placed and the objects they are of, the integrator's depth), and from
+the table (pbrt --gpu's wall, the wavefront's speedup at the lowest and
+highest spp). The sweep's scenes first, marked *, then the heatmap's by
+geometry; one block per scene and a one-line table at the end; a .tex
+twin (booktabs) for the paper. Drawn now from gpu-compare-out-e and
+compare-out-heatmap12; the eight-scene run replaces the first.
+
+**The run (apps/pbrt/scratch/run_eight_scenes.sh, not in git).** Under
+one lock in bonsai-f9's name: the compiler built from HEAD (every target),
+then gpu_compare.sh on the eight at 16 and 128 spp, three repeats, the
+eight sides, into gpu-compare-out-eight (renderers reused from
+gpu-compare-out-e where the compiler's key still matches), plots.sh;
+then with --then-cpu cpu_compare.sh's defaults into cpu-compare-out-eight
+and plots.sh again. Expected card time about 2 h (the kept four's two
+cells 1-4 min each from the 10-28 run's log times; the new four by the
+heatmap's per-scene minutes scaled to nine sides: bistro ~8, landscape
+~15, kroken ~18, watercolor ~18). Expected CPU time: a CPU cell took
+9 x its pbrt-wavefront seconds plus about 100 s on 10-28 (book 128 spp:
+160 s of pbrt, 23.7 min), and pbrt's CPU wavefront runs 95-121x its GPU
+wall on the five, so at 128 spp bistro ~40 min, landscape ~2.2 h, kroken
+~2.9 h, watercolor ~4.1 h, the 16 spp cells an eighth of that plus
+overhead, the kept four 110 min for both counts: about 13 h if the ratio
+holds for the large scenes, more if the CPU's traversal falls further
+behind the RT cores on them. The machine has 186 GB for kroken's 10.6 GB
+of converted geometry. Waiting on bonsai-ac's 'done' (their lock since
+12:10 for compiler work and wosx runs); nothing runs until then.

@@ -29,11 +29,13 @@ lower quartile, the median, the upper quartile and the greatest value, and
 which point each is (the user, 10-24 and 10-26; `describe` has the form).
 `YLGNBU` is the paper's colour ramp (the heatmap's cells); `MEGAKERNEL`,
 `WAVEFRONT` and `SCHEDULE_COLOURS` give every schedule the one colour it
-has on every figure (the user, 10-29).
+has on every figure (the user, 10-29). `scene_label` names a scene on a
+figure from its path in the scene set, one line each.
 """
 
 import math
 import os
+import re
 
 import matplotlib.pyplot as plt
 
@@ -163,6 +165,34 @@ def ratios(numerators, denominators):
 def geomean(points):
     values = [v for _, v in points if v is not None and v > 0]
     return math.exp(sum(math.log(v) for v in values) / len(values)) if values else None
+
+
+# A scene's name on a figure. The tables key a scene by its path under the
+# scene set (`kroken/camera-1`), since two scenes share the file name
+# camera-1 (kroken's and watercolor's); the label is the file's name,
+# except that a name which is only a camera or view number is replaced by
+# the scene's directory (kroken, watercolor, landscape), and the sweeps
+# shorten the two long names below so that eight scenes' names stand
+# side by side on one line at text width (the user, 10-29: no name
+# broken over two lines).
+SCENE_LABELS = {
+    "sanmiguel/sanmiguel-courtyard": "sanmiguel",
+    "bistro/bistro_vespa": "bistro",
+}
+GENERIC_NAME = re.compile(r"^(camera|view)-\d+$")
+
+
+def scene_label(key, short=True):
+    """The label of the scene `key` -- its `dir/name` path, or a bare name
+    where a table has no path column: SCENE_LABELS' short form when
+    `short` (the sweeps), the directory when the name is a camera or view
+    number, else the name itself."""
+    if short and key in SCENE_LABELS:
+        return SCENE_LABELS[key]
+    if "/" in key:
+        directory, name = key.rsplit("/", 1)
+        return directory if GENERIC_NAME.match(name) else name
+    return key
 
 
 def write_summary(figure_path, title, sections, notes=()):

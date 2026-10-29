@@ -184,7 +184,7 @@ READINGS = {
         "megakernel's loss here is the raygen's size and the empty lanes, not the traversal, which",
         "both sides do on the RT cores (10-28) -- every megakernel is below pbrt, the wavefront 2x.",
     ],
-    "sanmiguel-courtyard": [
+    "sanmiguel": [
         "2.5M triangles in 796 meshes, instanced (a two-level traversal), four material kinds",
         "(CoatedDiffuse, Dielectric, Diffuse, DiffuseTransmission -- the most of the five) and the",
         "heaviest trace per sample (0.22 ms a trace launch at 64 spp against 0.15 on book): both sides",
@@ -212,12 +212,13 @@ CAUSES = [
 
 
 def load(paths, kernel=False):
-    """gpu_compare.sh's tables as rows with `scene`, `spp` (int), `side`,
-    `seconds` (float: the wall time, or the kernel time in seconds with
-    `kernel`), `verdict` and `reference` (the seconds of the `pbrt --gpu`
-    row of the same cell in the same table); a row without a time draws
-    nothing, and a (scene, spp, side) a later table repeats replaces the
-    earlier row."""
+    """gpu_compare.sh's tables as rows with `scene`, `key` (the scene's
+    `path` under the scene set, else its name: kroken's and watercolor's
+    scenes are both camera-1), `spp` (int), `side`, `seconds` (float: the
+    wall time, or the kernel time in seconds with `kernel`), `verdict` and
+    `reference` (the seconds of the `pbrt --gpu` row of the same cell in
+    the same table); a row without a time draws nothing, and a (scene,
+    spp, side) a later table repeats replaces the earlier row."""
     joined = {}
     order = []
     for path in paths:
@@ -231,15 +232,16 @@ def load(paths, kernel=False):
                                 else float(r["wall_s"]))
             except (ValueError, KeyError):
                 continue
+            r["key"] = r.get("path") or r["scene"]
             table.append(r)
         references = {}
         for r in table:
             if r["side"] == REFERENCE:
-                key = (r["scene"], r["spp"])
+                key = (r["key"], r["spp"])
                 references[key] = min(r["seconds"], references.get(key, r["seconds"]))
         for r in table:
-            key = (r["scene"], r["spp"], r["side"])
-            r["reference"] = references.get((r["scene"], r["spp"]))
+            key = (r["key"], r["spp"], r["side"])
+            r["reference"] = references.get((r["key"], r["spp"]))
             if key not in joined:
                 order.append(key)
             joined[key] = r

@@ -10,10 +10,16 @@ per scene, a subgroup per sample count, from the CSV cpu_compare.sh writes.
 (plots.sh draws it under that name, the figure's one name since 10-24.)
 
 A CSV has one row per measured cell and side (scene, spp, side, render
-seconds, speedup, verdict, ...; cpu_compare.sh's header says what each
-column is). The side `pbrt-wavefront` is the reference and draws no bar:
-the dashed line at 1 is it. Several CSVs are several runs joined: a later
-file's row replaces an earlier one's for the same (scene, spp, side), and
+seconds, speedup, verdict, ..., path; cpu_compare.sh's header says what
+each column is). A scene is keyed by its `path` under the scene set
+(`kroken/camera-1`: two scenes share the name camera-1) where the CSV has
+the column, else by its name, and labelled on one line by
+figure_style.scene_label (the directory for a camera or view number, the
+short forms for sanmiguel-courtyard and bistro_vespa; the user, 10-29: no
+name broken over two lines). The side `pbrt-wavefront` is the reference
+and draws no bar: the dashed line at 1 is it. Several CSVs are several
+runs joined: a later file's row replaces an earlier one's for the same
+(scene, spp, side), and
 every side's bar is its speedup over the pbrt that ran in the same CSV
 (the sorted schedules were re-measured on 10-24 with the ray key fixed,
 into a CSV of their own). The other sides are drawn in the order of SIDES
@@ -67,7 +73,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
 from figure_style import (PBRT_COLOUR, SCHEDULE_COLOURS, TEXT_WIDTH, TICK_FONT,  # noqa: E402
-                          describe, geomean, paper_style, ratios, write_summary)
+                          describe, geomean, paper_style, ratios, scene_label,
+                          write_summary)
 
 REFERENCE = "pbrt-wavefront"
 REFERENCE_LABEL = "PBRT wf"
@@ -104,13 +111,14 @@ assert SIDES[0][2] == PBRT_COLOUR
 
 
 def load(paths, reference=REFERENCE):
-    """cpu_compare.sh's CSVs as rows with `scene`, `spp` (int), `side`,
-    `seconds` (float), `verdict` and `reference` (the seconds of the
-    reference side of the same cell in the same CSV); a row whose run
-    produced no time draws nothing and is dropped. Several CSVs are
-    several runs joined, a later file's row replacing an earlier one's for
-    the same (scene, spp, side) -- a schedule re-measured after a fix, as
-    the sorted CPU schedules were on 10-24 -- and every side measured
+    """cpu_compare.sh's CSVs as rows with `scene`, `key` (the scene's path
+    under the scene set where the CSV has one, else its name), `spp`
+    (int), `side`, `seconds` (float), `verdict` and `reference` (the
+    seconds of the reference side of the same cell in the same CSV); a row
+    whose run produced no time draws nothing and is dropped. Several CSVs
+    are several runs joined, a later file's row replacing an earlier one's
+    for the same (scene, spp, side) -- a schedule re-measured after a fix,
+    as the sorted CPU schedules were on 10-24 -- and every side measured
     against the reference that ran beside it."""
     joined = {}
     order = []
@@ -124,15 +132,16 @@ def load(paths, reference=REFERENCE):
                 r["seconds"] = float(r["seconds"])
             except (ValueError, KeyError):
                 continue
+            r["key"] = r.get("path") or r["scene"]
             table.append(r)
         references = {}
         for r in table:
             if r["side"] == reference:
-                key = (r["scene"], r["spp"])
+                key = (r["key"], r["spp"])
                 references[key] = min(r["seconds"], references.get(key, r["seconds"]))
         for r in table:
-            key = (r["scene"], r["spp"], r["side"])
-            r["reference"] = references.get((r["scene"], r["spp"]))
+            key = (r["key"], r["spp"], r["side"])
+            r["reference"] = references.get((r["key"], r["spp"]))
             if key not in joined:
                 order.append(key)
             joined[key] = r
@@ -166,7 +175,8 @@ COMPARISONS = [
 # First the mechanisms, then each scene's reading; `draw` writes the
 # computed best side of every scene and sample count above each reading,
 # so a reading that no longer matches its numbers shows. A scene without
-# a reading is marked as such. The sections of apps/pbrt/PLAN.md these
+# a reading is marked as such (keyed by the scene's label on the figure,
+# figure_style.scene_label). The sections of apps/pbrt/PLAN.md these
 # come from are named at the end.
 WHY = [
     "what pbrt's CPU wavefront pays: frame-wide bands whose queues every thread shares -- it runs",
@@ -212,7 +222,7 @@ READINGS = {
         "list for perf stat, not done), and the samples-outer order is 11-15% behind (cause not",
         "measured).",
     ],
-    "sanmiguel-courtyard": [
+    "sanmiguel": [
         "the heaviest shading of the five (four material kinds: CoatedDiffuse, Dielectric, Diffuse,",
         "DiffuseTransmission; 2.5M triangles in 796 meshes, instanced) and the least coherent rays:",
         "pbrt's wavefront loses least to its own megakernel here (2.7x, the drains and not the queues",
@@ -269,9 +279,10 @@ def choose_sides(rows, all_sides, wanted):
 
 
 def best_where(points, scenes, spps):
-    """For every scene, the best side at each sample count and the one
-    behind it, from the bars drawn: `scene: 16 spp A 4.65x (B 3.20x next);
-    ...` -- the computed half of the per-scene reading."""
+    """For every scene label of `scenes`, the best side at each sample
+    count and the one behind it, from the bars drawn: (label, `16 spp A
+    4.65x (B 3.20x next); ...`) -- the computed half of the per-scene
+    reading."""
     lines = []
     for scene in scenes:
         parts = []
@@ -286,7 +297,7 @@ def best_where(points, scenes, spps):
                 part += f" ({ranked[1][1]} {ranked[1][0]:.2f}x next)"
             parts.append(part)
         if parts:
-            lines.append(f"{scene}: " + "; ".join(parts))
+            lines.append((scene, "; ".join(parts)))
     return lines
 
 
@@ -302,20 +313,24 @@ def draw(rows, sides, reference, reference_label, y_label, args, comparisons=(),
     schedules)) bought, bar by bar; the trend of each side from the fewest
     samples to the most; `why`, the mechanisms behind the figure; for every
     scene the best side at each sample count (computed) and the scene's
-    reading from `readings` ({scene: [lines]}, "not yet written up" when a
-    scene has none); and `causes`, lines naming where the measured
-    explanations are written up. Returns the number of legend rows."""
-    scenes = ordered(r["scene"] for r in rows)
+    reading from `readings` ({scene label: [lines]}, "not yet written up"
+    when a scene has none); and `causes`, lines naming where the measured
+    explanations are written up. Returns the number of legend rows.
+
+    A scene is its `key` (its path under the scene set, or its name) and is
+    labelled by figure_style.scene_label, one line under its bars."""
+    scenes = ordered(r["key"] for r in rows)
     spps = sorted(ordered(r["spp"] for r in rows))
+    labels = {scene: scene_label(scene) for scene in scenes}
 
     def cell(scene, spp, side):
-        return next((r for r in rows if r["scene"] == scene and r["spp"] == spp
+        return next((r for r in rows if r["key"] == scene and r["spp"] == spp
                      and r["side"] == side), None)
 
     def reference_seconds(scene, spp):
         # The least of the cell's reference rows, should a run have more than one.
         times = [r["seconds"] for r in rows
-                 if r["scene"] == scene and r["spp"] == spp and r["side"] == reference]
+                 if r["key"] == scene and r["spp"] == spp and r["side"] == reference]
         return min(times) if times else None
 
     def reference_of(c, scene, spp):
@@ -344,7 +359,7 @@ def draw(rows, sides, reference, reference_label, y_label, args, comparisons=(),
                 ref = reference_of(c, scene, spp) if c is not None else None
                 if c is not None and ref is not None:
                     speedup = ref / c["seconds"]
-                    points[label].append((f"{scene} {spp} spp", speedup))
+                    points[label].append((f"{labels[scene]} {spp} spp", speedup))
                     ax.bar(x, speedup, bar * 0.9, color=colour,
                            edgecolor=EDGE, linewidth=0.3, zorder=2)
                     if args.values:
@@ -367,12 +382,9 @@ def draw(rows, sides, reference, reference_label, y_label, args, comparisons=(),
     ax.text(-bar, -0.03, "spp", ha="right", va="top",
             transform=ax.get_xaxis_transform(), fontsize=TICK_FONT)
     for centre, scene in zip(scene_centres, scenes):
-        # A long name breaks at its last hyphen onto a second line, so that
-        # five scenes' names fit side by side at text width.
-        if len(scene) > 10 and "-" in scene:
-            head, tail = scene.rsplit("-", 1)
-            scene = f"{head}-\n{tail}"
-        ax.text(centre, -0.15, scene, ha="center", va="top", linespacing=1.1,
+        # One line each (the user, 10-29): the names are short enough for
+        # eight scenes side by side at text width (figure_style.scene_label).
+        ax.text(centre, -0.15, labels[scene], ha="center", va="top",
                 transform=ax.get_xaxis_transform(), fontsize=TICK_FONT)
     ax.set_ylabel(y_label)
     if args.log:
@@ -428,9 +440,10 @@ def draw(rows, sides, reference, reference_label, y_label, args, comparisons=(),
         notes.extend(f"  {line}" for line in why)
     notes.append("")
     notes.append("which schedule is best on each scene, and why")
-    for line in best_where(points, scenes, spps):
-        notes.append(f"  {line}")
-        scene = line.split(":")[0]
+    paths = {labels[scene]: scene for scene in scenes}
+    for scene, line in best_where(points, [labels[s] for s in scenes], spps):
+        where = f" ({paths[scene]})" if paths[scene] != scene else ""
+        notes.append(f"  {scene}{where}: {line}")
         reading = (readings or {}).get(scene)
         if reading:
             notes.extend(f"      {r}" for r in reading)
