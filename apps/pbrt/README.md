@@ -192,9 +192,10 @@ before it.
     two digits, the colour bar along the top;
   - `pbrt-gpu-profile.pdf`: the wavefront's trace kernel against the two
     flat megakernels under Nsight Compute, a row of three panels per
-    scene -- the launch's SASS instructions, the lanes active per warp
-    instruction, and where a warp's cycles go (instruction fetch, the
-    wait on the traversal hardware, memory, the rest) -- on ganesha,
+    scene -- the launch's SASS instructions, the active threads per warp
+    instruction, and the warp stall reasons under Nsight's names (no
+    instruction; barrier, the wait on the traversal hardware; long
+    scoreboard with the LG/MIO throttles; other) -- on ganesha,
     where the wavefront wins, and killeroo-gold, where the SER megakernel
     does, at 16 spp (plot_gpu_profile.py from profile-out-e, the reports
     profile_kernels.sh writes; the user, 10-28);

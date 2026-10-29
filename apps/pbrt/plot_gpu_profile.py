@@ -25,21 +25,27 @@ note on stderr.
 
 The three panels, per scene:
 
-  Kernel size      the launch's SASS instructions over every function in
-                   it (raygen, its continuations, hit and miss programs),
-                   log scale: how much code the warps fetch through.
-  Lanes active     threads executing per warp instruction, of 32, over the
-                   launch: the width at which every instruction is paid.
-  Warp cycles      where a warp's cycles between issues go, as shares of the
-                   warp-cycles per issued instruction (the total written at
-                   the bar's end): the instruction fetch (Nsight's
-                   `no_instruction`: nothing fetched to issue), the wait on
-                   the traversal hardware (`barrier`: our raygens have no
-                   barrier of their own, the wait is OptiX's for the
-                   trace's answer), memory (`long_scoreboard`, a load's
-                   latency, with the `lg_throttle` and `mio_throttle` queue
-                   stalls), and the rest (the issue itself, fixed-latency
-                   waits, short scoreboards, branch resolution, ...).
+  SASS instructions        the launch's instructions over every function
+                           in it (raygen, its continuations, hit and miss
+                           programs), log scale: the code the warps fetch
+                           through.
+  Active threads per warp  threads executing per warp instruction, of 32,
+                           over the launch: the width every instruction
+                           is paid at.
+  Warp stall reasons       Nsight's stall reasons as shares of the
+                           warp-cycles per issued instruction (the total at
+                           the bar's end), under Nsight's names: `no
+                           instruction` (nothing fetched to issue),
+                           `barrier` (our raygens have no barrier of their
+                           own; the wait is OptiX's for the traversal
+                           hardware's answer), `long scoreboard, LG/MIO
+                           throttle` (a load's latency, the load/store and
+                           MIO queues full), `other` (the remainder: the
+                           issue itself, fixed-latency waits, short
+                           scoreboards, branch resolution, ...; the .txt
+                           lists each launch's). The row labels are the
+                           scenes; the sample count is the caption's (the
+                           user, 10-29).
 
 Beside the figure, `<figure>.txt`: for every launch the duration, the
 instructions issued, registers, achieved warps per SM, issue-slot use, the
@@ -79,13 +85,18 @@ LABELS["gpu-optix"] = "wf trace"      # the wavefront's profiled launch is its t
 # The stall components, in stacking order (left to right), each with the
 # Nsight metrics summed into it and its class of the ramp, darkest for
 # the fetch.
+# The names are Nsight's own stall reasons (the user, 10-29: plain
+# labels; the caption says what each means for an OptiX launch -- the
+# barrier is the warp's wait for the traversal hardware's answer, our
+# raygens having no barrier of their own).
 STALLS = [
-    ("instruction fetch", ["no_instruction"], YLGNBU[7]),
-    ("traversal wait", ["barrier"], YLGNBU[5]),
-    ("memory", ["long_scoreboard", "lg_throttle", "mio_throttle"], YLGNBU[3]),
+    ("no instruction", ["no_instruction"], YLGNBU[7]),
+    ("barrier", ["barrier"], YLGNBU[5]),
+    ("long scoreboard, LG/MIO throttle", ["long_scoreboard", "lg_throttle", "mio_throttle"], YLGNBU[3]),
     ("other", None, YLGNBU[1]),   # the remainder of the total
 ]
 STALL_METRIC = "smsp__average_warps_issue_stalled_{}_per_issue_active.ratio"
+STALL_METRIC_RE = re.compile(r"^smsp__average_warps_issue_stalled_(\w+)_per_issue_active\.ratio$")
 TOTAL_METRIC = "smsp__average_warp_latency_per_inst_issued.ratio"
 
 
@@ -171,6 +182,13 @@ def load(profiles, cells, sides):
                     parts.append((name, max(0.0, total - sum(p[1] for p in parts)), colour))
                 else:
                     parts.append((name, sum(value(STALL_METRIC.format(m)) or 0.0 for m in metrics), colour))
+            # What "other" is made of: every stall reason Nsight reports
+            # that no named group holds, largest first (the .txt lists them).
+            named = {m for _, metrics, _ in STALLS if metrics for m in metrics}
+            other_parts = sorted(((m.group(1), v) for key, (v, _) in raw.items()
+                                  for m in [STALL_METRIC_RE.match(key)]
+                                  if m and m.group(1) not in named and v),
+                                 key=lambda kv: -kv[1])
             functions = read_source(stem + ".source.csv") if os.path.exists(stem + ".source.csv") else []
             row.append({
                 "side": side, "label": LABELS.get(side, side), "stem": stem,
@@ -185,7 +203,7 @@ def load(profiles, cells, sides):
                 "issue_pct": value("smsp__issue_active.avg.pct_of_peak_sustained_active"),
                 "lanes": value("smsp__thread_inst_executed_per_inst_executed.ratio"),
                 "provenance": value("bonsai__timing_provenance"),
-                "cycles": total, "stalls": parts,
+                "cycles": total, "stalls": parts, "other_parts": other_parts,
                 "size": sum(f[1] for f in functions) or None,
                 "functions": functions,
             })
@@ -214,7 +232,8 @@ def draw(loaded, out):
         size_ax.set_xlim(lo, max(sizes + [1000]) * 9.0)
         size_ax.set_yticks(y)
         size_ax.set_yticklabels(labels)
-        size_ax.set_ylabel(f"{scene}, {spp} spp", fontsize=FONT)
+        # The scene alone; the sample count is the caption's (the user, 10-29).
+        size_ax.set_ylabel(scene, fontsize=FONT)
         for yy, s in zip(y, sizes):
             if s:
                 size_ax.text(s * 1.12, yy, f"{s / 1000:.0f}k" if s >= 10000 else f"{s / 1000:.1f}k",
@@ -263,9 +282,9 @@ def draw(loaded, out):
             ax.grid(axis="x", linewidth=0.4, color="#DDDDDD", zorder=0)
             ax.set_axisbelow(True)
         if r == 0:
-            size_ax.set_title("Kernel size (SASS instr.)", fontsize=FONT, pad=4)
-            lanes_ax.set_title("Lanes active (of 32)", fontsize=FONT, pad=4)
-            stall_ax.set_title("Where a warp's cycles go", fontsize=FONT, pad=4)
+            size_ax.set_title("SASS instructions", fontsize=FONT, pad=4)
+            lanes_ax.set_title("Active threads per warp", fontsize=FONT, pad=4)
+            stall_ax.set_title("Warp stall reasons", fontsize=FONT, pad=4)
     handles = [Patch(facecolor=c, edgecolor="white", linewidth=0.4, label=n) for n, _, c in STALLS]
     fig.legend(handles=handles, loc="lower center", ncol=len(STALLS), frameon=False,
                bbox_to_anchor=(0.5, -0.01), fontsize=FONT, handlelength=1.2, columnspacing=1.4)
@@ -293,17 +312,28 @@ def write_summary(loaded, out):
                 total = l["cycles"] or 0.0
                 parts = "  ".join(f"{n} {c:.1f} ({100 * c / total if total else 0:.0f}%)" for n, c, _ in l["stalls"])
                 f.write(f"    warp-cycles per issued instruction {total:.1f}: {parts}\n")
+                if l["other_parts"]:
+                    f.write("      other is the remainder after the three named groups; Nsight's stall reasons outside them: "
+                            + ", ".join(f"{r} {v:.1f}" for r, v in l["other_parts"] if v >= 0.05) + "\n")
+                    all_reasons = sum(c for n, c, _ in l["stalls"] if n != "other") + sum(v for _, v in l["other_parts"])
+                    if total and all_reasons > 1.02 * total:
+                        f.write(f"      (the reasons sum to {all_reasons:.1f} against the total {total:.1f}: kernel replay's "
+                                "distortion of this launch's counters; the figure's other is the remainder)\n")
                 f.write(f"    SASS instructions {l['size'] or 0:,} over {len(l['functions'])} functions:\n")
                 for name, size, inst, threads in sorted(l["functions"], key=lambda x: -x[2]):
                     lanes = threads / inst if inst else 0.0
                     share = 100 * inst / l["instructions"] if l["instructions"] else 0.0
                     f.write(f"      {size:>7,} instr  {inst:>14,.0f} executed ({share:4.1f}%)  lanes {lanes:5.2f}  {name}\n")
         f.write("\nreading the figure\n")
-        f.write("  the stall components are Nsight Compute's smsp__average_warps_issue_stalled_*_per_issue_active:\n"
-                "    instruction fetch = no_instruction; traversal wait = barrier (OptiX's wait for the trace's answer;\n"
-                "    our raygens have no barrier of their own); memory = long_scoreboard + lg_throttle + mio_throttle;\n"
-                "    other = the remainder of smsp__average_warp_latency_per_inst_issued (the issue itself, wait,\n"
-                "    short_scoreboard, branch_resolving, not_selected, ...).\n")
+        f.write("  the stall groups are Nsight Compute's smsp__average_warps_issue_stalled_*_per_issue_active, named\n"
+                "    as Nsight names them: no instruction (the warp waits to fetch, an instruction-cache miss or the\n"
+                "    fetch of a program this size); barrier (OptiX's wait for the traversal hardware's answer -- our\n"
+                "    raygens have no barrier of their own); long scoreboard + LG/MIO throttle (global and local\n"
+                "    memory: a load's result awaited, the load/store or MIO queue full); other = the remainder of\n"
+                "    smsp__average_warp_latency_per_inst_issued, which on these launches is mostly `wait` (a fixed-\n"
+                "    latency dependency on an arithmetic result, ~2 cycles), `selected` (the one cycle the instruction\n"
+                "    issues), `short_scoreboard` (a shared-memory or MIO result awaited) and, on the trace kernel,\n"
+                "    `branch_resolving` and `drain`; the line under each launch lists its own.\n")
         f.write("  the lanes and the size are over the launch's every function; the per-function lines above tell\n"
                 "    the raygen's continuations apart (_ss_0 up to the first optixTrace, _ss_1/_ss_2 after one).\n")
         f.write("  causes written up in apps/pbrt/PLAN.md: '10-28, the night' -> 'pbrt's trace kernel profiled, and read\n"

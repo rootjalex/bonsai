@@ -19,8 +19,9 @@
 #                              (plot_gpu_heatmap.py)
 #   plots/pbrt-gpu-profile.pdf the wavefront's trace kernel against the
 #                              megakernels under Nsight Compute, a row of
-#                              three panels per scene (kernel size, lanes
-#                              active, where a warp's cycles go), from
+#                              three panels per scene (SASS instructions,
+#                              active threads per warp, warp stall
+#                              reasons), from
 #                              profile_kernels.sh's reports in profile-out
 #                              (plot_gpu_profile.py; the user, 10-28)
 #   plots/scene_statistics.txt every scene of the figures described -- its
