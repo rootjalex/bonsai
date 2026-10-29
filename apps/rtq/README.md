@@ -78,8 +78,9 @@ It runs `compare.sh` over the thirteen meshes of `~/projects/pbrt-v4-scenes`
 packet schedule, run for the two ray queries), pinned and least of five; folds the logs into
 `apps/rtq/results/rtq-results.csv` with `tocsv.sh`, each row stamped with
 the compiler's commit (`<hash>+` when the tree has uncommitted compiler
-changes) and the cells not measured this time carried over; draws the three
-figures into `apps/rtq/plots` with `plot.py`; and prints, per reference and
+changes) and the cells not measured this time carried over; draws the
+figures into `apps/rtq/plots` with `plot.py` (the three queries each on its
+own, and the three in one); and prints, per reference and
 ray or point set, the geomean over the plotted meshes with any cell under
 0.97 named -- the rule the comparison is judged by (every geomean a win, no
 cell more than 3% under its reference). It waits for an idle machine before
@@ -443,7 +444,13 @@ driver, the two sides' kernels told apart by symbol).
   reference by colour; the y axis Speedup, the legend saying over which
   reference) from the results CSV, `python apps/rtq/plot.py
   apps/rtq/results/rtq-results.csv -o apps/rtq/plots`, drawn at the
-  paper's page width in apps/pbrt/figure_style.py's style; and, where the
+  paper's page width in apps/pbrt/figure_style.py's style; the same three
+  queries in one figure a quarter inch taller than one of them,
+  `rtq-queries`, for the page without
+  the room for three (ten bars a mesh, each reference's five sets side by
+  side in the figures' order with their hatches, the legend two rows with
+  the first entry of each query naming it; the three are drawn as before
+  beside it); and, where the
   CSV has the rows, the two figures of the walks' queries over FCPW's
   scalar trees, `rtq-fcpwb-fcpws-cpu` (over FCPW's scalar build) and
   `rtq-fcpwb-fcpws-gpu` (over its GPUScene, which takes only the binary

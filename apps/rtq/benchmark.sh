@@ -45,7 +45,8 @@
 # folded by tocsv.sh, each row stamped with the commit the compiler was
 # built from (`<hash>+` when the tree has uncommitted compiler changes), the
 # rows of cells not measured this time carried over from the CSV as it was;
-# then plot.py draws the three figures and prints, per reference and ray or
+# then plot.py draws the figures (the three queries, each on its own and in
+# one; the two over FCPW's scalar trees) and prints, per reference and ray or
 # point set, the geomean over the plotted meshes with the cells under 0.97
 # named -- the rule the comparison is judged by.
 set -euo pipefail

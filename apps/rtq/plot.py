@@ -24,6 +24,17 @@ closest point over FCPW's binary BVH (`fcpwb`, `fcpwb-gpu`) and the closest
 silhouette point over its normal cone hierarchy (`fcpws`, `fcpws-gpu`), the
 query by colour and the set by hatching.
 
+The three are also drawn as one, `rtq-queries`, a figure a quarter inch
+taller than one of them (the legend's second row, as the scalar figures)
+for the page that has not the room for three: ten bars a mesh, each
+reference's five sets side by side in the figures' order -- the first
+hit's primary and diffuse rays, the any hit's ambient-occlusion rays, the
+closest point's near-surface and in-volume points -- the colour the
+reference and each set's hatch the one it has in the three, and the legend
+two rows with the first entry of each query naming it. The y axis is the
+closest point's, so the ray queries' bars over Embree stand at the line.
+The three are drawn as before beside it.
+
 Each reference on its own default tree: Embree's BVH8 (`embree`) and FCPW's
 four-wide Mbvh with sixteen-lane leaves (`fcpw4w16`, FCPW's default branching
 and the leaf width its build picks on an AVX-512 machine; the four-wide tree
@@ -100,6 +111,20 @@ FIGURES = [
     ("anyhit", "any", ["ao"], "Any hit"),
     ("closestpoint", "closest", ["near", "volume"], "Closest point"),
 ]
+
+
+def combined_sets():
+    """The ten-bar figure's sets, (query, set, legend label): the three
+    figures' sets in their order, the first of each query's labelled with
+    the query -- "first hit: primary" then "diffuse" -- since every entry
+    naming its query ran the legend past the text block."""
+    out = []
+    for _, query, sets, title in FIGURES:
+        for j, s in enumerate(sets):
+            out.append((query, s, f"{title.lower()}: {LABEL[s]}" if j == 0 else LABEL[s]))
+    return out
+
+
 # The two figures of the queries apps/wosx's walks make, over FCPW's scalar
 # trees (the build WoSX ships): one for the CPU, bonsai over FCPW's scalar
 # build, one for the GPU, bonsai over FCPW's GPUScene. Seven bars a mesh,
@@ -223,20 +248,51 @@ def mesh_ticks(ax, meshes):
     ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
 
 
-def legend_above(ax, handles, ncol=None):
+def finish_axes(ax, meshes, top):
+    """What every figure's axes have once the bars are drawn: the line at 1
+    (the reference), the meshes along the x axis, the y axis from 0 to just
+    over the tallest bar reading Speedup, no top or right spine, a faint
+    grid behind the bars."""
+    ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=0.8, zorder=3)
+    mesh_ticks(ax, meshes)
+    ax.set_ylim(0, top * 1.08)
+    ax.set_ylabel("Speedup")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.yaxis.grid(True, linewidth=0.4, alpha=0.5)
+    ax.set_axisbelow(True)
+
+
+def legend_above(ax, handles, ncol=None, **spacing):
     """The legend in one row above the axes, clear of the tallest bar; no
     title (the figure's caption says which query it is, and which
     schedules). `ncol` makes it rows of that many, where one row of all
-    the handles would be wider than the figure."""
-    ax.legend(handles=handles, ncol=ncol or len(handles), loc="lower left", frameon=False,
-              bbox_to_anchor=(0, 1.0), borderaxespad=0, columnspacing=1.0)
+    the handles would be wider than the figure; `spacing` overrides the
+    legend's column spacing and handle padding. Returns the legend."""
+    spacing = {"columnspacing": 1.0, **spacing}
+    return ax.legend(handles=handles, ncol=ncol or len(handles), loc="lower left",
+                     frameon=False, bbox_to_anchor=(0, 1.0), borderaxespad=0, **spacing)
 
 
-def save(fig, out_dir, name, formats):
+def save(fig, out_dir, name, formats, legend=None):
     """The page exactly the figure's size (no cropping to the content, which
     would leave LaTeX to rescale it): the layout fits the labels and the
-    legend inside it. Returns the path of the first format written."""
-    fig.tight_layout(pad=0.3)
+    legend inside it. With `legend`, that legend is kept out of
+    tight_layout's reckoning and the height it measures reserved above the
+    axes instead: tight_layout takes a legend wider than the axes' first
+    guess for a margin the axes must leave on the right, and squeezes them
+    (the scalar figures' one-row legend halved theirs, 3eeb61ad); left out,
+    the legend runs from the axes' left edge as wide as the page allows.
+    Returns the path of the first format written."""
+    pad = 0.3
+    if legend is None:
+        fig.tight_layout(pad=pad)
+    else:
+        legend.set_in_layout(False)
+        fig.canvas.draw()
+        height = legend.get_window_extent(fig.canvas.get_renderer()).height / fig.dpi
+        gap = pad * plt.rcParams["font.size"] / 72
+        fig.tight_layout(pad=pad, rect=(0, 0, 1, 1 - (height + gap) / fig.get_figheight()))
     paths = []
     for fmt in formats:
         path = os.path.join(out_dir, f"{name}.{fmt}")
@@ -382,14 +438,7 @@ def draw_scalar(rows, out_dir, formats, exclude):
                 ax.bar(x, v, width, color=QUERY_COLOUR[kind], hatch=HATCH[rays],
                        edgecolor=hatch_colour(QUERY_COLOUR[kind]), linewidth=0.4)
                 top = max(top, v)
-        ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=0.8, zorder=3)
-        mesh_ticks(ax, meshes)
-        ax.set_ylim(0, top * 1.08)
-        ax.set_ylabel("Speedup")
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.yaxis.grid(True, linewidth=0.4, alpha=0.5)
-        ax.set_axisbelow(True)
+        finish_axes(ax, meshes, top)
         kinds = []
         for _, _, _, kind in SCALAR_SETS:
             if kind not in kinds:
@@ -477,14 +526,7 @@ def draw(rows, schedules, out_dir, suffix, formats, exclude, tuned):
                     ax.bar(x, v, width, color=COLOUR[ref], hatch=HATCH[rays],
                            edgecolor=hatch_colour(COLOUR[ref]), linewidth=0.4)
                     top = max(top, v)
-        ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=0.8, zorder=3)
-        mesh_ticks(ax, meshes)
-        ax.set_ylim(0, top * 1.08)
-        ax.set_ylabel("Speedup")
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.yaxis.grid(True, linewidth=0.4, alpha=0.5)
-        ax.set_axisbelow(True)
+        finish_axes(ax, meshes, top)
         # The colours say what the bar is over (the user, 10-24: the y axis
         # reads Speedup, the legend what over); with --tuned, which tree.
         handles = [Patch(facecolor=COLOUR[ref], edgecolor=EDGE, linewidth=0.4,
@@ -504,6 +546,87 @@ def draw(rows, schedules, out_dir, suffix, formats, exclude, tuned):
         if exclude:
             notes.append(f"left out: {', '.join(sorted(exclude))} (FCPW finds no hit on lte-orb)")
         print(write_summary(path, f"{title}: {what}, {len(meshes)} meshes", sections, notes))
+
+
+def draw_combined(rows, schedules, out_dir, suffix, formats, exclude, tuned):
+    """The three figures' cells in one figure of their size, `rtq-queries`
+    (the user, 10-29: the three on one plot, to save the page): ten bars a
+    mesh, each reference's five sets side by side in the figures' order,
+    the colour the reference and the hatch the set as in the three, so
+    that a mesh reads as two profiles -- over Embree the rays level and
+    the points well over, over FCPW the rays well over and the points
+    least."""
+    meshes, _ = meshes_by_triangles(rows, exclude)
+    refs = [("embree", schedules["embree"]), ("fcpw", schedules["fcpw"])]
+    sets = combined_sets()
+    data = {}
+    for ref, sched in refs:
+        for _, query, _, _ in FIGURES:
+            data[(ref, query)] = (tuned_over_matching(rows, ref, sched, tuned[ref], query)
+                                  if tuned else cells(rows, ref, sched, query))
+    if not any(data.values()):
+        print(f"queries: no rows for {schedules}; skipped", file=sys.stderr)
+        return
+    width = 0.8 / (len(sets) * len(refs))
+    paper_style()
+    # The bars are 2.6 pt wide here against the three figures' 4.4 to 6.6,
+    # and matplotlib's 1 pt hatch lines fill them: the crosses and the
+    # diagonals read as dark bars. Thinner lines for this figure alone; the
+    # setting is read as the figure is drawn, so the block runs to the save.
+    with plt.rc_context({"hatch.linewidth": 0.6}):
+        # A quarter inch taller than the three for the legend's second row,
+        # as the scalar figures are; another for the tuned labels' third.
+        fig, ax = plt.subplots(figsize=(TEXT_WIDTH, HEIGHT + (0.4 if tuned else 0.25)))
+        top = 1.0
+        for i, mesh in enumerate(meshes):
+            for k, (ref, _) in enumerate(refs):
+                for j, (query, rays, _) in enumerate(sets):
+                    v = data[(ref, query)].get((mesh, rays))
+                    if v is None:
+                        continue
+                    x = i - 0.4 + width * (k * len(sets) + j + 0.5)
+                    ax.bar(x, v, width, color=COLOUR[ref], hatch=HATCH[rays],
+                           edgecolor=hatch_colour(COLOUR[ref]), linewidth=0.4)
+                    top = max(top, v)
+        finish_axes(ax, meshes, top)
+        colours = [Patch(facecolor=COLOUR[ref], edgecolor=EDGE, linewidth=0.4,
+                         label=(f"{NAME[ref]}'s tree, over matching" if tuned
+                                else f"over {NAME[ref]}"))
+                   for ref, _ in refs]
+        hatches = [Patch(facecolor="white", edgecolor=EDGE, linewidth=0.4, hatch=HATCH[rays],
+                         label=label) for _, rays, label in sets]
+        # The legend's rows: two of four, a colour first in each, the first
+        # hit and the any hit along the top, the closest point along the
+        # bottom -- or, with the tuned labels (twice as long), three of
+        # three with the any hit under the colours, so that the rows stay
+        # within the page. It fills down the columns; each column here top
+        # to bottom.
+        first, diffuse, ao, near, volume = hatches
+        if tuned:
+            columns = [colours + [ao], [first, diffuse], [near, volume]]
+        else:
+            columns = [colours, [first, near], [diffuse, volume], [ao]]
+        legend = legend_above(ax, [h for column in columns for h in column],
+                              ncol=len(columns), columnspacing=0.8, handletextpad=0.6)
+        path = save(fig, out_dir, f"rtq-queries{suffix}", formats, legend)
+    what = "tuned schedule over matching" if tuned else "bonsai over the reference"
+    sections = []
+    for ref, _ in refs:
+        named = [(f"{title.lower()}, {LABEL[s]} {'points' if query == 'closest' else 'rays'}",
+                  series(data[(ref, query)], meshes, s))
+                 for _, query, qsets, title in FIGURES for s in qsets]
+        if any(points for _, points in named):
+            sections.append((f"over {NAME[ref]} ({schedules[ref]}"
+                             f"{', tuned ' + tuned[ref] if tuned else ''})", named))
+    if tuned:
+        notes = notes_for("firsthit", rows, meshes, schedules, tuned)
+    else:
+        notes = [f"{title.lower()}, {line}" for name, _, _, title in FIGURES
+                 for line in notes_for(name, rows, meshes, schedules, tuned)]
+    if exclude:
+        notes.append(f"left out: {', '.join(sorted(exclude))} (FCPW finds no hit on lte-orb)")
+    print(write_summary(path, f"First hit, any hit and closest point: {what}, "
+                        f"{len(meshes)} meshes", sections, notes))
 
 
 def main():
@@ -528,6 +651,8 @@ def main():
     rows = load(a.csv)
     draw(rows, schedules, a.out, "-tuned" if a.tuned else "", a.format.split(","),
          exclude, tuned)
+    draw_combined(rows, schedules, a.out, "-tuned" if a.tuned else "", a.format.split(","),
+                  exclude, tuned)
     if not a.tuned:
         draw_scalar(rows, a.out, a.format.split(","), exclude)
         meshes, tris = meshes_by_triangles(rows, exclude)
