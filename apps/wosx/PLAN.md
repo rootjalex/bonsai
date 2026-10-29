@@ -2164,6 +2164,38 @@ twelve and the empty asm). Every wosx table is remeasured under this
 compiler next; pbrt's megakernel and medium march are bonsai-f9's to
 measure against a53c8f84.
 
+**The four tables remeasured under the merge (6f46500c)** (10-28,
+16:18-19:27: the walk on spheres' GPU table 16:18-16:52, the walk on
+stars' 16:52-17:00, the solver's CPU table 17:29 and the stars' CPU table
+19:27, each table's figure redrawn as it folded). Before each the 39c67ab9
+table was copied beside it (`results/<table>.before-2026-10-28-merge.csv`,
+its logs in `<logs>-before-2026-10-28-merge/`) and compared cell by cell
+with WoSX's rate as the control (scratch: wosx_compare_before.py). The
+matching schedules tie their previous measurement everywhere: fcpwb-gpu
+1.358x -> 1.365x by geomean over 19 meshes (our rate 1.006 of before,
+WoSX's 1.006), wost-fcpwb-gpu 1.543x -> 1.535x (0.998, 1.003), the
+solver's four CPU schedules 0.994-0.998 of before with WoSX 0.993-1.003,
+the stars' two 0.992-0.994 with WoSX 0.986-0.988; no CPU cell under 0.97
+of WoSX but the landscape's known 0.22x, and of the stars GPU cells only
+the comb moved more than two percent (our rate 0.92 of before; its 3 ms
+solve is the one the table cannot time) and the whale on WoSX's side
+(1.16). One move against our own measurement, not against WoSX: the
+walk on spheres' parallel schedule (one launch, a thread per walk) came
+in at 0.968 of its before by geomean and at 0.94-0.96 on the eleven
+meshes from the pavilion up, WoSX's rate flat on every one of them,
+while the two 256k schedules moved the other way (persistent-256k 1.025,
+persistent-reorder-256k 1.021, their large meshes 1.04-1.06) and the rest
+within a percent. Our rate alone, in opposite directions by schedule:
+that reads as the merge's code -- the exits sitting where the program
+wrote them change the registers the kernel needs and so the occupancy the
+plain launch and the over-full launch get -- rather than the machine. The
+parallel cells stand at 1.08x-1.53x over WoSX; an A/B of that schedule
+alone against the saved 39c67ab9 compiler would pin the cause, and is not
+run. So after the merge: spheres GPU persistent 1.38x over 18 meshes
+(persistent-reorder-256k 1.64x, the best), stars GPU 1.54x, solver CPU
+1.21x/1.31x on the wide tree and 1.17x/1.23x on WoSX's default, stars CPU
+1.21x/1.24x -- the figures of 16:52, 17:00, 17:29 and 19:27.
+
 ### Next
 
 - The other binary-tree schedules measured again with the unrolled visit
