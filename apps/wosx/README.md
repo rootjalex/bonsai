@@ -447,7 +447,25 @@ in question (PLAN.md, the persistent schedule).
   machine's vector width), of eight and of four, the CPU figure's exploration
   bars for vectorization on this tree (the user, 2026-10-28; the packet's
   cost is PLAN.md's, "The packet over the points": a point's walks spread
-  over the mesh a few steps in). The comparison builds FCPW scalar for these
+  over the mesh a few steps in); `schedules/fcpwb-packet-defer-threads.bonsai`
+  and `fcpwb-packet-defer-sort-threads.bonsai`: the walks deferred step by
+  step onto a queue and the queue drained in gangs of sixteen lanes with
+  the packet traversal -- a point's queue, so a gang holds live steps and
+  no lane idles behind a longer walk; and a chunk of sixty-four points'
+  queue sorted by the walks' positions (`walk.sort(walk, key)` on the
+  deferred call, the same directive as the GPU's reordering schedule,
+  walk_keys.bonsai's Morton code) so a gang's lanes stand in one cell of a
+  32x32x32 grid and ask the tree about one neighbourhood (the user,
+  2026-10-29: "maybe a defer + vectorize would work"; PLAN.md, "Why the
+  packets lose on the CPU": the compaction alone changes nothing, the sort
+  is worth 1.8x). Beside them, as files run by name: `-defer-chunk-threads`
+  (the chunk's queue unsorted), `-defer-sort-fine-threads` and
+  `-defer-sort-fine-c256-threads` (a 1024x1024x1024 grid's thirty-bit key,
+  chunks of 64 and of 256 points), `-defer-sort-c16-threads` (chunks of 16:
+  a mesh with few sample points has few chunks for the threads), and
+  `-defer-sort-fine-perlane-threads`, the per-lane traversal, which does
+  not compile today (its header; PLAN.md's Next list). The comparison
+  builds FCPW scalar for these
   (`compare.sh --schedule fcpwb,fcpwb-packet`), so WoSX's side runs as it
   ships, and compiles the program over `apps/rtq/metrics/fcpw_scalar.bonsai`,
   the scalar build's arithmetic (true divisions, FCPW's GPU kernels'

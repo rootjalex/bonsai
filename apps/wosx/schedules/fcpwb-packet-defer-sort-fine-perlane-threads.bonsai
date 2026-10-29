@@ -1,0 +1,52 @@
+// fcpwb-packet-defer-sort-fine-threads.bonsai with the traversal per
+// lane: the closest-point query is sorted and put on its stack *before*
+// the drain is vectorized, so each lane of a gang walks the tree at its
+// own pace over a stack of its own, in its own nearer-first order, the
+// sixteen lanes' nodes gathered at every step (apps/pbrt/schedules/
+// perlane.bonsai: the order of two directives is the whole of the
+// difference). The packet traversal shares one node across the gang and
+// descends into the child the majority of the lanes' keys prefer, so a
+// lane in the minority enters the farther child first, its bound stays
+// loose and it visits nodes its own order would have culled (the lane
+// counts of 2026-10-29: a lane of the sorted drain's gang visits three
+// times the nodes the scalar walk visits for the same query). Here every
+// lane keeps the scalar's order and visit count, and what the gang
+// shares is nothing but the instruction stream; the loads are gathers.
+//
+// DOES NOT COMPILE TODAY (2026-10-29): the compiler stops in the LLVM
+// backend's extract of a lane (CodeGen_LLVM::extract_lane, ir::Extract)
+// with LLVM's assertion `isValidOperands(Val, Index)` -- the final SSA
+// shows the vectorized traversal `_recloop_func1$gang16_p2_v4_p5$masked`
+// with a uniform node index and bound (`triangles_index : u32`, `_bound1 :
+// f32`) where a per-lane traversal needs a lane's own, so a lane extract
+// is asked of a scalar. The same two directives in this order compile
+// apps/pbrt's perlane.bonsai; what differs here is the drain, the sort's
+// far-corner select, or the leaf's skip. PLAN.md's Next list has it; the
+// file stays as the reproducer:
+//
+//     ./build/compiler -p ssa --no-heap --ffp-contract -i apps/rtq/elements.bonsai \
+//         -i apps/rtq/metrics/fcpw_scalar.bonsai -i apps/wosx/wosx.bonsai \
+//         -i apps/wosx/schedules/fcpwb-packet-defer-sort-fine-perlane-threads.bonsai -b llvm -o /tmp/x.ll
+import apps/rtq/schedules/layouts/fcpwb;
+import apps/wosx/walk_keys;
+
+schedule {
+    walk.sort(walk, |x : vec3f, problem : Problem| walk_sort_key_fine(x, problem.lo, problem.hi));
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        select(distmin(s, AABB{lo[0u], hi[0u]}) == 0.0 &&
+                               distmin(s, AABB{lo[1u], hi[1u]}) == 0.0,
+                               distmax(s, AABB{lo[i], hi[i]}),
+                               distmin(s, AABB{lo[i], hi[i]})))
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
+    solve_all.split(i, i_chunk, i_in, 64, true);
+    solve_all.reorder(i_in, w);
+    solve_all.reorder(w, i_in);
+    steps = solve_all.queue(i_chunk);
+    solve_all.defer(walk, steps);
+    walk.defer(walk, steps);
+    solve_all.split(steps, steps_gang, steps_lane, 16, true)
+             .vectorize(steps_lane);
+    solve_all.bind(i_chunk, CPUThread);
+}

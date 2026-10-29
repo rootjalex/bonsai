@@ -1,0 +1,31 @@
+// fcpwb-packet-defer-sort-fine-threads.bonsai with chunks of 256 points:
+// a chunk's queue holds the live steps of 16384 walks in its first round,
+// four times the 64-point chunk's, so the sorted drain's gangs are drawn
+// from four times the walks and stand in tighter cells of the key's grid,
+// at the cost of a sort four times longer per round (n log n) and of a
+// thread's chunk four times the work -- 64 chunks for the table's 16k
+// points over sixteen threads, four a thread. Everything else is the
+// fine-key schedule's.
+import apps/rtq/schedules/layouts/fcpwb;
+import apps/wosx/walk_keys;
+
+schedule {
+    walk.sort(walk, |x : vec3f, problem : Problem| walk_sort_key_fine(x, problem.lo, problem.hi));
+    solve_all.split(i, i_chunk, i_in, 256, true);
+    solve_all.reorder(i_in, w);
+    solve_all.reorder(w, i_in);
+    steps = solve_all.queue(i_chunk);
+    solve_all.defer(walk, steps);
+    walk.defer(walk, steps);
+    solve_all.split(steps, steps_gang, steps_lane, 16, true)
+             .vectorize(steps_lane);
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        select(distmin(s, AABB{lo[0u], hi[0u]}) == 0.0 &&
+                               distmin(s, AABB{lo[1u], hi[1u]}) == 0.0,
+                               distmax(s, AABB{lo[i], hi[i]}),
+                               distmin(s, AABB{lo[i], hi[i]})))
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
+    solve_all.bind(i_chunk, CPUThread);
+}

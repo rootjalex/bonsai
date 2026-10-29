@@ -1,0 +1,32 @@
+// fcpwb-packet-defer-sort-threads.bonsai with chunks of sixteen points:
+// the chunk is the unit a thread takes, so a mesh with few sample points
+// has few chunks -- the crown's 460 points are eight chunks of sixty-four
+// for sixteen threads, and half the threads idle (the table of 10-29:
+// 0.41x over WoSX where the packet had 0.83x) -- and a chunk of sixteen
+// points gives it twenty-nine. The chunk's queue holds 1024 walks in its
+// first round, sixty-four gangs of sixteen, sorted by the same
+// fifteen-bit key; what the smaller chunk costs is the sort's reach, a
+// gang drawn from a quarter of the walks.
+import apps/rtq/schedules/layouts/fcpwb;
+import apps/wosx/walk_keys;
+
+schedule {
+    walk.sort(walk, |x : vec3f, problem : Problem| walk_sort_key(x, problem.lo, problem.hi));
+    solve_all.split(i, i_chunk, i_in, 16, true);
+    solve_all.reorder(i_in, w);
+    solve_all.reorder(w, i_in);
+    steps = solve_all.queue(i_chunk);
+    solve_all.defer(walk, steps);
+    walk.defer(walk, steps);
+    solve_all.split(steps, steps_gang, steps_lane, 16, true)
+             .vectorize(steps_lane);
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        select(distmin(s, AABB{lo[0u], hi[0u]}) == 0.0 &&
+                               distmin(s, AABB{lo[1u], hi[1u]}) == 0.0,
+                               distmax(s, AABB{lo[i], hi[i]}),
+                               distmin(s, AABB{lo[i], hi[i]})))
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
+    solve_all.bind(i_chunk, CPUThread);
+}

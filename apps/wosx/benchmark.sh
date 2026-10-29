@@ -66,11 +66,14 @@
 # Options: --schedules (default fcpw4w16-threads,fcpw4w16-persistent,
 # fcpwb-threads,fcpwb-persistent, then the exploration's fcpwb2-threads,
 # fcpwb2-persistent, fcpwb-packet-threads, fcpwb-packet-16-threads,
-# fcpwb-packet-8-threads, fcpwb-packet-4-threads: on each of the two trees
+# fcpwb-packet-8-threads, fcpwb-packet-4-threads, fcpwb-packet-defer-threads,
+# fcpwb-packet-defer-sort-threads: on each of the two trees
 # -- FCPW's four-wide Mbvh, and WoSX's default, FCPW's scalar binary BVH --
 # the threads each, and the threads with the points claimed by sixteen
 # persistent workers instead of TBB's partition; on WoSX's default tree
-# also the other layout and the four packet widths), --meshes
+# also the other layout, the four packet widths, and the walks deferred
+# step by step onto a queue and drained in gangs of sixteen, a point's
+# queue and a chunk's queue sorted by the walks' positions), --meshes
 # (default all, names as below), --out DIR for the logs (default
 # apps/wosx/results/logs) and --csv FILE for the table folded from them
 # (default apps/wosx/results/wosx-results.csv; an exploration names both,
@@ -162,7 +165,7 @@ elif (( GPU )); then
   OUT="${OUT:-apps/wosx/results/gpu-logs}"
   CSV="${CSV:-apps/wosx/results/wosx-gpu-results.csv}"
 else
-  SCHEDULES="${SCHEDULES:-fcpw4w16-threads,fcpw4w16-persistent,fcpwb-threads,fcpwb-persistent,fcpwb2-threads,fcpwb2-persistent,fcpwb-packet-threads,fcpwb-packet-16-threads,fcpwb-packet-8-threads,fcpwb-packet-4-threads}"
+  SCHEDULES="${SCHEDULES:-fcpw4w16-threads,fcpw4w16-persistent,fcpwb-threads,fcpwb-persistent,fcpwb2-threads,fcpwb2-persistent,fcpwb-packet-threads,fcpwb-packet-16-threads,fcpwb-packet-8-threads,fcpwb-packet-4-threads,fcpwb-packet-defer-threads,fcpwb-packet-defer-sort-threads}"
   OUT="${OUT:-apps/wosx/results/logs}"
   CSV="${CSV:-apps/wosx/results/wosx-results.csv}"
 fi

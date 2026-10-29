@@ -30,10 +30,14 @@ apps/rtq's, and is no bar (the user, 2026-10-28). On WoSX's default tree
 the exploration's bars stand beside the two (CPU_EXTRA_BARS; the user,
 2026-10-28: more schedules, vectorization among them): the same tree in the
 layout where a node holds its children's boxes (`fcpwb2-threads`,
-`fcpwb2-persistent`), and the walk vectorized over a point's walks in gangs
-of thirty-two, sixteen, eight and four lanes (`fcpwb-packet-threads`,
-`fcpwb-packet-16-threads`, `fcpwb-packet-8-threads`,
-`fcpwb-packet-4-threads`), each run in parallel under WoSX's schedule.
+`fcpwb2-persistent`), the walk vectorized over a point's walks in gangs
+of sixteen and eight lanes (`fcpwb-packet-16-threads`,
+`fcpwb-packet-8-threads`; the gangs of thirty-two and of four are in the
+table and not drawn), and the walks deferred step by step onto a queue
+drained in gangs of sixteen, a point's queue and a chunk's queue sorted by
+the walks' positions (`fcpwb-packet-defer-threads`,
+`fcpwb-packet-defer-sort-threads`), each run in parallel under WoSX's
+schedule.
 Walk on spheres has one schedule per thread count and no parameter the
 speedup is swept over: a step is one distance query, and the epsilon shell
 and the walk count set how many steps a point takes, not what a step costs
@@ -149,28 +153,44 @@ CPU_TREES = [
 # side unchanged on FCPW's own rows); and the walk vectorized over a
 # point's walks -- the lanes are walks, the traversal one node for the
 # gang, each child entered by the lanes whose query reaches it -- in gangs
-# of thirty-two lanes, of sixteen (the machine's vector width), of eight
-# and of four (the user, 2026-10-28: "try packet4 and packet8"). The
-# packet forms ran at a tenth of WoSX's rate one thread against one thread
-# on 2026-10-09 (PLAN.md, "The packet over the points"): a point's walks
-# spread over the mesh a few steps in, and a leaf any lane reaches is
-# tested gang-wide for a lane or two.
+# of sixteen lanes (the machine's vector width) and of eight (the user,
+# 2026-10-28: "try packet4 and packet8"; the gangs of thirty-two and of
+# four are measured and not drawn, below); and the walks deferred step by
+# step onto a queue drained in gangs of sixteen (the user, 2026-10-29:
+# "maybe a defer + vectorize would work"), a point's queue, which compacts
+# the walks and changes nothing, and a chunk of points' queue sorted by the
+# walks' positions, which gathers a gang's lanes in one cell of the
+# problem's box and is worth 1.8x over the packet (PLAN.md, "Why the
+# packets lose on the CPU": the lanes' spread over the tree, not the walks'
+# lengths). The packet forms ran at a tenth of WoSX's rate one thread
+# against one thread on 2026-10-09 (PLAN.md, "The packet over the
+# points"): a point's walks spread over the mesh a few steps in, and a
+# leaf any lane reaches is tested gang-wide for a lane or two.
 CPU_EXTRA_BARS = {
     "fcpwb": [
         ("fcpwb2-threads", "parallel-fcpwb2", YLGNBU[2],
          "the node's row holding its children's boxes (layouts/fcpwb2), the threads"),
         ("fcpwb2-persistent", "persistent-fcpwb2", YLGNBU[5],
          "the node's row holding its children's boxes, the persistent workers"),
-        ("fcpwb-packet-threads", "parallel-packet32", YLGNBU[1],
-         "a point's walks vectorized in gangs of thirty-two lanes, the threads"),
         ("fcpwb-packet-16-threads", "parallel-packet16", YLGNBU[3],
          "a point's walks vectorized in gangs of sixteen lanes, the threads"),
         ("fcpwb-packet-8-threads", "parallel-packet8", YLGNBU[6],
          "a point's walks vectorized in gangs of eight lanes, the threads"),
-        ("fcpwb-packet-4-threads", "parallel-packet4", YLGNBU[8],
-         "a point's walks vectorized in gangs of four lanes, the threads"),
+        ("fcpwb-packet-defer-threads", "parallel-defer16", YLGNBU[1],
+         "a point's walks deferred step by step onto the point's queue, the queue drained "
+         "in gangs of sixteen lanes (no lane idles behind a longer walk), the threads"),
+        ("fcpwb-packet-defer-sort-threads", "parallel-defer-sort16", YLGNBU[8],
+         "the walks deferred onto a chunk of sixty-four points' queue, drained in gangs of "
+         "sixteen in the order of the walks' positions (a Morton code), the threads"),
     ],
 }
+# Measured but not drawn by default, the palette having nine colours and the
+# table's rows keeping them: fcpwb-packet-threads (gangs of thirty-two, a
+# third under the gangs of sixteen everywhere: two vector instructions for
+# one) and fcpwb-packet-4-threads (0.57x over WoSX against the gangs of
+# eight's 0.56x: below the register's width the gang's width does not
+# matter). Both are drawn by naming them in CPU_EXTRA_BARS["fcpwb"] with
+# a colour.
 # The walk on stars' CPU figure (--stars): WoSX's default trees alone, the
 # same two bars on the `wost-fcpwb*` schedules.
 STARS_CPU_TREES = [

@@ -2540,6 +2540,195 @@ gain where a step is three traversals (the stars). The stars' whale
 (0.35x) was not profiled; the same mechanism over a longer tail is the
 reading, not a measurement.
 
+### Why the packets lose on the CPU, and the deferred drains (2026-10-29)
+
+The user, on the CPU table's packets at half the scalar walk's rate:
+"investigate why packet tracing does not [give] speedups over WoSX on
+CPU. Perhaps it is due to path lengths, or maybe we're generating bad
+codegen. Maybe a defer + vectorize would work to compact paths of similar
+length and still benefit from vectorization?" Three hypotheses, each
+measured on the head (17k triangles, 16284 points, 64 walks, 13.7 steps a
+walk) and the rover (1.6M triangles, 17.5 steps), sixteen threads under
+WoSX's schedule, the table's settings, least of three; then the
+deferral the user proposed, built as schedules and measured.
+
+**How the lanes were counted.** The compiler's LLVM module of each
+program, instrumented after the fact (scratch: `instrument.py`, a
+counter pair per basic block -- passes, and the popcount of a chosen
+sixteen-lane mask live at its top -- as atomic adds on globals printed by
+a destructor; assembled by the compiler's own llc, linked with the
+driver as compare.sh links it, run on the mesh with one repeat so the
+counts are two runs' worth, the warm-up's and the timed one's): the
+walk loop's header with the gang's live mask; the traversal loop's
+header with the popped node's mask (the per-lane bound against the
+lane's best is re-tested right after it, so this counts a pop before its
+cull, as the scalar's header count does); the leaf's entry; and the
+triangle loop's body with the mask the test is made under. Beside the
+counts, `perf stat` for the instructions of each whole driver run (WoSX's
+side the same work in every run, about 153 G instructions, so the
+difference between runs is ours), and `perf annotate` of the gang's
+traversal for its instruction mix.
+
+**The head, per lane query (23.8 M queries in the two runs):**
+
+| | scalar fcpwb-threads | packet, gangs of 16 | sorted drain (below) |
+|---|---|---|---|
+| lanes live at the walk loop's header, of 16 | -- | 5.6 | 15.75 (the drain's gangs) |
+| node passes (the gang's or the scalar's visits) | 398.9 M | 639.7 M | 311.1 M |
+| lanes at a node pass | 1 | 2.32 | 3.98 |
+| a lane's node passes, against the scalar's | 1 | 3.7x | 3.1x |
+| leaf passes / lanes at a leaf | 141.1 M / 1 | 151.1 M / 1.66 | 82.1 M / 2.46 |
+| a lane's leaves, against the scalar's | 1 | 1.78x | 1.43x |
+| triangle passes / lanes at a test | 451.6 M / 1 | 480.2 M / 1.67 | 259.7 M / 2.48 |
+| our instructions, the driver's run | 97.7 G | 182 G | 93 G |
+| Msteps/s (WoSX 14.9-15.0) | 17.4 | 9.9 | 17.7-18.0 |
+| over WoSX | 1.17x | 0.66x | 1.19-1.21x |
+
+**The rover, the same (26.3 M queries):** scalar 843.7 M node passes
+(32.5 a query), 999.4 M triangle tests; packet 2889 M node passes at
+1.62 lanes (a lane's passes 5.5x the scalar's), 1799 M triangle passes
+at 1.32 lanes (2.4x); sorted drain 1632 M at 2.36 lanes (4.6x), 1177 M
+at 1.70 (2.0x). Rates: WoSX 6.1-6.2, threads 7.14 (1.17x), packet 2.38
+(0.39x), sorted drain 3.57-3.76 (0.58-0.61x).
+
+**(1) The walks' lengths.** Real, and not the cost. A gang of sixteen
+of a point's walks runs as many passes of the walk loop as its longest
+walk has steps, and at the loop's header 5.6 of the sixteen lanes are
+live by mean (the terminal pass of an ended walk counted): a third of
+the gang's passes are for all sixteen, the rest for the tail. The
+deferral compacts exactly this -- `solve_all.defer(walk, steps)` and
+`walk.defer(walk, steps)` put every step on a queue, the drain's round r
+runs the r-th step of every walk still going, and its gangs are full
+(15.75 of sixteen) -- and changes nothing: a point's queue
+(`fcpwb-packet-defer-threads`) runs the head at 10.2 Msteps/s against the
+packet's 9.9, 0.68x over WoSX against 0.66x, and a chunk of sixty-four
+points' queue (`fcpwb-packet-defer-chunk-threads`, the gangs drawn from
+4096 walks a round) 0.66x. The walk loop's empty lanes cost nothing
+because the pass's work is the traversal, and the traversal's lanes are
+set by where the sixteen walks stand, not by how many are live.
+
+**(2) The lanes' spread, which is the cost.** At a node of the packet's
+traversal 2.32 of sixteen lanes are on, at a triangle test 1.67 -- the
+reading of 10-09 ("a lane or two"), now counted. The gang visits 640 M
+nodes for the scalar walk's 399 M, so a sixteen-wide instruction stream
+does 1.6x the passes of the scalar one, each pass for two lanes. The
+fix the user proposed, in its sorted form: `walk.sort(walk, |x, problem|
+walk_sort_key(x, problem.lo, problem.hi))` on the deferred call -- the
+sort on a call (docs/schedule-semantics.md), the directive the GPU's
+reordering schedule writes for OptiX's shader execution reordering, here
+an exact sort of the chunk's queue by the walk's position quantized to a
+32x32x32 grid over the problem's box (walk_keys.bonsai) before each
+round's drain, so a gang's sixteen consecutive entries stand in one cell
+and ask the tree about one neighbourhood. `fcpwb-packet-defer-sort-
+threads`: lanes at a node 2.32 -> 3.98, node passes 640 M -> 311 M,
+triangle passes 480 M -> 260 M, the head 9.9 -> 17.7 Msteps/s, 0.66x ->
+1.19x over WoSX, at the scalar threads' 1.17x; the comb 2.05x (the
+packet's 2.03x: its six-step walks stay together without a sort); the
+rover 0.39x -> 0.59x, lanes at a node 1.62 -> 2.36. A finer key (ten
+bits an axis, a 1024x1024x1024 grid: `walk_sort_key_fine`, the
+`-sort-fine-` schedules) and chunks of 256 points (16384 walks a round)
+move neither mesh (head 1.21x, rover 0.58x and 0.61x): the lanes in a
+cell are as near as the key can put them, and on a tree of a million
+triangles the walks of one cell part in its first levels. The sort's
+cost is under a percent of the run (`bonsai_sort_indices` is below
+perf's 0.7% floor; the drain kernel with the walk step in it too).
+
+**(3) The code.** Not bad, and not free. What the compiler makes of the
+packet is what the schedule says: the traversal one node for the gang
+(no gathers in it -- the node's row is read once and broadcast, 107
+`vbroadcastss` sites at 10.6% of the gang function's cycles: twelve
+coordinates of two children's boxes a visit, nine of a triangle's
+corners a test, each broadcast to serve the two or four lanes that are
+on), per-lane bounds and masks on the stack as masked stores, the
+children ordered by a vote of the lanes' keys; the walk step vectorized
+whole -- the generator's 64-bit multiplies, the direction's sine and
+cosine as sixteen-wide polynomials with a sixteen-call scalar path for
+arguments outside the range, never taken for an angle in [0, 2 pi) --
+and the leaf's skip a uniform test. The instruction mix of the sorted
+drain's traversal: compares 12.7%, mask arithmetic (`kortestw`, `korw`,
+`kandw`, `kmovw`) 17%, broadcasts 10.6%, multiplies and fused
+multiply-adds 14.6%, register moves 6.7%. Counted whole: the sorted
+drain runs the head in 93 G of our instructions against the scalar
+walk's 97.7 G and the packet's 182 G, for 311 M vector node passes
+against 399 M scalar visits -- a gang's pass costs about 1.4x a scalar
+visit's instructions and carries four lanes, and the two cancel to the
+parity the table shows. The one thing in the generated traversal that
+costs a lane work the scalar does not do is the order: a lane in the
+minority of the vote enters the farther child first, its bound stays
+loose, and it reaches 1.43x the leaves the scalar walk reaches for the
+same query (1.78x in the packet, where sixteen unrelated walks vote),
+and pops 3.1x the nodes, most of them culled at the pop by the per-lane
+bound (the stack holds a lane's distance to the node, Embree's
+per-ray entry, re-tested against the lane's best; the leaf and triangle
+excess, 1.4x, is the order's real cost, the node excess mostly the
+pops). That is the packet traversal's rule and not a bug; a per-lane
+order needs a per-lane stack, which is the per-lane drain (Next).
+
+**The deferral's schedules.** `fcpwb-packet-defer-threads` (a point's
+queue), `fcpwb-packet-defer-chunk-threads` (a chunk of sixty-four
+points'), `fcpwb-packet-defer-sort-threads` (the chunk's, sorted by the
+fifteen-bit key), `fcpwb-packet-defer-sort-fine-threads` and
+`-sort-fine-c256-threads` (the thirty-bit key, chunks of 64 and 256),
+`fcpwb-packet-defer-sort-c16-threads` (the fifteen-bit key, chunks of
+16); all compute WoSX's estimate (the walks ended, the lengths and the errors
+equal in every run). A queue above the point loop wants the nest
+perfect: `walk.defer(walk, steps)` with `queue(i_chunk)` is refused
+(Defer.cpp:1817, "the loop i_in of solve_all goes on after its inner
+loop w ... Write it as a loop of its own after the nest") until
+`solve_all.reorder(i_in, w); solve_all.reorder(w, i_in)` distributes the
+point's prologue and epilogue -- the sums' zeroing, the division by the
+walks that ended, the stores -- around the (point, walk) nest, the GPU
+deferral's idiom (fcpwb-gpu-defer.bonsai). The per-lane form,
+`fcpwb-packet-defer-sort-fine-perlane-threads` (the traversal loopified
+before the drain is vectorized), stops the compiler (Next). The table's
+defaults carry the point's queue and the sorted chunk's; the CPU figure
+draws them in place of the gangs of thirty-two and of four, which the
+table keeps and the palette's nine colours do not hold (plot.py says
+which; one list edit draws them again).
+
+**The table** (benchmark.sh, 09:30-09:54, the two schedules' 36 cells
+resumed into the CPU table, every cell WoSX's estimate; the figure
+redrawn). Over WoSX by geomean on 18 meshes:
+
+| CPU, WoSX's default tree | geomean | min | max |
+|---|---|---|---|
+| fcpwb-threads (matching) | 1.17x | 1.06 dragon | 1.30 comb |
+| fcpwb-packet-16-threads | 0.55x | 0.39 rover | 2.03 comb |
+| fcpwb-packet-defer-threads (a point's queue) | 0.55x | 0.38 rover, dragon | 2.11 comb |
+| fcpwb-packet-defer-sort-threads (a chunk's, sorted) | 0.71x | 0.41 crown | 1.90 comb |
+
+The point's queue is the packet to the cell (0.38-0.90 against
+0.39-0.83 on the seventeen losing meshes, the comb 2.11x against 2.03x):
+the compaction is worth nothing anywhere. The sorted chunk gains on
+every mesh but two: it beats the scalar threads on the pavilion (1.34x
+against 1.18x, 11k triangles) and the head (1.19x against 1.17x), stands
+at 0.73-0.82x on the mid-sized meshes (ivy 0.82, zero-day 0.78, whale,
+villa 0.75, car 0.73) against the packet's 0.47-0.66x, and at 0.45-0.49x
+on the three largest (lte-orb, ganesha, dragon) against 0.39-0.41x --
+the larger the tree, the less a cell of the key gathers. The two it
+loses on: the comb (1.90x against the packet's 2.03x: its six-step
+walks stay together on their own and the sort is a cost), and the crown
+(0.41x against 0.83x), which is the chunk, not the sort: the crown's
+slice has 460 sample points, eight chunks of sixty-four for sixteen
+threads, and half the threads idle. Chunks of sixteen points
+(`fcpwb-packet-defer-sort-c16-threads`, 29 chunks) put the crown at
+0.81x and the head at 1.10x (the sort's reach a quarter of the walks);
+the chunk is a per-mesh trade between the threads' balance and the
+gang's coherence, and the table's schedule keeps sixty-four.
+
+**What the numbers say.** The vectorized walk on WoSX's default tree
+loses to the scalar one for the gang's emptiness at the tree's nodes,
+two to four lanes of sixteen, which the walks' lengths do not cause and
+the deferral's compaction does not mend; sorting the drain by position
+fills the gang to four lanes and brings the vectorized walk to the
+scalar threads' rate on a small tree (the head, the comb's six-step
+walks beyond it) and to 0.6x on a large one; the rest of the gap is the
+vote's order (1.4x the leaves) and the vector pass's own cost (1.4x a
+scalar visit's instructions). The CPU's best bars on this tree stay the
+scalar ones, fcpwb2-persistent at 1.27x. The two ways left to a
+vectorized walk that pays are the per-lane order and the hybrid switch
+(Next).
+
 ### Next
 
 - OptiX's one loop: a form of the traversal that survives OptiX's
@@ -2618,7 +2807,30 @@ reading, not a measurement.
   passes a minimum radius of zero, so its comparison is unaffected; the
   walk on stars' is not, and the two sides have to ask the same question
   before its table is read as a layout or schedule comparison.
-- The hybrid switch as a schedule point (the packet section).
+- The hybrid switch as a schedule point (the packet section), now with
+  the lane counts of 10-29 behind it: a gang of the sorted drain holds
+  four lanes of sixteen at a node and two and a half at a triangle on the
+  head, 2.4 and 1.7 on the rover, so a traversal that goes one lane at a
+  time below a lane count -- Embree's switch -- would run most of the
+  passes scalar; and the per-lane drain (the same two directives in the
+  per-lane order, fcpwb-packet-defer-sort-fine-perlane-threads), which
+  keeps each lane's own nearer-first order and so the scalar's visit count
+  where the gang's majority vote costs a lane 1.4x the leaves, once it
+  compiles (the next item).
+- The per-lane drain does not compile: `closest_within.sort(...)
+  .loopify(64)` before `solve_all.split(steps, ..., 16, true)
+  .vectorize(steps_lane)` on the deferred drain stops the compiler in the
+  LLVM backend's lane extract (CodeGen_LLVM::extract_lane on an
+  ir::Extract; LLVM's `isValidOperands` assertion), the final SSA showing
+  the vectorized traversal `_recloop_func1$gang16_p2_v4_p5$masked` with
+  a uniform node index and bound where a per-lane traversal needs a
+  lane's own. The same order of the two directives compiles apps/pbrt's
+  perlane.bonsai; what differs is the drain as the caller, the sort key's
+  far-corner select, or the leaf's skip. The schedule file stays as the
+  reproducer, its header says the command.
+- A gang of eight for the sorted drain: at four lanes of sixteen live at
+  a node, a gang of eight is half full for the same passes per lane; one
+  schedule file, two meshes to measure.
 - FCPW's scalar arithmetic for WoSX's default configuration (issue 1) is
   now metrics/fcpw_scalar.bonsai in apps/rtq.
 - The extensions, one at a time against WoSX: a source term (Poisson),

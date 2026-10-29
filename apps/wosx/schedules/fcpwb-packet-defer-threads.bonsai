@@ -1,0 +1,44 @@
+// The walk on spheres over WoSX's default tree with a point's walks
+// deferred step by step onto a queue of the point's own, the queue drained
+// in gangs of sixteen lanes: the CPU form of fcpwb-gpu-defer-block.bonsai,
+// and the packet schedules' gang (fcpwb-packet-16-threads.bonsai) with the
+// walks compacted. In the packet schedule a gang is sixteen walks of one
+// point run from their first step to their last, so the gang runs as many
+// passes as its longest walk has steps and a lane whose walk ended idles
+// through the rest (a walk is 13.7 steps on the head by mean, the longest
+// of sixteen far more). Here `solve_all.defer(walk, steps)` pushes every
+// walk's first step onto the point's queue and `walk.defer(walk, steps)`
+// pushes each step's successor, so the drain's round r runs the r-th step
+// of every walk of the point still going and nothing else: a gang holds
+// sixteen live steps while the point has sixteen walks live, and the
+// rounds thin only as the walks end. The traversal is the packet one --
+// the gang vectorized before the closest-point query is sorted and put on
+// its stack, one node for the gang and each child entered by the lanes
+// whose query reaches it, FCPW's CPU order by the majority of the lanes --
+// so what changes against fcpwb-packet-16-threads is the lanes a gang
+// holds, not what a gang does with them. The queue is the point's
+// (`queue(i)`), its storage the thread's arena since the point loop is
+// bound to the threads; the pass over the record after the rounds adds
+// each walk's value into the point's sums. The cost against the packet is
+// a queue entry per step -- the position, distance, step count and
+// generator written and read once per step -- and the rounds' loop; a
+// gang's lanes are walks of one point at one step count, as the packet's
+// are, so the leaves a gang reaches are as spread as the packet's.
+import apps/rtq/schedules/layouts/fcpwb;
+
+schedule {
+    steps = solve_all.queue(i);
+    solve_all.defer(walk, steps);
+    walk.defer(walk, steps);
+    solve_all.split(steps, steps_gang, steps_lane, 16, true)
+             .vectorize(steps_lane);
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        select(distmin(s, AABB{lo[0u], hi[0u]}) == 0.0 &&
+                               distmin(s, AABB{lo[1u], hi[1u]}) == 0.0,
+                               distmax(s, AABB{lo[i], hi[i]}),
+                               distmin(s, AABB{lo[i], hi[i]})))
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
+    solve_all.bind(i, CPUThread);
+}

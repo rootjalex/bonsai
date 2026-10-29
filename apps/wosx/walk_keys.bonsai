@@ -39,3 +39,26 @@ func walk_sort_key(x : vec3f, lo : vec3f, hi : vec3f) -> u32 {
            (spread_bits_5(cast[[u32]](q.y)) << 1u) |
            spread_bits_5(cast[[u32]](q.z));
 }
+
+// The same key at ten bits per axis -- the cell of a 1024x1024x1024 grid,
+// a thirty-bit Morton code -- for a drain sorted exactly on the CPU
+// (schedules/fcpwb-packet-defer-sort-threads.bonsai), where no hardware
+// limits the bits a key may have: a gang of sixteen consecutive entries
+// of the sorted queue stands in one cell of the finer grid, and on a tree
+// of a million triangles a cell of the coarse grid holds thousands of
+// leaves where a cell of this one holds a few.
+func spread_bits_10(v : u32) -> u32 {
+    x = v & 1023u;
+    return (x & 1u) | ((x & 2u) << 2u) | ((x & 4u) << 4u) | ((x & 8u) << 6u) |
+           ((x & 16u) << 8u) | ((x & 32u) << 10u) | ((x & 64u) << 12u) |
+           ((x & 128u) << 14u) | ((x & 256u) << 16u) | ((x & 512u) << 18u);
+}
+
+func walk_sort_key_fine(x : vec3f, lo : vec3f, hi : vec3f) -> u32 {
+    extent = max(hi - lo, vec3f{1e-30, 1e-30, 1e-30});
+    t = min(max((x - lo) / extent, vec3f{0.0, 0.0, 0.0}), vec3f{1.0, 1.0, 1.0});
+    q = t * 1023.0;
+    return (spread_bits_10(cast[[u32]](q.x)) << 2u) |
+           (spread_bits_10(cast[[u32]](q.y)) << 1u) |
+           spread_bits_10(cast[[u32]](q.z));
+}

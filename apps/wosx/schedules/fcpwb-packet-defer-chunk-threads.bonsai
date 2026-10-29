@@ -1,0 +1,42 @@
+// fcpwb-packet-defer-threads.bonsai with the queue owned by a chunk of
+// sixty-four points rather than one: the points are split into chunks, a
+// chunk per thread at a time (pbrt's per-thread wavefront, apps/pbrt/
+// schedules/wavefront-thread-packet.bonsai), and the chunk's queue holds
+// the live steps of all its points' walks -- 4096 entries in the first
+// round -- so the drain's gangs stay full long after one point's sixteen
+// walks would have thinned: a point's queue of sixty-four walks runs its
+// late rounds with a lane or two live, a chunk's with the late steps of
+// sixty-four points' walks together. The record of the walks' values is
+// the chunk's, a slot per point, and the pass after the rounds folds it
+// into each point's sums. The two reorders are the GPU deferral's idiom
+// (fcpwb-gpu-defer.bonsai): the first distributes what a point's
+// iteration does before and after its walks -- the sums' zeroing, the
+// division by the walks that ended and the stores -- into loops of their
+// own around the (point, walk) nest, the second puts the nest back in
+// its order; the deferral wants the nest perfect, since the pass over the
+// record is one loop over the walks and a point's epilogue has no place
+// in it. The gang's lanes are consecutive entries, which
+// are the live walks of one point at one step count in the first rounds
+// and a mix of the chunk's points later; nothing orders them by position
+// (fcpwb-packet-defer-sort-threads.bonsai does).
+import apps/rtq/schedules/layouts/fcpwb;
+
+schedule {
+    solve_all.split(i, i_chunk, i_in, 64, true);
+    solve_all.reorder(i_in, w);
+    solve_all.reorder(w, i_in);
+    steps = solve_all.queue(i_chunk);
+    solve_all.defer(walk, steps);
+    walk.defer(walk, steps);
+    solve_all.split(steps, steps_gang, steps_lane, 16, true)
+             .vectorize(steps_lane);
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        select(distmin(s, AABB{lo[0u], hi[0u]}) == 0.0 &&
+                               distmin(s, AABB{lo[1u], hi[1u]}) == 0.0,
+                               distmax(s, AABB{lo[i], hi[i]}),
+                               distmin(s, AABB{lo[i], hi[i]})))
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
+    solve_all.bind(i_chunk, CPUThread);
+}
