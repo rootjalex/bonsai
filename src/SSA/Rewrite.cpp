@@ -1236,7 +1236,7 @@ namespace {
 // copied in at each (SSA/Convert.cpp inlines a non-recursive callee at its
 // call): two regions of some dozens of blocks that differ in nothing but
 // their suffixes. Tail merging, as a linker's identical code folding does
-// to functions (Tallam et al., "Safe ICF", CGO 2010), over the exit regions
+// to functions (Tallam et al., "Safe ICF", GCC Summit 2010), over the exit regions
 // of one loop; a region that reaches a parfor or a run of calls is left
 // unmerged, and so is any pair past a few hundred blocks.
 bool same_exit_region(const Cfg &cfg, const BlockSet &inside, BlockId a,
@@ -1437,8 +1437,8 @@ bool same_exit_region(const Cfg &cfg, const BlockSet &inside, BlockId a,
 // says what "the same code" is), each handing it its own values, and the
 // other copy, unreachable, is removed. Tail merging: what a linker's
 // identical code folding does to functions (Tallam et al., "Safe ICF:
-// Pointer Safe and Unwinding Aware Identical Code Folding in Gold", CGO
-// 2010) and cross-jumping to basic blocks (Fraser, Myers and Wendt,
+// Pointer Safe and Unwinding Aware Identical Code Folding in Gold", GCC
+// Developers' Summit 2010) and cross-jumping to basic blocks (Fraser, Myers and Wendt,
 // "Analyzing and Compressing Assembly Code", SIGPLAN 1984), which LLVM's
 // own tail merging (BranchFolding) would do for a CPU but not for PTX,
 // where it is switched off under NVPTX's structured-CFG requirement. An

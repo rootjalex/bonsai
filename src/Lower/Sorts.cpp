@@ -576,7 +576,7 @@ bool deferred_callee(const TransformMap &transforms, const std::string &callee) 
 // `f.sort(g, |args| key)` where `g`'s calls are deferred onto a queue: the
 // queue is drained in ascending order of the key, which is the paper's ray
 // reordering (Meister, Boksansky, Guthe, Bittner, "On Ray Reordering
-// Techniques for Faster GPU Ray Tracing", 2025) as a schedule directive --
+// Techniques for Faster GPU Ray Tracing", I3D 2020) as a schedule directive --
 // the same word as the reordering hint on a call that is made in place,
 // since both say in what order what comes next runs, and nothing an
 // iteration computes changes. The key is computed where the push is, from
