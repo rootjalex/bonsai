@@ -186,8 +186,13 @@ threads, sixteen persistent workers against WoSX's threads -- each
 bonsai's rate over WoSX's (an application is measured in parallel under
 the schedule the reference runs; the one-thread cell below is a check by
 name, and no bar), the y axis
-Speedup and the dashed line at 1 WoSX, named in the legend, a colour a
-bar from the YlGnBu ramp apps/pbrt's figures use, drawn at the paper's
+Speedup and the dashed line at 1 WoSX, named in the legend, the colours
+apps/pbrt's figures' scheme (the user, 10-29): the schedules that run
+each walk straight through (parallel, persistent, their fcpwb2 and 256k
+forms, the plain OptiX launch) in greys, the schedules that regroup the
+walks (gangs, deferrals, the sorted queue, reorders, SER) on the YlGnBu
+ramp, a label the same colour on the CPU and GPU figures (plot.py's
+SCHEDULE_COLOURS), drawn at the paper's
 page width in apps/pbrt/figure_style.py's style. Beside each figure a
 `.txt` of the statistics the paper quotes (per schedule the geomean, the
 least and greatest cell and its mesh, what each change of schedule bought,

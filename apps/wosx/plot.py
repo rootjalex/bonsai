@@ -90,8 +90,13 @@ and `wosx-meshes.tex` to \\input (a booktabs tabular: triangles, closed or
 not, sample points, walks, WoSX's mean walk length), so the tick labels
 are the mesh names alone.
 
-The colours are apps/pbrt's figures' (the user's choice, 10-24):
-ColorBrewer's nine-class YlGnBu ramp, a colour a schedule, no hatches, the
+The colours are apps/pbrt's figures' (the user's choice, 10-24 and
+10-29): the paper's one ramp, ColorBrewer's nine-class YlGnBu, for the
+schedules that regroup the walks (gangs, deferred queues, sorts,
+reorders, shader execution reordering), greys for the schedules that run
+each walk straight through (the threads, the persistent workers, their
+fcpwb2 and 256k forms, the plain OptiX launch), a label the same colour
+on every figure here (SCHEDULE_COLOURS below), no hatches, the
 edge and the line at 1 as there. No titles: the file's name says which tree
 and which side, the legend what each bar compares. The figures are drawn
 at the size they are printed (apps/pbrt/figure_style.py has the format):
@@ -120,22 +125,59 @@ from matplotlib.ticker import MultipleLocator  # noqa: E402
 # font sizes, the YlGnBu ramp, Liberation Sans embedded as TrueType, and
 # the summary written beside a figure.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pbrt"))
-from figure_style import (TEXT_WIDTH, YLGNBU, describe, lean_labels, paper_style,  # noqa: E402
-                          ratios, write_summary)
+from figure_style import (GREYS, RAMP, TEXT_WIDTH, describe, lean_labels,  # noqa: E402
+                          paper_style, ratios, write_summary)
 
 EDGE = "#333333"  # every bar's thin edge, as apps/pbrt's figures
 
+# The schedules' colours, the scheme of apps/pbrt's figures (the user,
+# 10-29: one palette across the paper, the same style on the wosx
+# figures): the family that runs every walk straight through on its own
+# thread or lane -- the threads, the persistent workers, the same on the
+# fcpwb2 layout, twice the threads, the plain OptiX launch -- in
+# figure_style.GREYS, light to dark down the legend; the family that
+# regroups the walks -- gangs of lanes, deferred queues, the sorted
+# queue, the reordered claims, shader execution reordering -- on the
+# paper's YlGnBu ramp (figure_style.RAMP, its seven darkest classes),
+# darker with each step down the legend. A label has one colour on every
+# figure here (the CPU's and the GPU's `parallel` and `persistent` are
+# the same grey). The CPU figures' gangs and deferrals and the GPU
+# figure's reorders are different schedules on the same ramp classes:
+# the two figures' legends name them, as they never share a figure.
+SCHEDULE_COLOURS = {
+    # straight through
+    "parallel": GREYS[0],
+    "persistent": GREYS[1],
+    "parallel-fcpwb2": GREYS[2],
+    "persistent-fcpwb2": GREYS[3],
+    "persistent-256k": GREYS[4],
+    "optix": GREYS[5],
+    "persistent-point": GREYS[5],       # retired; drawn only when asked, never beside optix
+    # regrouped, the CPU figures
+    "parallel-packet16": RAMP[0],
+    "parallel-packet8": RAMP[1],
+    "parallel-defer16": RAMP[2],
+    "parallel-defer-sort16": RAMP[3],
+    # regrouped, the GPU figures
+    "persistent-reorder": RAMP[0],
+    "persistent-reorder-256k": RAMP[1],
+    "parallel-reorder-blk64": RAMP[2],
+    "optix-ser": RAMP[3],
+    "optix-ser-persistent": RAMP[4],
+    "defer": RAMP[5],
+    "defer-block": RAMP[6],
+}
+
 # The CPU figures' bars, on either tree: (suffix of the tree's schedule,
-# legend label, colour), in drawing order. Two bars take classes 4 and 7
-# of the ramp, far enough apart to tell at a glance. The one-thread cell
+# legend label, colour), in drawing order. The one-thread cell
 # (the bare schedule, `fcpwb`: one thread against WoSX's runSingleThreaded)
 # is no bar: an application is measured in parallel under the schedule the
 # reference runs, and one thread against one thread is a microbenchmark's
 # question, apps/rtq's (the user, 2026-10-28). Its rows stay in the CSV
 # where they were measured; a table measured with it folds the same.
 CPU_BARS = [
-    ("-threads", "parallel", YLGNBU[4]),
-    ("-persistent", "persistent", YLGNBU[7]),
+    ("-threads", "parallel", SCHEDULE_COLOURS["parallel"]),
+    ("-persistent", "persistent", SCHEDULE_COLOURS["persistent"]),
 ]
 # (schedule base, figure name, what the tree is): the two trees.
 CPU_TREES = [
@@ -168,29 +210,31 @@ CPU_TREES = [
 # leaf any lane reaches is tested gang-wide for a lane or two.
 CPU_EXTRA_BARS = {
     "fcpwb": [
-        ("fcpwb2-threads", "parallel-fcpwb2", YLGNBU[2],
+        ("fcpwb2-threads", "parallel-fcpwb2", SCHEDULE_COLOURS["parallel-fcpwb2"],
          "the node's row holding its children's boxes (layouts/fcpwb2), the threads"),
-        ("fcpwb2-persistent", "persistent-fcpwb2", YLGNBU[5],
+        ("fcpwb2-persistent", "persistent-fcpwb2", SCHEDULE_COLOURS["persistent-fcpwb2"],
          "the node's row holding its children's boxes, the persistent workers"),
-        ("fcpwb-packet-16-threads", "parallel-packet16", YLGNBU[3],
+        ("fcpwb-packet-16-threads", "parallel-packet16", SCHEDULE_COLOURS["parallel-packet16"],
          "a point's walks vectorized in gangs of sixteen lanes, the threads"),
-        ("fcpwb-packet-8-threads", "parallel-packet8", YLGNBU[6],
+        ("fcpwb-packet-8-threads", "parallel-packet8", SCHEDULE_COLOURS["parallel-packet8"],
          "a point's walks vectorized in gangs of eight lanes, the threads"),
-        ("fcpwb-packet-defer-threads", "parallel-defer16", YLGNBU[1],
+        ("fcpwb-packet-defer-threads", "parallel-defer16", SCHEDULE_COLOURS["parallel-defer16"],
          "a point's walks deferred step by step onto the point's queue, the queue drained "
          "in gangs of sixteen lanes (no lane idles behind a longer walk), the threads"),
-        ("fcpwb-packet-defer-sort-threads", "parallel-defer-sort16", YLGNBU[8],
+        ("fcpwb-packet-defer-sort-threads", "parallel-defer-sort16",
+         SCHEDULE_COLOURS["parallel-defer-sort16"],
          "the walks deferred onto a chunk of sixty-four points' queue, drained in gangs of "
          "sixteen in the order of the walks' positions (a Morton code), the threads"),
     ],
 }
-# Measured but not drawn by default, the palette having nine colours and the
-# table's rows keeping them: fcpwb-packet-threads (gangs of thirty-two, a
-# third under the gangs of sixteen everywhere: two vector instructions for
-# one) and fcpwb-packet-4-threads (0.57x over WoSX against the gangs of
-# eight's 0.56x: below the register's width the gang's width does not
-# matter). Both are drawn by naming them in CPU_EXTRA_BARS["fcpwb"] with
-# a colour.
+# Measured but not drawn by default, the ramp's seven classes spoken for
+# and the table's rows keeping them: fcpwb-packet-threads (gangs of
+# thirty-two, a third under the gangs of sixteen everywhere: two vector
+# instructions for one) and fcpwb-packet-4-threads (0.57x over WoSX
+# against the gangs of eight's 0.56x: below the register's width the
+# gang's width does not matter). Both are drawn by naming them in
+# CPU_EXTRA_BARS["fcpwb"] with a colour (RAMP[4] and RAMP[5] are free on
+# the CPU figures).
 # The walk on stars' CPU figure (--stars): WoSX's default trees alone, the
 # same two bars on the `wost-fcpwb*` schedules.
 STARS_CPU_TREES = [
@@ -203,54 +247,53 @@ STARS_CPU_TREES = [
 # the schedule's shape in a word or two; README.md's schedule list says
 # what each is. Schedules only: the other layout and the other tree
 # (fcpwb2-gpu, fcpw4w16-gpu) are a sweep of their own, not this figure's.
-GPU_BARS = [
-    ("fcpwb-gpu", "persistent", YLGNBU[1]),
-    ("fcpwb-gpu-parallel", "parallel", YLGNBU[2]),
-    ("fcpwb-gpu-reorder", "persistent-reorder", YLGNBU[3]),
-    ("fcpwb-gpu-256k", "persistent-256k", YLGNBU[5]),
-    ("fcpwb-gpu-reorder-256k", "persistent-reorder-256k", YLGNBU[6]),
-    ("fcpwb-gpu-parallel-reorder-blk64", "parallel-reorder-blk64", YLGNBU[7]),
+GPU_BARS = [(s, label, SCHEDULE_COLOURS[label]) for s, label in [
+    ("fcpwb-gpu", "persistent"),
+    ("fcpwb-gpu-parallel", "parallel"),
+    ("fcpwb-gpu-reorder", "persistent-reorder"),
+    ("fcpwb-gpu-256k", "persistent-256k"),
+    ("fcpwb-gpu-reorder-256k", "persistent-reorder-256k"),
+    ("fcpwb-gpu-parallel-reorder-blk64", "parallel-reorder-blk64"),
     # The launch through OptiX: the plain launch as a ray-generation
     # program (a control), the same with the threads reordered by where
     # their walks stand before every step (shader execution reordering,
     # `walk.sort(walk, ...)`), and the persistent claim under that
     # reordering.
-    ("fcpwb-gpu-optix", "optix", YLGNBU[4]),
-    ("fcpwb-gpu-optix-ser", "optix-ser", YLGNBU[8]),
-    ("fcpwb-gpu-optix-ser-persistent", "optix-ser-persistent", YLGNBU[0]),
+    ("fcpwb-gpu-optix", "optix"),
+    ("fcpwb-gpu-optix-ser", "optix-ser"),
+    ("fcpwb-gpu-optix-ser-persistent", "optix-ser-persistent"),
     # The two deferrals: the walks' steps on a queue, a round of the drain
     # running the next step of every walk still going -- one queue across
     # the card, or one per point in the block's shared memory. Measured on
     # 2026-10-25 and not in the table's defaults since; drawn where the
     # table has their rows.
-    ("fcpwb-gpu-defer", "defer", YLGNBU[0]),
-    ("fcpwb-gpu-defer-block", "defer-block", YLGNBU[8]),
+    ("fcpwb-gpu-defer", "defer"),
+    ("fcpwb-gpu-defer-block", "defer-block"),
     # A point a claim, its walks in sequence: a tenth of WoSX's rate on
     # every mesh, the card left nearly empty; removed from the table's
     # defaults and the figure on 2026-10-28 (the user). Named here so that
     # a table carrying its rows is drawn with a label, if asked for by
     # --gpu-schedules.
-    ("fcpwb-gpu-point", "persistent-point", YLGNBU[4]),
-]
+    ("fcpwb-gpu-point", "persistent-point"),
+]]
 # The walk on stars' GPU figure (--stars --gpu): the matching schedule over
 # WoSX's GPU walk on stars, the same persistent claim of a walk at a time,
 # and the walk on spheres' variants on this walk under the same labels
 # (wost-fcpwb-gpu-*.bonsai: each the same directives on solve_stars), with
 # the per-point deferral, which a step of three traversals should reward
 # more than the one-query walk did.
-STARS_GPU_BARS = [
-    ("wost-fcpwb-gpu", "persistent", YLGNBU[1]),
-    ("wost-fcpwb-gpu-parallel", "parallel", YLGNBU[2]),
-    ("wost-fcpwb-gpu-reorder", "persistent-reorder", YLGNBU[3]),
-    ("wost-fcpwb-gpu-256k", "persistent-256k", YLGNBU[5]),
-    ("wost-fcpwb-gpu-reorder-256k", "persistent-reorder-256k", YLGNBU[6]),
-    ("wost-fcpwb-gpu-parallel-reorder-blk64", "parallel-reorder-blk64", YLGNBU[7]),
-    ("wost-fcpwb-gpu-optix", "optix", YLGNBU[4]),
-    ("wost-fcpwb-gpu-optix-ser", "optix-ser", YLGNBU[8]),
-    ("wost-fcpwb-gpu-optix-ser-persistent", "optix-ser-persistent", YLGNBU[0]),
-    # A tenth bar, past the ramp's nine classes: a neutral grey.
-    ("wost-fcpwb-gpu-defer-block", "defer-block", "#9E9E9E"),
-]
+STARS_GPU_BARS = [(s, label, SCHEDULE_COLOURS[label]) for s, label in [
+    ("wost-fcpwb-gpu", "persistent"),
+    ("wost-fcpwb-gpu-parallel", "parallel"),
+    ("wost-fcpwb-gpu-reorder", "persistent-reorder"),
+    ("wost-fcpwb-gpu-256k", "persistent-256k"),
+    ("wost-fcpwb-gpu-reorder-256k", "persistent-reorder-256k"),
+    ("wost-fcpwb-gpu-parallel-reorder-blk64", "parallel-reorder-blk64"),
+    ("wost-fcpwb-gpu-optix", "optix"),
+    ("wost-fcpwb-gpu-optix-ser", "optix-ser"),
+    ("wost-fcpwb-gpu-optix-ser-persistent", "optix-ser-persistent"),
+    ("wost-fcpwb-gpu-defer-block", "defer-block"),
+]]
 # What each GPU schedule changed against another, for the summary: (label
 # of the schedule, label of the one it differs from in one thing, the
 # thing). The labels are the same on both walks' figures.
@@ -538,7 +581,7 @@ def draw_cpu(rows, out_dir, formats, exclude, trees, width=TEXT_WIDTH):
 def draw_gpu(rows, schedules, out_dir, formats, exclude, stars, width=TEXT_WIDTH):
     meshes, tris = meshes_by_triangles(rows, exclude)
     known = {s: (label, colour) for s, label, colour in (STARS_GPU_BARS if stars else GPU_BARS)}
-    bars = [(s, *known.get(s, (s, YLGNBU[8]))) for s in schedules]
+    bars = [(s, *known.get(s, (s, RAMP[-1]))) for s in schedules]
     # A little taller: seven bars a mesh and a legend of two rows above them.
     fig, drawn = figure(rows, meshes, bars, "Speedup", height=2.0 if len(bars) > 5 else 1.7,
                         fig_width=width)

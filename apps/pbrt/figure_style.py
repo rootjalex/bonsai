@@ -27,9 +27,10 @@ them). `write_summary` writes the statistics the paper quotes beside a figure,
 `<figure>.txt`: for each series the geometric mean, the least value, the
 lower quartile, the median, the upper quartile and the greatest value, and
 which point each is (the user, 10-24 and 10-26; `describe` has the form).
-`YLGNBU` is the paper's colour ramp (the heatmap's cells); `MEGAKERNEL`,
-`WAVEFRONT` and `SCHEDULE_COLOURS` give every schedule the one colour it
-has on every figure (the user, 10-29). `scene_label` names a scene on a
+`YLGNBU` is the paper's one colour ramp (the heatmap's cells, the rtq and
+wosx figures); `WAVEFRONT` (its seven darkest classes), `MEGAKERNEL`
+(greys) and `SCHEDULE_COLOURS` give every schedule the one colour it has
+on every figure (the user, 10-29). `scene_label` names a scene on a
 figure from its path in the scene set, one line each.
 """
 
@@ -224,36 +225,46 @@ YLGNBU = ["#FFFFD9", "#EDF8B1", "#C7E9B4", "#7FCDBB", "#41B6C4",
 
 # The schedules' colours, one scheme for every figure (the user, 10-29:
 # the CPU and GPU sweeps had each laid the one ramp over its own bars in
-# drawing order, so the same colour meant a different schedule on each).
-# Two sequential ramps, one per family of schedules, each darker with
-# every scheduling step down the figure's legend:
+# drawing order, so the same colour meant a different schedule on each;
+# and, the same afternoon, the paper has one palette -- the YlGnBu ramp
+# the heatmap and the rtq and wosx figures use -- so no second hue: the
+# warm ramp the noon commit gave the megakernels is gone). The two sweeps
+# draw fourteen distinct schedules and the ramp has eight usable classes,
+# so one family takes the ramp and the other the neutrals beside pbrt's
+# black:
 #
-#   MEGAKERNEL  warm, ColorBrewer YlOrBr -- a path per thread in one program
-#   WAVEFRONT   cool, ColorBrewer YlGnBu (the heatmap's ramp) -- pbrt's queue
-#               structure and its variants
+#   WAVEFRONT   the YlGnBu ramp, its seven darkest classes (2..8) -- pbrt's
+#               queue structure and its variants, the heatmap's family
+#   MEGAKERNEL  six greys at equal OKLab lightness steps from ColorBrewer
+#               Greys' class 3 (#BDBDBD) to its class 7 (#252525) -- a path
+#               per thread in one program; pbrt's own megakernel is black,
+#               the greys' end (the lighter class 2, #D9D9D9, was 5.5 from
+#               the ramp's palest class under deutan simulation, too close
+#               for the CPU figure where the two stand side by side)
 #
-# so that the family is read from the hue and the variant from the
-# lightness, and the same schedule has the same colour on every figure:
-# the plain megakernel (gpu-optix-mega on the GPU, the scalar schedule on
-# the CPU) is MEGAKERNEL[0] on both sweeps, the matching wavefront
-# (gpu-optix, wavefront-frame) WAVEFRONT[0], the sorted wavefront of each
-# sweep WAVEFRONT[-1]; the profile figure's bars take their launch's
-# schedule colour. pbrt's own bars are black (PBRT_COLOUR; the CPU's PBRT
-# mk), pbrt's wavefront the dashed reference line of both sweeps.
+# each family darker with every scheduling step down the figure's
+# legend, so that the family is read from the hue (teal-blue or grey)
+# and the variant from the lightness, and the same schedule has the same
+# colour on every figure: the plain megakernel (gpu-optix-mega on the
+# GPU, the scalar schedule on the CPU) is MEGAKERNEL[0] on both sweeps,
+# the matching wavefront (gpu-optix, wavefront-frame) WAVEFRONT[0], the
+# sorted wavefront of each sweep WAVEFRONT[-1]; the profile figure's bars
+# take their launch's schedule colour. pbrt's wavefront is the dashed
+# reference line of both sweeps.
 #
-# The colours are at equal OKLab spacing along each ramp between its
-# classes 2.5 and 8 (YlOrBr, six) and 3 and 8 (YlGnBu, seven), chosen by
-# apps/pbrt/scratch/palette_pick.py with the dataviz validator's
-# distances: bars drawn side by side are at least 8.0 apart (OKLab x100)
-# under simulated protan and deutan vision and 9.4 under normal vision,
-# and every warm colour at least 12.2 from every cool one under either
-# deficiency -- the one-ramp scheme's two palest classes had been 4.7 and
-# 5.6 apart. Six or seven ordered shades of a ramp cannot reach the
-# validator's categorical floor of 15 between neighbours; the fixed bar
-# order within every group, keyed by the legend, is the second encoding.
+# Checked with the dataviz validator's distances (OKLab x100), in each
+# sweep's drawing order and in apps/wosx's figures' orders: neighbouring
+# bars at least 8.1 apart under simulated protan and deutan vision and
+# 9.1 under normal vision (the ramp's classes 3 and 4, #7FCDBB and
+# #41B6C4, are the closest pair; 7.2 under the rare tritan), neighbouring
+# greys 9.9 apart. Ordered shades cannot reach the validator's categorical
+# floor of 15 between neighbours; the fixed bar order within every group,
+# keyed by the legend, is the second encoding.
 PBRT_COLOUR = "#000000"
-MEGAKERNEL = ["#FED370", "#FEA332", "#ED7315", "#C94A02", "#983404", "#662506"]
-WAVEFRONT = ["#7FCDBB", "#3FB4C4", "#1F93C0", "#2071B1", "#234EA0", "#1E2E85", "#081D58"]
+GREYS = ["#BDBDBD", "#9E9E9E", "#808080", "#636363", "#474747", "#252525"]
+RAMP = YLGNBU[2:9]
+MEGAKERNEL = GREYS       # apps/wosx/plot.py draws its families from GREYS and RAMP too
+WAVEFRONT = RAMP
 
 # Legend label -> colour, for every schedule a figure of apps/pbrt draws
 # (the labels are plot_cpu_wavefront.py's and plot_gpu_wavefront.py's).
@@ -281,7 +292,7 @@ SCHEDULE_COLOURS = {
     "wf-sort": WAVEFRONT[6],        # GPU gpu-optix-sort
     # The GPU exploration's sides of 10-24, drawn only when asked for
     # (never beside the CPU variants whose shades they borrow).
-    "mk-ser-ray": "#FEE391",        # YlOrBr's class 2, above the family's first
+    "mk-ser-ray": "#404040",        # between mk-ser and mk-ser-flat
     "wf-b128": WAVEFRONT[1],
     "wf-b512": WAVEFRONT[2],
     "wf-fused": WAVEFRONT[3],

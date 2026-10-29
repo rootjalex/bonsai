@@ -19386,3 +19386,41 @@ holds for the large scenes, more if the CPU's traversal falls further
 behind the RT cores on them. The machine has 186 GB for kroken's 10.6 GB
 of converted geometry. Waiting on bonsai-ac's 'done' (their lock since
 12:10 for compiler work and wosx runs); nothing runs until then.
+
+**The colours, again (the user, 14:05: "what did you do to the plot
+colors? They're totally inconsistent with the other plots, which had a
+nice colorblind friendly scheme and were all consistent").** The noon
+commit (621343b4) had given the megakernel family a second hue, a warm
+YlOrBr ramp, my own choice in answering the noon ask for consistent
+assignments between the two sweeps -- and the paper has one palette, the
+YlGnBu ramp the heatmap, the rtq figures and the wosx figures use, so
+the two sweeps and the profile figure clashed with every other figure.
+The constraint stands: the two sweeps draw fourteen distinct schedules
+and the ramp has eight usable classes. The user's choice of three ways
+out: the wavefront family on the ramp (its seven darkest classes, 2..8,
+the raw ColorBrewer colours) and the megakernel family in greys beside
+pbrt's black -- no second hue, every schedule one colour on both sweeps,
+lightness order the legend order within each family. The greys are six
+at equal OKLab lightness steps from #BDBDBD to #252525; ColorBrewer
+Greys' lighter class 2 (#D9D9D9) was tried first and sat 5.5 from the
+ramp's palest class under deutan simulation, where the CPU figure draws
+mk-b-s-ps beside wf-b-s-sp. Validated in every figure's drawing order
+(apps/pbrt's two sweeps, apps/wosx's five): neighbouring bars at least
+8.1 apart under protan and deutan simulation (the ramp's classes 3 and 4
+the closest pair; 7.2 under tritan), neighbouring greys 9.9. The profile
+figure's stall shares go back to ramp classes (7, 5, 3, 1), its schedule
+bars to the schedules' grey or ramp class. **The wosx figures follow
+(the user, 14:10: "make sure the wosx benchmarks follow the same
+style"):** apps/wosx/plot.py gets a SCHEDULE_COLOURS table in the same
+scheme -- the family that runs each walk straight through (parallel,
+persistent, their fcpwb2 and 256k forms, the plain OptiX launch) in the
+greys, the family that regroups the walks (gangs of sixteen and eight,
+the deferred queue, the sorted queue; the reordered claims, the blocked
+reorder, SER and SER-persistent, the two deferrals) on the ramp, a label
+the same colour on its CPU and GPU figures where before `parallel` was
+class 4 on the CPU and class 2 on the GPU, `persistent` 7 and 1, and
+three GPU bars shared classes with others. The CPU figures' gangs and
+the GPU figure's reorders are different schedules on the same ramp
+classes (eleven regrouping schedules for seven classes); the figures'
+legends name them, and the two never share a figure. Redrawn 14:10, all
+nine figures; bonsai-ac told before the commit (plot.py is their file).

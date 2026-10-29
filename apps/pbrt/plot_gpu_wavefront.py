@@ -46,9 +46,9 @@ flat launch in blocks of 2^18 paths from a host loop (`Bonsai mk-blk`,
 gpu-optix-mega-blocked); plots.sh names these eight as the paper
 figure's sides (GPU_SIDES). `--sides` names a subset in its own order.
 Each side has the colour its schedule has on every figure of apps/pbrt
-(figure_style.SCHEDULE_COLOURS; the user, 10-29): the megakernels warm
-(ColorBrewer YlOrBr, `mk` palest to `mk-ser-flat` darkest) and the
-wavefronts cool (YlGnBu, the heatmap's ramp: `wf` the palest shade, the
+(figure_style.SCHEDULE_COLOURS; the user, 10-29): the megakernels in
+greys (`mk` lightest to `mk-ser-flat` darkest) and the wavefronts on the
+paper's one ramp (YlGnBu, the heatmap's: `wf` its palest class drawn, the
 CPU figure's wf-b-s-sp, `wf-sort` the darkest, its wf-t-v-ps-sort), the
 family read from the hue and the variant from the lightness; the
 exploration's sides borrow the CPU variants' shades, which never share a

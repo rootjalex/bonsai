@@ -49,10 +49,10 @@ continuations, `_ss_0` before the first trace and `_ss_1`, `_ss_2` after
 one, so the lanes before and after the first bounce are told apart), and
 where the reading is written up in PLAN.md. Each launch's bars in the size
 and lanes panels take the colour its schedule has on the sweep figures
-(figure_style.SCHEDULE_COLOURS: the wavefront's trace kernel `wf`'s cool
-shade, the two megakernels their warm ones; the user, 10-29, one scheme
-for every figure); the four stall shares are greys, darkest for the fetch,
-so that colour in this figure names a schedule and nothing else.
+(figure_style.SCHEDULE_COLOURS: the wavefront's trace kernel `wf`'s pale
+ramp class, the two megakernels their greys; the user, 10-29, one scheme
+for every figure); the four stall shares are classes of the ramp, darkest
+for the fetch, as before the schedules had colours of their own.
 """
 import argparse
 import collections
@@ -68,7 +68,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from matplotlib.ticker import NullFormatter
 
-from figure_style import FONT, TEXT_WIDTH, TICK_FONT, paper_style
+from figure_style import FONT, TEXT_WIDTH, TICK_FONT, YLGNBU, paper_style
 from plot_gpu_wavefront import SIDES
 
 DEFAULT_SIDES = "gpu-optix,gpu-optix-mega-flat,gpu-optix-mega-ser-flat"
@@ -77,13 +77,14 @@ COLOURS = {side: colour for side, _, colour in SIDES}   # the schedule's colour 
 LABELS["gpu-optix"] = "wf trace"      # the wavefront's profiled launch is its trace kernel
 
 # The stall components, in stacking order (left to right), each with the
-# Nsight metrics summed into it and its grey (ColorBrewer Greys), darkest
-# for the fetch; the schedules' colours are kept for the schedules.
+# Nsight metrics summed into it and its class of the ramp, darkest for
+# the fetch (the greys are the megakernel schedules', in the panels
+# beside this one).
 STALLS = [
-    ("instruction fetch", ["no_instruction"], "#252525"),
-    ("traversal wait", ["barrier"], "#636363"),
-    ("memory", ["long_scoreboard", "lg_throttle", "mio_throttle"], "#969696"),
-    ("other", None, "#BDBDBD"),   # the remainder of the total
+    ("instruction fetch", ["no_instruction"], YLGNBU[7]),
+    ("traversal wait", ["barrier"], YLGNBU[5]),
+    ("memory", ["long_scoreboard", "lg_throttle", "mio_throttle"], YLGNBU[3]),
+    ("other", None, YLGNBU[1]),   # the remainder of the total
 ]
 STALL_METRIC = "smsp__average_warps_issue_stalled_{}_per_issue_active.ratio"
 TOTAL_METRIC = "smsp__average_warp_latency_per_inst_issued.ratio"

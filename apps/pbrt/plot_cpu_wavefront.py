@@ -34,11 +34,12 @@ side names) and keeps that order, so the five-bar figure of the first study is
 pbrt's bar is black and each Bonsai side has the colour its schedule has
 on every figure of apps/pbrt (figure_style.SCHEDULE_COLOURS; the user,
 10-29, after the CPU and GPU sweeps had each laid the one ramp over its
-own bars): the megakernel family warm (ColorBrewer YlOrBr) and the
-wavefront family cool (YlGnBu, the heatmap's ramp), each darker with every
-scheduling step down the legend, so that the family is read from the hue
-and the variant from the lightness -- mk-b-s-ps is the GPU figure's `mk`
-colour and wf-b-s-sp its `wf` colour, the same schedules. Every bar has a
+own bars): the wavefront family on the paper's one ramp (YlGnBu, the
+heatmap's, its seven darkest classes) and the megakernel family in greys
+beside pbrt's black, each darker with every scheduling step down the
+legend, so that the family is read from the hue and the variant from the
+lightness -- mk-b-s-ps is the GPU figure's `mk` grey and wf-b-s-sp its
+`wf` class, the same schedules. Every bar has a
 thin dark edge so the palest shades stay visible on white. The figure does not
 mark the image checks: the CSV's verdict column has them, and the one that
 ever failed (sanmiguel 16 spp against pbrt's volpath) was pbrt's own two
