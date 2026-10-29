@@ -47,9 +47,12 @@ four stall components in cycles, the lanes, the SASS size and the lanes of
 each function in the launch (OptiX splits a raygen at each optixTrace into
 continuations, `_ss_0` before the first trace and `_ss_1`, `_ss_2` after
 one, so the lanes before and after the first bounce are told apart), and
-where the reading is written up in PLAN.md. Colours are the paper's one
-ramp (figure_style.YLGNBU): the single-series panels in one class, the
-four stall shares in the classes 7, 5, 3 and 1, darkest for the fetch.
+where the reading is written up in PLAN.md. Each launch's bars in the size
+and lanes panels take the colour its schedule has on the sweep figures
+(figure_style.SCHEDULE_COLOURS: the wavefront's trace kernel `wf`'s cool
+shade, the two megakernels their warm ones; the user, 10-29, one scheme
+for every figure); the four stall shares are greys, darkest for the fetch,
+so that colour in this figure names a schedule and nothing else.
 """
 import argparse
 import collections
@@ -65,22 +68,23 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from matplotlib.ticker import NullFormatter
 
-from figure_style import FONT, TEXT_WIDTH, TICK_FONT, YLGNBU, paper_style
+from figure_style import FONT, TEXT_WIDTH, TICK_FONT, paper_style
 from plot_gpu_wavefront import SIDES
 
 DEFAULT_SIDES = "gpu-optix,gpu-optix-mega-flat,gpu-optix-mega-ser-flat"
-LABELS = dict(SIDES)
+LABELS = {side: label for side, label, _ in SIDES}
+COLOURS = {side: colour for side, _, colour in SIDES}   # the schedule's colour on every figure
 LABELS["gpu-optix"] = "wf trace"      # the wavefront's profiled launch is its trace kernel
 
 # The stall components, in stacking order (left to right), each with the
-# Nsight metrics summed into it and its colour class on the ramp.
+# Nsight metrics summed into it and its grey (ColorBrewer Greys), darkest
+# for the fetch; the schedules' colours are kept for the schedules.
 STALLS = [
-    ("instruction fetch", ["no_instruction"], YLGNBU[7]),
-    ("traversal wait", ["barrier"], YLGNBU[5]),
-    ("memory", ["long_scoreboard", "lg_throttle", "mio_throttle"], YLGNBU[3]),
-    ("other", None, YLGNBU[1]),   # the remainder of the total
+    ("instruction fetch", ["no_instruction"], "#252525"),
+    ("traversal wait", ["barrier"], "#636363"),
+    ("memory", ["long_scoreboard", "lg_throttle", "mio_throttle"], "#969696"),
+    ("other", None, "#BDBDBD"),   # the remainder of the total
 ]
-BAR_COLOUR = YLGNBU[6]
 STALL_METRIC = "smsp__average_warps_issue_stalled_{}_per_issue_active.ratio"
 TOTAL_METRIC = "smsp__average_warp_latency_per_inst_issued.ratio"
 
@@ -170,6 +174,7 @@ def load(profiles, cells, sides):
             functions = read_source(stem + ".source.csv") if os.path.exists(stem + ".source.csv") else []
             row.append({
                 "side": side, "label": LABELS.get(side, side), "stem": stem,
+                "colour": COLOURS.get(side, "#636363"),
                 "duration_ms": (value("gpu__time_duration.sum") or 0.0)
                                / {"ns": 1e6, "nsecond": 1e6, "us": 1e3, "usecond": 1e3}.get(raw.get("gpu__time_duration.sum", (0, "ms"))[1], 1.0),
                 "duration_unit": raw.get("gpu__time_duration.sum", (0, ""))[1],
@@ -202,7 +207,8 @@ def draw(loaded, out):
         bar_h = 0.62
         # Kernel size, log scale.
         sizes = [l["size"] or 0 for l in launches]
-        size_ax.barh(y, sizes, height=bar_h, color=BAR_COLOUR, edgecolor="none")
+        colours = [l["colour"] for l in launches]
+        size_ax.barh(y, sizes, height=bar_h, color=colours, edgecolor="none")
         size_ax.set_xscale("log")
         lo = min((s for s in sizes if s), default=1000) / 3.0
         size_ax.set_xlim(lo, max(sizes + [1000]) * 9.0)
@@ -220,7 +226,7 @@ def draw(loaded, out):
         size_ax.tick_params(axis="x", which="minor", length=0)
         # Lanes active, of 32.
         lanes = [l["lanes"] or 0 for l in launches]
-        lanes_ax.barh(y, lanes, height=bar_h, color=BAR_COLOUR, edgecolor="none")
+        lanes_ax.barh(y, lanes, height=bar_h, color=colours, edgecolor="none")
         lanes_ax.set_xlim(0, 32)
         lanes_ax.set_xticks([0, 8, 16, 24, 32])
         lanes_ax.set_yticks(y)

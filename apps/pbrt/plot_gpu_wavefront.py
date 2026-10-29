@@ -44,14 +44,15 @@ gpu-optix-mega-flat), and that launch with the reordering (`Bonsai
 mk-ser-flat`, gpu-optix-mega-ser-flat), and since the night of 10-27 the
 flat launch in blocks of 2^18 paths from a host loop (`Bonsai mk-blk`,
 gpu-optix-mega-blocked); plots.sh names these eight as the paper
-figure's sides (GPU_SIDES), which with the exploration's six below would
-exceed the ramp. `--sides` names a subset in its own order. The
-colours are classes of the CPU figure's YlGnBu ramp spread evenly over the
-sides drawn, in drawing order, so that neighbours differ in lightness: four
-sides take the classes 1, 3, 5 and 7 (the paper figure), up to seven sides
-stay within 1..7, and eight or nine sides use the whole ramp, the palest
-class told from the page by the bar's edge. All nine measured schedules
-(the four above and the exploration's five) fit on one figure that way,
+figure's sides (GPU_SIDES). `--sides` names a subset in its own order.
+Each side has the colour its schedule has on every figure of apps/pbrt
+(figure_style.SCHEDULE_COLOURS; the user, 10-29): the megakernels warm
+(ColorBrewer YlOrBr, `mk` palest to `mk-ser-flat` darkest) and the
+wavefronts cool (YlGnBu, the heatmap's ramp: `wf` the palest shade, the
+CPU figure's wf-b-s-sp, `wf-sort` the darkest, its wf-t-v-ps-sort), the
+family read from the hue and the variant from the lightness; the
+exploration's sides borrow the CPU variants' shades, which never share a
+figure with them. All the measured schedules fit on one figure that way,
 as the user asked on 10-24:
 
     python3 apps/pbrt/plot_gpu_wavefront.py apps/pbrt/gpu-compare-out/table.tsv \
@@ -67,18 +68,18 @@ import argparse
 import csv
 import sys
 
-from figure_style import YLGNBU
+from figure_style import SCHEDULE_COLOURS
 from plot_cpu_wavefront import add_figure_arguments, choose_sides, draw
 
 REFERENCE = "pbrt --gpu"
 REFERENCE_LABEL = "PBRT wf"
 Y_LABEL = "Speedup"
 
-# (side in the table, label in the legend): the drawing order, the
+# (side in the table, label in the legend, colour): the drawing order, the
 # megakernels first and then the wavefronts, each family from its plain
-# schedule to its variants. The colour is assigned by `colour_sides` from the
-# number of sides drawn.
-SIDES = [
+# schedule to its variants. The colour is the schedule's on every figure
+# (figure_style.SCHEDULE_COLOURS, keyed by the label).
+SIDES = [(side, label, SCHEDULE_COLOURS[label]) for side, label in [
     ("gpu-optix-mega", "mk"),
     # The megakernel's shapes of 10-27 (PLAN, 'the megakernel against
     # Dr.Jit's'): one thread per path with a launch per sample
@@ -105,7 +106,7 @@ SIDES = [
     ("gpu-optix-fused-ser", "wf-fused-ser"),
     ("gpu-optix-sort", "wf-sort"),
     ("gpu-optix-sort36", "wf-sort36"),
-]
+]]
 # Pairs of sides differing by one decision, for the summary's reading of
 # the figure (plot_cpu_wavefront.COMPARISONS explains).
 COMPARISONS = [
@@ -122,6 +123,79 @@ COMPARISONS = [
     ("wf-sort", "wf", "the ray queue sorted by the 60-bit two-point Morton key before each trace"),
     ("wf-sort36", "wf-sort", "the coarse 36-bit sort key instead of the 60-bit one"),
 ]
+# Why the schedules stand where they do, as measured (the user, 10-29;
+# plot_cpu_wavefront.WHY and READINGS explain the form): the mechanisms,
+# then each scene's reading under the computed best side of each cell.
+WHY = [
+    "what the megakernel pays: one program holding every material, shape, light and texture of",
+    "  pbrt (330k SASS instructions against the wavefront's trace kernel's 15k), fetched by warps",
+    "  whose lanes empty as their paths end and diverge -- 9 to 15 lanes of 32 after the first",
+    "  bounce on the two profiled scenes, 31 for the trace kernel (pbrt-gpu-profile). What the",
+    "  wavefront pays: a launch per queue per bounce and the queues' traffic (the ray read, the",
+    "  hit record written: about 900 bytes a ray through the trace kernel), which pbrt pays too.",
+    "  The balance is the scene's: a cheap trace with few materials favours the megakernel, a",
+    "  heavy trace or a program whose lanes diverge the wavefront.",
+    "the megakernel's shapes: a pixel's samples in turn (mk) cost 1.7-1.9x against one thread per",
+    "  path (mk-pass); one launch per frame (mk-flat) saves 2-6% more; blocks of 2^18 paths from a",
+    "  host loop (mk-blk) cost 0.83x of mk-flat, each launch draining its block's longest path with",
+    "  the card part empty, 30 to 1013 times a frame; shader execution reordering before the",
+    "  material stage (mk-ser-flat) buys 1.14x on ganesha to 1.46x on killeroo-gold over mk-flat",
+    "  by kernel time, by refilling the warps.",
+    "the ray sort (wf-sort) never pays on the GPU: 9-15% over the unsorted wavefront by kernel",
+    "  time and 20-31% by wall -- a dozen small launches before every trace (96 sorts in a 30 ms",
+    "  frame at 16 spp) for coherence the traversal hardware's own scheduling already had.",
+    "with more samples every speedup falls, to about 0.7x of its 16-spp value at 128 spp: pbrt's",
+    "  per-frame costs (launch setup, queue resets, camera rays) are a smaller share of a longer",
+    "  render.",
+]
+READINGS = {
+    "killeroo-simple": [
+        "66k triangles, two materials (CoatedDiffuse, Diffuse), the cheapest trace of the five: the",
+        "wavefront's launches and queue traffic are the larger share of a short frame, and the SER",
+        "flat megakernel pays neither and runs full warps (on killeroo-gold's profile the reordering",
+        "lifts the frame's lanes from 14.7 to 23.3 of 32 and cuts the warp instructions from 28.5 G",
+        "to 18.6 G), so it wins every cell; at 16 spp pbrt's per-frame costs are the largest share of",
+        "its 0.11 s, hence the 4.65x.",
+    ],
+    "killeroo-gold": [
+        "532k triangles, Conductor and Diffuse; the profile figure's second row: the flat megakernel's",
+        "frame is 341k SASS instructions at 14.7 lanes of 32 with 18% of its warp-cycles on the",
+        "instruction fetch, 101 ms; with SER 23.3 lanes and 65 ms; the wavefront's trace kernel 15k",
+        "instructions at 31.6 lanes, 64% of its cycles waiting on memory (the queues) and 23% on the",
+        "traversal -- so the SER flat megakernel is best at every count and the plain flat one is",
+        "within 20% of the wavefront.",
+    ],
+    "book": [
+        "21k triangles, CoatedDiffuse and Diffuse over textured pages: the material kernels take as",
+        "long as the trace (10-24's profiles), and the fused raygen of 10-24 cost book the most of",
+        "the five (29-31% over trace + hits), a bigger program lowering the trace's occupancy where",
+        "the trace is cheap -- the wavefront wins every cell, the flat megakernel within 7% at 16 spp.",
+        "SER buys nothing here (mk-ser-flat below mk-flat at every count), the one scene where it does",
+        "not; why is not measured (no megakernel profile of book).",
+    ],
+    "ganesha": [
+        "one statue of 4.3M triangles, CoatedDiffuse and Diffuse; the profile figure's first row says",
+        "where the megakernel's time goes: the frame's raygen runs at 9.2 lanes of 32 (6.0 in the",
+        "continuations after the first trace) with 44% of its warp-cycles fetching instructions over a",
+        "330k-instruction program, while the wavefront's trace kernel is 15k instructions at 31.2",
+        "lanes, its cycles on memory (53%) and the traversal wait (39%). SER lifts the lanes to 15.0",
+        "and removes the traversal wait, but the fetch grows to 84% of the cycles (the sorted warps run",
+        "different arms of the one raygen; the counters say the fetch grew, the why is a reading). The",
+        "megakernel's loss here is the raygen's size and the empty lanes, not the traversal, which",
+        "both sides do on the RT cores (10-28) -- every megakernel is below pbrt, the wavefront 2x.",
+    ],
+    "sanmiguel-courtyard": [
+        "2.5M triangles in 796 meshes, instanced (a two-level traversal), four material kinds",
+        "(CoatedDiffuse, Dielectric, Diffuse, DiffuseTransmission -- the most of the five) and the",
+        "heaviest trace per sample (0.22 ms a trace launch at 64 spp against 0.15 on book): both sides",
+        "spend most of the frame in the same RT-core traversal, so what the schedule saves around it",
+        "is the smallest share here and the wavefront's margin the smallest of the five, falling",
+        "fastest with spp. The fused wavefront of 10-24 cost nothing on this scene where it cost the",
+        "others a fifth to a third -- the reading being that the trace is bound by the traversal's",
+        "latency, not by occupancy, so a bigger program rides along -- which is also why the SER flat",
+        "megakernel is nearest the wavefront here at 16 spp (1.88x against 2.03x).",
+    ],
+}
 CAUSES = [
     "causes measured, apps/pbrt/PLAN.md: 'The GPU matrix measured: five scenes, three sample",
     "  counts, four OptiX sides (10-24)' -- the reading of the four paper sides, the sort's own",
@@ -131,24 +205,10 @@ CAUSES = [
     "  a fifth to a third where the trace is cheap and nothing on sanmiguel, whose two-level",
     "  trace is latency-bound. REPORT.md 10-23..10-24 has each run's numbers. 'The megakernel",
     "  against Dr.Jit's (10-27)' -- a pixel's samples in turn cost 1.74x against one thread per",
-    "  path, one launch per frame 2-6% more, the SER sort 1.14-1.46x on the flat launch.",
+    "  path, one launch per frame 2-6% more, the SER sort 1.14-1.46x on the flat launch; '10-28,",
+    "  the night' -- the blocked megakernel's tail; 'The profile figure (10-28)' -- the lanes and",
+    "  the fetch on ganesha and killeroo-gold (pbrt-gpu-profile.txt has the numbers).",
 ]
-
-
-def colour_sides(sides):
-    """`sides` ((side, label) in drawing order) with a YlGnBu class each:
-    the classes spread evenly over 1..7 for up to seven sides (four sides:
-    1, 3, 5, 7) and over the whole ramp 0..8 for eight or nine; more than
-    nine is an error, since the ramp has nine classes."""
-    n = len(sides)
-    if n > len(YLGNBU):
-        raise ValueError(f"{n} sides for a ramp of {len(YLGNBU)} colours")
-    low, high = (1, 7) if n <= 7 else (0, 8)
-    if n == 1:
-        classes = [high]
-    else:
-        classes = [round(low + (high - low) * i / (n - 1)) for i in range(n)]
-    return [(side, label, YLGNBU[c]) for (side, label), c in zip(sides, classes)]
 
 
 def load(paths, kernel=False):
@@ -201,7 +261,8 @@ def main(argv):
     sides = choose_sides(rows, SIDES, args.sides)
     if sides is None:
         return 1
-    draw(rows, colour_sides(sides), REFERENCE, REFERENCE_LABEL, Y_LABEL, args, COMPARISONS, CAUSES)
+    draw(rows, sides, REFERENCE, REFERENCE_LABEL, Y_LABEL, args, COMPARISONS, CAUSES,
+         why=WHY, readings=READINGS, sources=args.tables)
     return 0
 
 

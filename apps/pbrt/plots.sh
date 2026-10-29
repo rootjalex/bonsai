@@ -24,10 +24,13 @@
 #                              profile_kernels.sh's reports in profile-out
 #                              (plot_gpu_profile.py; the user, 10-28)
 #
-# Each plotter also writes <figure>.txt beside its figure: the summary
-# statistics the paper quotes (geomeans, min and max and which cell each
-# is, what each scheduling decision bought, the trend with spp) and where
-# the measured causes are written up (the user, 10-24).
+# Each plotter also writes <figure>.txt beside its figure: the tables it
+# was drawn from, the summary statistics the paper quotes (geomeans, min
+# and max and which cell each is, what each scheduling decision bought,
+# the trend with spp), for the sweeps the best schedule on each scene and
+# the measured reasons it is best there (the user, 10-29), and where the
+# measured causes are written up (the user, 10-24). The colours are one
+# scheme across the four figures (figure_style.SCHEDULE_COLOURS).
 #
 # --png draws a .png beside each .pdf to look at. The runs each figure is
 # drawn from are the variables below; override one in the environment to

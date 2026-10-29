@@ -27,7 +27,9 @@ them). `write_summary` writes the statistics the paper quotes beside a figure,
 `<figure>.txt`: for each series the geometric mean, the least value, the
 lower quartile, the median, the upper quartile and the greatest value, and
 which point each is (the user, 10-24 and 10-26; `describe` has the form).
-`YLGNBU` is the paper's one colour ramp.
+`YLGNBU` is the paper's colour ramp (the heatmap's cells); `MEGAKERNEL`,
+`WAVEFRONT` and `SCHEDULE_COLOURS` give every schedule the one colour it
+has on every figure (the user, 10-29).
 """
 
 import math
@@ -184,8 +186,75 @@ def write_summary(figure_path, title, sections, notes=()):
     return path
 
 
-# ColorBrewer YlGnBu, nine classes, lightest first: the paper's one ramp
-# (the user's palette, 10-23), used for the bars of the sweeps and the
-# cells of the heatmap alike.
+# ColorBrewer YlGnBu, nine classes, lightest first: the paper's ramp (the
+# user's palette, 10-23) -- the heatmap's cells, and the base of the
+# wavefront family's colours below.
 YLGNBU = ["#FFFFD9", "#EDF8B1", "#C7E9B4", "#7FCDBB", "#41B6C4",
           "#1D91C0", "#225EA8", "#253494", "#081D58"]
+
+# The schedules' colours, one scheme for every figure (the user, 10-29:
+# the CPU and GPU sweeps had each laid the one ramp over its own bars in
+# drawing order, so the same colour meant a different schedule on each).
+# Two sequential ramps, one per family of schedules, each darker with
+# every scheduling step down the figure's legend:
+#
+#   MEGAKERNEL  warm, ColorBrewer YlOrBr -- a path per thread in one program
+#   WAVEFRONT   cool, ColorBrewer YlGnBu (the heatmap's ramp) -- pbrt's queue
+#               structure and its variants
+#
+# so that the family is read from the hue and the variant from the
+# lightness, and the same schedule has the same colour on every figure:
+# the plain megakernel (gpu-optix-mega on the GPU, the scalar schedule on
+# the CPU) is MEGAKERNEL[0] on both sweeps, the matching wavefront
+# (gpu-optix, wavefront-frame) WAVEFRONT[0], the sorted wavefront of each
+# sweep WAVEFRONT[-1]; the profile figure's bars take their launch's
+# schedule colour. pbrt's own bars are black (PBRT_COLOUR; the CPU's PBRT
+# mk), pbrt's wavefront the dashed reference line of both sweeps.
+#
+# The colours are at equal OKLab spacing along each ramp between its
+# classes 2.5 and 8 (YlOrBr, six) and 3 and 8 (YlGnBu, seven), chosen by
+# apps/pbrt/scratch/palette_pick.py with the dataviz validator's
+# distances: bars drawn side by side are at least 8.0 apart (OKLab x100)
+# under simulated protan and deutan vision and 9.4 under normal vision,
+# and every warm colour at least 12.2 from every cool one under either
+# deficiency -- the one-ramp scheme's two palest classes had been 4.7 and
+# 5.6 apart. Six or seven ordered shades of a ramp cannot reach the
+# validator's categorical floor of 15 between neighbours; the fixed bar
+# order within every group, keyed by the legend, is the second encoding.
+PBRT_COLOUR = "#000000"
+MEGAKERNEL = ["#FED370", "#FEA332", "#ED7315", "#C94A02", "#983404", "#662506"]
+WAVEFRONT = ["#7FCDBB", "#3FB4C4", "#1F93C0", "#2071B1", "#234EA0", "#1E2E85", "#081D58"]
+
+# Legend label -> colour, for every schedule a figure of apps/pbrt draws
+# (the labels are plot_cpu_wavefront.py's and plot_gpu_wavefront.py's).
+SCHEDULE_COLOURS = {
+    "PBRT mk": PBRT_COLOUR,
+    # The megakernels, from the plain one down the GPU figure's legend.
+    "mk": MEGAKERNEL[0],            # GPU gpu-optix-mega
+    "mk-b-s-ps": MEGAKERNEL[0],     # CPU scalar: the same schedule, the same colour
+    "mk-pass": MEGAKERNEL[1],
+    "mk-flat": MEGAKERNEL[2],
+    "mk-blk": MEGAKERNEL[3],
+    "mk-ser": MEGAKERNEL[4],
+    "mk-ser-flat": MEGAKERNEL[5],
+    # The wavefronts: pbrt's structure matched, then the CPU figure's
+    # variants in its legend's order; the GPU's sorted wavefront takes the
+    # last shade, as the CPU's does.
+    "wf": WAVEFRONT[0],             # GPU gpu-optix
+    "wf-b-s-sp": WAVEFRONT[0],      # CPU wavefront-frame: the same structure
+    "wf-b-v-sp": WAVEFRONT[1],
+    "wf-b-v-sp-sort": WAVEFRONT[2],
+    "wf-t-s-ps": WAVEFRONT[3],
+    "wf-t-v-ps": WAVEFRONT[4],
+    "wf-t-v-sp": WAVEFRONT[5],
+    "wf-t-v-ps-sort": WAVEFRONT[6],
+    "wf-sort": WAVEFRONT[6],        # GPU gpu-optix-sort
+    # The GPU exploration's sides of 10-24, drawn only when asked for
+    # (never beside the CPU variants whose shades they borrow).
+    "mk-ser-ray": "#FEE391",        # YlOrBr's class 2, above the family's first
+    "wf-b128": WAVEFRONT[1],
+    "wf-b512": WAVEFRONT[2],
+    "wf-fused": WAVEFRONT[3],
+    "wf-fused-ser": WAVEFRONT[4],
+    "wf-sort36": WAVEFRONT[5],
+}

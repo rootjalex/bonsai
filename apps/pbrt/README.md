@@ -127,9 +127,9 @@ before it.
   [--log] [--values] [--width W --height H]`: that CSV as one figure --
   every side's speedup over pbrt's CPU wavefront (the dashed line at 1), a
   group of bars per scene and a subgroup per sample count; PBRT mk black,
-  each Bonsai side its own colour from ColorBrewer's nine-class YlGnBu
-  ramp laid over the drawing order (pale yellow for mk-b-s-ps to deep blue
-  for the last wavefront), colour-blind safe and print-friendly. The image checks are not marked
+  each Bonsai side the colour its schedule has on every figure here
+  (figure_style.SCHEDULE_COLOURS: the megakernel warm, the wavefronts cool
+  and darker with each variant; the user, 10-29). The image checks are not marked
   on the figure (the CSV's verdict column has them). The axis reads
   "Speedup over PBRT wf";
   pbrt's bars are "PBRT mk" (its megakernel, the CPU volpath) and the
@@ -180,8 +180,15 @@ before it.
   acmsmall format, a 5.478 in text block, so each PDF is exactly that
   wide and `\includegraphics[width=\textwidth]` does not rescale it;
   labels and legends 8 pt and tick labels 7 pt as printed (the user,
-  10-24: readable, not necessarily the body's 10 pt); one palette, the
-  YlGnBu ramp, for bars and cells alike; the sweeps' y axis reads
+  10-24: readable, not necessarily the body's 10 pt); one colour scheme
+  for every figure (the user, 10-29: the sweeps had each laid the one ramp
+  over its own bars) -- the megakernel schedules on a warm ramp
+  (ColorBrewer YlOrBr) and the wavefront schedules on the cool one
+  (YlGnBu, the heatmap's), each darker with every scheduling step, the
+  same schedule the same colour on the CPU sweep, the GPU sweep and the
+  profile figure (`mk` and `mk-b-s-ps` alike, `wf` and `wf-b-s-sp` alike),
+  pbrt's bars black; figure_style.py's SCHEDULE_COLOURS is the table and
+  says how the shades were chosen; the sweeps' y axis reads
   "Speedup" with the dashed PBRT line named in the legend, the legend in
   two rows with the schedule codes alone (pbrt's two say "PBRT"; the rest
   are Bonsai's). Beside each figure the plotter writes `<figure>.txt`,
@@ -190,9 +197,13 @@ before it.
   count each is, over everything and per sample count (the heatmap also
   per scene); then a reading of the figure -- what each scheduling
   decision bought, as the ratio of the two sides that differ by it, bar by
-  bar; the trend from the fewest samples to the most; the heatmap's
-  volume-against-surface split and the rank correlation of the speedup
-  with the geometry built -- and the PLAN.md sections where the causes
+  bar; the trend from the fewest samples to the most; the mechanisms
+  behind the figure and, for every scene, the best schedule at each sample
+  count (computed) with the measured reasons it is best there (the user,
+  10-29; a scene without a written reading is marked); the heatmap's
+  volume-against-surface split, the rank correlation of the speedup
+  with the geometry built and its highest and lowest scenes -- the tables
+  each figure was drawn from, and the PLAN.md sections where the causes
   were measured. Liberation Sans embedded as TrueType (fonttype 42), since ACM's
   production rejects the Type 3 fonts matplotlib emits by default (check a
   PDF with `pdffonts`). The two sweeps are the same size so they stack as
@@ -212,9 +223,11 @@ before it.
   `Bonsai wf` (gpu-optix), `Bonsai wf-b128`, `Bonsai wf-b512`,
   `Bonsai wf-fused`, `Bonsai wf-sort` (gpu-optix-sort) and
   `Bonsai wf-sort36`, whichever the tables hold -- the megakernels then
-  the wavefronts, each family from plain to variants -- coloured with the
-  same YlGnBu ramp spread over the sides drawn (four sides: classes 1, 3,
-  5, 7; nine: the whole ramp). Only schedules on the ray tracing hardware
+  the wavefronts, each family from plain to variants -- each in its
+  schedule's colour (figure_style.SCHEDULE_COLOURS: the megakernels warm,
+  `mk` palest to `mk-ser-flat` darkest; the wavefronts cool, `wf` the
+  palest shade and `wf-sort` the darkest, as the CPU figure's wf-b-s-sp
+  and wf-t-v-ps-sort are). Only schedules on the ray tracing hardware
   are drawn (the user, 10-23): the software traversals never won a cell.
   The drawing is plot_cpu_wavefront.py's.
 - `profile_kernels.sh [--out DIR] [--renderers DIR] [--single-pass-timing]

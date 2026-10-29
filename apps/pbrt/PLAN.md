@@ -19185,3 +19185,103 @@ register cap kept at OptiX's choice (pbrt's own; a 128 cap is now a
 one-variable rerun of the sweep, ~1.5 h); a larger mk-blk block;
 ganesha's megakernel raygen size (direct callables, or a build per scene
 type); bonsai-ac's wosx parallel-schedule A/B.
+
+## 10-29, midday: one colour scheme for the four figures, the sweeps' .txt files reading each scene, and the question of larger scenes
+
+**The ask (the user, 10-29 noon).** (a) The colour schemes consistent
+across the pbrt plots -- the GPU and CPU sweeps assigned colours
+differently and it was confusing; (b) the .txt files explaining why
+different schedules are best on different scenes; (c) is
+sanmiguel-courtyard the most complex scene, the sweep does not go far
+enough in complexity -- ten scenes with five larger ones, or eight, or six?
+No card time: python and text only, bonsai-ac holding the lock for their
+compiler work (matplotlib pinned to core 0 by agreement).
+
+**(a) What was wrong, and the scheme.** Each sweep laid the one YlGnBu
+ramp over its own bars in drawing order (the CPU figure classes 0..7 over
+its eight Bonsai sides, the GPU figure 0..8 spread over its eight), so the
+same colour named a different schedule on each figure -- the mid teal was
+wf-t-s-ps on the CPU and mk-ser on the GPU -- and the two palest classes
+were 4.7 apart under deutan simulation and 5.6 under normal vision (OKLab
+x100, the dataviz validator): mk-b-s-ps against wf-b-s-sp on the CPU, mk
+against mk-pass on the GPU, hard to tell apart. Now (figure_style.py,
+SCHEDULE_COLOURS): two sequential ramps, one per family, each darker with
+every scheduling step down the legend -- the megakernels on ColorBrewer
+YlOrBr (six colours at equal OKLab spacing between its classes 2.5 and 8),
+the wavefronts on YlGnBu (seven, between classes 3 and 8; the heatmap's
+ramp, the heatmap being the wavefront's figure) -- so the family is read
+from the hue and the variant from the lightness, and the same schedule has
+the same colour everywhere: mk (gpu-optix-mega) and mk-b-s-ps (scalar)
+the palest warm; wf (gpu-optix) and wf-b-s-sp (wavefront-frame) the palest
+cool; wf-sort and wf-t-v-ps-sort the darkest cool; pbrt's bars black. The
+profile figure's size and lanes bars take their launch's schedule colour
+(wf trace teal, mk-flat and mk-ser-flat the two darkest warm) and its
+stall shares are greys, so colour there names a schedule and nothing else.
+The exploration sides borrow the CPU variants' shades (never on one
+figure). Chosen by scratch/palette_pick.py over the validator's distances
+(Oranges, YlOrBr, OrRd, YlOrRd and PuRd tried against three starts of the
+cool ramp): bars side by side are at least 9.0 (GPU) and 8.0 (CPU) apart
+under protan/deutan simulation and 11.2 / 9.4 under normal vision, every
+warm colour at least 12.2 from every cool one; the validator's categorical
+floor of 15 between neighbours is out of reach for six or seven ordered
+shades (the bar order within every group, keyed by the legend, is the
+second encoding), and its lightness-band and chroma checks fail a
+sequential ramp by design. Redrawn 12:27, all four figures.
+
+**(b) The .txt files.** Each sweep's .txt now carries, after the
+statistics and the pairwise comparisons: "why: the mechanisms" (WHY in the
+plotter -- what the megakernel pays and what the wavefront pays, the
+megakernel's shapes, the sort, the spp trend; on the CPU the bands against
+the per-thread queues, the drains' vectorization, the sort, the chunk's
+queues), then "which schedule is best on each scene, and why": for every
+scene the computed best side at each sample count with the runner-up, and
+under it the scene's reading (READINGS, keyed by scene) from the measured
+causes in this file -- the GPU: the killeroos' cheap trace and two
+materials and the SER megakernel's full warps (14.7 -> 23.3 lanes on
+killeroo-gold's profile), book's shading equal to its trace and the fused
+raygen's 29-31% there, ganesha's 9.2 lanes and 44% fetch over a 330k
+program against the trace kernel's 15k at 31 lanes, sanmiguel's two-level
+latency-bound trace and four materials; the CPU: the killeroos' chunk
+queues outgrowing the cache at 64/128 spp, book's and ganesha's heavier
+shading paying for the vectorized drains, sanmiguel's incoherent rays and
+heaviest shading paying for the sort. A scene without a reading prints
+"not yet written up", so the new scenes will show as to-do. The title line
+names the table each figure was drawn from. The heatmap's .txt gains its
+four lowest and four highest scenes with their shape counts, and says the
+per-scene causes beyond the volume split are not measured for it.
+
+**(c) sanmiguel-courtyard is not the most complex scene, by either
+measure.** By pbrt's own shape count (the .stats beside each heatmap
+image; instances not expanded) it is 2.5M triangles, 16th of 30; by
+pbrt --gpu's time at 128 spp it is 1.34 s, 24th of 30. The sweep's five
+are all in the cheap half: killeroo-simple 66k triangles / 0.46 s,
+killeroo-gold 532k / 1.22 s, book 21k / 1.33 s, ganesha 4.3M / 1.53 s,
+sanmiguel 2.5M / 1.34 s. Above them: disney-cloud 56.5 s (a volume),
+bunny-cloud 24.8 s, watercolor 58M triangles / 16.5 s, kroken 288M
+(displacement) / 11.4 s, crown 3.5M / 10.1 s, frame542 1.3M / 10.1 s,
+landscape (view-0) 27.9M in 370 meshes, instanced / 8.8 s, clouds 7.5 s,
+dambreak 5.7 s, explosion 5.6 s, bistro 2.9M in 1693 meshes / 2.7-2.8 s.
+The fit at text width (bars in points; the axes about 4.9 in): five
+scenes x three spp is 2.2 pt a bar on the CPU figure today; ten x three
+would be 1.1 pt (no), ten x two (16, 128) 1.6 pt on the CPU and 1.75 on
+the GPU (thin but legible in a mock-up; the scene names must lean or
+break), ten x one 3.0 pt, eight x two 2.0 pt (today's), six x three 1.8
+pt. Mock-ups drawn from the sweep's rows under borrowed names (scratchpad,
+not kept). The cost of measuring five larger scenes, from the heatmap's
+per-scene minutes (pbrt + gpu-optix at three spp: kroken 8.5, watercolor
+7.4, landscape 6.4, frame542 3.7, crown 3.5, bistro_vespa 3.1) scaled to
+the sweep's nine sides: about 3 h of card at three sample counts for
+kroken, landscape, watercolor, crown and bistro_vespa together, 2 h at
+two. The CPU sweep is the cost: pbrt's CPU wavefront runs about 100x its
+GPU wall (95-121x on the five), and the sweep's wall is about 18x the
+pbrt-wavefront seconds of its cells (313 min for 1,014 s), so kroken at
+128 spp alone is about 5.7 h, at 64 spp 2.9 h, at 16 spp 0.8 h; the five
+larger scenes at all three sample counts about 40 h, at 16 and 64 about
+16 h, at 16 alone about 3.5 h. Proposed to the user: ten scenes at 16 and
+64 spp on both figures (the GPU trend from 16 to 64 already shows the fall
+with spp; the CPU barely moves with spp), the five larger being kroken,
+landscape, watercolor, bistro_vespa and crown (the largest geometry, the
+largest instanced scene, the highest heatmap speedup, a production scene
+with 1,693 meshes and alpha-masked lights, the heaviest metal shading),
+with explosion or plume in place of one if a medium belongs in the sweep;
+~2 h of card and ~16 h of CPU. Awaiting the word; nothing runs.

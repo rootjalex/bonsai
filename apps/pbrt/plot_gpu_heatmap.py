@@ -14,9 +14,10 @@ one may hold several sample counts (gpu_compare.sh --spp "16 64 256", or
 collected by (scene, spp); a cell no table has is left blank, and a cell
 whose image did not match pbrt's is drawn hatched with its number struck
 through, so that a speedup on a wrong picture cannot be read as a speedup.
-Colour is log2 of the speedup on the paper's YlGnBu ramp, parity its
-palest class and the top of the data (rounded up to a half power of two)
-its darkest; a cell below parity would be red (none is). The numbers are
+Colour is log2 of the speedup on the paper's YlGnBu ramp (the wavefront
+family's ramp on the sweep figures: this is the wavefront's figure),
+parity its palest class and the top of the data (rounded up to a half
+power of two) its darkest; a cell below parity would be red (none is). The numbers are
 the ratios to two digits ("1.6"), what a cell holds at text width (the
 user, 10-24). Beside the figure goes `<figure>.txt`, the summary the paper
 quotes: geometric mean, least and greatest cell and which they are, over
@@ -196,6 +197,15 @@ def reading(scenes, spps, cells, labels, stats):
                             "scenes to speed up " + ("more" if rho > 0 else "less"))
                          + "; the trace itself both sides do on the RT cores, so what the "
                            "schedule saves is around it (queues, the material dispatch, launches)")
+        # The ends of the range, with the geometry each was built from.
+        by_speed = sorted(with_counts, key=lambda sc: per_scene[sc])
+        def named(scs):
+            return ", ".join(f"{labels[sc]} {per_scene[sc]:.2f}x ({counts[sc]:,} shapes)" for sc in scs)
+        notes.append(f"the lowest scenes: {named(by_speed[:4])}; the highest: "
+                     f"{named(by_speed[-4:][::-1])} -- the media scenes and the largest instanced "
+                     f"scene at the bottom, the small two-material scenes and watercolor at the top; "
+                     f"beyond the volume split above, the per-scene causes are not measured for this "
+                     f"figure (the sweep figure's .txt reads its five scenes)")
     notes.extend([
         "causes measured, apps/pbrt/PLAN.md: 'The GPU matrix measured: five scenes, three sample",
         "  counts, four OptiX sides (10-24)' -- what the matching wavefront saves over pbrt's;",
@@ -341,8 +351,11 @@ def main(argv):
                 ("by sample count", [(f"{s} spp", points((sc, s) for sc in scenes)) for s in spps]),
                 ("by scene", [(labels[sc], points((sc, s) for s in spps)) for sc in scenes])]
     notes = reading(scenes, spps, cells, labels, stats)
+    here = os.path.dirname(os.path.abspath(__file__))
+    drawn_from = ", ".join(os.path.relpath(t, here) for t in args.tables)
     summary = write_summary(args.out, f"Speedup of {args.schedule} over pbrt --gpu "
-                            f"({len(scenes)} scenes x {len(spps)} sample counts)", sections, notes)
+                            f"({len(scenes)} scenes x {len(spps)} sample counts)\n"
+                            f"drawn from apps/pbrt/{drawn_from}", sections, notes)
     blank = sum(1 for s in spps for sc in scenes if (sc, s) not in cells)
     wrong = sum(1 for c in cells.values() if not c[1])
     print(f"wrote {args.out}: {len(scenes)} scenes x {len(spps)} sample counts in "
