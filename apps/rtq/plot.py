@@ -83,7 +83,10 @@ from matplotlib.transforms import ScaledTranslation, blended_transform_factory  
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pbrt"))
 from figure_style import TEXT_WIDTH, YLGNBU, lean_labels, paper_style, write_summary  # noqa: E402
 
-EDGE = "#333333"  # every bar's thin edge, as apps/pbrt's figures
+# Every bar's thin edge, and so its hatch, which matplotlib draws in the
+# edge colour: black (the user, 10-29: apps/pbrt's #333333 read as a light
+# grey in the hatches of the combined figure's narrow bars).
+EDGE = "black"
 COLOUR = {"embree": YLGNBU[1], "fcpw": YLGNBU[5]}
 NAME = {"embree": "Embree", "fcpw": "FCPW"}
 # One hatch per set, no two alike, so that a set reads the same in every
@@ -588,9 +591,11 @@ def draw_combined(rows, schedules, out_dir, suffix, formats, exclude, tuned):
     paper_style()
     # The bars are 2.6 pt wide here against the three figures' 4.4 to 6.6,
     # and matplotlib's 1 pt hatch lines fill them: the crosses and the
-    # diagonals read as dark bars. Thinner lines for this figure alone; the
-    # setting is read as the figure is drawn, so the block runs to the save.
-    with plt.rc_context({"hatch.linewidth": 0.6}):
+    # diagonals read as dark bars. Thinner lines for this figure alone (0.8
+    # pt, in black: at 0.6 and the grey edge of before the user read them as
+    # light grey, 10-29); the setting is read as the figure is drawn, so the
+    # block runs to the save.
+    with plt.rc_context({"hatch.linewidth": 0.8}):
         fig, ax = plt.subplots(figsize=(TEXT_WIDTH, HEIGHT))
         top = 1.0
         for i, mesh in enumerate(meshes):
