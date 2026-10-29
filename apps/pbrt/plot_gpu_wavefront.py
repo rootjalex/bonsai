@@ -45,15 +45,14 @@ mk-ser-flat`, gpu-optix-mega-ser-flat), and since the night of 10-27 the
 flat launch in blocks of 2^18 paths from a host loop (`Bonsai mk-blk`,
 gpu-optix-mega-blocked); plots.sh names these eight as the paper
 figure's sides (GPU_SIDES). `--sides` names a subset in its own order.
-Each side has the colour its schedule has on every figure of apps/pbrt
-(figure_style.SCHEDULE_COLOURS; the user, 10-29): the megakernels in
-greys (`mk` lightest to `mk-ser-flat` darkest) and the wavefronts on the
-paper's one ramp (YlGnBu, the heatmap's: `wf` its palest class drawn, the
-CPU figure's wf-b-s-sp, `wf-sort` the darkest, its wf-t-v-ps-sort), the
-family read from the hue and the variant from the lightness; the
-exploration's sides borrow the CPU variants' shades, which never share a
-figure with them. All the measured schedules fit on one figure that way,
-as the user asked on 10-24:
+The sides take the paper's one ramp (ColorBrewer YlGnBu, the heatmap's)
+at eight equal perceptual steps from its class 1 to its class 8 in the
+legend's order, as the CPU figure does (figure_style.SCHEDULE_COLOURS;
+the user, 10-29): `mk` the palest, as the CPU's mk-b-s-ps is, `wf-sort`
+the darkest, as its wf-t-v-ps-sort, every step down the legend a step
+darker; the exploration's sides borrow shades, so a figure naming them
+names a set without a repeat. All the measured schedules fit on one
+figure that way, as the user asked on 10-24:
 
     python3 apps/pbrt/plot_gpu_wavefront.py apps/pbrt/gpu-compare-out/table.tsv \
         apps/pbrt/gpu-compare-out-sort/table.tsv \

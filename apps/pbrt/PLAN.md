@@ -19424,3 +19424,29 @@ the GPU figure's reorders are different schedules on the same ramp
 classes (eleven regrouping schedules for seven classes); the figures'
 legends name them, and the two never share a figure. Redrawn 14:10, all
 nine figures; bonsai-ac told before the commit (plot.py is their file).
+
+**And undone (the user, 14:25: "Why can't we use YlGnBu again? The GPU
+sweep plot is nearly unreadable with the gray").** It can: the greys
+answered a rule of my own -- every schedule its own colour across both
+sweeps at once -- which the ramp's eight usable classes cannot meet for
+fourteen schedules, and which the user never asked for. Dropped. Each
+sweep's eight Bonsai sides now take figure_style.RAMP8, eight shades of
+the YlGnBu ramp at equal OKLab steps from its class 1 to its class 8
+(#EDF8B1, #ADDFB7, #69C4BF, #30A4C2, #1F7EB7, #2357A4, #21318B,
+#081D58; the ends ColorBrewer's own, the shades between the ramp as the
+heatmap's colour map interpolates it), in the legend's order on both
+figures: the palest the plain megakernel on both (mk, mk-b-s-ps), the
+darkest the sorted wavefront on both (wf-sort, wf-t-v-ps-sort), every
+step down a legend a step darker; the shades between name each figure's
+own schedules, which the legend says. Equal steps rather than the raw
+classes 1..8 because the ramp's pale end is its flattest: raw classes 1
+and 2 are 6.6 apart under normal vision and 5.2 under protan simulation
+(the two palest bars of either sweep), where RAMP8's neighbours are all
+10.7 and 8.8 (8.0 tritan). The profile figure's single-series bars go
+back to one class of the ramp (the pre-noon look), its stall shares on
+classes 7, 5, 3, 1. apps/wosx/plot.py the same: RAMP8 over each
+figure's bars in legend order, parallel and persistent the same shades on
+the CPU and GPU figures, the GPU figure's ninth bar the near-white class
+0 as before today and the walk on stars' tenth a neutral grey as before
+today. The lesson is written into the figure-conventions memory: the
+palette is the user's, one ramp, and a change to it is the user's call.

@@ -31,15 +31,14 @@ per-thread vectorized wavefront). `--sides` names a subset (comma-separated
 side names) and keeps that order, so the five-bar figure of the first study is
 `--sides pbrt-volpath,scalar,wavefront-frame,wavefront-frame-packet,wavefront-frame-packet-reorder`.
 
-pbrt's bar is black and each Bonsai side has the colour its schedule has
-on every figure of apps/pbrt (figure_style.SCHEDULE_COLOURS; the user,
-10-29, after the CPU and GPU sweeps had each laid the one ramp over its
-own bars): the wavefront family on the paper's one ramp (YlGnBu, the
-heatmap's, its seven darkest classes) and the megakernel family in greys
-beside pbrt's black, each darker with every scheduling step down the
-legend, so that the family is read from the hue and the variant from the
-lightness -- mk-b-s-ps is the GPU figure's `mk` grey and wf-b-s-sp its
-`wf` class, the same schedules. Every bar has a
+pbrt's bar is black and the Bonsai sides take the paper's one ramp
+(ColorBrewer YlGnBu, the heatmap's, the rtq and wosx figures') at eight
+equal perceptual steps from its class 1 to its class 8, in the legend's
+order, the GPU sweep laid the same way (figure_style.SCHEDULE_COLOURS;
+the user, 10-29): the palest shade the plain megakernel on both figures
+(mk-b-s-ps here, `mk` there), the darkest the sorted wavefront
+(wf-t-v-ps-sort here, `wf-sort` there), every step down a legend a step
+darker; the shades between name each figure's own schedules. Every bar has a
 thin dark edge so the palest shades stay visible on white. The figure does not
 mark the image checks: the CSV's verdict column has them, and the one that
 ever failed (sanmiguel 16 spp against pbrt's volpath) was pbrt's own two

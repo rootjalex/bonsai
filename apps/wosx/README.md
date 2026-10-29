@@ -187,12 +187,10 @@ bonsai's rate over WoSX's (an application is measured in parallel under
 the schedule the reference runs; the one-thread cell below is a check by
 name, and no bar), the y axis
 Speedup and the dashed line at 1 WoSX, named in the legend, the colours
-apps/pbrt's figures' scheme (the user, 10-29): the schedules that run
-each walk straight through (parallel, persistent, their fcpwb2 and 256k
-forms, the plain OptiX launch) in greys, the schedules that regroup the
-walks (gangs, deferrals, the sorted queue, reorders, SER) on the YlGnBu
-ramp, a label the same colour on the CPU and GPU figures (plot.py's
-SCHEDULE_COLOURS), drawn at the paper's
+apps/pbrt's figures' (the user, 10-29): the paper's YlGnBu ramp at eight
+equal steps laid over each figure's bars in the legend's order, palest
+first, `parallel` and `persistent` the same shades on the CPU and GPU
+figures (plot.py's SCHEDULE_COLOURS), drawn at the paper's
 page width in apps/pbrt/figure_style.py's style. Beside each figure a
 `.txt` of the statistics the paper quotes (per schedule the geomean, the
 least and greatest cell and its mesh, what each change of schedule bought,
@@ -468,8 +466,11 @@ in question (PLAN.md, the persistent schedule).
   `-defer-sort-fine-c256-threads` (a 1024x1024x1024 grid's thirty-bit key,
   chunks of 64 and of 256 points), `-defer-sort-c16-threads` (chunks of 16:
   a mesh with few sample points has few chunks for the threads), and
-  `-defer-sort-fine-perlane-threads`, the per-lane traversal, which does
-  not compile today (its header; PLAN.md's Next list). The comparison
+  `-defer-sort-8-threads` (the sorted drain in gangs of eight: 1.03x on the
+  head against sixteen's 1.19x), and `-defer-sort-fine-perlane-threads`,
+  the per-lane traversal (each lane its own stack and order, the node's row
+  gathered from the lanes' own addresses: 0.54x on the head; it found the
+  compiler's bug of 2026-10-29, fixed that day). The comparison
   builds FCPW scalar for these
   (`compare.sh --schedule fcpwb,fcpwb-packet`), so WoSX's side runs as it
   ships, and compiles the program over `apps/rtq/metrics/fcpw_scalar.bonsai`,

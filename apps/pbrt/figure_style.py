@@ -28,9 +28,9 @@ them). `write_summary` writes the statistics the paper quotes beside a figure,
 lower quartile, the median, the upper quartile and the greatest value, and
 which point each is (the user, 10-24 and 10-26; `describe` has the form).
 `YLGNBU` is the paper's one colour ramp (the heatmap's cells, the rtq and
-wosx figures); `WAVEFRONT` (its seven darkest classes), `MEGAKERNEL`
-(greys) and `SCHEDULE_COLOURS` give every schedule the one colour it has
-on every figure (the user, 10-29). `scene_label` names a scene on a
+wosx figures, the sweeps' bars); `RAMP8` is eight of its shades at equal
+perceptual steps, and `SCHEDULE_COLOURS` lays them over the two sweeps
+the same way (the user, 10-29). `scene_label` names a scene on a
 figure from its path in the scene set, one line each.
 """
 
@@ -223,79 +223,74 @@ def write_summary(figure_path, title, sections, notes=()):
 YLGNBU = ["#FFFFD9", "#EDF8B1", "#C7E9B4", "#7FCDBB", "#41B6C4",
           "#1D91C0", "#225EA8", "#253494", "#081D58"]
 
-# The schedules' colours, one scheme for every figure (the user, 10-29:
-# the CPU and GPU sweeps had each laid the one ramp over its own bars in
-# drawing order, so the same colour meant a different schedule on each;
-# and, the same afternoon, the paper has one palette -- the YlGnBu ramp
-# the heatmap and the rtq and wosx figures use -- so no second hue: the
-# warm ramp the noon commit gave the megakernels is gone). The two sweeps
-# draw fourteen distinct schedules and the ramp has eight usable classes,
-# so one family takes the ramp and the other the neutrals beside pbrt's
-# black:
+# The schedules' colours: the one ramp, laid over every figure the same
+# way (the user, 10-29). Each sweep draws eight Bonsai schedules, and
+# each takes RAMP8 -- eight shades of the YlGnBu ramp at equal perceptual
+# steps from its class 1 to its class 8 (the ramp as the heatmap's
+# colour map interpolates it; the ends are ColorBrewer's own) -- in its
+# legend's order: the palest shade the plain megakernel (gpu-optix-mega
+# on the GPU, the scalar schedule on the CPU: the same schedule), the
+# darkest the sorted wavefront (gpu-optix-sort,
+# wavefront-thread-packet-sort), every step down a legend a step darker.
+# So the two figures read by one rule and share their ends; the shades
+# between name each figure's own schedules (the legend says which),
+# there being more schedules than shades. The near-white class 0 draws
+# no bar. pbrt's own bars are black (the CPU's PBRT mk), pbrt's
+# wavefront the dashed reference line. apps/wosx/plot.py lays RAMP8 over
+# its figures the same way.
 #
-#   WAVEFRONT   the YlGnBu ramp, its seven darkest classes (2..8) -- pbrt's
-#               queue structure and its variants, the heatmap's family
-#   MEGAKERNEL  six greys at equal OKLab lightness steps from ColorBrewer
-#               Greys' class 3 (#BDBDBD) to its class 7 (#252525) -- a path
-#               per thread in one program; pbrt's own megakernel is black,
-#               the greys' end (the lighter class 2, #D9D9D9, was 5.5 from
-#               the ramp's palest class under deutan simulation, too close
-#               for the CPU figure where the two stand side by side)
+# What was tried and undone the same day, for the record: the noon
+# commit (621343b4) put the megakernels on a second hue, a warm ramp, so
+# that every schedule could keep one colour across both sweeps; the user:
+# the paper has one palette, and the figures must match the heatmap's
+# and the rtq and wosx figures'. Greys for the megakernels next (f8090ba4,
+# one hue plus neutrals) made the GPU sweep, six of whose eight bars are
+# megakernels, near unreadable. The ramp alone, as before noon, is the
+# user's choice; this table keeps its one gain, the same shades in the
+# same direction on both sweeps.
 #
-# each family darker with every scheduling step down the figure's
-# legend, so that the family is read from the hue (teal-blue or grey)
-# and the variant from the lightness, and the same schedule has the same
-# colour on every figure: the plain megakernel (gpu-optix-mega on the
-# GPU, the scalar schedule on the CPU) is MEGAKERNEL[0] on both sweeps,
-# the matching wavefront (gpu-optix, wavefront-frame) WAVEFRONT[0], the
-# sorted wavefront of each sweep WAVEFRONT[-1]; the profile figure's bars
-# take their launch's schedule colour. pbrt's wavefront is the dashed
-# reference line of both sweeps.
-#
-# Checked with the dataviz validator's distances (OKLab x100), in each
-# sweep's drawing order and in apps/wosx's figures' orders: neighbouring
-# bars at least 8.1 apart under simulated protan and deutan vision and
-# 9.1 under normal vision (the ramp's classes 3 and 4, #7FCDBB and
-# #41B6C4, are the closest pair; 7.2 under the rare tritan), neighbouring
-# greys 9.9 apart. Ordered shades cannot reach the validator's categorical
-# floor of 15 between neighbours; the fixed bar order within every group,
-# keyed by the legend, is the second encoding.
+# Why equal steps rather than the raw classes 1..8: the dataviz
+# validator's distances (OKLab x100) put the raw classes 1 and 2
+# (#EDF8B1, #C7E9B4) 6.6 apart under normal vision and 5.2 under protan
+# simulation, the ramp's pale end being its flattest; at equal steps
+# every neighbouring pair of RAMP8 is 10.7 apart under normal vision and
+# 8.8 under protan and deutan (8.0 tritan), in either sweep's drawing
+# order. Ordered shades cannot reach the validator's categorical floor of
+# 15 between neighbours; the fixed bar order within every group, keyed by
+# the legend, is the second encoding.
 PBRT_COLOUR = "#000000"
-GREYS = ["#BDBDBD", "#9E9E9E", "#808080", "#636363", "#474747", "#252525"]
-RAMP = YLGNBU[2:9]
-MEGAKERNEL = GREYS       # apps/wosx/plot.py draws its families from GREYS and RAMP too
-WAVEFRONT = RAMP
+RAMP8 = ["#EDF8B1", "#ADDFB7", "#69C4BF", "#30A4C2", "#1F7EB7", "#2357A4", "#21318B", "#081D58"]
 
 # Legend label -> colour, for every schedule a figure of apps/pbrt draws
 # (the labels are plot_cpu_wavefront.py's and plot_gpu_wavefront.py's).
 SCHEDULE_COLOURS = {
     "PBRT mk": PBRT_COLOUR,
-    # The megakernels, from the plain one down the GPU figure's legend.
-    "mk": MEGAKERNEL[0],            # GPU gpu-optix-mega
-    "mk-b-s-ps": MEGAKERNEL[0],     # CPU scalar: the same schedule, the same colour
-    "mk-pass": MEGAKERNEL[1],
-    "mk-flat": MEGAKERNEL[2],
-    "mk-blk": MEGAKERNEL[3],
-    "mk-ser": MEGAKERNEL[4],
-    "mk-ser-flat": MEGAKERNEL[5],
-    # The wavefronts: pbrt's structure matched, then the CPU figure's
-    # variants in its legend's order; the GPU's sorted wavefront takes the
-    # last shade, as the CPU's does.
-    "wf": WAVEFRONT[0],             # GPU gpu-optix
-    "wf-b-s-sp": WAVEFRONT[0],      # CPU wavefront-frame: the same structure
-    "wf-b-v-sp": WAVEFRONT[1],
-    "wf-b-v-sp-sort": WAVEFRONT[2],
-    "wf-t-s-ps": WAVEFRONT[3],
-    "wf-t-v-ps": WAVEFRONT[4],
-    "wf-t-v-sp": WAVEFRONT[5],
-    "wf-t-v-ps-sort": WAVEFRONT[6],
-    "wf-sort": WAVEFRONT[6],        # GPU gpu-optix-sort
+    # The GPU sweep's legend, top to bottom.
+    "mk": RAMP8[0],                 # gpu-optix-mega
+    "mk-pass": RAMP8[1],
+    "mk-flat": RAMP8[2],
+    "mk-blk": RAMP8[3],
+    "mk-ser": RAMP8[4],
+    "mk-ser-flat": RAMP8[5],
+    "wf": RAMP8[6],                 # gpu-optix, pbrt's wavefront matched
+    "wf-sort": RAMP8[7],            # gpu-optix-sort
+    # The CPU sweep's legend, top to bottom (after PBRT mk).
+    "mk-b-s-ps": RAMP8[0],          # scalar: the GPU's mk, the same shade
+    "wf-b-s-sp": RAMP8[1],          # wavefront-frame, pbrt's wavefront matched
+    "wf-b-v-sp": RAMP8[2],
+    "wf-b-v-sp-sort": RAMP8[3],
+    "wf-t-s-ps": RAMP8[4],
+    "wf-t-v-ps": RAMP8[5],
+    "wf-t-v-sp": RAMP8[6],
+    "wf-t-v-ps-sort": RAMP8[7],     # the GPU's wf-sort, the same shade
     # The GPU exploration's sides of 10-24, drawn only when asked for
-    # (never beside the CPU variants whose shades they borrow).
-    "mk-ser-ray": "#404040",        # between mk-ser and mk-ser-flat
-    "wf-b128": WAVEFRONT[1],
-    "wf-b512": WAVEFRONT[2],
-    "wf-fused": WAVEFRONT[3],
-    "wf-fused-ser": WAVEFRONT[4],
-    "wf-sort36": WAVEFRONT[5],
+    # (--sides): they borrow shades, so a figure naming them should name
+    # a set without a repeat (wf, wf-b128, wf-b512, wf-fused, wf-fused-ser,
+    # wf-sort, wf-sort36 is one).
+    "mk-ser-ray": "#9E9E9E",        # a neutral: the control of the reorder key
+    "wf-b128": RAMP8[2],
+    "wf-b512": RAMP8[3],
+    "wf-fused": RAMP8[4],
+    "wf-fused-ser": RAMP8[5],
+    "wf-sort36": RAMP8[1],
 }

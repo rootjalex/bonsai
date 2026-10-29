@@ -132,8 +132,9 @@ before it.
   every side's speedup over pbrt's CPU wavefront (the dashed line at 1), a
   group of bars per scene and a subgroup per sample count; PBRT mk black,
   each Bonsai side the colour its schedule has on every figure here
-  (figure_style.SCHEDULE_COLOURS: the wavefronts on the paper's ramp, the
-  megakernel grey, each darker with each variant; the user, 10-29). The image checks are not marked
+  (figure_style.SCHEDULE_COLOURS: the paper's YlGnBu ramp at eight
+  equal steps in the legend's order, the GPU sweep laid the same way;
+  the user, 10-29). The image checks are not marked
   on the figure (the CSV's verdict column has them). The axis reads
   "Speedup over PBRT wf";
   pbrt's bars are "PBRT mk" (its megakernel, the CPU volpath) and the
@@ -210,14 +211,13 @@ before it.
   labels and legends 8 pt and tick labels 7 pt as printed (the user,
   10-24: readable, not necessarily the body's 10 pt); one colour scheme
   for every figure (the user, 10-29: the sweeps had each laid the one ramp
-  over its own bars; and the paper has one palette, so no second hue) --
-  the wavefront schedules on the YlGnBu ramp (the heatmap's, the rtq and
-  wosx figures') and the megakernel schedules in greys beside pbrt's
-  black, each darker with every scheduling step, the same schedule the
-  same colour on the CPU sweep, the GPU sweep and the profile figure
-  (`mk` and `mk-b-s-ps` alike, `wf` and `wf-b-s-sp` alike);
-  figure_style.py's SCHEDULE_COLOURS is the table and
-  says how the shades were checked; the sweeps' y axis reads
+  over its own bars; and the paper has one palette, the YlGnBu ramp of
+  the heatmap and the rtq and wosx figures, so no second hue and no
+  greys) -- each sweep's eight Bonsai sides on that ramp at eight equal
+  steps from its class 1 to its class 8 in the legend's order, the
+  palest the plain megakernel and the darkest the sorted wavefront on
+  both, pbrt's bars black; figure_style.py's SCHEDULE_COLOURS is the
+  table; the sweeps' y axis reads
   "Speedup" with the dashed PBRT line named in the legend, the legend in
   two rows with the schedule codes alone (pbrt's two say "PBRT"; the rest
   are Bonsai's). Beside each figure the plotter writes `<figure>.txt`,
@@ -253,10 +253,9 @@ before it.
   `Bonsai wf-fused`, `Bonsai wf-sort` (gpu-optix-sort) and
   `Bonsai wf-sort36`, whichever the tables hold -- the megakernels then
   the wavefronts, each family from plain to variants -- each in its
-  schedule's colour (figure_style.SCHEDULE_COLOURS: the megakernels grey,
-  `mk` lightest to `mk-ser-flat` darkest; the wavefronts on the ramp, `wf`
-  its palest class drawn and `wf-sort` the darkest, as the CPU figure's
-  wf-b-s-sp and wf-t-v-ps-sort are). Only schedules on the ray tracing hardware
+  shade of the ramp (figure_style.SCHEDULE_COLOURS: `mk` the palest to
+  `wf-sort` the darkest, as the CPU figure runs from mk-b-s-ps to
+  wf-t-v-ps-sort). Only schedules on the ray tracing hardware
   are drawn (the user, 10-23): the software traversals never won a cell.
   The drawing is plot_cpu_wavefront.py's.
 - `profile_kernels.sh [--out DIR] [--renderers DIR] [--single-pass-timing]

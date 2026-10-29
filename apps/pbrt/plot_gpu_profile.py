@@ -49,10 +49,9 @@ continuations, `_ss_0` before the first trace and `_ss_1`, `_ss_2` after
 one, so the lanes before and after the first bounce are told apart), and
 where the reading is written up in PLAN.md. Each launch's bars in the size
 and lanes panels take the colour its schedule has on the sweep figures
-(figure_style.SCHEDULE_COLOURS: the wavefront's trace kernel `wf`'s pale
-ramp class, the two megakernels their greys; the user, 10-29, one scheme
-for every figure); the four stall shares are classes of the ramp, darkest
-for the fetch, as before the schedules had colours of their own.
+(the user, 10-29) -- here one class of the paper's ramp for every bar of
+the single-series panels, the rows being named by their schedule, and
+four classes of the ramp for the stall shares, darkest for the fetch.
 """
 import argparse
 import collections
@@ -73,13 +72,13 @@ from plot_gpu_wavefront import SIDES
 
 DEFAULT_SIDES = "gpu-optix,gpu-optix-mega-flat,gpu-optix-mega-ser-flat"
 LABELS = {side: label for side, label, _ in SIDES}
-COLOURS = {side: colour for side, _, colour in SIDES}   # the schedule's colour on every figure
+BAR_COLOUR = YLGNBU[6]                                 # the single-series panels' bars
+COLOURS = {side: BAR_COLOUR for side, _, _ in SIDES}
 LABELS["gpu-optix"] = "wf trace"      # the wavefront's profiled launch is its trace kernel
 
 # The stall components, in stacking order (left to right), each with the
 # Nsight metrics summed into it and its class of the ramp, darkest for
-# the fetch (the greys are the megakernel schedules', in the panels
-# beside this one).
+# the fetch.
 STALLS = [
     ("instruction fetch", ["no_instruction"], YLGNBU[7]),
     ("traversal wait", ["barrier"], YLGNBU[5]),
@@ -175,7 +174,7 @@ def load(profiles, cells, sides):
             functions = read_source(stem + ".source.csv") if os.path.exists(stem + ".source.csv") else []
             row.append({
                 "side": side, "label": LABELS.get(side, side), "stem": stem,
-                "colour": COLOURS.get(side, "#636363"),
+                "colour": COLOURS.get(side, BAR_COLOUR),
                 "duration_ms": (value("gpu__time_duration.sum") or 0.0)
                                / {"ns": 1e6, "nsecond": 1e6, "us": 1e3, "usecond": 1e3}.get(raw.get("gpu__time_duration.sum", (0, "ms"))[1], 1.0),
                 "duration_unit": raw.get("gpu__time_duration.sum", (0, ""))[1],
