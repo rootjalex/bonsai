@@ -75,7 +75,10 @@ apps/rtq/benchmark.sh --plot-only     # fold and plot the logs already there
 It runs `compare.sh` over the thirteen meshes of `~/projects/pbrt-v4-scenes`
 (`RTQ_SCENES` names another checkout) under the two matching schedules,
 `embree` and `fcpw4w16` (`--schedules embree,fcpw4w16,packet16` adds the
-packet schedule, run for the two ray queries), pinned and least of five; folds the logs into
+packet schedule, run for the two ray queries), pinned and least of three
+after a warm-up, every system and every query over the same 1024 by 1024
+primary image and the sets its hits make (until 10-30 Embree's rays ran
+over a 2048 image and the rest over 1024); folds the logs into
 `apps/rtq/results/rtq-results.csv` with `tocsv.sh`, each row stamped with
 the compiler's commit (`<hash>+` when the tree has uncommitted compiler
 changes) and the cells not measured this time carried over; draws the
@@ -87,7 +90,7 @@ cell more than 3% under its reference). It waits for an idle machine before
 each mesh, resumes a stopped run (a cell's log exists only when complete;
 `--fresh` measures every cell again), and holds at a mesh boundary while
 `apps/rtq/results/logs/PAUSE` exists. `--meshes`, `--schedules`,
-`--repeats` and the sides narrow or widen it; `--help` lists them.
+`--repeats` and `--side` narrow or widen it; `--help` lists them.
 
 Two more FCPW schedules run through `compare.sh` alone for now, over the
 scalar trees FCPW builds with enoki off, the build WoSX ships: `fcpwb`,
@@ -135,7 +138,7 @@ build directory; unset, the script takes the first of `build`, `build-*`
 whose CMake cache found an LLVM, and says which):
 
 ```bash
-apps/rtq/compare.sh [--schedule embree,tuned] [--side 1024] [--repeats 5] <mesh.ply[.gz]>
+apps/rtq/compare.sh [--schedule embree,tuned] [--side 1024] [--repeats 3] <mesh.ply[.gz]>
 ```
 
 Two schedules are built and run by default, each its own table under a

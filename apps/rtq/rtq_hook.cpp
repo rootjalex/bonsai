@@ -2818,8 +2818,8 @@ void usage() {
     std::cerr
         << "usage: rtq.out [options] <mesh.ply | mesh.ply.gz>\n"
            "  --side N       primary rays are an N x N image (default 1024)\n"
-           "  --repeats N    timed runs per measurement, the least kept "
-           "(default 5)\n"
+           "  --repeats N    timed runs per measurement after one warm-up, "
+           "the least kept (default 3)\n"
            "  --embree-stats ask Embree to print its own tree's statistics\n"
            "  --batch B      only the rays or points named: primary, ao, "
            "diffuse, near or volume (default all)\n"
@@ -2856,7 +2856,7 @@ void usage() {
 
 int main(int argc, char **argv) {
     uint32_t side = 1024;
-    int repeats = 5;
+    int repeats = 3;
     bool embree_stats = false;
     // Empty for all; otherwise the one batch and the one query to run.
     std::string only_batch, only_query;

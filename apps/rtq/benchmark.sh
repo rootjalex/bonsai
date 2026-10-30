@@ -19,18 +19,19 @@
 # scalar, and the GPU schedules, fcpwb-gpu and fcpws-gpu, theirs against
 # FCPW's GPUScene: `--schedules fcpwb,fcpws,fcpwb-gpu,fcpws-gpu`), --meshes (default the thirteen, in
 # order of triangle count), --out DIR for the logs (default
-# apps/rtq/results/logs), --repeats (default 5, each number the least of
-# them after a warm-up), --rays-side / --points-side / --fcpw-side (2048 /
-# 1024 / 1024: Embree's rays run at a side where a single-threaded run
-# lasts over a tenth of a second, the point batches at FCPW's side so both
-# references answer the same points, FCPW's every query at 1024 since its
-# rate is a third of Embree's), --fresh to measure every cell again rather
+# apps/rtq/results/logs), --repeats (default 3, each number the least of
+# them after a warm-up, as the pbrt and wosx benchmarks take theirs),
+# --side (default 1024: the primary image's side for every system and
+# every query, so that the figures stand on one set of queries; until
+# 10-30 Embree's rays ran at 2048, for runs over a tenth of a second, and
+# FCPW's at 1024 for its slower rate), --fresh to measure every cell again rather
 # than resuming, --plot-only to skip the measuring, --commit C to stamp the
 # rows with that commit rather than the tree's (logs measured under a
 # compiler since committed, folded again). RTQ_SCENES names the
 # pbrt-v4-scenes checkout (default ~/projects/pbrt-v4-scenes);
 # BONSAI_BUILD_DIR the compiler's build directory (compare.sh's rule
-# otherwise); RTQ_CPUS the core to pin to (compare.sh's rule otherwise).
+# otherwise); RTQ_CPUS the core to pin to (compare.sh's rule otherwise);
+# RTQ_HOLDER the session the lock names while this measures (default rtq).
 #
 # What a run does. Before each mesh the machine is checked idle -- nothing
 # but this at over half a core, no other process on the GPU, and no other
@@ -61,10 +62,8 @@ SCHEDULES="embree,fcpw4w16"
 OUT="apps/rtq/results/logs"
 CSV="apps/rtq/results/rtq-results.csv"
 PLOTS="apps/rtq/plots"
-RAYS_SIDE=2048
-POINTS_SIDE=1024
-FCPW_SIDE=1024
-REPEATS=5
+SIDE=1024
+REPEATS=3
 FRESH=0
 PLOT_ONLY=0
 COMMIT=""
@@ -74,9 +73,7 @@ while [[ $# -gt 0 ]]; do
     --schedules) SCHEDULES="$2"; shift 2 ;;
     --meshes) MESHES="$2"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
-    --rays-side) RAYS_SIDE="$2"; shift 2 ;;
-    --points-side) POINTS_SIDE="$2"; shift 2 ;;
-    --fcpw-side) FCPW_SIDE="$2"; shift 2 ;;
+    --side) SIDE="$2"; shift 2 ;;
     --repeats) REPEATS="$2"; shift 2 ;;
     --fresh) FRESH=1; shift ;;
     --plot-only) PLOT_ONLY=1; shift ;;
@@ -138,7 +135,7 @@ wait_idle() {
   # The claim, while this measures: the holder and the start time, as the
   # sessions write it; removed when the sweep ends or is stopped.
   if [[ "$OWN_LOCK" -eq 0 ]]; then
-    echo "bonsai-ac apps/rtq/benchmark.sh since $(date +%F\ %T)" > "$LOCK"
+    echo "${RTQ_HOLDER:-rtq} apps/rtq/benchmark.sh since $(date +%F\ %T)" > "$LOCK"
     OWN_LOCK=1
     trap 'if [[ "$OWN_LOCK" -eq 1 ]]; then rm -f "$LOCK"; fi' EXIT
   fi
@@ -183,27 +180,27 @@ if (( ! PLOT_ONLY )); then
     fi
     wait_idle "$mesh"
     path="$(mesh_path "$mesh")"
+    # Embree's schedules, every query in one run (until 10-30 three runs,
+    # the rays at their own side).
     if [[ -n "$EMBREE_SCHEDULES" ]]; then
-      run "$OUT/$mesh.s$RAYS_SIDE.intersect.log" --schedule "$EMBREE_SCHEDULES" --side "$RAYS_SIDE" --repeats "$REPEATS" --query intersect "$path"
-      run "$OUT/$mesh.s$RAYS_SIDE.occluded.log" --schedule "$EMBREE_SCHEDULES" --side "$RAYS_SIDE" --repeats "$REPEATS" --query occluded "$path"
-      run "$OUT/$mesh.s$POINTS_SIDE.closest.log" --schedule "$EMBREE_SCHEDULES" --side "$POINTS_SIDE" --repeats "$REPEATS" --query closest "$path"
+      run "$OUT/$mesh.s$SIDE.embree.log" --schedule "$EMBREE_SCHEDULES" --side "$SIDE" --repeats "$REPEATS" "$path"
     fi
     # The packet schedules: the ray queries against Embree's packets; no
     # closest-point run, which Embree has no packet form of.
     if [[ -n "$PACKET_SCHEDULES" ]]; then
-      run "$OUT/$mesh.s$RAYS_SIDE.packet.intersect.log" --schedule "$PACKET_SCHEDULES" --side "$RAYS_SIDE" --repeats "$REPEATS" --query intersect "$path"
-      run "$OUT/$mesh.s$RAYS_SIDE.packet.occluded.log" --schedule "$PACKET_SCHEDULES" --side "$RAYS_SIDE" --repeats "$REPEATS" --query occluded "$path"
+      run "$OUT/$mesh.s$SIDE.packet.intersect.log" --schedule "$PACKET_SCHEDULES" --side "$SIDE" --repeats "$REPEATS" --query intersect "$path"
+      run "$OUT/$mesh.s$SIDE.packet.occluded.log" --schedule "$PACKET_SCHEDULES" --side "$SIDE" --repeats "$REPEATS" --query occluded "$path"
     fi
     if [[ -n "$FCPW_SCHEDULES" ]]; then
-      run "$OUT/$mesh.s$FCPW_SIDE.fcpw.log" --schedule "$FCPW_SCHEDULES" --side "$FCPW_SIDE" --repeats "$REPEATS" "$path"
+      run "$OUT/$mesh.s$SIDE.fcpw.log" --schedule "$FCPW_SCHEDULES" --side "$SIDE" --repeats "$REPEATS" "$path"
     fi
     # FCPW's scalar trees and its GPU, every query of each (the silhouette
-    # query included, for fcpws), at FCPW's side.
+    # query included, for fcpws).
     if [[ -n "$SCALAR_SCHEDULES" ]]; then
-      run "$OUT/$mesh.s$FCPW_SIDE.fcpw-scalar.log" --schedule "$SCALAR_SCHEDULES" --side "$FCPW_SIDE" --repeats "$REPEATS" "$path"
+      run "$OUT/$mesh.s$SIDE.fcpw-scalar.log" --schedule "$SCALAR_SCHEDULES" --side "$SIDE" --repeats "$REPEATS" "$path"
     fi
     if [[ -n "$GPU_SCHEDULES" ]]; then
-      run "$OUT/$mesh.s$FCPW_SIDE.gpu.log" --schedule "$GPU_SCHEDULES" --side "$FCPW_SIDE" --repeats "$REPEATS" "$path"
+      run "$OUT/$mesh.s$SIDE.gpu.log" --schedule "$GPU_SCHEDULES" --side "$SIDE" --repeats "$REPEATS" "$path"
     fi
   done
   echo "[$(date +%T)] measured: $OUT"
