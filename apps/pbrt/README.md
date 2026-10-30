@@ -114,9 +114,13 @@ before it.
 - `cpu_compare.sh [--spp "N ..."] [--repeats N] [--schedules "..."]
   [--scenes "..."] [--out DIR] [--resume]`: the CPU comparison -- pbrt's
   CPU wavefront against every CPU schedule, on the scenes given (the
-  paper's eight by default, in order of `pbrt --gpu`'s time: killeroo-gold,
-  book, sanmiguel-courtyard, ganesha, bistro_vespa, landscape/view-0,
-  kroken/camera-1, watercolor/camera-1; the user, 10-29) at the sample
+  paper's six by default, in order of `pbrt --gpu`'s time: killeroo-gold,
+  book, sanmiguel-courtyard, ganesha, sssdragon/dragon_10, bistro_vespa;
+  the user, 10-29 and 10-30: dragon_10 in place of landscape/view-0,
+  whose 4K frame at 128 spp cost the CPU sweep ten hours on its own, and
+  kroken/camera-1 and watercolor/camera-1 dropped from both sweeps, since
+  a sweep may not run past about eight hours in all and their CPU cells
+  at 128 spp and three repeats were a day on their own) at the sample
   counts given (16 and 128 by default), each schedule's
   renderer compiled once up front (`DIR/renderers`), then one compare.sh run
   per schedule per cell, `scalar` against pbrt's volpath and the wavefront

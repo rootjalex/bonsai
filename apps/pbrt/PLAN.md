@@ -19450,3 +19450,200 @@ the CPU and GPU figures, the GPU figure's ninth bar the near-white class
 0 as before today and the walk on stars' tenth a neutral grey as before
 today. The lesson is written into the figure-conventions memory: the
 palette is the user's, one ramp, and a change to it is the user's call.
+
+**The GPU sweep's result (14:42-16:37; gpu-compare-out-eight, 8ee707d0).**
+144 rows, every image matching pbrt's, seven cells redone once or twice
+for a disturbance. The kept four repeat the 10-28 run within a percent on
+every side checked; sanmiguel at 16 spp moved against our previous
+measurement (wf 2.03x -> 1.61x), the whole move pbrt's (its wall 0.24 s
+-> 0.19 s, ours 0.118 s both times). The four new scenes each a shape of
+their own: bistro (20,638 area lights) the wavefront by 2.5x over every
+megakernel and the one scene where SER costs (mk-ser-flat 0.67x against
+mk-flat 0.85x at 16 spp; the per-sample SER megakernel 0.33x and 0.25x,
+the sweep's worst cells); landscape (30k instances) the flattest, the
+wavefront 1.30x/1.20x with the SER flat megakernel within 5% and the flat
+megakernels at parity; kroken (288M triangles, depth 15) the wavefront
+2.30x/1.94x, SER doubling the flat megakernel (0.64x -> 1.33x) and still
+1.7x behind; watercolor (58M triangles, 261 materials) the highest
+speedups, the wavefront 2.83x/2.59x and the SER flat megakernel within
+9%. Over the eight the wavefront is best on seven scenes, the SER flat
+megakernel on killeroo-gold alone; every speedup falls to 0.82-0.86x of
+its 16-spp value at 128.
+
+## 10-30, morning: the CPU sweep stopped at landscape; the packet schedules' crash and wrong images were one backend bug, a gang's gather reading its 32-bit lane offsets as signed; fixed, tested, dragon_10 in landscape's place
+
+**Where the CPU sweep stood when it was stopped (08:36).** Started 16:37
+the evening before into cpu-compare-out-eight: six scenes complete at
+both sample counts, landscape at 128 spp on its ninth row of ten, kroken
+and watercolor not begun, 108 rows. Landscape at 128 spp alone was a
+ten-hour block -- a 3840x2160 frame at 128 spp is 1.06 billion camera
+paths a render, pbrt's own render 1,463 s (24 min), ours 878-1,582 s,
+each side rendered three times, ten sides a cell block (eight of ours,
+pbrt's wavefront and pbrt's volpath): pbrt-wavefront + wavefront-frame
+3 h 0 min, frame-packet 1 h 38, frame-packet-reorder 1 h 8, thread 49 min,
+thread-packet 53, thread-packet-reorder 1 h 4, thread-packet-sort 46,
+pbrt-volpath + scalar from 08:00. Nothing single-threaded: pbrt at 65
+threads on 31 of 32 cores, the load 30-31 all night. The 13-16 h estimate
+of the evening came from the five earlier scenes, 1080p-class frames at
+15-220 s a render; kroken and watercolor would each have been a day or
+more. The user (10-30, 08:3x): "Don't use landscape for the schedule
+sweep, that's too big. Maybe replace it with dragon_10? Also, you need to
+pause, find the simplest scenes the packet schedules segfault and/or fail
+on, and cleanly debug them." Stopped; the lock to 'hold' for debugging;
+bonsai-ac told (their 6 h rtq remeasure waits for 'done').
+
+**What the CSV had.** Every packet schedule (frame-packet,
+frame-packet-reorder, thread-packet, thread-packet-reorder,
+thread-packet-sort) on bistro at 16 and at 128 spp: `compare.sh exit
+139`, a segfault after "lights and film", before a pixel -- ten empty
+cells. The same five on landscape at 16 spp: `FAILED: 8137227 pixels
+received light here against pbrt's 8073772; a gap of 63455 where 8074
+was allowed`, the count identical across the three that had run, so
+deterministic; at 128 spp `the image is 1.36690x pbrt's on average`. The
+non-packet schedules (scalar, wavefront-frame, wavefront-thread) matched
+pbrt on both scenes. And scalar on sanmiguel at 16 spp `FAILED: 853108
+pixels received light here against pbrt's 856648; a gap of 3540 where
+1143 was allowed` -- the same numbers as the 10-28 run's, pre-existing,
+passing at 128 spp, a scalar schedule with a texture pool under 1 GB:
+not this bug, still open.
+
+**The hunt (scratch/packet_hunt.sh, pfm_diff.py; 08:39-08:46).** The
+simplest failing scene, found by running every heatmap scene at one
+sample through wavefront-thread-packet and its twin wavefront-thread
+(the same program, the same sampler; the twin's only difference is the
+gangs), smallest geometry first, from the sweep's prebuilt renderers, and
+diffing the two radiance images: twenty-seven scenes agree to the noise
+two gangs' rounding orders make of a Monte Carlo estimate (mean ratio
+within 0.3%, the lit-in-one-only counts symmetric), kroken among them
+(1.00016); bistro_cafe and bistro_vespa both crash; landscape's packet
+image is 1.42x the twin's (mean 0.702, 326,056 lit only in the twin
+against 728,947 only in the packet's); watercolor's 1.4% brighter with
+the lit-only counts asymmetric 17,634 against 35,057. The small
+normal-map test scene (scenes/normalmap.pbrt, one of bistro's maps over a
+quad) renders identically through both. So no small scene fails: the
+failing set is exactly the three scenes whose converted texture bytes
+pass 2 GB -- bistro 3,318,768,817, watercolor 3,064,429,339, landscape
+3,049,000,501 -- where every other scene's pool is 920 MB or less
+(sanmiguel), kroken's 298 MB.
+
+**The crash (gdb on bistro).** SIGSEGV in `normal_map$gang16_v0_v1$masked`
+at a `vgatherdps (%rcx,%zmm5,4),%zmm4{%k4}`, the mask register 0xffff
+(every lane on), the fault address 0x7ffebbed57cb against a base of
+0x555555867310 -- a lane's index far outside anything mapped. The
+gather is `texture_bytes[byte]` of level_texel (textures.bonsai), `byte =
+3u * texel`, a u32 past 2^31 for a pool over 2 GB.
+
+**The bug: the addressing model read its 32-bit lane offsets as signed.**
+A gang's gather or scatter is one base pointer and a 32-bit offset per
+lane (CodeGen_LLVM::element_addresses' model, ISPC's default): the x86
+gather instruction sign-extends its dword indices, and so does a GEP its
+index. The comment on the model had recorded the consequence as a known
+edge -- "a byte offset must fit in 31 bits: an array over 2 GB is
+addressed wrongly past that, in a gather" -- and the three pools found
+it. Before and after, per lane:
+
+    before:  addr = base + sext64(offset) * scale
+             offset >= 2^31  ->  addr below base by up to 2^31 * scale
+    after:   addr = (base + 2^31 * scale) + sext64(offset xor 2^31) * scale
+                  = base + offset * scale      for every offset < 2^32
+
+The scalar path never had the limit (widen_index zero-extends a u32 to
+the pointer's width), which is why scalar and the non-gang wavefronts
+rendered bistro and landscape right, and the GPU paths form no such
+addresses (CodeGen_PTX and CodeGen_OptiX do not call gather_indexed or
+element_addresses; no GPU golden moved). So only the five vectorized CPU
+schedules failed, and only on the three scenes: a crash where the wrapped
+address was unmapped (bistro), wrong texels where it landed in other
+mapped memory (landscape's leaves' alpha and colour, read from garbage,
+let light through: 1.37x pbrt's image; watercolor 1.4%).
+
+**The fix (CodeGen_LLVM::unsigned_lane_offsets; CodeGen_LLVM.cpp,
+CodeGen_X86.cpp, CodeGen_LLVM.h).** The offsets stay 32 bits -- the
+reason for the model, one register of indices against two of pointers --
+and are read unsigned: the base is moved up by 2^31 units of the scale
+(a scalar add, loop-invariant, which LLVM hoists; several goldens gained a
+preheader for it) and the offset vector has its top bit flipped (one
+`vpxord` per gather, shared by every gather over the same offsets: the
+seventeen re-blessed goldens show 62 moved bases and 17 xors). The GEPs
+formed from a moved base are no longer `inbounds` (the base lies past the
+end of any array under 2 GB). Applied in the three places lane offsets
+become addresses: the x86 gather intrinsic path, the generic masked-gather
+path, and element_addresses, which the scatters and the per-lane byte
+reads go through. The reach is now 4 GB of bytes, the reach of the u32
+arithmetic that forms an offset; ISPC takes its 32-bit offsets signed and
+leaves anything past 2 GB to `--addressing=64`, which would cost every
+gather two registers of 64-bit indices for arrays that are almost never
+that large.
+
+**Tests.** `correctness/cpp/vectorize_gather_unsigned` maps 2 GB and a
+megabyte (MAP_NORESERVE; only the pages written cost), writes known
+values on both sides of the mark and reads them back through three
+vectorized functions -- bytes at u32 indices (the pool's shape), a field
+of an eight-byte element at indices whose byte offsets straddle 2^31, and
+a scatter of words past the mark -- each lane checked against its own
+index; `backends/llvm/vectorize_gather_unsigned` golden-diffs the IR's
+`_up` and `_flip`. Seventeen LLVM goldens re-blessed after reading every
+changed line (backends/llvm: defer-gang, defer-gang-bools, ptr-rows-packet,
+sub-word-gather, vectorize_call_guard, vectorize_calls, vectorize_gather,
+vectorize_loop, vectorize_packet_any, vectorize_packet_traversal,
+vectorize_packet_wide, vectorize_pure_call, vectorize_soa,
+vectorize_vector_index; correctness/llvm: x86-gather-avx2,
+x86-gather-avx512, x86-gather-avx512-16): the moved base, the flipped
+offsets (folded into the constants where the offsets were constant
+ramps), `inbounds` gone from those GEPs, a preheader where the base was
+hoisted, and nothing else. Suite 1944 of 1944 on the build of the last
+edit.
+
+**Verified on the scenes.** wavefront-thread-packet rebuilt under the fix
+and run at one sample against the twin: bistro renders, mean 1.00066;
+landscape 1.00002 (from 0.702); watercolor 0.99990 (from 0.986), the
+lit-only counts symmetric on all three. At 16 spp through compare.sh's
+own image check against pbrt (REPEATS=1, scratch/verify_packet_16spp.sh):
+bistro `ok: the image matches pbrt` (pbrt volpath 12.7 s, ours 8.6 s),
+landscape `ok` (110.6 s against 123.2 s). Kroken and watercolor, both
+`Film "gbuffer"`, FAILED the gbuffer check -- the shading normal on
+1,395,543 and 1,741,890 pixels away from any edge, the albedo by 1.2e-2
+and 2.3e-3 on average, 21% and 14% of pixels apart by more than 5e-3 --
+against pbrt's volpath and against `--pbrt-wavefront` alike, with the
+same pixel counts; and the sweep's unchanged wavefront-thread renderer
+(no gangs, built before the fix) fails kroken identically (1,395,221
+pixels). So that is not the packet bug and not the fix: a CPU-side
+difference of ours on the two bump-mapped, displaced scenes, which the
+GPU schedules do not show (every GPU cell of both matched `pbrt --gpu`
+on 10-29). The CPU sweep never reached either scene before, so the
+check is new. **Open**, out of today's scope, and both scenes are out of
+the sweeps (below); the fixed packet renderer agrees with its twin on
+both at one sample (kroken 1.00016, the same pixels as before the fix,
+since no offset there passes 2^31; watercolor 0.99990).
+
+**Consequence for the measurements.** Every CPU gang gather's code
+changes, so the CPU sweep is remeasured whole under the fixed compiler
+(cpu-compare-out-eight's rows are the old compiler's); bonsai-ac's wosx
+CPU bars with gathers and rtq's fcpw4w16 rows likewise (they queue ~7 h
+with the rtq remeasure). The GPU tables stand.
+
+**dragon_10 in landscape's place (the user).** sssdragon/dragon_10:
+7.2M triangles in two meshes, three materials, the subsurface dragon,
+1366x1024, depth 5, pbrt --gpu 1.84 s at 128 spp (between ganesha's 1.53
+and bistro's 2.79, so fifth in the figures' order), the heatmap's
+wavefront 1.91x/1.59x -- a subsurface-dominated shape the set lacked.
+
+**The sweep's budget, and six scenes (the user, 09:0x: "If kroken and
+watercolor take too long on the CPU then we can also remove those, we
+can't have a sweep take longer than like 8 total hours or we'll never
+make progress").** They do: the CPU sweep's per-scene blocks on 10-29
+(both sample counts, ten sides, three repeats) were killeroo-gold 19 min,
+book 40, sanmiguel 46, ganesha 50, bistro 60 with its ten packet cells
+crashing at once (so ~100 with them rendering), landscape ~12 h; kroken
+and watercolor, 288M and 58M triangles at depth 15 with displacement,
+would each have run a day at 128 spp. So the sweeps are the six scenes
+killeroo-gold, book, sanmiguel-courtyard, ganesha, dragon_10,
+bistro_vespa, both figures the same set (the user's word of 10-29, "the
+same ... for CPU for consistency"): GPU ~1.3 h and CPU ~6 h, within the
+budget; cpu_compare.sh's default, the README, scratch/run_six_scenes.sh
+(the wrapper: build, GPU sweep into gpu-compare-out-six reusing
+gpu-compare-out-eight's renderers where the compiler's key allows, plots,
+then --then-cpu the CPU sweep into cpu-compare-out-six, plots). The GPU
+cells of kroken and watercolor from 10-29 stay in gpu-compare-out-eight
+as measurements (the wavefront 2.30x/1.94x and 2.83x/2.59x, SER doubling
+the flat megakernel on kroken); the figures do not draw them.

@@ -80,7 +80,7 @@ OUT="$PREFIX/cpu-compare-out"
 SCHEDULES="scalar wavefront-frame wavefront-frame-packet wavefront-frame-packet-reorder \
 wavefront-thread wavefront-thread-packet wavefront-thread-packet-reorder wavefront-thread-packet-sort"
 SCENES="killeroos/killeroo-gold pbrt-book/book sanmiguel/sanmiguel-courtyard \
-ganesha/ganesha bistro/bistro_vespa landscape/view-0 kroken/camera-1 watercolor/camera-1"
+ganesha/ganesha sssdragon/dragon_10 bistro/bistro_vespa"
 RESUME=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
