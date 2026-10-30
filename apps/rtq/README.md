@@ -439,24 +439,25 @@ driver, the two sides' kernels told apart by symbol).
   binary BVH) and `fcpw_snch.h` (the normal cone hierarchy's rows, written
   as FCPW's GPU transfer writes them) are the driver's parts apps/wosx's
   driver shares.
-- `plot.py`: the comparison as three figures (first hit, any hit, closest
-  point; meshes by triangle count, the ray or point sets by hatching, the
-  reference by colour; the y axis Speedup, the legend saying over which
-  reference) from the results CSV, `python apps/rtq/plot.py
-  apps/rtq/results/rtq-results.csv -o apps/rtq/plots`, drawn at the
-  paper's page width in apps/pbrt/figure_style.py's style; the same three
-  queries in one figure the size of one of them, `rtq-queries`, for the
-  page without the room for three (ten adjacent bars a mesh in the three
-  figures' order, the reference by colour, the set by its hatch from the
-  three figures, the legend one row with the sets under the short names
-  the caption explains, ch, ao, cp; the three are drawn as before beside
-  it); and, where the
-  CSV has the rows, the two figures of the walks' queries over FCPW's
-  scalar trees, `rtq-fcpwb-fcpws-cpu` (over FCPW's scalar build) and
-  `rtq-fcpwb-fcpws-gpu` (over its GPUScene, which takes only the binary
-  trees), named by the two schedules whose cells they hold, seven bars a
-  mesh, the query by colour and the set by hatching, the legend two rows
-  of five with the four queries in the first two columns. Beside each
+- `plot.py`: the paper's three figures from the results CSV, `python
+  apps/rtq/plot.py apps/rtq/results/rtq-results.csv -o apps/rtq/plots`,
+  drawn at the paper's page width in apps/pbrt/figure_style.py's style:
+  the meshes by triangle count, every bar bonsai over the reference with
+  the line at 1 the reference, the ray or point set by its fill -- one
+  shade a set in every figure, seven shades of the paper's ramp light to
+  dark in the bars' order -- and the legend one row under the short names
+  the caption explains (ch the closest hit, ao the any hit, cp the closest
+  point, sq the closest silhouette point). `rtq-queries-cpu`: the first
+  hit, the any hit and the closest point over Embree and over FCPW, two
+  panels, one a reference, five bars a mesh, each panel its own y range.
+  Where the CSV has the rows, `rtq-fcpwb-cpu` and `rtq-fcpwb-gpu`: the
+  walks' queries over FCPW's scalar trees, over FCPW's scalar build and
+  over its GPUScene (which takes only the binary trees), seven bars a
+  mesh -- the five sets over the binary BVH and the two silhouette sets
+  over the normal cone hierarchy -- the y axis Speedup over FCPW. Also the
+  three older figures, one a query (`rtq-firsthit`, `rtq-anyhit`,
+  `rtq-closestpoint`; the reference by colour, the set by hatching, the
+  legend saying over which reference). Beside each
   figure a `.txt` of the statistics the paper quotes (per reference and
   set the geomean, the least and greatest cell and its mesh, notes reading
   the figure), and the mesh facts in one table rather than on every plot,
