@@ -200,7 +200,7 @@ before it.
     scene -- the launch's SASS instructions, the active threads per warp
     instruction, and the warp stall reasons under Nsight's names (no
     instruction; barrier, the wait on the traversal hardware; long
-    scoreboard with the LG/MIO throttles; other) -- on ganesha,
+    scoreboard, the LG/MIO throttles summed in; other) -- on ganesha,
     where the wavefront wins, and killeroo-gold, where the SER megakernel
     does, at 16 spp (plot_gpu_profile.py from profile-out-e, the reports
     profile_kernels.sh writes; the user, 10-28);
@@ -208,8 +208,12 @@ before it.
     described -- triangles, meshes, instances, materials and their kinds,
     textures, lights, resolution, depth, rays per camera ray, `pbrt
     --gpu`'s time, the wavefront's speedup -- from pbrt's `.stats` beside
-    the tables' images and the converter's logs, the sweep's scenes first
-    (scene_statistics.py; the user, 10-29).
+    the tables' images and the converter's logs, in order of triangles
+    (volumes first) under the labels the figures print, with a line
+    saying which file each shortened label stands for (sanmiguel,
+    sanmiguel-2, bistro, kroken, watercolor, landscape): the paper prints
+    no file name and the table no asterisk (scene_statistics.py; the user,
+    10-29 and 10-30).
 
   The four figures are drawn for the paper's page (figure_style.py): ACM's
   acmsmall format, a 5.478 in text block, so each PDF is exactly that

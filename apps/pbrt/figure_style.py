@@ -172,12 +172,16 @@ def geomean(points):
 # scene set (`kroken/camera-1`), since two scenes share the file name
 # camera-1 (kroken's and watercolor's); the label is the file's name,
 # except that a name which is only a camera or view number is replaced by
-# the scene's directory (kroken, watercolor, landscape), and the sweeps
-# shorten the two long names below so that eight scenes' names stand
-# side by side on one line at text width (the user, 10-29: no name
-# broken over two lines).
+# the scene's directory (kroken, watercolor, landscape), and the long
+# names below are shortened so that the sweeps' scenes stand side by side
+# on one line at text width (the user, 10-29: no name broken over two
+# lines) and the heatmap's thirty are not leaning paragraphs (the user,
+# 10-30: the sanmiguel names). The paper never prints a file name (the
+# user, 10-30); the scene table (scene_statistics.py) prints the label
+# and, under it, which file each shortened label stands for.
 SCENE_LABELS = {
     "sanmiguel/sanmiguel-courtyard": "sanmiguel",
+    "sanmiguel/sanmiguel-courtyard-second": "sanmiguel-2",
     "bistro/bistro_vespa": "bistro",
 }
 GENERIC_NAME = re.compile(r"^(camera|view)-\d+$")

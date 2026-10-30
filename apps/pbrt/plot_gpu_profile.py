@@ -38,9 +38,10 @@ The three panels, per scene:
                            instruction` (nothing fetched to issue),
                            `barrier` (our raygens have no barrier of their
                            own; the wait is OptiX's for the traversal
-                           hardware's answer), `long scoreboard, LG/MIO
-                           throttle` (a load's latency, the load/store and
-                           MIO queues full), `other` (the remainder: the
+                           hardware's answer), `long scoreboard` (a load's
+                           latency; Nsight's LG and MIO throttles, the
+                           load/store and MIO queues full, are summed into
+                           it), `other` (the remainder: the
                            issue itself, fixed-latency waits, short
                            scoreboards, branch resolution, ...; the .txt
                            lists each launch's). The row labels are the
@@ -92,7 +93,10 @@ LABELS["gpu-optix"] = "wf trace"      # the wavefront's profiled launch is its t
 STALLS = [
     ("no instruction", ["no_instruction"], YLGNBU[7]),
     ("barrier", ["barrier"], YLGNBU[5]),
-    ("long scoreboard, LG/MIO throttle", ["long_scoreboard", "lg_throttle", "mio_throttle"], YLGNBU[3]),
+    # Named for its largest part (the user, 10-30: the legend reads "long
+    # scoreboard"); the LG and MIO throttles, the memory queues full, are
+    # summed into it and the .txt says so.
+    ("long scoreboard", ["long_scoreboard", "lg_throttle", "mio_throttle"], YLGNBU[3]),
     ("other", None, YLGNBU[1]),   # the remainder of the total
 ]
 STALL_METRIC = "smsp__average_warps_issue_stalled_{}_per_issue_active.ratio"
@@ -356,8 +360,9 @@ def write_summary(loaded, out):
         f.write("  the stall groups are Nsight Compute's smsp__average_warps_issue_stalled_*_per_issue_active, named\n"
                 "    as Nsight names them: no instruction (the warp waits to fetch, an instruction-cache miss or the\n"
                 "    fetch of a program this size); barrier (OptiX's wait for the traversal hardware's answer -- our\n"
-                "    raygens have no barrier of their own); long scoreboard + LG/MIO throttle (global and local\n"
-                "    memory: a load's result awaited, the load/store or MIO queue full); other = the remainder of\n"
+                "    raygens have no barrier of their own); long scoreboard (global and local memory: a load's\n"
+                "    result awaited, with Nsight's LG and MIO throttles -- the load/store or MIO queue full -- summed\n"
+                "    into it, the bar named for its largest part); other = the remainder of\n"
                 "    smsp__average_warp_latency_per_inst_issued, which on these launches is mostly `wait` (a fixed-\n"
                 "    latency dependency on an arithmetic result, ~2 cycles), `selected` (the one cycle the instruction\n"
                 "    issues), `short_scoreboard` (a shared-memory or MIO result awaited) and, on the trace kernel,\n"

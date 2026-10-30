@@ -106,14 +106,16 @@ def read_tables(paths, schedule):
                 cells[(key, spp)] = (v, r["verdict"].startswith("ok"))
     labels = {}
     for key in scenes:
-        # A scene named by a camera or view number (kroken/camera-1,
-        # watercolor/camera-1, landscape/view-0) is labelled by its
-        # directory, the scene's own name (figure_style.scene_label; the
-        # full names otherwise, this figure having room to lean them), as
-        # is any scene whose name another scene shares.
+        # The figures' labels (figure_style.scene_label: a scene named by
+        # a camera or view number -- kroken/camera-1, watercolor/camera-1,
+        # landscape/view-0 -- is labelled by its directory, and the long
+        # sanmiguel and bistro names are shortened, since 10-30 here too:
+        # the user, "some of the names in pbrt-gpu-heatmap are way too
+        # long"; the scene table says what each stands for), and any
+        # scene whose name another scene shares by its directory.
         shared = sum(1 for k in scenes if names[k] == names[key]) > 1
         labels[key] = (key.split("/")[0] if shared and "/" in key
-                       else scene_label(key, short=False))
+                       else scene_label(key))
     return scenes, sorted(spps), cells, labels, stats
 
 
