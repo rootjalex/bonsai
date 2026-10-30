@@ -143,13 +143,17 @@ WHY = [
     "the ray sort (wf-sort) never pays on the GPU: 9-15% over the unsorted wavefront by kernel",
     "  time and 20-31% by wall -- a dozen small launches before every trace (96 sorts in a 30 ms",
     "  frame at 16 spp) for coherence the traversal hardware's own scheduling already had.",
-    "with more samples every speedup falls, to 0.82-0.86x of its 16-spp value at 128 spp over the",
-    "  eight scenes (about 0.7x on the five cheap scenes of 10-28 alone): pbrt's per-frame costs",
-    "  (launch setup, queue resets, camera rays) are a smaller share of a longer render.",
-    "over the eight scenes (10-29), the wavefront is best on seven and the SER flat megakernel on",
-    "  killeroo-gold alone; where the trace is heavy (ganesha, bistro, kroken) every megakernel",
-    "  is below pbrt's wavefront at 128 spp, and SER's gain on the flat launch runs from a loss",
-    "  (bistro, 0.79x) to a doubling (kroken 2.1x, watercolor 2.0x) -- the figure's spread.",
+    "with more samples every speedup falls, to 0.75-0.80x of its 16-spp value at 128 spp over the",
+    "  six scenes (0.82-0.86x over the eight of 10-29, whose three large scenes fell least; about",
+    "  0.7x on the five cheap scenes of 10-28 alone): pbrt's per-frame costs (launch setup, queue",
+    "  resets, camera rays) are a smaller share of a longer render.",
+    "over the six scenes (10-30), the wavefront is best on five and the SER flat megakernel on",
+    "  killeroo-gold alone; where the trace is heavy (ganesha, dragon_10, bistro) every megakernel",
+    "  is below pbrt's wavefront at both counts, and SER's gain on the flat launch runs from a loss",
+    "  (bistro, 0.76x) to 1.47x (killeroo-gold at 128 spp) -- the figure's spread. The eight of",
+    "  10-29 (gpu-compare-out-eight: these six less dragon_10, plus landscape, kroken, watercolor)",
+    "  had SER doubling the flat megakernel on kroken and watercolor; those cells stand as",
+    "  measurements and are not drawn.",
 ]
 READINGS = {
     "killeroo-simple": [
@@ -189,20 +193,35 @@ READINGS = {
     ],
     "sanmiguel": [
         "2.5M triangles in 796 meshes, instanced (a two-level traversal), four material kinds",
-        "(CoatedDiffuse, Dielectric, Diffuse, DiffuseTransmission -- the most of the five) and the",
+        "(CoatedDiffuse, Dielectric, Diffuse, DiffuseTransmission -- the most of 10-28's five) and the",
         "heaviest trace per sample (0.22 ms a trace launch at 64 spp against 0.15 on book): both sides",
         "spend most of the frame in the same RT-core traversal, so what the schedule saves around it",
-        "is the smallest share here and the wavefront's margin the smallest of the five of 10-28",
-        "(landscape's is smaller), falling fastest with spp. The fused wavefront of 10-24 cost nothing",
-        "on this scene where it cost the others a fifth to a third -- the reading being that the trace",
-        "is bound by the traversal's latency, not by occupancy, so a bigger program rides along --",
-        "which is also why the SER flat megakernel is nearest the wavefront here (1.49x against 1.61x",
-        "at 16 spp on 10-29; pbrt's own 16-spp wall moved from 0.24 s to 0.19 s between the two runs",
-        "while ours did not, so the 16-spp speedups read 2.03x on 10-28 and 1.61x now).",
+        "is the smallest share here and the wavefront's margin the smallest of the six (landscape's,",
+        "measured on 10-29 and no longer drawn, was smaller), falling fastest with spp. The fused",
+        "wavefront of 10-24 cost nothing on this scene where it cost the others a fifth to a third --",
+        "the reading being that the trace is bound by the traversal's latency, not by occupancy, so a",
+        "bigger program rides along -- which is also why the SER flat megakernel is nearest the",
+        "wavefront here (1.81x against 2.03x at 16 spp). pbrt's own 16-spp wall is not steady between",
+        "runs: 0.24 s on 10-28, 0.19 s on 10-29, 0.24 s on 10-30 (the least of three processes each",
+        "time) while ours stayed at 0.118 s, so this cell's speedups read 2.03x, 1.61x and 2.03x.",
     ],
-    # The four scenes added on 10-29 (the user: eight scenes at 16 and 128
-    # spp). What the table shows; the causes are not yet measured (no
-    # profile of these scenes), and are said so.
+    # The scenes added on 10-29 (the user: eight scenes at 16 and 128 spp)
+    # and on 10-30 (dragon_10 in landscape's place; landscape, kroken and
+    # watercolor out of the sweeps since 10-30, their readings kept for
+    # gpu-compare-out-eight's table). What the table shows; the causes are
+    # not yet measured (no profile of these scenes), and are said so.
+    "dragon_10": [
+        "7.2M triangles in two meshes, three materials (Subsurface on the dragon, CoatedDiffuse and",
+        "Diffuse), one infinite light, no textures, depth 5 and 2.76 rays a camera ray: ganesha's shape",
+        "at a larger scale -- the wavefront wins every cell (1.93x, 1.58x; the heatmap's 1.91x and 1.59x)",
+        "with the sort behind it (1.56x, 1.28x), every megakernel below pbrt at both counts, the SER flat",
+        "one nearest at 0.90x and 0.71x (SER buying 1.28x over the flat launch at both counts), and the",
+        "per-sample megakernel 0.36x and 0.29x, the lowest of the six for that side. Not profiled; a",
+        "subsurface hit adds pbrt's subsurface sample to the bounce -- a probe ray traced through the",
+        "dragon and a second material evaluation where it lands -- so the lane's program is longer and",
+        "more divergent than ganesha's, and the megakernel's loss is read as its empty lanes and its",
+        "size, as on ganesha, not the traversal; a reading, not a measurement.",
+    ],
     "bistro": [
         "2.9M triangles in 1,693 meshes, 133 materials, 20,638 area lights (the light BVH's scene): the",
         "wavefront wins every cell (2.16x, 1.76x) by 2.5x over the best megakernel, and this is the one",

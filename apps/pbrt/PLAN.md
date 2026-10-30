@@ -19647,3 +19647,33 @@ then --then-cpu the CPU sweep into cpu-compare-out-six, plots). The GPU
 cells of kroken and watercolor from 10-29 stay in gpu-compare-out-eight
 as measurements (the wavefront 2.30x/1.94x and 2.83x/2.59x, SER doubling
 the flat megakernel on kroken); the figures do not draw them.
+
+**The GPU sweep of the six (10-30, 09:37-11:13, gpu-compare-out-six).**
+108 rows, every one of the 96 cells of ours matching pbrt's image, seven
+redone once for a disturbance (10-29's count too). The first scene took
+fifty minutes: nothing of gpu-compare-out-eight's renderers was reusable
+(the fix changed the compiler's key), so the eight schedules were
+compiled afresh and each paid its OptiX module compile at its first
+launch -- about seven minutes a megakernel, two and a half a wavefront --
+where every later cell took one to two minutes; the wrapper's 1.3 h was
+1.6 h for that. The five scenes shared with 10-29 repeat it within a
+percent on every schedule at both counts, as a fix to the CPU gathers
+alone should leave them -- except sanmiguel at 16 spp, where every
+speedup moved against our previous measurement by pbrt's side alone:
+pbrt's wall 0.19 s on 10-29, back to 0.24 s today (10-28's value), ours
+0.118 s each time, so the wavefront reads 2.03x again (1.61x yesterday);
+pbrt's 16-spp wall on that scene is not steady between runs, and the
+figure's reading says so. dragon_10, the new scene: the wavefront 1.93x
+and 1.58x (the heatmap's 1.91x and 1.59x), the sort 1.56x and 1.28x,
+every megakernel below pbrt at both counts -- the SER flat one 0.90x and
+0.71x, the flat 0.70x and 0.55x, the per-sample 0.36x and 0.29x, the
+lowest of the six for that side -- ganesha's shape at a larger scale
+(the subsurface hits add a probe trace and a second material evaluation
+to a bounce; not profiled). Over the six the wavefront is best on five
+and the SER flat megakernel on killeroo-gold alone; every speedup falls
+to 0.75-0.80x of its 16-spp value at 128 (0.82-0.86x over the eight,
+whose three large scenes fell least). plots.sh's GPU_TABLES, the README
+and plot_gpu_wavefront.py's WHY and READINGS (dragon_10 written;
+sanmiguel's and the eight-scene lines updated; landscape, kroken and
+watercolor's readings kept for the eight's table) point at
+gpu-compare-out-six. The CPU sweep runs from 11:13.
