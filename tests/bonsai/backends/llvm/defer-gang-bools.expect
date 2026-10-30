@@ -41,11 +41,11 @@ run:
 "!par_cont_1":                                    ; preds = %sums_gang1_pf_exit, %"sums!round.preheader"
   ret void
 
-"sums!batch":                                     ; preds = %"sums!round.preheader", %sums_gang1_pf_exit
-  %"@13.count79" = phi i32 [ %"@13.count", %sums_gang1_pf_exit ], [ %"@13.count76", %"sums!round.preheader" ]
-  %extract_ptr78 = phi ptr [ %extract_ptr, %sums_gang1_pf_exit ], [ %sums_queue1149, %"sums!round.preheader" ]
-  %0 = phi i32 [ %31, %sums_gang1_pf_exit ], [ 0, %"sums!round.preheader" ]
-  %"sums!round277" = phi i32 [ %30, %sums_gang1_pf_exit ], [ 0, %"sums!round.preheader" ]
+"sums!batch":                                     ; preds = %"sums!batch.lr.ph", %sums_gang1_pf_exit
+  %"@13.count79" = phi i32 [ %"@13.count76", %"sums!batch.lr.ph" ], [ %"@13.count", %sums_gang1_pf_exit ]
+  %extract_ptr78 = phi ptr [ %sums_queue1149, %"sums!batch.lr.ph" ], [ %extract_ptr, %sums_gang1_pf_exit ]
+  %0 = phi i32 [ 0, %"sums!batch.lr.ph" ], [ %31, %sums_gang1_pf_exit ]
+  %"sums!round277" = phi i32 [ 0, %"sums!batch.lr.ph" ], [ %30, %sums_gang1_pf_exit ]
   %1 = xor i32 %0, 1
   %_wide17 = zext nneg i32 %1 to i64
   %sums_queue18 = getelementptr inbounds nuw [40 x i8], ptr %sums_queue1149, i64 %_wide17
@@ -66,7 +66,11 @@ run:
 "sums!round.preheader":                           ; preds = %walk.exit
   %"@13.count76" = load i32, ptr %sums_queue1149, align 16
   %6 = icmp eq i32 %"@13.count76", 0
-  br i1 %6, label %"!par_cont_1", label %"sums!batch"
+  br i1 %6, label %"!par_cont_1", label %"sums!batch.lr.ph"
+
+"sums!batch.lr.ph":                               ; preds = %"sums!round.preheader"
+  %store_ptrs_up.i = getelementptr i8, ptr %out, i64 8589934592
+  br label %"sums!batch"
 
 "!par_body_0":                                    ; preds = %run, %walk.exit
   %indvars.iv = phi i64 [ 0, %run ], [ %indvars.iv.next, %walk.exit ]
@@ -180,8 +184,9 @@ sums_gang1_pf_exit:                               ; preds = %"sums!run_yield_sum
   %47 = select <16 x i1> %.not72, <16 x i32> %45, <16 x i32> %46
   %48 = sub <16 x i32> zeroinitializer, %47
   %49 = select <16 x i1> %.not73, <16 x i32> %47, <16 x i32> %48
-  %50 = sext <16 x i32> %extract48 to <16 x i64>
-  %store_ptrs.i = getelementptr inbounds [4 x i8], ptr %out, <16 x i64> %50
+  %store_ptrs_flip.i = xor <16 x i32> %extract48, splat (i32 -2147483648)
+  %50 = sext <16 x i32> %store_ptrs_flip.i to <16 x i64>
+  %store_ptrs.i = getelementptr [4 x i8], ptr %store_ptrs_up.i, <16 x i64> %50
   call void @llvm.masked.scatter.v16i32.v16p0(<16 x i32> %49, <16 x ptr> align 4 %store_ptrs.i, <16 x i1> %39)
   br label %"!merge_1!any.i"
 

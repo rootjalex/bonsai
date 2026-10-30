@@ -3372,21 +3372,28 @@ llvm::Value *CodeGen_LLVM::gather_indexed(llvm::Type *elem_llvm,
         at = builder->CreateInBoundsGEP(
             i8_t, base, llvm::ConstantInt::get(i64_t, disp), name + "_base");
     }
-    llvm::Value *ptrs;
+    // The unit the index counts: the element, when the scale is its size
+    // (an index into an array of the element, spelled over the element,
+    // which is what it is); a word of the scale's width, when the
+    // addressing has the scale; else bytes, the scale multiplied into the
+    // index. The 32-bit offsets are unsigned (unsigned_lane_offsets), and
+    // the GEP over a moved base is not inbounds.
+    llvm::Type *unit = i8_t;
     if (scale == dl.getTypeAllocSize(elem_llvm).getFixedValue()) {
-        // An index into an array of the element: spelled over the element,
-        // which is what it is.
-        ptrs = builder->CreateInBoundsGEP(elem_llvm, at, indices, name + "_ptrs");
+        unit = elem_llvm;
     } else if (scale == 1 || scale == 2 || scale == 4 || scale == 8) {
-        ptrs = builder->CreateInBoundsGEP(
-            llvm::Type::getIntNTy(*context, unsigned(scale) * 8), at, indices,
-            name + "_ptrs");
+        unit = llvm::Type::getIntNTy(*context, unsigned(scale) * 8);
     } else {
-        llvm::Value *offsets = builder->CreateMul(
+        indices = builder->CreateMul(
             indices, llvm::ConstantInt::get(indices->getType(), scale),
             name + "_off");
-        ptrs = builder->CreateInBoundsGEP(i8_t, at, offsets, name + "_ptrs");
+        scale = 1;
     }
+    const UnsignedLaneOffsets u = unsigned_lane_offsets(at, indices, scale, name);
+    llvm::Value *ptrs =
+        u.flipped ? builder->CreateGEP(unit, u.base, u.offsets, name + "_ptrs")
+                  : builder->CreateInBoundsGEP(unit, u.base, u.offsets,
+                                               name + "_ptrs");
     llvm::Type *vtype = llvm::FixedVectorType::get(elem_llvm, lanes);
     llvm::Value *on = mask != nullptr
                           ? mask
@@ -6668,21 +6675,50 @@ llvm::Value *CodeGen_LLVM::element_addresses(llvm::Type *element,
     //
     // An element whose size is not a scale the hardware has is addressed by
     // its byte offset, multiplied out in 32 bits, and a GEP over bytes. The
-    // limit of the model is that a byte offset must fit in 31 bits: an array
-    // over 2 GB is addressed wrongly past that, in a gather. (A GEP index is
-    // sign-extended, so an unsigned index past 2^31 was already outside
-    // what this backend addresses, before any scaling.)
+    // offsets are unsigned (unsigned_lane_offsets): the limit of the model
+    // is that a byte offset must fit in 32 bits, the reach of the u32
+    // arithmetic that forms it, so an array of up to 4 GB is addressed
+    // whole. ISPC's 32-bit addressing reads its offsets signed and leaves
+    // anything past 2 GB to `--addressing=64`; the scalar path here has no
+    // such limit (widen_index zero-extends a u32), and a scene's texture
+    // bytes -- bistro's 3.3 GB -- are one array, so the gang's reach has to
+    // be the scalar's. Indices wider than 32 bits are taken as they are.
     auto *vt = llvm::dyn_cast<llvm::VectorType>(indices->getType());
     internal_assert(vt) << "element_addresses wants one index per lane";
     const llvm::DataLayout &dl = module->getDataLayout();
     const uint64_t size = dl.getTypeAllocSize(element);
-    if (vt->getElementType()->getIntegerBitWidth() > 32 || size == 1 ||
-        size == 2 || size == 4 || size == 8) {
+    if (vt->getElementType()->getIntegerBitWidth() > 32) {
         return builder->CreateInBoundsGEP(element, base, indices, name);
     }
-    llvm::Value *offsets = builder->CreateMul(
-        indices, llvm::ConstantInt::get(vt, size), name + "_off");
-    return builder->CreateInBoundsGEP(i8_t, base, offsets, name);
+    llvm::Type *unit = element;
+    uint64_t scale = size;
+    if (!(size == 1 || size == 2 || size == 4 || size == 8)) {
+        indices = builder->CreateMul(indices, llvm::ConstantInt::get(vt, size),
+                                     name + "_off");
+        unit = i8_t;
+        scale = 1;
+    }
+    const UnsignedLaneOffsets u = unsigned_lane_offsets(base, indices, scale, name);
+    return builder->CreateGEP(unit, u.base, u.offsets, name);
+}
+
+CodeGen_LLVM::UnsignedLaneOffsets CodeGen_LLVM::unsigned_lane_offsets(
+    llvm::Value *base, llvm::Value *offsets, uint64_t scale,
+    const std::string &name) {
+    auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(offsets->getType());
+    if (vt == nullptr || vt->getElementType()->getIntegerBitWidth() != 32) {
+        return {base, offsets, false};
+    }
+    // base + 2^31 units, over bytes; not inbounds, as it lies past the end
+    // of any array under 2^31 units. A vector of bases (one handle per lane)
+    // is moved lane by lane, the scalar distance splatted by the GEP.
+    llvm::Value *up = builder->CreateGEP(
+        i8_t, base, llvm::ConstantInt::get(i64_t, (uint64_t(1) << 31) * scale),
+        name + "_up");
+    // offsets - 2^31 modulo 2^32: the top bit flipped.
+    llvm::Value *flipped = builder->CreateXor(
+        offsets, llvm::ConstantInt::get(vt, uint64_t(1) << 31), name + "_flip");
+    return {up, flipped, true};
 }
 
 void CodeGen_LLVM::create_masked_store_at(llvm::Value *value,

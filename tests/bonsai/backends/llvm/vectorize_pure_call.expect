@@ -100,8 +100,10 @@ define internal fastcc <8 x float> @"tabled$gang8_v0$masked"(<8 x float> noundef
   %0 = fmul <8 x float> %x, %x
   %1 = fptoui <8 x float> %0 to <8 x i32>
   %2 = and <8 x i32> %1, splat (i32 3)
-  %3 = zext nneg <8 x i32> %2 to <8 x i64>
-  %extract_ptrs = getelementptr inbounds nuw [4 x i8], ptr %t, <8 x i64> %3
+  %extract_up = getelementptr i8, ptr %t, i64 8589934592
+  %extract_flip = or disjoint <8 x i32> %2, splat (i32 -2147483648)
+  %3 = sext <8 x i32> %extract_flip to <8 x i64>
+  %extract_ptrs = getelementptr [4 x i8], ptr %extract_up, <8 x i64> %3
   %extract = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> align 4 %extract_ptrs, <8 x i1> %"!mask", <8 x float> zeroinitializer)
   ret <8 x float> %extract
 }

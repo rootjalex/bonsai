@@ -10,9 +10,11 @@ read_fields:
   tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract = load <16 x i32>, ptr %which, align 4
   %extract_off = shl <16 x i32> %extract, splat (i32 3)
-  %extract_x = tail call <16 x float> @llvm.x86.avx512.mask.gather.dps.512(<16 x float> zeroinitializer, ptr %samples, <16 x i32> %extract_off, <16 x i1> splat (i1 true), i32 1)
-  %extract_n_base = getelementptr inbounds nuw i8, ptr %samples, i64 4
-  %extract_n = tail call <16 x i32> @llvm.x86.avx512.mask.gather.dpi.512(<16 x i32> zeroinitializer, ptr nonnull %extract_n_base, <16 x i32> %extract_off, <16 x i1> splat (i1 true), i32 1)
+  %extract_x_up = getelementptr i8, ptr %samples, i64 2147483648
+  %extract_x_flip = xor <16 x i32> %extract_off, splat (i32 -2147483648)
+  %extract_x = tail call <16 x float> @llvm.x86.avx512.mask.gather.dps.512(<16 x float> zeroinitializer, ptr %extract_x_up, <16 x i32> %extract_x_flip, <16 x i1> splat (i1 true), i32 1)
+  %extract_n_up = getelementptr i8, ptr %samples, i64 2147483652
+  %extract_n = tail call <16 x i32> @llvm.x86.avx512.mask.gather.dpi.512(<16 x i32> zeroinitializer, ptr %extract_n_up, <16 x i32> %extract_x_flip, <16 x i1> splat (i1 true), i32 1)
   %0 = sitofp <16 x i32> %extract_n to <16 x float>
   %1 = fmul <16 x float> %extract_x, %0
   store <16 x float> %1, ptr %out, align 4
@@ -28,8 +30,9 @@ read_flags:
   tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract = load <16 x i32>, ptr %which, align 4
   %extract_off = shl <16 x i32> %extract, splat (i32 3)
-  %extract_kind_word_base = getelementptr inbounds nuw i8, ptr %flags, i64 4
-  %extract_kind_word = tail call <16 x i32> @llvm.x86.avx512.mask.gather.dpi.512(<16 x i32> zeroinitializer, ptr nonnull %extract_kind_word_base, <16 x i32> %extract_off, <16 x i1> splat (i1 true), i32 1)
+  %extract_n_flip = xor <16 x i32> %extract_off, splat (i32 -2147483648)
+  %extract_kind_word_up = getelementptr i8, ptr %flags, i64 2147483652
+  %extract_kind_word = tail call <16 x i32> @llvm.x86.avx512.mask.gather.dpi.512(<16 x i32> zeroinitializer, ptr %extract_kind_word_up, <16 x i32> %extract_n_flip, <16 x i1> splat (i1 true), i32 1)
   %0 = and <16 x i32> %extract_kind_word, splat (i32 255)
   store <16 x i32> %0, ptr %out, align 4
   ret void

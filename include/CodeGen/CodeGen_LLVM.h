@@ -781,6 +781,27 @@ struct CodeGen_LLVM : public ir::Visitor {
                               llvm::Value *offsets, uint64_t disp,
                               uint64_t align, uint32_t lanes, llvm::Value *mask,
                               const std::string &name);
+    // A gather's or scatter's 32-bit lane offsets read as the unsigned
+    // numbers they are. An offset is an element's or a byte's distance into
+    // an array, formed in the program's u32 arithmetic and never negative;
+    // the machine and a GEP read a 32-bit index as signed (vgatherdps
+    // sign-extends its dwords), which would put every offset from 2^31 up
+    // below the base -- bistro's 3.3 GB of texture bytes found it, as a
+    // gather below the pool. So the base is moved up by 2^31 units of
+    // `scale` and the offsets have their top bit flipped: the same address
+    // for every offset below 2^32, the reach of the arithmetic that formed
+    // them, through a signed index. Offsets wider than 32 bits pass through
+    // unchanged (`flipped` false). The moved base lies past the end of an
+    // array under 2^31 units, so a GEP formed from it is not `inbounds`.
+    struct UnsignedLaneOffsets {
+        llvm::Value *base;
+        llvm::Value *offsets;
+        bool flipped;
+    };
+    UnsignedLaneOffsets unsigned_lane_offsets(llvm::Value *base,
+                                              llvm::Value *offsets,
+                                              uint64_t scale,
+                                              const std::string &name);
     // Whether the machine being compiled for has `feature` -- "avx2",
     // "avx512vl" -- as the target machine made for the module says.
     bool has_feature(const std::string &feature) const;

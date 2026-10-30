@@ -1,0 +1,72 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress
+define void @bytes_at(ptr noundef %a_buffer, ptr noundef %idx_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
+bytes_at:
+  %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
+  %idx = tail call ptr @bonsai_buffer_require(ptr %idx_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
+  %extract = load <16 x i32>, ptr %idx, align 4
+  %extract_up = getelementptr i8, ptr %a, i64 2147483648
+  %extract_flip = xor <16 x i32> %extract, splat (i32 -2147483648)
+  %0 = sext <16 x i32> %extract_flip to <16 x i64>
+  %extract_ptrs = getelementptr i8, ptr %extract_up, <16 x i64> %0
+  %extract4 = tail call <16 x i8> @llvm.masked.gather.v16i8.v16p0(<16 x ptr> align 1 %extract_ptrs, <16 x i1> splat (i1 true), <16 x i8> poison)
+  %1 = zext <16 x i8> %extract4 to <16 x i32>
+  store <16 x i32> %1, ptr %out, align 4
+  ret void
+}
+
+; Function Attrs: mustprogress
+define void @scatter_to(ptr noundef %idx_buffer, ptr noundef %v_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
+scatter_to:
+  %idx = tail call ptr @bonsai_buffer_require(ptr %idx_buffer, i32 1)
+  %v = tail call ptr @bonsai_buffer_require(ptr %v_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
+  %extract = load <16 x i32>, ptr %v, align 4
+  %extract5 = load <16 x i32>, ptr %idx, align 4
+  %store_ptrs_up = getelementptr i8, ptr %out, i64 8589934592
+  %store_ptrs_flip = xor <16 x i32> %extract5, splat (i32 -2147483648)
+  %0 = sext <16 x i32> %store_ptrs_flip to <16 x i64>
+  %store_ptrs = getelementptr [4 x i8], ptr %store_ptrs_up, <16 x i64> %0
+  tail call void @llvm.masked.scatter.v16i32.v16p0(<16 x i32> %extract, <16 x ptr> align 4 %store_ptrs, <16 x i1> splat (i1 true))
+  ret void
+}
+
+; Function Attrs: mustprogress
+define void @second_of(ptr noundef %p_buffer, ptr noundef %idx_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
+second_of:
+  %p = tail call ptr @bonsai_buffer_require(ptr %p_buffer, i32 1)
+  %idx = tail call ptr @bonsai_buffer_require(ptr %idx_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
+  %extract = load <16 x i32>, ptr %idx, align 4
+  %extract_off = shl <16 x i32> %extract, splat (i32 3)
+  %extract_a_flip = xor <16 x i32> %extract_off, splat (i32 -2147483648)
+  %extract_b_up = getelementptr i8, ptr %p, i64 2147483652
+  %0 = sext <16 x i32> %extract_a_flip to <16 x i64>
+  %extract_b_ptrs = getelementptr i8, ptr %extract_b_up, <16 x i64> %0
+  %extract_b = tail call <16 x i32> @llvm.masked.gather.v16i32.v16p0(<16 x ptr> align 4 %extract_b_ptrs, <16 x i1> splat (i1 true), <16 x i32> poison)
+  store <16 x i32> %extract_b, ptr %out, align 4
+  ret void
+}
+
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
+declare <16 x i8> @llvm.masked.gather.v16i8.v16p0(<16 x ptr>, <16 x i1>, <16 x i8>) #1
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(write)
+declare void @llvm.masked.scatter.v16i32.v16p0(<16 x i32>, <16 x ptr>, <16 x i1>) #2
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
+declare <16 x i32> @llvm.masked.gather.v16i32.v16p0(<16 x ptr>, <16 x i1>, <16 x i32>) #1
+
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }
+attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(write) }

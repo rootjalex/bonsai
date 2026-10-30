@@ -10,9 +10,11 @@ read_fields:
   tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract = load <8 x i32>, ptr %which, align 4
   %extract_off = shl <8 x i32> %extract, splat (i32 3)
-  %extract_x = tail call <8 x float> @llvm.x86.avx2.gather.d.ps.256(<8 x float> zeroinitializer, ptr %samples, <8 x i32> %extract_off, <8 x float> splat (float -nan(0x3FFFFF)), i8 1)
-  %extract_n_base = getelementptr inbounds nuw i8, ptr %samples, i64 4
-  %extract_n = tail call <8 x i32> @llvm.x86.avx2.gather.d.d.256(<8 x i32> zeroinitializer, ptr nonnull %extract_n_base, <8 x i32> %extract_off, <8 x i32> splat (i32 -1), i8 1)
+  %extract_x_up = getelementptr i8, ptr %samples, i64 2147483648
+  %extract_x_flip = xor <8 x i32> %extract_off, splat (i32 -2147483648)
+  %extract_x = tail call <8 x float> @llvm.x86.avx2.gather.d.ps.256(<8 x float> zeroinitializer, ptr %extract_x_up, <8 x i32> %extract_x_flip, <8 x float> splat (float -nan(0x3FFFFF)), i8 1)
+  %extract_n_up = getelementptr i8, ptr %samples, i64 2147483652
+  %extract_n = tail call <8 x i32> @llvm.x86.avx2.gather.d.d.256(<8 x i32> zeroinitializer, ptr %extract_n_up, <8 x i32> %extract_x_flip, <8 x i32> splat (i32 -1), i8 1)
   %0 = sitofp <8 x i32> %extract_n to <8 x float>
   %1 = fmul <8 x float> %extract_x, %0
   store <8 x float> %1, ptr %out, align 4

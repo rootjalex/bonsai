@@ -107,6 +107,7 @@ add_bonsai_tests(
     vectorize_divergent.bonsai
     vectorize_division.bonsai
     vectorize_gather.bonsai
+    vectorize_gather_unsigned.bonsai
     vectorize_loop.bonsai
     vectorize_masked_accumulate.bonsai
     vectorize_masked_math_call.bonsai

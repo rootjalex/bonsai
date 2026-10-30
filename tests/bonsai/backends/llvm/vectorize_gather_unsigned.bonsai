@@ -1,0 +1,46 @@
+//! flags: -p ssa -b llvm
+
+// Golden-diffs the IR of a gang's gathers and scatter through 32-bit lane
+// offsets, which the backend reads as unsigned: each address is formed from
+// the base moved up by 2^31 units and the offsets with their top bit
+// flipped (`_up` and `_flip`; CodeGen_LLVM::unsigned_lane_offsets), the
+// same address for every offset below 2^32 through the machine's signed
+// index. Without them an offset past 2^31 -- a byte of a texture pool over
+// 2 GB -- reads below the base, which only the shape of the addressing
+// shows: the values a wrong lowering reads are plausible until the array
+// is that large. correctness/cpp/vectorize_gather_unsigned.bonsai runs the
+// same three functions over a 2 GB mapping.
+element Pair {
+    a : u32;
+    b : u32;
+}
+
+func [[export]] bytes_at(a : array[u8], idx : array[u32, 16],
+                         out : mut array[u32, 16]) -> void {
+    parfor i in 0:16 {
+        out[i] = cast[[u32]](a[idx[i]]);
+    }
+    return;
+}
+
+func [[export]] second_of(p : array[Pair], idx : array[u32, 16],
+                          out : mut array[u32, 16]) -> void {
+    parfor i in 0:16 {
+        out[i] = p[idx[i]].b;
+    }
+    return;
+}
+
+func [[export]] scatter_to(idx : array[u32, 16], v : array[u32, 16],
+                           out : mut array[u32]) -> void {
+    parfor i in 0:16 {
+        out[idx[i]] = v[i];
+    }
+    return;
+}
+
+schedule {
+    bytes_at.vectorize(i);
+    second_of.vectorize(i);
+    scatter_to.vectorize(i);
+}

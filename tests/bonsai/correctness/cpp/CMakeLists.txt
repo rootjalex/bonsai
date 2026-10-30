@@ -72,6 +72,7 @@ add_bonsai_tests(
     vectorize_gather.bonsai
     vectorize_gather_struct.bonsai
     vectorize_gather_union.bonsai
+    vectorize_gather_unsigned.bonsai
     vectorize_locals.bonsai
     vectorize_loop.bonsai
     loopify_exits.bonsai

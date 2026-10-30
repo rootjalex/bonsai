@@ -97,12 +97,19 @@ llvm::Value *CodeGen_X86::gather_indexed(llvm::Type *elem_llvm,
     }
 
     // The displacement goes into the base: the intrinsic has base, index
-    // and scale, and a scalar add is what a displacement costs.
+    // and scale, and a scalar add is what a displacement costs. The
+    // instruction sign-extends its indices, and the offsets are unsigned,
+    // so the base moves up by 2^31 scales and the indices flip their top
+    // bit (unsigned_lane_offsets): one more scalar add, hoisted with the
+    // base, and one xor of the index register.
     llvm::Value *at = base;
     if (disp != 0) {
         at = builder->CreateInBoundsGEP(
             i8_t, base, llvm::ConstantInt::get(i64_t, disp), name + "_base");
     }
+    const UnsignedLaneOffsets u = unsigned_lane_offsets(at, indices, scale, name);
+    at = u.base;
+    indices = u.offsets;
     llvm::Type *vtype = llvm::FixedVectorType::get(elem_llvm, lanes);
     llvm::Value *on = mask != nullptr
                           ? mask

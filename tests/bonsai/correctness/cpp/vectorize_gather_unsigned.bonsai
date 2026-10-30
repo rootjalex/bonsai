@@ -1,0 +1,55 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_gather_unsigned
+//! commands: clang++ -std=c++20 -O3 -c $<>/main_vectorize_gather_unsigned.cpp -I. -o $<>/main_vectorize_gather_unsigned.o, clang++ $<>/main_vectorize_gather_unsigned.o $<>/vectorize_gather_unsigned.o -o $<>/vectorize_gather_unsigned, ./$<>/vectorize_gather_unsigned, rm $<>/vectorize_gather_unsigned, rm $<>/main_vectorize_gather_unsigned.o, rm $<>/vectorize_gather_unsigned.h, rm $<>/vectorize_gather_unsigned.o
+
+// A gang's gathers and scatters past the 2 GB mark of an array. The backend
+// addresses a gather with one base and a 32-bit offset per lane, and the
+// machine reads the offset signed (vgatherdps sign-extends its dwords), so
+// an offset at or past 2^31 -- a byte of a texture pool over 2 GB, which
+// bistro's 3.3 GB of texture bytes is -- addressed memory below the base
+// until the offsets were made unsigned (CodeGen_LLVM::unsigned_lane_offsets;
+// element_addresses has the addressing model). The scalar path never had
+// the limit, which is why only the vectorized schedules failed, and only on
+// the scenes whose pools pass 2 GB.
+//
+// main_vectorize_gather_unsigned.cpp maps 2 GB and a little over, writes
+// known values on both sides of the mark, and checks that each lane reads
+// the element its own index names, through each of the three shapes a
+// lane's address takes: a byte, the pool's case, read as part of the word
+// that holds it (gather_sub_word_elements); a field of an eight-byte
+// element, read at the lane's element offset plus the field's
+// (gather_elements); and a scatter of a word to an indexed element
+// (create_vector_store through element_addresses).
+element Pair {
+    a : u32;
+    b : u32;
+}
+
+func [[export]] bytes_at(a : array[u8], idx : array[u32, 16],
+                         out : mut array[u32, 16]) -> void {
+    parfor i in 0:16 {
+        out[i] = cast[[u32]](a[idx[i]]);
+    }
+    return;
+}
+
+func [[export]] second_of(p : array[Pair], idx : array[u32, 16],
+                          out : mut array[u32, 16]) -> void {
+    parfor i in 0:16 {
+        out[i] = p[idx[i]].b;
+    }
+    return;
+}
+
+func [[export]] scatter_to(idx : array[u32, 16], v : array[u32, 16],
+                           out : mut array[u32]) -> void {
+    parfor i in 0:16 {
+        out[idx[i]] = v[i];
+    }
+    return;
+}
+
+schedule {
+    bytes_at.vectorize(i);
+    second_of.vectorize(i);
+    scatter_to.vectorize(i);
+}

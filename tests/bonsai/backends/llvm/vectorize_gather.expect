@@ -7,10 +7,12 @@ double_evens:
   %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
   tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
-  %extract_ptrs = getelementptr inbounds nuw [4 x i8], ptr %a, <8 x i64> <i64 0, i64 2, i64 4, i64 6, i64 8, i64 10, i64 12, i64 14>
+  %extract_up = getelementptr i8, ptr %a, i64 8589934592
+  %extract_ptrs = getelementptr [4 x i8], ptr %extract_up, <8 x i64> <i64 -2147483648, i64 -2147483646, i64 -2147483644, i64 -2147483642, i64 -2147483640, i64 -2147483638, i64 -2147483636, i64 -2147483634>
   %extract = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> align 4 %extract_ptrs, <8 x i1> splat (i1 true), <8 x float> poison)
   %0 = fmul <8 x float> %extract, splat (float 2.000000e+00)
-  %store_ptrs = getelementptr inbounds nuw [4 x i8], ptr %out, <8 x i64> <i64 0, i64 2, i64 4, i64 6, i64 8, i64 10, i64 12, i64 14>
+  %store_ptrs_up = getelementptr i8, ptr %out, i64 8589934592
+  %store_ptrs = getelementptr [4 x i8], ptr %store_ptrs_up, <8 x i64> <i64 -2147483648, i64 -2147483646, i64 -2147483644, i64 -2147483642, i64 -2147483640, i64 -2147483638, i64 -2147483636, i64 -2147483634>
   tail call void @llvm.masked.scatter.v8f32.v8p0(<8 x float> %0, <8 x ptr> align 4 %store_ptrs, <8 x i1> splat (i1 true))
   ret void
 }
@@ -23,8 +25,10 @@ reorder:
   %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
   tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract = load <8 x i32>, ptr %idx, align 4
-  %0 = sext <8 x i32> %extract to <8 x i64>
-  %extract_ptrs = getelementptr inbounds [4 x i8], ptr %a, <8 x i64> %0
+  %extract_up = getelementptr i8, ptr %a, i64 8589934592
+  %extract_flip = xor <8 x i32> %extract, splat (i32 -2147483648)
+  %0 = sext <8 x i32> %extract_flip to <8 x i64>
+  %extract_ptrs = getelementptr [4 x i8], ptr %extract_up, <8 x i64> %0
   %extract4 = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> align 4 %extract_ptrs, <8 x i1> splat (i1 true), <8 x float> poison)
   store <8 x float> %extract4, ptr %out, align 4
   ret void

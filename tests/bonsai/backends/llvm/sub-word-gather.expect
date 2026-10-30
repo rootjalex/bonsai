@@ -18,8 +18,10 @@ extract_words:                                    ; preds = %read_bytes
   %1 = insertelement <8 x i32> poison, i32 %.scalar, i64 0
   %extract_last = shufflevector <8 x i32> %1, <8 x i32> poison, <8 x i32> zeroinitializer
   %extract_word_at = tail call <8 x i32> @llvm.umin.v8i32(<8 x i32> %extract_aligned, <8 x i32> %extract_last)
-  %2 = sext <8 x i32> %extract_word_at to <8 x i64>
-  %extract_word_ptrs = getelementptr inbounds i8, ptr %table, <8 x i64> %2
+  %extract_word_up = getelementptr i8, ptr %table, i64 2147483648
+  %extract_word_flip = xor <8 x i32> %extract_word_at, splat (i32 -2147483648)
+  %2 = sext <8 x i32> %extract_word_flip to <8 x i64>
+  %extract_word_ptrs = getelementptr i8, ptr %extract_word_up, <8 x i64> %2
   %extract_word = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 1 %extract_word_ptrs, <8 x i1> splat (i1 true), <8 x i32> poison)
   %3 = sub <8 x i32> %extract, %extract_word_at
   %extract_shift = shl <8 x i32> %3, splat (i32 3)
@@ -28,8 +30,10 @@ extract_words:                                    ; preds = %read_bytes
   br label %extract_after
 
 extract_lanes:                                    ; preds = %read_bytes
-  %5 = sext <8 x i32> %extract to <8 x i64>
-  %extract_ptrs = getelementptr inbounds i8, ptr %table, <8 x i64> %5
+  %extract_ptrs_up = getelementptr i8, ptr %table, i64 2147483648
+  %extract_ptrs_flip = xor <8 x i32> %extract, splat (i32 -2147483648)
+  %5 = sext <8 x i32> %extract_ptrs_flip to <8 x i64>
+  %extract_ptrs = getelementptr i8, ptr %extract_ptrs_up, <8 x i64> %5
   %extract5 = tail call <8 x i8> @llvm.masked.gather.v8i8.v8p0(<8 x ptr> align 1 %extract_ptrs, <8 x i1> splat (i1 true), <8 x i8> poison)
   br label %extract_after
 
@@ -51,8 +55,10 @@ read_halfwords:
   %extract_off = shl <8 x i32> %extract, splat (i32 1)
   %extract_aligned = and <8 x i32> %extract_off, splat (i32 -4)
   %extract_word_at = tail call <8 x i32> @llvm.umin.v8i32(<8 x i32> %extract_aligned, <8 x i32> splat (i32 18))
-  %0 = zext nneg <8 x i32> %extract_word_at to <8 x i64>
-  %extract_word_ptrs = getelementptr inbounds nuw i8, ptr %table, <8 x i64> %0
+  %extract_word_up = getelementptr i8, ptr %table, i64 2147483648
+  %extract_word_flip = or disjoint <8 x i32> %extract_word_at, splat (i32 -2147483648)
+  %0 = sext <8 x i32> %extract_word_flip to <8 x i64>
+  %extract_word_ptrs = getelementptr i8, ptr %extract_word_up, <8 x i64> %0
   %extract_word = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 2 %extract_word_ptrs, <8 x i1> splat (i1 true), <8 x i32> poison)
   %1 = sub <8 x i32> %extract_off, %extract_word_at
   %extract_shift = shl <8 x i32> %1, splat (i32 3)
@@ -71,13 +77,15 @@ read_nodes:
   tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract = load <8 x i32>, ptr %which, align 4
   %extract_off = mul <8 x i32> %extract, splat (i32 12)
-  %0 = sext <8 x i32> %extract_off to <8 x i64>
-  %extract_n_prims_word_ptrs = getelementptr inbounds i8, ptr %nodes, <8 x i64> %0
+  %extract_n_prims_word_up = getelementptr i8, ptr %nodes, i64 2147483648
+  %extract_n_prims_word_flip = xor <8 x i32> %extract_off, splat (i32 -2147483648)
+  %0 = sext <8 x i32> %extract_n_prims_word_flip to <8 x i64>
+  %extract_n_prims_word_ptrs = getelementptr i8, ptr %extract_n_prims_word_up, <8 x i64> %0
   %extract_n_prims_word = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 4 %extract_n_prims_word_ptrs, <8 x i1> splat (i1 true), <8 x i32> poison)
   %1 = lshr <8 x i32> %extract_n_prims_word, splat (i32 16)
   %2 = lshr <8 x i32> %extract_n_prims_word, splat (i32 24)
-  %extract_flip_word_base = getelementptr inbounds nuw i8, ptr %nodes, i64 4
-  %extract_flip_word_ptrs = getelementptr inbounds i8, ptr %extract_flip_word_base, <8 x i64> %0
+  %extract_flip_word_up = getelementptr i8, ptr %nodes, i64 2147483652
+  %extract_flip_word_ptrs = getelementptr i8, ptr %extract_flip_word_up, <8 x i64> %0
   %extract_flip_word = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 4 %extract_flip_word_ptrs, <8 x i1> splat (i1 true), <8 x i32> poison)
   %3 = and <8 x i32> %extract_n_prims_word, splat (i32 65535)
   %4 = and <8 x i32> %1, splat (i32 255)
@@ -98,9 +106,10 @@ read_tails:
   tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
   %extract = load <8 x i32>, ptr %which, align 4
   %extract_off = mul <8 x i32> %extract, splat (i32 5)
-  %extract_tag_word_base = getelementptr inbounds nuw i8, ptr %tails, i64 1
-  %0 = sext <8 x i32> %extract_off to <8 x i64>
-  %extract_tag_word_ptrs = getelementptr inbounds i8, ptr %extract_tag_word_base, <8 x i64> %0
+  %extract_offset_flip = xor <8 x i32> %extract_off, splat (i32 -2147483648)
+  %extract_tag_word_up = getelementptr i8, ptr %tails, i64 2147483649
+  %0 = sext <8 x i32> %extract_offset_flip to <8 x i64>
+  %extract_tag_word_ptrs = getelementptr i8, ptr %extract_tag_word_up, <8 x i64> %0
   %extract_tag_word = tail call <8 x i32> @llvm.masked.gather.v8i32.v8p0(<8 x ptr> align 1 %extract_tag_word_ptrs, <8 x i1> splat (i1 true), <8 x i32> poison)
   %1 = lshr <8 x i32> %extract_tag_word, splat (i32 24)
   store <8 x i32> %1, ptr %out, align 4
