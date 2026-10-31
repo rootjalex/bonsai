@@ -52,9 +52,9 @@ quotes, `<figure>.txt`: per reference and ray or point set the geomean over
 the plotted meshes, the least and greatest cell and which mesh each is, and
 notes reading the figure; and the mesh facts go in one table rather than
 on every plot, `rtq-meshes.txt` to read and `rtq-meshes.tex` to \\input
-(a booktabs tabular in the form of apps/pbrt's scene table: each mesh's file
-under pbrt-v4-scenes, triangles, camera hits, each reference's node count),
-so the tick labels are the mesh names alone.
+(the tex a booktabs tabular in the form of apps/pbrt's scene table: name, file
+under pbrt-v4-scenes, triangles; the txt those and the camera hits and each
+reference's node count), so the tick labels are the mesh names alone.
 
 The colours are the paper's one ramp, ColorBrewer's nine-class YlGnBu as
 apps/pbrt/figure_style.py has it (the user's palette, 10-23). The sets
@@ -356,33 +356,30 @@ def tex_number(n):
 
 
 def tex_file(path):
-    """A mesh's file for the tex table, in typewriter: the scene directory
-    and the file name with the `geometry/` between them elided (every mesh is
-    one PLY of its scene's geometry/, the note under the table says so), a
-    hash name cut to its first eight characters (the note gives it whole),
-    underscores escaped."""
-    scene, _, name = path.partition("/geometry/")
-    if not name:
-        scene, name = "", path
+    """A mesh's file for the tex table, in typewriter: its path under
+    pbrt-v4-scenes, a hash name cut to the eight characters that identify it
+    (the user, 10-30: not the whole 64-character name; a note under the
+    table says it is cut), underscores escaped."""
+    where, slash, name = path.rpartition("/")
     stem, dot, ext = name.partition(".")
     if len(stem) > 24 and all(c in "0123456789abcdef" for c in stem):
         name = stem[:8] + "\\ldots{}" + dot + ext
-    shown = f"{scene}/{name}" if scene else name
-    return "\\texttt{" + shown.replace("_", "\\_") + "}"
+    return "\\texttt{" + (where + slash + name).replace("_", "\\_") + "}"
 
 
 def mesh_table(rows, meshes, tris, schedules, out_dir, exclude):
     """The mesh facts in one table rather than on every plot (the user,
-    10-24): rtq-meshes.txt to read and rtq-meshes.tex to \\input, a booktabs
-    tabular in the form of apps/pbrt's scene table, a note under it. Each
-    mesh's file under pbrt-v4-scenes (the user, 10-30: the ad hoc names map
-    to exact files, for replicability; off the CSV's file column), its
-    triangles, its camera hits -- the pixels of the primary image the mesh
-    covers, which is the size of each secondary set (one ao ray, one diffuse
-    ray, one near point and one volume point a hit), read off Embree's ao row
-    since each reference's sets are made from its own primary hits and FCPW's
-    miss a few pixels of Embree's -- and the node count of each reference's
-    tree, read off its matching schedule's rows."""
+    10-24): rtq-meshes.txt to read and rtq-meshes.tex to \\input. The tex is
+    the paper's table, in the form of apps/pbrt's scene table, and holds the
+    name, the file under pbrt-v4-scenes (off the CSV's file column) and the
+    triangles alone (the user, 10-30: the ad hoc names map to exact files,
+    for replicability, and 'we don't need BVH statistics'). The txt holds
+    those and the rest: each mesh's camera hits -- the pixels of the primary
+    image the mesh covers, which is the size of each secondary set (one ao
+    ray, one diffuse ray, one near point and one volume point a hit), read
+    off Embree's ao row since each reference's sets are made from its own
+    primary hits and FCPW's miss a few pixels of Embree's -- and the node
+    count of each reference's tree, read off its matching schedule's rows."""
     nodes = {}
     hits = {}
     files = {}
@@ -427,52 +424,40 @@ def mesh_table(rows, meshes, tris, schedules, out_dir, exclude):
             f.write(f"\nleft out of the figures: {', '.join(sorted(exclude))}\n")
     print(txt)
     tex = os.path.join(out_dir, "rtq-meshes.tex")
-    node_columns = [i for i, (h, _) in enumerate(columns) if h.endswith(" nodes")]
+    tex_columns = [i for i, (h, _) in enumerate(columns) if h in ("mesh", "file", "triangles")]
     with open(tex, "w") as f:
         f.write("% apps/rtq/plot.py: the meshes of the rtq figures, in order of triangle\n"
-                "% count: each one's file under pbrt-v4-scenes, its triangles, its camera\n"
-                "% hits (the pixels of the 1024 by 1024 primary image it covers, the size of\n"
-                "% each secondary set) and the node count of each reference's tree.\n"
-                "% \\usepackage{booktabs}; wrap in a table with a caption, as apps/pbrt's\n"
-                "% scene table is.\n")
-        f.write("\\begin{tabular}{@{}" + "l" * text_columns + "r" * (len(columns) - text_columns)
+                "% count: the benchmark name, the file under pbrt-v4-scenes and the\n"
+                "% triangles. \\usepackage{booktabs}; wrap in a table with a caption, as\n"
+                "% apps/pbrt's scene table is. The camera hits and the node counts are in\n"
+                "% rtq-meshes.txt.\n")
+        f.write("\\begin{tabular}{@{}"
+                + "".join("r" if columns[i][0] == "triangles" else "l" for i in tex_columns)
                 + "@{}}\n\\toprule\n")
-        if len(node_columns) > 1:
-            f.write(" & " * node_columns[0]
-                    + f"\\multicolumn{{{len(node_columns)}}}{{c}}{{tree nodes}} \\\\\n")
-            f.write(f"\\cmidrule(lr){{{node_columns[0] + 1}-{node_columns[-1] + 1}}}\n")
-            heads = [h[:-len(" nodes")] if h.endswith(" nodes") else h for h, _ in columns]
-        else:
-            heads = [h for h, _ in columns]
-        f.write(" & ".join(heads) + " \\\\\n\\midrule\n")
-        for row in table:
+        f.write(" & ".join(columns[i][0] for i in tex_columns) + " \\\\\n\\midrule\n")
+        cut = []
+        for m, row in zip(meshes, table):
             cells = []
-            for (h, _), v in zip(columns, row):
+            for i in tex_columns:
+                h, v = columns[i][0], row[i]
                 if h == "file":
                     cells.append(tex_file(v))
+                    if "\\ldots" in cells[-1]:
+                        cut.append(m)
                 elif isinstance(v, int):
                     cells.append(tex_number(v))
                 else:
                     cells.append(str(v))
             f.write(" & ".join(cells) + " \\\\\n")
         f.write("\\bottomrule\n\\end{tabular}\n")
-        # The note under the table, in the form of apps/pbrt's scene table:
-        # what the file column elides, and what the other columns count.
-        notes = []
-        if files:
-            notes.append("Each mesh is one PLY of a pbrt-v4-scenes scene, in that scene's "
-                         "\\texttt{geometry/} directory (elided from the path).")
-            for m in meshes:
-                if m in files and "\\ldots" in tex_file(files[m]):
-                    whole = files[m].rpartition("/")[2].replace("_", "\\_")
-                    notes.append(f"{m}'s file is \\texttt{{{whole}}}.")
-        notes.append("Camera hits: the pixels of the $1024\\times1024$ primary image the mesh "
-                     "covers, the size of each of its secondary query sets.")
-        if len(node_columns) > 1:
-            notes.append("Tree nodes: each reference's tree over the mesh"
-                         + ("; FCPW's normal cone hierarchy has as many nodes as its binary BVH."
-                            if any(h == "FCPW binary BVH nodes" for h, _ in columns) else "."))
-        f.write("\\par\\smallskip{\\raggedright\\noindent " + " ".join(notes) + "\\par}\n")
+        # A note under the table, in the form of apps/pbrt's scene table, only
+        # for a file name cut to the characters that identify it.
+        if cut:
+            f.write("\\par\\smallskip{\\raggedright\\noindent " + ", ".join(cut)
+                    + ("'s file name is cut to the characters that identify it."
+                       if len(cut) == 1 else
+                       "'s file names are cut to the characters that identify them.")
+                    + "\\par}\n")
     print(tex)
 
 

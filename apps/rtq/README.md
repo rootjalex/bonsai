@@ -464,11 +464,11 @@ driver, the two sides' kernels told apart by symbol).
   figure a `.txt` of the statistics the paper quotes (per reference and
   set the geomean, the least and greatest cell and its mesh, notes reading
   the figure), and the mesh facts in one table rather than on every plot,
-  `rtq-meshes.txt` and `rtq-meshes.tex` (a tabular to `\input` in the form
-  of apps/pbrt's scene table, a note under it: each mesh's file under
+  `rtq-meshes.txt` and `rtq-meshes.tex` (the tex a tabular to `\input` in
+  the form of apps/pbrt's scene table: each mesh's name, its file under
   pbrt-v4-scenes -- the benchmark names are ad hoc, the file is the exact
-  one measured -- its triangles, its camera hits and each reference's node
-  count), so the figures carry the mesh names alone. Each reference on
+  one measured -- and its triangles; the txt those and the camera hits and
+  each reference's node count), so the figures carry the mesh names alone. Each reference on
   its own default tree: Embree's BVH8 (`embree`) and FCPW's four-wide Mbvh
   with sixteen-lane leaves (`fcpw4w16` -- FCPW's default branching, the
   tree its author calls the better tested, and the leaf width its build
