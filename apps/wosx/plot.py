@@ -10,8 +10,10 @@ steps per second, the speedup).
 
 Two CPU figures, one per tree, the meshes along the x axis in order of
 triangle count and two bars a mesh; a bar is bonsai's rate over WoSX's
-on that cell, the y axis reads Speedup, and the dashed line at 1, in the
-legend, is WoSX:
+on that cell, the y axis reads "Speedup over WoSX (parallel)" -- the
+matching schedule in parentheses, or plain "Speedup over WoSX" where the
+full label would outrun the axes (the user, 10-31) -- and the dashed line
+at 1 is WoSX, drawn without a legend entry since the axis names it:
 
   wosx-cpu-fcpw4w16-speedup  FCPW's four-wide tree, both sides vectorized
                              (`fcpw4w16*`)
@@ -125,7 +127,6 @@ import sys
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 from matplotlib.ticker import MultipleLocator  # noqa: E402
 
@@ -374,6 +375,10 @@ GPU_STEPS = [
     ("defer-chunk2", "persistent", "the compacting block wavefront of two points' walks, against the persistent claim"),
 ]
 REFERENCE = "WoSX"
+# The y axis of every figure: the bars are speedups over WoSX, with the
+# matching schedule's name added in parentheses where the axes are tall
+# enough for it (figure()).
+SHORT_YLABEL = f"Speedup over {REFERENCE}"
 
 
 def load(path):
@@ -446,18 +451,30 @@ def figure(rows, meshes, bars, ylabel, height, fig_width=TEXT_WIDTH):
     ax.set_xlim(-0.6, len(meshes) - 0.4)
     ax.set_ylim(0, top * 1.08)
     ax.yaxis.set_major_locator(MultipleLocator(0.5))
+    # The y axis says what the bars are over -- "Speedup over WoSX
+    # (parallel)" on the CPU figures, "(persistent)" on the GPU's, the
+    # matching schedule's name -- so that the reference line needs no
+    # legend entry (the user, 10-31). Where the full label would run past
+    # the axes' height (the figures are short), the plain "Speedup over
+    # WoSX" is drawn instead, as the user asked.
     ax.set_ylabel(ylabel)
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    label_height = ax.yaxis.label.get_window_extent(renderer).height
+    if label_height > 0.8 * ax.get_window_extent(renderer).height:
+        print(f"the y label {ylabel!r} would outrun the axes; the axis reads {SHORT_YLABEL!r}",
+              file=sys.stderr)
+        ax.set_ylabel(SHORT_YLABEL)
     for spine in ("top", "right"):
         ax.spines[spine].set_visible(False)
     ax.yaxis.grid(True, linewidth=0.4, alpha=0.5, zorder=0)
     ax.set_axisbelow(True)
-    # The reference line leads the legend, then a patch per schedule, as
-    # apps/pbrt's figures have it: one row up to five entries, else as many
-    # columns as the figure is wide for.
-    handles = [Line2D([], [], color=line.get_color(), linestyle=line.get_linestyle(),
-                      linewidth=line.get_linewidth(), label=REFERENCE)]
-    handles += [Patch(facecolor=colour, edgecolor=EDGE, linewidth=0.4, label=label)
-                for _, label, colour in drawn]
+    # A patch per schedule in the legend, as apps/pbrt's figures have it:
+    # one row up to five entries, else as many columns as the figure is
+    # wide for. The reference line at 1 is drawn but not listed: the y
+    # axis names it (the user, 10-31).
+    handles = [Patch(facecolor=colour, edgecolor=EDGE, linewidth=0.4, label=label)
+               for _, label, colour in drawn]
     rows_above = legend_above(fig, ax, handles)
     # A legend of more than two rows takes its extra rows from the height,
     # not from the axes.
@@ -632,7 +649,8 @@ def draw_cpu(rows, out_dir, formats, exclude, trees, width=TEXT_WIDTH):
     meshes, tris = meshes_by_triangles(rows, exclude)
     for base, name, what in trees:
         bars = cpu_bars(base)
-        fig, drawn = figure(rows, meshes, bars, "Speedup", height=1.7, fig_width=width)
+        fig, drawn = figure(rows, meshes, bars, f"{SHORT_YLABEL} (parallel)", height=1.7,
+                            fig_width=width)
         if fig is None:
             print(f"{name}: no rows for {base}'s schedules; skipped", file=sys.stderr)
             continue
@@ -662,7 +680,8 @@ def draw_gpu(rows, schedules, out_dir, formats, exclude, stars, width=TEXT_WIDTH
     known = {s: (label, colour) for s, label, colour in (STARS_GPU_BARS if stars else GPU_BARS)}
     bars = [(s, *known.get(s, (s, RAMP8[-1]))) for s in schedules]
     # A little taller: seven bars a mesh and a legend of two rows above them.
-    fig, drawn = figure(rows, meshes, bars, "Speedup", height=2.0 if len(bars) > 5 else 1.7,
+    fig, drawn = figure(rows, meshes, bars, f"{SHORT_YLABEL} (persistent)",
+                        height=2.0 if len(bars) > 5 else 1.7,
                         fig_width=width)
     if fig is None:
         print(f"no rows for {schedules}; nothing drawn", file=sys.stderr)

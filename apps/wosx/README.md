@@ -194,7 +194,10 @@ threads, sixteen persistent workers against WoSX's threads -- each
 bonsai's rate over WoSX's (an application is measured in parallel under
 the schedule the reference runs; the one-thread cell below is a check by
 name, and no bar), the y axis
-Speedup and the dashed line at 1 WoSX, named in the legend, the colours
+"Speedup over WoSX (parallel)" -- the matching schedule named, "(persistent)"
+on the GPU figures, or plain "Speedup over WoSX" where the full label would
+outrun the axes (the user, 10-31) -- and the dashed line at 1 WoSX, drawn
+without a legend entry since the axis names it, the colours
 apps/pbrt's figures' (the user, 10-29): the paper's YlGnBu ramp at eight
 equal steps laid over each figure's bars in the legend's order, palest
 first, `parallel` and `persistent` the same shades on the CPU and GPU
