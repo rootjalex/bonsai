@@ -26,6 +26,14 @@
 #                              reasons), from
 #                              profile_kernels.sh's reports in profile-out
 #                              (plot_gpu_profile.py; the user, 10-28)
+#   plots/pbrt-gpu-depth.pdf   why the wavefronts lose on a deep scene:
+#                              frame542's share of paths alive at each
+#                              bounce (pbrt --gpu's statistics) beside the
+#                              wall time of pbrt --gpu, the matching
+#                              wavefront and the flat megakernel with
+#                              reordering at depth caps 4, 16, 64, 256
+#                              (the depth sweep of 10-30, depth-out/;
+#                              plot_gpu_depth.py; 10-31)
 #   plots/scene_statistics.txt every scene of the figures described -- its
 #                              triangles, meshes, instances, materials and
 #                              their kinds, textures, lights, resolution,
@@ -63,7 +71,12 @@ OUT="$PREFIX/plots"
 # compiler); the 10-23/24 tables were cpu-compare-out/ (deleted 10-30 with
 # every run directory older than a week, at the user's word; PLAN has its
 # numbers) and cpu-compare-out-sortfix/.
-CPU_CSVS="${CPU_CSVS:-$PREFIX/cpu-compare-out-six/cpu-results.csv}"
+# cpu-compare-out-two/ (10-30/31 night, 23:34-02:12, the same nine sides
+# and compiler) holds smoke-plume's and frame542's cells, the sweep's
+# seventh and eighth scenes; its two plume scalar rows were measured again
+# at 02:29 under the spread rule (cpu_compare.sh's header), the rest of
+# the table as the sweep left it.
+CPU_CSVS="${CPU_CSVS:-$PREFIX/cpu-compare-out-six/cpu-results.csv $PREFIX/cpu-compare-out-two/cpu-results.csv}"
 # The GPU sweep of 10-30 morning (09:37-11:13, scratch/run_six_scenes.sh):
 # the paper figure's eight sides on the six scenes at 16 and 128 spp (the
 # user's set of 10-30: killeroo-gold, book, sanmiguel-courtyard, ganesha,
@@ -129,10 +142,19 @@ GPU_SIDES="${GPU_SIDES:-gpu-optix,gpu-optix-sort,gpu-optix-fused,gpu-optix-fused
 PROFILES="${PROFILES:-$PREFIX/profile-out-e}"
 PROFILE_CELLS="${PROFILE_CELLS:-ganesha:16 killeroo-gold:16}"
 PROFILE_SIDES="${PROFILE_SIDES:-gpu-optix,gpu-optix-mega-flat,gpu-optix-mega-ser-flat}"
+# The depth figure's runs (10-30, 22:17-22:26, scratch/post_confirm_gpu.sh;
+# the user: why frame542's megakernels are 18-20x): the depth sweep's
+# table (16 spp, the scene's maxdepth rewritten to 4, 16, 64 and 256, the
+# least of three on each side, every image checked against pbrt's CPU
+# integrator at that depth), pbrt --gpu's statistics of the full-depth
+# frame at 128 spp, and the sweep's log for each bar's verdict.
+DEPTH_TABLE="${DEPTH_TABLE:-$PREFIX/depth-out/frame542-depth.tsv}"
+DEPTH_STATS="${DEPTH_STATS:-$PREFIX/depth-out/frame542-s128.pbrt.stats}"
+DEPTH_LOG="${DEPTH_LOG:-$PREFIX/depth-out/post_confirm_gpu.log}"
 png=0
 [[ "${1:-}" == "--png" ]] && png=1
 
-for f in $CPU_CSVS $GPU_TABLES $HEATMAP_TABLE; do
+for f in $CPU_CSVS $GPU_TABLES $HEATMAP_TABLE $DEPTH_TABLE $DEPTH_STATS $DEPTH_LOG; do
   [[ -f "$f" ]] || { echo "plots.sh: no $f" >&2; exit 1; }
 done
 [[ -d "$PROFILES" ]] || { echo "plots.sh: no $PROFILES (profile_kernels.sh writes it)" >&2; exit 1; }
@@ -156,5 +178,6 @@ for ext in "${formats[@]}"; do
   python3 "$PREFIX/plot_gpu_wavefront.py" $GPU_TABLES --sides "$GPU_SIDES" --scenes "$SWEEP_SCENES" --ymax "$GPU_YMAX" $CUT_FLAGS -o "$OUT/pbrt-gpu-sweep.$ext"
   python3 "$PREFIX/plot_gpu_heatmap.py" "$OUT/pbrt-gpu-heatmap.$ext" "$HEATMAP_TABLE" --sort geometry
   python3 "$PREFIX/plot_gpu_profile.py" "${cells[@]}" --sides "$PROFILE_SIDES" --profiles "$PROFILES" -o "$OUT/pbrt-gpu-profile.$ext"
+  python3 "$PREFIX/plot_gpu_depth.py" "$DEPTH_TABLE" --stats "$DEPTH_STATS" --log "$DEPTH_LOG" -o "$OUT/pbrt-gpu-depth.$ext"
 done
 ls -la "$OUT"

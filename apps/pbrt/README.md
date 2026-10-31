@@ -125,7 +125,16 @@ before it.
   renderer compiled once up front (`DIR/renderers`), then one compare.sh run
   per schedule per cell, `scalar` against pbrt's volpath and the wavefront
   schedules against `pbrt --wavefront`, pbrt rendered once per cell and
-  kept for the cell's schedules (`compare.sh --pbrt-cache`). Writes
+  kept for the cell's schedules (`compare.sh --pbrt-cache`). Every image
+  is checked against pbrt's wavefront render, the algorithm the program
+  implements: `scalar`'s against the cell's cached one while its time is
+  the CPU integrator's (`compare.sh --check-against-wavefront`; the
+  verdict reads "matches pbrt's wavefront"), since on a medium scene
+  pbrt's two integrators differ by design -- smoke-plume's wavefront is
+  0.9335x of its CPU integrator's image, as ours is, and against the CPU
+  integrator the scalar read FAILED (10-31). A cell whose check fails is
+  held against pbrt's own spread as the GPU table's cells are
+  (`compare.sh --pbrt-spread`; the rule of 10-18). Writes
   `DIR/cpu-results.csv` (a row per scene, spp and side: seconds, speedup,
   verdict, load, time, log, and the scene's path under the scene set,
   which tells kroken's camera-1 from watercolor's), the logs it was read
@@ -224,6 +233,18 @@ before it.
     where the wavefront wins, and killeroo-gold, where the SER megakernel
     does, at 16 spp (plot_gpu_profile.py from profile-out-e, the reports
     profile_kernels.sh writes; the user, 10-28);
+  - `pbrt-gpu-depth.pdf`: why the wavefronts lose on a deep scene, two
+    panels on frame542 (the dielectric machines, paths of up to 256
+    bounces): the share of camera paths still alive at each bounce, from
+    `pbrt --gpu`'s own statistics (13% leave the first bounce, 0.06% the
+    last), beside the wall time of `pbrt --gpu`, the matching wavefront
+    and the flat megakernel with reordering at 16 spp with the scene's
+    depth capped at 4, 16, 64 and 256 -- the wavefronts' time grows with
+    the cap long after the queues have emptied (a round of launches for
+    every bounce any path reaches), the megakernel's barely (one launch,
+    the longest path's time); seconds, so the growth itself shows, the
+    speedups at each cap in the .txt (plot_gpu_depth.py from depth-out/,
+    the depth sweep of 10-30; 10-31);
   - `scene_statistics.txt` (and `.tex`): every scene of the figures
     described -- triangles, meshes, instances, materials and their kinds,
     textures, lights, resolution, depth, rays per camera ray, `pbrt
@@ -235,7 +256,7 @@ before it.
     no file name and the table no asterisk (scene_statistics.py; the user,
     10-29 and 10-30).
 
-  The four figures are drawn for the paper's page (figure_style.py): ACM's
+  The five figures are drawn for the paper's page (figure_style.py): ACM's
   acmsmall format, a 5.478 in text block, so each PDF is exactly that
   wide and `\includegraphics[width=\textwidth]` does not rescale it;
   labels and legends 8 pt and tick labels 7 pt as printed (the user,
@@ -324,6 +345,15 @@ before it.
   in cycles, lanes, SASS size and the lanes of each function in the
   launch (the raygen's continuations before and after the first trace,
   the hit and miss programs), and where the reading is in PLAN.md.
+- `plot_gpu_depth.py TABLE.tsv --stats STATS [--log LOG] -o OUT.pdf`: the
+  depth figure from the depth sweep's table (scene, spp, maxdepth, side,
+  wall_s, note; one scene at one sample count), `pbrt --gpu`'s `--stats`
+  output of the full-depth frame (its "Indirect rays, depth d" counters
+  over its camera rays give the share alive at each bounce) and the
+  sweep's log (each bar's image check). Beside it `<figure>.txt`: each
+  schedule's speedup over `pbrt --gpu` across the caps (range and geomean
+  first), the share alive at each bounce drawn, every bar's seconds with
+  its verdict, pbrt's launch counts and trace-kernel times, the reading.
 - `plot_gpu_table.py OUT.png TABLE.tsv...`: the tables gpu_compare.sh
   wrote, plotted -- each schedule's speedup over `pbrt --gpu` and every
   side's kernel time, a group of bars per scene and a row of panels per
