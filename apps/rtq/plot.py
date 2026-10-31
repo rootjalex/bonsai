@@ -52,7 +52,7 @@ quotes, `<figure>.txt`: per reference and ray or point set the geomean over
 the plotted meshes, the least and greatest cell and which mesh each is, and
 notes reading the figure; and the mesh facts go in one table rather than
 on every plot, `rtq-meshes.txt` to read and `rtq-meshes.tex` to \\input
-(a booktabs tabular: triangles, each reference's node count), so the tick
+(a booktabs tabular: triangles, camera hits, each reference's node count), so the tick
 labels are the mesh names alone.
 
 The colours are the paper's one ramp, ColorBrewer's nine-class YlGnBu as
@@ -358,17 +358,26 @@ def mesh_table(rows, meshes, tris, schedules, out_dir, exclude):
     """The mesh facts in one table rather than on every plot (the user,
     10-24): rtq-meshes.txt to read and rtq-meshes.tex to \\input, a booktabs
     tabular. Each mesh's triangles and the node count of each reference's
-    tree, read off its matching schedule's rows."""
+    tree, read off its matching schedule's rows; and its camera hits, the
+    pixels of the primary image the mesh covers, which is the size of each
+    secondary set (one ao ray, one diffuse ray, one near point and one volume
+    point a hit), read off Embree's ao row -- each reference's sets are made
+    from its own primary hits, and FCPW's miss a few pixels of Embree's."""
     nodes = {}
+    hits = {}
     for r in rows:
         if r["schedule"] in schedules.values() and r.get("nodes"):
             nodes[(r["reference"], r["mesh"])] = int(r["nodes"])
+        if (r["schedule"] in schedules.values() and r["rays"] == "ao" and r.get("count")
+                and (r["reference"] == "embree" or r["mesh"] not in hits)):
+            hits[r["mesh"]] = int(r["count"])
         # FCPW's binary trees (the scalar figures'): the BVH's node count, and
         # the normal cone hierarchy's, which has as many nodes over the same
         # triangles.
         if r["schedule"] == "fcpwb" and r.get("nodes"):
             nodes[("fcpwb", r["mesh"])] = int(r["nodes"])
     columns = [("mesh", lambda m: m), ("triangles", lambda m: tris[m]),
+               ("camera hits", lambda m: hits.get(m, "")),
                ("Embree BVH8 nodes", lambda m: nodes.get(("embree", m), "")),
                ("FCPW Mbvh nodes", lambda m: nodes.get(("fcpw", m), ""))]
     if any(k[0] == "fcpwb" for k in nodes):
@@ -391,7 +400,9 @@ def mesh_table(rows, meshes, tris, schedules, out_dir, exclude):
     tex = os.path.join(out_dir, "rtq-meshes.tex")
     with open(tex, "w") as f:
         f.write("% apps/rtq/plot.py: the meshes of the rtq figures, in order of triangle\n"
-                "% count, with the node count of each reference's tree. \\usepackage{booktabs}.\n")
+                "% count, with the camera hits (the pixels of the 1024 by 1024 primary image\n"
+                "% the mesh covers, the size of each secondary set) and the node count of\n"
+                "% each reference's tree. \\usepackage{booktabs}.\n")
         f.write("\\begin{tabular}{l" + "r" * (len(columns) - 1) + "}\n\\toprule\n")
         f.write(" & ".join(h for h, _ in columns) + " \\\\\n\\midrule\n")
         for row in table:
