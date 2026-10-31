@@ -29,7 +29,23 @@
 # kept for the cell's other schedules (compare.sh --pbrt-cache, under
 # --out/pbrt-cache), so that every schedule of a cell is measured against the
 # same reference time and the same reference image. Every image is checked
-# against pbrt's as compare.sh checks it, and the CSV carries the verdict.
+# against pbrt's wavefront render, the algorithm the program implements (the
+# ruling of 2026-09-25), as compare.sh checks it, and the CSV carries the
+# verdict: the wavefront schedules against the render they are timed
+# against; `scalar`, timed against pbrt's CPU integrator as the same
+# execution shape, against the cell's cached wavefront render (compare.sh
+# --check-against-wavefront; the wavefront schedules run first so that it is
+# there), its verdict reading "matches pbrt's wavefront". A scene with a
+# participating medium is where that matters: pbrt's two integrators differ
+# there by design (PLAN.md's catalogue), and on smoke-plume pbrt's wavefront
+# is 0.9335x of its CPU integrator's image, as the scalar schedule's is
+# (10-31; checked against the CPU integrator it read FAILED, and under the
+# spread rule it failed by noise, 0.93345x against pbrt's own 0.93383x). A
+# cell whose check fails is still held against pbrt's own spread (compare.sh
+# --pbrt-spread; the user's rule of 2026-10-18, as gpu_compare.sh applies
+# it): the same scene by pbrt's other integrator, and the cell passes, `ok:
+# within pbrt's own disagreement`, when pbrt's two renders disagree by more
+# than ours does with the reference.
 #
 # The CSV (--out/cpu-results.csv) has one row per (scene, spp, side):
 #
@@ -67,8 +83,9 @@
 # 10-30 as too long for an eight-hour sweep). The default
 # schedules are the CPU wavefront study's (REPORT.md, 2026-10-21);
 # `--schedules` takes any list from schedules/ and `scalar` is always run
-# first against pbrt's volpath. Everything the run acts on is checked
-# before any of it starts.
+# last in a cell, against pbrt's volpath, so that the cell's wavefront
+# render is in the cache for its image check. Everything the run acts on
+# is checked before any of it starts.
 set -uo pipefail
 if [[ "$(pwd)" == */apps/pbrt ]]; then
   cd ../..
@@ -133,7 +150,9 @@ if [[ ! -f "$CSV" ]]; then
   echo "scene,spp,side,seconds,speedup,verdict,repeats,load,measured,log,path" > "$CSV"
 fi
 
-# `scalar` first (against pbrt's volpath), then the rest in the order given.
+# The wavefront schedules in the order given, then `scalar` (timed against
+# pbrt's volpath), whose image check's reference is the cell's wavefront
+# render, cached by then.
 WAVEFRONT_SCHEDULES=""
 for s in $SCHEDULES; do
   if [[ "$s" != scalar ]]; then WAVEFRONT_SCHEDULES="$WAVEFRONT_SCHEDULES $s"; fi
@@ -153,10 +172,12 @@ seconds_of() {  # path spp side -> the seconds column of that row
 
 # A field of a compare.sh log. The lines read are the ones compare.sh prints:
 # `pbrt: rendered <scene> in <s>s (...)`, the driver's `render seconds: <s>`,
-# and compare_gbuffer.py's verdict, the line starting `ok` or `FAILED`.
+# and compare_gbuffer.py's verdict, the last line starting `ok` or `FAILED`
+# (a check that failed and was held against the spread prints a second
+# verdict, which is the cell's).
 pbrt_seconds_in() { sed -n 's/^pbrt: rendered .* in \([0-9.]*\)s (.*/\1/p' "$1" | head -1; }
 ours_seconds_in() { sed -n 's/^render seconds: \([0-9.]*\)$/\1/p' "$1" | head -1; }
-verdict_in() { grep -m1 -E '^(ok|FAILED)' "$1" | tr ',' ';' | cut -c1-160; }
+verdict_in() { grep -E '^(ok|FAILED)' "$1" | tail -1 | tr ',' ';' | cut -c1-160; }
 speedup_of() { awk -v a="$1" -v b="$2" 'BEGIN { if (a != "" && b != "" && b > 0) printf "%.3f", a / b; }'; }
 load_now() { cut -d' ' -f1 /proc/loadavg; }
 
@@ -178,7 +199,7 @@ run_cell() {
   local t0; t0=$(date +%s)
   echo "== $name (load $load) at $(date +%H:%M:%S)"
   REPEATS="$REPEATS" WORK="$OUT/work" BONSAI_BUILD_DIR="$BONSAI_BUILD_DIR" \
-    bash "$PREFIX/compare.sh" "$@" --spp "$spp" --schedule "$sd" \
+    bash "$PREFIX/compare.sh" "$@" --spp "$spp" --schedule "$sd" --pbrt-spread \
     --renderer "$OUT/renderers/$sd.out" \
     "$SCENES_DIR/$sc.pbrt" > "$log" 2>&1
   local st=$?
@@ -239,7 +260,7 @@ for sc in $SCENES; do
       fi
     done
     if [[ " $SCHEDULES " == *" scalar "* ]] && ! have_row "$sc" "$spp" scalar; then
-      run_cell "$sc" "$spp" scalar pbrt-volpath --pbrt-cache "$OUT/pbrt-cache"
+      run_cell "$sc" "$spp" scalar pbrt-volpath --check-against-wavefront --pbrt-cache "$OUT/pbrt-cache"
     fi
   done
 done

@@ -71,6 +71,32 @@ PREFIX="apps/pbrt"
 # schedules wants, and pbrt is not rendered once per schedule. A run that
 # hits the cache says so on its output; without the option nothing is kept.
 #
+# `--check-against-wavefront` checks the image against pbrt's wavefront
+# render while the timed pbrt is its CPU integrator: the time is the CPU
+# integrator's, the reference image the wavefront's -- the algorithm this
+# program implements (the ruling of 2026-09-25 above), so the verdict reads
+# "matches pbrt's wavefront". For cpu_compare.sh's scalar schedule, timed
+# against pbrt's CPU integrator as the same execution shape. A scene with a
+# participating medium is where it matters: pbrt's two integrators differ
+# there by design (PLAN.md, "Where pbrt's own CPU volpath and its wavefront
+# differ": an interface crossing costs the wavefront a bounce, roulette
+# after a medium scatter, no emission at the last bounce), and on
+# smoke-plume pbrt's wavefront is 0.9335x of its CPU integrator's image, as
+# ours is (10-31). The wavefront's render comes from --pbrt-cache when a
+# timed run left it there (the timed run's key with `--wavefront` toggled;
+# cpu_compare.sh runs a cell's wavefront schedules before its scalar), else
+# pbrt renders it once, untimed. Under `--pbrt-wavefront` the timed render
+# is the wavefront's already and the option changes nothing.
+#
+# `--pbrt-spread` holds a failing image check against pbrt's own spread, the
+# user's rule of 2026-10-18 as gpu_compare.sh applies it: the same scene
+# rendered by pbrt's other integrator -- obtained as above, or the timed
+# render itself when the check's reference was the other integrator's --
+# and the check passes (`ok: within pbrt's own disagreement`) when pbrt's
+# two renders disagree with each other by more than ours disagrees with the
+# reference, on each check that failed (compare_gbuffer.py --pbrt-spread).
+# Without the option a failing check fails.
+#
 # `--build-renderer <path>` compiles the schedule's renderer -- the generated
 # module and the driver, exactly as a comparison builds them -- to <path>
 # and stops, rendering nothing; `--renderer <path>` runs a comparison with a
@@ -84,6 +110,8 @@ DUMP_OPTS=()
 MAXDEPTH=""
 SCHEDULE="${SCHEDULE:-packet}"
 PBRT_WAVEFRONT=0
+PBRT_SPREAD=0
+CHECK_WAVEFRONT=0
 PBRT_CACHE=""
 BUILD_RENDERER=""
 RENDERER=""
@@ -92,6 +120,14 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --pbrt-wavefront)
       PBRT_WAVEFRONT=1
+      shift
+      ;;
+    --pbrt-spread)
+      PBRT_SPREAD=1
+      shift
+      ;;
+    --check-against-wavefront)
+      CHECK_WAVEFRONT=1
       shift
       ;;
     --build-renderer)
@@ -631,14 +667,85 @@ python3 $PREFIX/to_png.py "$WORK/bonsai-radiance.pfm" \
 # alongside the image; an `rgb` one gives only the image -- so a scene nobody
 # wrote for this comparison is checked on its radiance, which is the thing it
 # was written to produce.
-COMPARE_ARGS=(--radiance "$WORK/pbrt-radiance.pfm" "$WORK/bonsai-radiance.pfm"
+# pbrt's other integrator's render of this scene -- the wavefront's when the
+# timed pbrt is its CPU integrator, the CPU integrator's when the timed pbrt
+# is the wavefront -- written to $1: from the cache when a timed run left it
+# there (the key is the timed run's with `--wavefront` toggled), else
+# rendered once, untimed, as gpu_compare.sh renders its spreads. For
+# --check-against-wavefront and --pbrt-spread above.
+OTHER_NAME="CPU integrator"
+if [[ "$PBRT_WAVEFRONT" == 0 ]]; then
+  OTHER_NAME="wavefront integrator (pbrt --wavefront)"
+fi
+other_render() {
+  local out="$1"
+  rm -f "$out"
+  local other=() f
+  for f in ${PBRT_FLAGS[@]+"${PBRT_FLAGS[@]}"}; do
+    if [[ "$f" != --wavefront ]]; then other+=("$f"); fi
+  done
+  if [[ "$PBRT_WAVEFRONT" == 0 ]]; then other+=(--wavefront); fi
+  if [[ -n "$PBRT_CACHE" ]]; then
+    local okey odir
+    okey="$SCENE|${other[*]-}|$MAXDEPTH|$REPEATS|$(stat -c %Y "$PBRT")|$(md5sum < <(pbrt_scene) | cut -d' ' -f1)"
+    odir="$PBRT_CACHE/$(echo -n "$okey" | md5sum | cut -d' ' -f1)"
+    if [[ -f "$odir/pbrt-radiance.pfm" ]]; then
+      cp "$odir/pbrt-radiance.pfm" "$out"
+      echo "the render of pbrt's $OTHER_NAME, from the cache ($odir, rendered $(cat "$odir/when"))."
+      return
+    fi
+  fi
+  echo "the render of pbrt's $OTHER_NAME, made once here, untimed."
+  local saved=(${PBRT_FLAGS[@]+"${PBRT_FLAGS[@]}"})
+  PBRT_FLAGS=(${other[@]+"${other[@]}"})
+  if [[ "$FILM" == "gbuffer" ]]; then
+    pbrt_render "$WORK/pbrt-other.exr"
+    "$IMGTOOL" convert --channels R,G,B --outfile "$out" \
+        "$WORK/pbrt-other.exr" >/dev/null
+  else
+    pbrt_render "$out"
+  fi
+  PBRT_FLAGS=(${saved[@]+"${saved[@]}"})
+}
+
+# The image check's reference: the timed pbrt's render, or under
+# --check-against-wavefront with a timed CPU integrator, pbrt's wavefront
+# render, the algorithm this program implements; the verdict names it.
+CHECK_REF="$WORK/pbrt-radiance.pfm"
+REFERENCE_NAME="pbrt"
+if [[ "$CHECK_WAVEFRONT" == 1 && "$PBRT_WAVEFRONT" == 0 ]]; then
+  echo "the image is checked against pbrt's wavefront render, the algorithm this" \
+       "program implements (the ruling of 2026-09-25); the timed pbrt is its CPU integrator:"
+  other_render "$WORK/pbrt-wavefront-radiance.pfm"
+  CHECK_REF="$WORK/pbrt-wavefront-radiance.pfm"
+  REFERENCE_NAME="pbrt's wavefront"
+fi
+COMPARE_ARGS=(--radiance "$CHECK_REF" "$WORK/bonsai-radiance.pfm"
               --pbrt-seconds "${PBRT_SECONDS:-0}"
-              --bonsai-seconds "${BONSAI_SECONDS:-0}" --repeats "$REPEATS")
+              --bonsai-seconds "${BONSAI_SECONDS:-0}" --repeats "$REPEATS"
+              --reference-name "$REFERENCE_NAME")
+
+# The spread (--pbrt-spread above): pbrt's other integrator's render
+# relative to the check's reference -- the timed render itself when the
+# reference was the other integrator's, else other_render's. Called only
+# once the first check has failed, so a passing cell never pays for it.
+SPREAD_FILE=""
+pbrt_spread() {
+  if [[ "$CHECK_REF" != "$WORK/pbrt-radiance.pfm" ]]; then
+    SPREAD_FILE="$WORK/pbrt-radiance.pfm"
+    echo "the spread is the timed pbrt's own render (its CPU integrator)."
+  else
+    other_render "$WORK/pbrt-spread-radiance.pfm"
+    SPREAD_FILE="$WORK/pbrt-spread-radiance.pfm"
+  fi
+}
+
+status=0
 if [[ "$GBUFFER" == "1" ]]; then
   python3 $PREFIX/compare_gbuffer.py "$WORK/pbrt.pfm" "$WORK/bonsai.pfm" \
       --shading "$WORK/pbrt-ns.pfm" "$WORK/bonsai-ns.pfm" \
       --albedo "$WORK/pbrt-albedo.pfm" "$WORK/bonsai-albedo.pfm" \
-      "${COMPARE_ARGS[@]}"
+      "${COMPARE_ARGS[@]}" || status=$?
 else
   if [[ "$FILM" == "gbuffer" ]]; then
     echo "pbrt's \"${PBRT_INTEGRATOR}\" fills no VisibleSurface, so its gbuffer is"
@@ -650,7 +757,16 @@ else
     echo "albedo and only the radiance is compared. Say \`Film \"gbuffer\"\`"
     echo "with \`\"bool savefp16\" false\` to get the other two."
   fi
-  python3 $PREFIX/compare_gbuffer.py --radiance-only "${COMPARE_ARGS[@]}"
+  python3 $PREFIX/compare_gbuffer.py --radiance-only "${COMPARE_ARGS[@]}" || status=$?
+  if [[ $status -ne 0 && "$PBRT_SPREAD" == 1 ]]; then
+    echo "the image differs from $REFERENCE_NAME's; held against pbrt's own spread" \
+         "(the rule of 2026-10-18), the verdict below replacing the one above:"
+    pbrt_spread
+    status=0
+    python3 $PREFIX/compare_gbuffer.py --radiance-only "${COMPARE_ARGS[@]}" \
+        --pbrt-spread "$SPREAD_FILE" || status=$?
+  fi
 fi
 
 rm -f "$WORK/render.out"
+exit $status
