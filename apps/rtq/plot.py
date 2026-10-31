@@ -52,8 +52,9 @@ quotes, `<figure>.txt`: per reference and ray or point set the geomean over
 the plotted meshes, the least and greatest cell and which mesh each is, and
 notes reading the figure; and the mesh facts go in one table rather than
 on every plot, `rtq-meshes.txt` to read and `rtq-meshes.tex` to \\input
-(a booktabs tabular: triangles, camera hits, each reference's node count), so the tick
-labels are the mesh names alone.
+(a booktabs tabular in the form of apps/pbrt's scene table: each mesh's file
+under pbrt-v4-scenes, triangles, camera hits, each reference's node count),
+so the tick labels are the mesh names alone.
 
 The colours are the paper's one ramp, ColorBrewer's nine-class YlGnBu as
 apps/pbrt/figure_style.py has it (the user's palette, 10-23). The sets
@@ -354,61 +355,124 @@ def tex_number(n):
     return f"{n:,}".replace(",", "\\,")
 
 
+def tex_file(path):
+    """A mesh's file for the tex table, in typewriter: the scene directory
+    and the file name with the `geometry/` between them elided (every mesh is
+    one PLY of its scene's geometry/, the note under the table says so), a
+    hash name cut to its first eight characters (the note gives it whole),
+    underscores escaped."""
+    scene, _, name = path.partition("/geometry/")
+    if not name:
+        scene, name = "", path
+    stem, dot, ext = name.partition(".")
+    if len(stem) > 24 and all(c in "0123456789abcdef" for c in stem):
+        name = stem[:8] + "\\ldots{}" + dot + ext
+    shown = f"{scene}/{name}" if scene else name
+    return "\\texttt{" + shown.replace("_", "\\_") + "}"
+
+
 def mesh_table(rows, meshes, tris, schedules, out_dir, exclude):
     """The mesh facts in one table rather than on every plot (the user,
     10-24): rtq-meshes.txt to read and rtq-meshes.tex to \\input, a booktabs
-    tabular. Each mesh's triangles and the node count of each reference's
-    tree, read off its matching schedule's rows; and its camera hits, the
-    pixels of the primary image the mesh covers, which is the size of each
-    secondary set (one ao ray, one diffuse ray, one near point and one volume
-    point a hit), read off Embree's ao row -- each reference's sets are made
-    from its own primary hits, and FCPW's miss a few pixels of Embree's."""
+    tabular in the form of apps/pbrt's scene table, a note under it. Each
+    mesh's file under pbrt-v4-scenes (the user, 10-30: the ad hoc names map
+    to exact files, for replicability; off the CSV's file column), its
+    triangles, its camera hits -- the pixels of the primary image the mesh
+    covers, which is the size of each secondary set (one ao ray, one diffuse
+    ray, one near point and one volume point a hit), read off Embree's ao row
+    since each reference's sets are made from its own primary hits and FCPW's
+    miss a few pixels of Embree's -- and the node count of each reference's
+    tree, read off its matching schedule's rows."""
     nodes = {}
     hits = {}
+    files = {}
     for r in rows:
         if r["schedule"] in schedules.values() and r.get("nodes"):
             nodes[(r["reference"], r["mesh"])] = int(r["nodes"])
         if (r["schedule"] in schedules.values() and r["rays"] == "ao" and r.get("count")
                 and (r["reference"] == "embree" or r["mesh"] not in hits)):
             hits[r["mesh"]] = int(r["count"])
+        if r.get("file"):
+            files[r["mesh"]] = r["file"]
         # FCPW's binary trees (the scalar figures'): the BVH's node count, and
         # the normal cone hierarchy's, which has as many nodes over the same
         # triangles.
         if r["schedule"] == "fcpwb" and r.get("nodes"):
             nodes[("fcpwb", r["mesh"])] = int(r["nodes"])
-    columns = [("mesh", lambda m: m), ("triangles", lambda m: tris[m]),
-               ("camera hits", lambda m: hits.get(m, "")),
-               ("Embree BVH8 nodes", lambda m: nodes.get(("embree", m), "")),
-               ("FCPW Mbvh nodes", lambda m: nodes.get(("fcpw", m), ""))]
+    columns = [("mesh", lambda m: m)]
+    if files:
+        columns.append(("file", lambda m: files.get(m, "")))
+    columns += [("triangles", lambda m: tris[m]),
+                ("camera hits", lambda m: hits.get(m, "")),
+                ("Embree BVH8 nodes", lambda m: nodes.get(("embree", m), "")),
+                ("FCPW Mbvh nodes", lambda m: nodes.get(("fcpw", m), ""))]
     if any(k[0] == "fcpwb" for k in nodes):
         columns.append(("FCPW binary BVH nodes", lambda m: nodes.get(("fcpwb", m), "")))
     table = [[f(m) for _, f in columns] for m in meshes]
+    text_columns = 2 if files else 1  # left-aligned: the name and the file
     txt = os.path.join(out_dir, "rtq-meshes.txt")
     with open(txt, "w") as f:
         widths = [max(len(h), *(len(f"{row[i]:,}" if isinstance(row[i], int) else str(row[i]))
                                 for row in table)) for i, (h, _) in enumerate(columns)]
-        f.write("  ".join(h.ljust(w) if i == 0 else h.rjust(w)
+        f.write("  ".join(h.ljust(w) if i < text_columns else h.rjust(w)
                           for i, ((h, _), w) in enumerate(zip(columns, widths))) + "\n")
         for row in table:
-            f.write("  ".join((str(v) if i == 0 else f"{v:,}" if isinstance(v, int) else str(v))
-                              .ljust(w) if i == 0 else
+            f.write("  ".join((str(v) if i < text_columns else f"{v:,}" if isinstance(v, int) else str(v))
+                              .ljust(w) if i < text_columns else
                               (f"{v:,}" if isinstance(v, int) else str(v)).rjust(w)
                               for i, (v, w) in enumerate(zip(row, widths))) + "\n")
+        if files:
+            f.write("\nfile: the mesh's path under the pbrt-v4-scenes checkout\n")
         if exclude:
             f.write(f"\nleft out of the figures: {', '.join(sorted(exclude))}\n")
     print(txt)
     tex = os.path.join(out_dir, "rtq-meshes.tex")
+    node_columns = [i for i, (h, _) in enumerate(columns) if h.endswith(" nodes")]
     with open(tex, "w") as f:
         f.write("% apps/rtq/plot.py: the meshes of the rtq figures, in order of triangle\n"
-                "% count, with the camera hits (the pixels of the 1024 by 1024 primary image\n"
-                "% the mesh covers, the size of each secondary set) and the node count of\n"
-                "% each reference's tree. \\usepackage{booktabs}.\n")
-        f.write("\\begin{tabular}{l" + "r" * (len(columns) - 1) + "}\n\\toprule\n")
-        f.write(" & ".join(h for h, _ in columns) + " \\\\\n\\midrule\n")
+                "% count: each one's file under pbrt-v4-scenes, its triangles, its camera\n"
+                "% hits (the pixels of the 1024 by 1024 primary image it covers, the size of\n"
+                "% each secondary set) and the node count of each reference's tree.\n"
+                "% \\usepackage{booktabs}; wrap in a table with a caption, as apps/pbrt's\n"
+                "% scene table is.\n")
+        f.write("\\begin{tabular}{@{}" + "l" * text_columns + "r" * (len(columns) - text_columns)
+                + "@{}}\n\\toprule\n")
+        if len(node_columns) > 1:
+            f.write(" & " * node_columns[0]
+                    + f"\\multicolumn{{{len(node_columns)}}}{{c}}{{tree nodes}} \\\\\n")
+            f.write(f"\\cmidrule(lr){{{node_columns[0] + 1}-{node_columns[-1] + 1}}}\n")
+            heads = [h[:-len(" nodes")] if h.endswith(" nodes") else h for h, _ in columns]
+        else:
+            heads = [h for h, _ in columns]
+        f.write(" & ".join(heads) + " \\\\\n\\midrule\n")
         for row in table:
-            f.write(" & ".join(tex_number(v) if isinstance(v, int) else str(v) for v in row)
-                    + " \\\\\n")
+            cells = []
+            for (h, _), v in zip(columns, row):
+                if h == "file":
+                    cells.append(tex_file(v))
+                elif isinstance(v, int):
+                    cells.append(tex_number(v))
+                else:
+                    cells.append(str(v))
+            f.write(" & ".join(cells) + " \\\\\n")
         f.write("\\bottomrule\n\\end{tabular}\n")
+        # The note under the table, in the form of apps/pbrt's scene table:
+        # what the file column elides, and what the other columns count.
+        notes = []
+        if files:
+            notes.append("Each mesh is one PLY of a pbrt-v4-scenes scene, in that scene's "
+                         "\\texttt{geometry/} directory (elided from the path).")
+            for m in meshes:
+                if m in files and "\\ldots" in tex_file(files[m]):
+                    whole = files[m].rpartition("/")[2].replace("_", "\\_")
+                    notes.append(f"{m}'s file is \\texttt{{{whole}}}.")
+        notes.append("Camera hits: the pixels of the $1024\\times1024$ primary image the mesh "
+                     "covers, the size of each of its secondary query sets.")
+        if len(node_columns) > 1:
+            notes.append("Tree nodes: each reference's tree over the mesh"
+                         + ("; FCPW's normal cone hierarchy has as many nodes as its binary BVH."
+                            if any(h == "FCPW binary BVH nodes" for h, _ in columns) else "."))
+        f.write("\\par\\smallskip{\\raggedright\\noindent " + " ".join(notes) + "\\par}\n")
     print(tex)
 
 

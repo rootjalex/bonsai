@@ -20,8 +20,12 @@
 #
 #   date,commit,machine,cpu,repeats,reference,schedule,width,mesh,triangles,
 #   nodes,leaves,query,rays,side,count,reference_rate,bonsai_rate,speedup,
-#   same,ties,differ,reference_found,bonsai_found,callbacks_per_query,units
+#   same,ties,differ,reference_found,bonsai_found,callbacks_per_query,units,
+#   file
 #
+# file is the mesh's path under the pbrt-v4-scenes checkout, off the
+# driver's `mesh: /.../pbrt-v4-scenes/<scene>/geometry/<file>` line, so a
+# row names the exact file it was measured on (the mesh table prints it).
 # query is nearest|any|closest|silhouette (the driver's intersect|occluded|
 # closest|silhouette); rays is primary|ao|diffuse|near|volume; reference is
 # embree, fcpw or fcpw-gpu (the schedules named -gpu, against FCPW's
@@ -50,7 +54,7 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$OUT" && ${#LOGS[@]} -gt 0 ]] || { echo "usage: tocsv.sh [options] [--keep old.csv] -o out.csv log..." >&2; exit 1; }
 
-HEADER="date,commit,machine,cpu,repeats,reference,schedule,width,mesh,triangles,nodes,leaves,query,rays,side,count,reference_rate,bonsai_rate,speedup,same,ties,differ,reference_found,bonsai_found,callbacks_per_query,units"
+HEADER="date,commit,machine,cpu,repeats,reference,schedule,width,mesh,triangles,nodes,leaves,query,rays,side,count,reference_rate,bonsai_rate,speedup,same,ties,differ,reference_found,bonsai_found,callbacks_per_query,units,file"
 TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
 
@@ -80,6 +84,7 @@ for log in "${LOGS[@]}"; do
       return "embree"
     }
     /^pinned to cpu / { cpu = $4; sub(/,$/, "", cpu) }
+    /^mesh: / { file = $2; sub(/^.*pbrt-v4-scenes\//, "", file); next }
     /^=== schedule / { schedule = $3; reference = reference_of(schedule); width = width_of(schedule); pside = ""; next }
     /^ +[0-9]+ triangles,/ { triangles = $1; next }
     /^tree: / {
@@ -114,9 +119,9 @@ for log in "${LOGS[@]}"; do
       if (rays == "primary") pside = int(sqrt(count) + 0.5)
       side = (side_given != "") ? side_given : pside
       units = (q == "closest" || q == "silhouette") ? "Mqueries/s" : "Mrays/s"
-      printf "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
+      printf "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
         date, commit, machine, cpu, repeats, reference, schedule, width, mesh, triangles, nodes, leaves,
-        query, rays, side, count, ref, ours, sp, same, ties, differ, rfound, bfound, cbq, units
+        query, rays, side, count, ref, ours, sp, same, ties, differ, rfound, bfound, cbq, units, file
     }
   ' "$log"
 done > "$TMP"
