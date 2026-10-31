@@ -191,7 +191,15 @@ before it.
   - `pbrt-gpu-sweep.pdf`: every measured OptiX schedule over `pbrt --gpu`
     on the same scenes x 16/128 spp (plot_gpu_wavefront.py from
     gpu-compare-out-six, the morning of 10-30's run under caa9eb9b, and
-    frame542's cells from gpu-compare-out-two, the evening's);
+    frame542's cells from gpu-compare-out-two, the evening's). Its speedup
+    axis is cut at 6x (plots.sh's GPU_YMAX; the user, 10-30: linear, never
+    log): a bar past the cutoff is drawn to it with a break mark and its
+    value over it, as frame542's megakernels are (6.2x to 20.4x). The CPU
+    figure's axis ends at 8x and cuts nothing (CPU_YMAX). Both legends
+    read the same way (the user, 10-30): pbrt's own megakernel where there
+    is one, then the schedule that matches pbrt's wavefront, the
+    wavefront's modifications by increasing departure, then this
+    renderer's megakernels, the ramp palest to darkest down the legend;
   - `pbrt-gpu-heatmap.pdf`: the matching GPU wavefront (gpu-optix) over
     `pbrt --gpu` on all thirty scenes x 16/64/128 spp, the scenes in
     order of the geometry pbrt built for them, volumes first (`--sort

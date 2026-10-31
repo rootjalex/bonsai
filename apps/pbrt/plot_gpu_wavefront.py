@@ -27,13 +27,14 @@ run, so a run's own reference never stands in for another's; a side in
 more than one table takes the last table's row (a re-measurement
 replaces what it re-measures), as the CPU figure's join does.
 
-The sides, in the user's order (10-23): the OptiX megakernel (`Bonsai mk`,
+The sides, in the user's order (10-30: the matched wavefront first, its
+modifications, then this renderer's megakernels, on both sweeps): pbrt's
+wavefront on the RT cores (`wf`, gpu-optix, the matching schedule), that
+wavefront with the ray queue sorted by the two-point Morton key before
+each trace (`wf-sort`, gpu-optix-sort), the OptiX megakernel (`mk`,
 gpu-optix-mega: a path per sample in one raygen program, tracing through
-OptiX), the same with shader execution reordering before the material
-stage (`Bonsai mk-ser`, gpu-optix-mega-ser), pbrt's wavefront on the RT
-cores (`Bonsai wf`, gpu-optix, the matching schedule) and that wavefront
-with the ray queue sorted by the two-point Morton key before each trace
-(`Bonsai wf-sort`, gpu-optix-sort). Every side traces through OptiX: the
+OptiX) and the same with shader execution reordering before the material
+stage (`mk-ser`, gpu-optix-mega-ser). Every side traces through OptiX: the
 user's rule for the GPU is to compare techniques on the ray tracing
 hardware alone, the software traversals (gpu.bonsai, gpu-wavefront.bonsai)
 having never won a cell. Since 10-27 the megakernel has three more shapes
@@ -74,11 +75,14 @@ REFERENCE = "pbrt --gpu"
 REFERENCE_LABEL = "PBRT wf"
 Y_LABEL = "Speedup"
 
-# (side in the table, label in the legend, colour): the drawing order, the
-# megakernels first and then the wavefronts, each family from its plain
-# schedule to its variants. The colour is the schedule's on every figure
-# (figure_style.SCHEDULE_COLOURS, keyed by the label).
+# (side in the table, label in the legend, colour): the drawing order (the
+# user, 10-30 evening) -- the wavefront that matches pbrt's first, then its
+# sorted variant, then the megakernels from the plain shape to the SER flat
+# one; the CPU figure reads the same way. The colour is the schedule's on
+# every figure (figure_style.SCHEDULE_COLOURS, keyed by the label).
 SIDES = [(side, label, SCHEDULE_COLOURS[label]) for side, label in [
+    ("gpu-optix", "wf"),              # pbrt's wavefront on the RT cores, matched
+    ("gpu-optix-sort", "wf-sort"),    # its ray queue sorted before each trace
     ("gpu-optix-mega", "mk"),
     # The megakernel's shapes of 10-27 (PLAN, 'the megakernel against
     # Dr.Jit's'): one thread per path with a launch per sample
@@ -98,12 +102,10 @@ SIDES = [(side, label, SCHEDULE_COLOURS[label]) for side, label in [
     # them or `--sides` asks; more than nine sides exceed the ramp, which
     # is why plots.sh names the paper's sides (GPU_SIDES).
     ("gpu-optix-mega-ser-ray", "mk-ser-ray"),
-    ("gpu-optix", "wf"),
     ("gpu-optix-b128", "wf-b128"),
     ("gpu-optix-b512", "wf-b512"),
     ("gpu-optix-fused", "wf-fused"),
     ("gpu-optix-fused-ser", "wf-fused-ser"),
-    ("gpu-optix-sort", "wf-sort"),
     ("gpu-optix-sort36", "wf-sort36"),
 ]]
 # Pairs of sides differing by one decision, for the summary's reading of

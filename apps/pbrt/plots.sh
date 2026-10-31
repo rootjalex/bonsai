@@ -90,12 +90,24 @@ GPU_TABLES="${GPU_TABLES:-$PREFIX/gpu-compare-out-six/table.tsv $PREFIX/gpu-comp
 # plotters' --scenes). A scene whose CPU sweep has not run yet is left out
 # of the CPU figure with a note.
 SWEEP_SCENES="${SWEEP_SCENES:-killeroos/killeroo-gold,pbrt-book/book,sanmiguel/sanmiguel-courtyard,ganesha/ganesha,sssdragon/dragon_10,bistro/bistro_vespa,transparent-machines/frame542}"
+# Where each sweep's speedup axis ends (the user, 10-30: a linear axis, cut
+# at 6x on the GPU sweep, never a log axis for speedups); a bar past the
+# cutoff is drawn to it with a break mark and its value over it (frame542's
+# megakernels, 6.2x to 20.4x over pbrt --gpu). The CPU sweep's bars run to
+# 7.7x with thirteen of them between 6x and 8x (killeroo-gold's and book's
+# per-thread wavefronts and megakernels), so its axis ends at 8x and cuts
+# nothing.
+GPU_YMAX="${GPU_YMAX:-6}"
+CPU_YMAX="${CPU_YMAX:-8}"
 # The heatmap of the same night (00:45-02:22), the gpu-optix renderer
 # reused from the sweep; compare-out-heatmap11/ is 10-27's under 39c67ab9.
 HEATMAP_TABLE="${HEATMAP_TABLE:-$PREFIX/compare-out-heatmap12/table.tsv}"
 # The GPU sweep's sides, in drawing order (plot_gpu_wavefront.py's SIDES
-# names them): the megakernel family, then the wavefront's.
-GPU_SIDES="${GPU_SIDES:-gpu-optix-mega,gpu-optix-mega-pass,gpu-optix-mega-flat,gpu-optix-mega-blocked,gpu-optix-mega-ser,gpu-optix-mega-ser-flat,gpu-optix,gpu-optix-sort}"
+# names them): the wavefront that matches pbrt's first, its sorted variant,
+# then the megakernel family from its plain shape to the SER flat one (the
+# user, 10-30 evening: on both sweeps pbrt's matched wavefront first, the
+# wavefront's modifications, then this renderer's megakernels).
+GPU_SIDES="${GPU_SIDES:-gpu-optix,gpu-optix-sort,gpu-optix-mega,gpu-optix-mega-pass,gpu-optix-mega-flat,gpu-optix-mega-blocked,gpu-optix-mega-ser,gpu-optix-mega-ser-flat}"
 # The profile figure's launches (the user, 10-28): profile_kernels.sh's
 # reports under profile-out-e (02:22-02:28 the same night, on the sweep's
 # renderers) -- the wavefront's trace kernel and the two flat megakernels
@@ -123,13 +135,13 @@ python3 "$PREFIX/scene_statistics.py" $HEATMAP_TABLE --sweep $GPU_TABLES -o "$OU
 formats=(pdf)
 (( png )) && formats+=(png)
 for ext in "${formats[@]}"; do
-  python3 "$PREFIX/plot_cpu_wavefront.py" $CPU_CSVS --scenes "$SWEEP_SCENES" -o "$OUT/pbrt-cpu-sweep.$ext"
+  python3 "$PREFIX/plot_cpu_wavefront.py" $CPU_CSVS --scenes "$SWEEP_SCENES" --ymax "$CPU_YMAX" -o "$OUT/pbrt-cpu-sweep.$ext"
   # The paper's four GPU sides (10-24) and the three megakernel shapes of
   # 10-27 (the user: the GPU figures other than the heatmap gain them):
   # seven, within the ramp's nine; the exploration sides the tables also
   # hold (wf-b128, wf-b512, wf-fused, wf-sort36, mk-ser-ray) are drawn by
   # naming them in GPU_SIDES.
-  python3 "$PREFIX/plot_gpu_wavefront.py" $GPU_TABLES --sides "$GPU_SIDES" --scenes "$SWEEP_SCENES" -o "$OUT/pbrt-gpu-sweep.$ext"
+  python3 "$PREFIX/plot_gpu_wavefront.py" $GPU_TABLES --sides "$GPU_SIDES" --scenes "$SWEEP_SCENES" --ymax "$GPU_YMAX" -o "$OUT/pbrt-gpu-sweep.$ext"
   python3 "$PREFIX/plot_gpu_heatmap.py" "$OUT/pbrt-gpu-heatmap.$ext" "$HEATMAP_TABLE" --sort geometry
   python3 "$PREFIX/plot_gpu_profile.py" "${cells[@]}" --sides "$PROFILE_SIDES" --profiles "$PROFILES" -o "$OUT/pbrt-gpu-profile.$ext"
 done

@@ -267,26 +267,34 @@ RAMP8 = ["#EDF8B1", "#ADDFB7", "#69C4BF", "#30A4C2", "#1F7EB7", "#2357A4", "#213
 
 # Legend label -> colour, for every schedule a figure of apps/pbrt draws
 # (the labels are plot_cpu_wavefront.py's and plot_gpu_wavefront.py's).
+#
+# The order (the user, 10-30 evening): on both sweeps the schedule that
+# matches pbrt's wavefront comes first, then the wavefront's modifications
+# by increasing departure from it, then this renderer's megakernels; the
+# CPU figure's PBRT mk (pbrt's own megakernel, black) leads its legend.
+# The ramp runs palest to darkest down each legend, so the matched
+# wavefront is the palest bar of both sweeps and the last megakernel the
+# darkest.
 SCHEDULE_COLOURS = {
     "PBRT mk": PBRT_COLOUR,
     # The GPU sweep's legend, top to bottom.
-    "mk": RAMP8[0],                 # gpu-optix-mega
-    "mk-pass": RAMP8[1],
-    "mk-flat": RAMP8[2],
-    "mk-blk": RAMP8[3],
-    "mk-ser": RAMP8[4],
-    "mk-ser-flat": RAMP8[5],
-    "wf": RAMP8[6],                 # gpu-optix, pbrt's wavefront matched
-    "wf-sort": RAMP8[7],            # gpu-optix-sort
+    "wf": RAMP8[0],                 # gpu-optix, pbrt's wavefront matched
+    "wf-sort": RAMP8[1],            # gpu-optix-sort
+    "mk": RAMP8[2],                 # gpu-optix-mega
+    "mk-pass": RAMP8[3],
+    "mk-flat": RAMP8[4],
+    "mk-blk": RAMP8[5],
+    "mk-ser": RAMP8[6],
+    "mk-ser-flat": RAMP8[7],
     # The CPU sweep's legend, top to bottom (after PBRT mk).
-    "mk-b-s-ps": RAMP8[0],          # scalar: the GPU's mk, the same shade
-    "wf-b-s-sp": RAMP8[1],          # wavefront-frame, pbrt's wavefront matched
-    "wf-b-v-sp": RAMP8[2],
-    "wf-b-v-sp-sort": RAMP8[3],
-    "wf-t-s-ps": RAMP8[4],
-    "wf-t-v-ps": RAMP8[5],
-    "wf-t-v-sp": RAMP8[6],
-    "wf-t-v-ps-sort": RAMP8[7],     # the GPU's wf-sort, the same shade
+    "wf-b-s-sp": RAMP8[0],          # wavefront-frame, pbrt's wavefront matched
+    "wf-b-v-sp": RAMP8[1],
+    "wf-b-v-sp-sort": RAMP8[2],
+    "wf-t-s-ps": RAMP8[3],
+    "wf-t-v-ps": RAMP8[4],
+    "wf-t-v-sp": RAMP8[5],
+    "wf-t-v-ps-sort": RAMP8[6],
+    "mk-b-s-ps": RAMP8[7],          # scalar: this renderer's megakernel
     # The GPU exploration's sides of 10-24, drawn only when asked for
     # (--sides): they borrow shades, so a figure naming them should name
     # a set without a repeat (wf, wf-b128, wf-b512, wf-fused, wf-fused-ser,

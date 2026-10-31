@@ -97,8 +97,12 @@ EDGE = "#333333"             # every bar's thin edge
 # `-sort` when the rays queue is sorted by the two-point Morton key before
 # each trace pass. The code is read from the schedule file's directives.
 SIDES = [(side, label, SCHEDULE_COLOURS[label]) for side, label in [
+    # pbrt's own megakernel first, then the schedule that matches pbrt's
+    # wavefront, its modifications by increasing departure (the band's
+    # drains vectorized, then sorted; the per-thread queues, then their
+    # drains vectorized, the samples-outer order, the sort), and this
+    # renderer's megakernel last (the user, 10-30 evening).
     ("pbrt-volpath", "PBRT mk"),            # black (figure_style.PBRT_COLOUR)
-    ("scalar", "mk-b-s-ps"),
     ("wavefront-frame", "wf-b-s-sp"),
     ("wavefront-frame-packet", "wf-b-v-sp"),
     ("wavefront-frame-packet-reorder", "wf-b-v-sp-sort"),
@@ -106,6 +110,7 @@ SIDES = [(side, label, SCHEDULE_COLOURS[label]) for side, label in [
     ("wavefront-thread-packet", "wf-t-v-ps"),
     ("wavefront-thread-packet-reorder", "wf-t-v-sp"),
     ("wavefront-thread-packet-sort", "wf-t-v-ps-sort"),
+    ("scalar", "mk-b-s-ps"),
 ]]
 assert SIDES[0][2] == PBRT_COLOUR
 
@@ -299,6 +304,10 @@ def add_figure_arguments(ap):
     ap.add_argument("--height", type=float, default=2.4,
                     help="inches, the axes and the legend above them")
     ap.add_argument("--log", action="store_true", help="log-scale speedup axis")
+    ap.add_argument("--ymax", type=float, default=None,
+                    help="cut the speedup axis at this value: a bar past it is drawn to the "
+                         "cutoff with a break mark and its value written above (the user, "
+                         "10-30: no log axis for speedups; frame542's 20x bars)")
     ap.add_argument("--values", action="store_true", help="the speedup written on each bar")
     ap.add_argument("--title", default=None)
 
@@ -343,6 +352,23 @@ def choose_scenes(rows, wanted):
             print(f"no rows for scene {name}; left out", file=sys.stderr)
         chosen.extend(hit)
     return chosen
+
+
+def cut_mark(ax, x, top, half_width):
+    """The break across a bar cut at the axis top, as papers break a bar: a
+    gap in the page colour slanting across the bar a little under its cut
+    top, with a short black slash along each edge of the gap, a little
+    wider than the bar. After ~/projects/loom/plot_style.py's cut_mark (the
+    user, 10-30: use that mark). `top` is the bar's drawn height, the
+    cutoff; `half_width` half the bar's width in x units."""
+    from matplotlib.transforms import offset_copy
+    y = top - top * 0.07
+    xs = [x - half_width * 1.1, x + half_width * 1.1]
+    ys = [y - top * 0.012, y + top * 0.012]
+    ax.plot(xs, ys, color="white", linewidth=1.8, solid_capstyle="butt", zorder=7)
+    for pts in (-1.25, 1.25):
+        ax.plot(xs, ys, color="black", linewidth=0.5, solid_capstyle="butt", zorder=8,
+                transform=offset_copy(ax.transData, fig=ax.figure, x=0, y=pts, units="points"))
 
 
 def best_where(points, scenes, spps):
@@ -417,19 +443,26 @@ def draw(rows, sides, reference, reference_label, y_label, args, comparisons=(),
     x = 0.0
     scene_centres, spp_centres, spp_labels = [], [], []
     points = {label: [] for _, label, _ in sides}      # the bars, for the summary
+    cut_labels = []                                    # (x, text) of bars past --ymax
     for scene in scenes:
         scene_start = x
         for j, spp in enumerate(spps):
             group_start = x
+            cuts = 0                  # bars of this group past the cutoff
             for side, label, colour in sides:
                 c = cell(scene, spp, side)
                 ref = reference_of(c, scene, spp) if c is not None else None
                 if c is not None and ref is not None:
                     speedup = ref / c["seconds"]
                     points[label].append((f"{labels[scene]} {spp} spp", speedup))
-                    ax.bar(x, speedup, bar * 0.9, color=colour,
+                    cut = args.ymax is not None and speedup > args.ymax
+                    ax.bar(x, args.ymax if cut else speedup, bar * 0.9, color=colour,
                            edgecolor=EDGE, linewidth=0.3, zorder=2)
-                    if args.values:
+                    if cut:
+                        cut_mark(ax, x, args.ymax, bar * 0.45)
+                        cut_labels.append((x, f"{speedup:.1f}x"))
+                        cuts += 1
+                    if args.values and not cut:
                         ax.text(x, speedup, f"{speedup:.2f}", ha="center", va="bottom",
                                 fontsize=TICK_FONT - 2, rotation=90, zorder=4)
                 x += bar
@@ -441,6 +474,30 @@ def draw(rows, sides, reference, reference_label, y_label, args, comparisons=(),
         x += gap_scene
 
     right = x - gap_scene
+    if cut_labels:
+        # The cut bars' values on one line just over the cutoff, each over
+        # its bar; where neighbours would overprint, the left one moves
+        # left and the right one right until they clear (the user, 10-30:
+        # no stacking). The text's width is estimated from its characters
+        # at the axes' scale, the axes taken as the figure less its margin.
+        size = TICK_FONT - 1
+        per_point = (right + 2 * bar) / ((args.width - 0.8) * 72.0)   # x units a point
+        widths = [0.56 * size * len(text) * per_point for _, text in cut_labels]
+        xs = [x for x, _ in cut_labels]
+        for _ in range(100):
+            moved = False
+            for i in range(len(xs) - 1):
+                need = (widths[i] + widths[i + 1]) / 2 + 1.5 * per_point
+                gap = xs[i + 1] - xs[i]
+                if gap < need:
+                    xs[i] -= (need - gap) / 2
+                    xs[i + 1] += (need - gap) / 2
+                    moved = True
+            if not moved:
+                break
+        for xl, (_, text) in zip(xs, cut_labels):
+            ax.text(xl, args.ymax * 1.015, text, ha="center", va="bottom", fontsize=size,
+                    zorder=6, clip_on=False)
     reference_line = ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=0.8,
                                 zorder=3, label=reference_label)
     ax.set_xticks(spp_centres)
@@ -456,6 +513,10 @@ def draw(rows, sides, reference, reference_label, y_label, args, comparisons=(),
     ax.set_ylabel(y_label)
     if args.log:
         ax.set_yscale("log")
+    elif args.ymax is not None:
+        # Room above the cutoff for the cut bars' values, no tick past it.
+        ax.set_ylim(0, args.ymax * 1.24)
+        ax.set_yticks([t for t in ax.get_yticks() if 0 <= t <= args.ymax])
     else:
         top = ax.get_ylim()[1]
         ax.set_ylim(0, top * (1.12 if args.values else 1.04))
