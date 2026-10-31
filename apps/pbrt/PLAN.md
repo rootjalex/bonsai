@@ -19726,3 +19726,65 @@ megakernel's wins), READINGS (killeroo-gold, book, ganesha and sanmiguel
 rewritten against the six; dragon_10 and bistro written;
 killeroo-simple's kept for 10-28's table, undrawn) and CAUSES point at
 cpu-compare-out-six.
+
+**After the sweep: killeroo-coated-gold, clouds and frame542 on the GPU
+(10-30, 17:16-17:45; scratch/post_sweep_gpu.sh; gpu-compare-out-coated,
+gpu-compare-out-two, scratch/post-sweep).** Three short runs for the
+user's two questions of the afternoon, the eight GPU schedules of the
+figure at 16 and 128 spp, three repeats, the renderers reused from
+gpu-compare-out-six, no profiler. (1) *Why killeroo-gold alone favours
+the megakernel:* killeroo-coated-gold is killeroo-gold's geometry (532k
+triangles, 4 meshes, 2 disks), lights (one area light and one other)
+and camera with CoatedConductor in place of the Conductor (3.63 rays a
+camera ray against 3.75). pbrt --gpu pays 8% at 128 spp for it (1.32 s
+to 1.42; kernel 1197 ms to 1327); our wavefront 21% (0.581 s to 0.706;
+0.078 to 0.094 at 16), the sort 12%; and every megakernel 2.0-2.7x --
+the SER flat one 0.474 s to 1.269 (0.060 to 0.158 at 16), the flat 0.696
+to 1.516, the pass 0.722 to 1.566, the blocked 0.907 to 1.825, the SER
+1.066 to 2.255, the per-sample 1.479 to 3.895. On the coated scene the
+wavefront is best (2.34x and 2.01x), the SER flat megakernel 1.39x and
+1.12x, the flat 1.16x and 0.94x, the per-sample 0.46x and 0.36x -- so
+the Conductor's closed-form BSDF is what let the megakernel win
+killeroo-gold, and pbrt's layered BSDF, a stochastic random walk through
+the coat (CoatedConductor here, CoatedDiffuse on ganesha and book),
+costs a megakernel two to three times what it costs a wavefront, whose
+material kernel runs the walk with every lane on the same material
+(ganesha's profile, 9 lanes active and 44% no-instruction stalls in the
+megakernel, is consistent with this; not a proof). SER buys less once
+the walk diverges after the regrouping: the SER flat over the flat
+1.20x here against 1.44-1.47x on gold. (2) *"What if you added clouds
+and frame542":* **clouds** (a volume: one sphere, one Diffuse material,
+one light, depth 50, 7.29 rays a camera ray, 1920x1080; pbrt --gpu
+1.03 s and 7.54 s) -- the wavefront 1.57x and 1.44x (the heatmap's
+1.58x and 1.45x), the sort 1.20x and 1.10x, every megakernel 0.37-0.58x
+with the plain per-sample one the least bad (0.58x and 0.56x) and the
+SER ones 0.39-0.44x: the medium's delta-tracking walk diverges inside a
+megakernel's bounce loop and SER has no surface hit to regroup by (a
+reading; not profiled). **frame542** (transparent-machines: 1.3M
+triangles in 229 meshes, 5 instances, Dielectric and Diffuse, one
+light, depth 256, 2.81 rays a camera ray, 1920x840; pbrt --gpu 1.33 s
+and 10.34 s) -- the wavefront 1.66x and 1.62x (the heatmap's 1.66x and
+1.59x), the sort 0.92x and 0.90x, and every megakernel far ahead: the
+per-sample 6.2x and 6.5x, the pass 3.9x and 3.7x, the flat 4.7x and
+4.6x, the blocked 2.1x and 2.0x, the SER 8.1x and 8.7x, the SER flat
+**18.3x and 20.4x** (0.073 s and 0.507 s), the largest speedup measured
+on any scene. The reading: the paths are short (2.81 rays a camera ray)
+but the depth is 256, and a wavefront runs its round of launches for
+every bounce up to the depth while any path of the pass lives, so the
+passes pay rounds of nearly empty launches -- pbrt's kernel time is 47
+ns a camera path here against 6.6 on killeroo-gold, ours 27 against
+3.0, while the SER flat megakernel's is 2.8 against 2.6: a megakernel's
+thread leaves when its path dies. The sort below 1x is a sort a round on
+those near-empty queues. Not verified by a launch count (nsys would
+give it; no profiler without the user's word). One cell redone once
+(clouds, SER flat, 16 spp); every image matches pbrt's. (3) *Sizing
+their CPU blocks:* one pbrt CPU render each (its volpath, every core) at
+16 spp: clouds 30.9 s, frame542 3.5 s. frame542's CPU-to-GPU ratio is
+2.7 where bistro's and clouds' are 30, so the afternoon's guess of three
+hours for it (from bistro's ratio) was wrong. The six's blocks ran
+45-100x pbrt's CPU megakernel time at 16 spp and 30-50x at 128, so
+clouds would be about half an hour plus two to three and a half hours
+(~3 h) and frame542 five minutes plus a quarter of an hour (~0.5 h);
+neither has been rendered on the CPU by our schedules yet. Against the
+eight-hour budget: the six took six hours; with frame542 about six and a
+half; with clouds as well about nine and a half. The user decides.
