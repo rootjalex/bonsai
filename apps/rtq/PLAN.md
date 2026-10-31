@@ -8088,5 +8088,31 @@ three older per-query figures with them. The mesh table gains a camera
 hits column -- the pixels of the primary image the mesh covers, the size
 of each secondary set: 9,527 on zero-day to 344,769 on villa -- so the
 paper's methodology paragraph can point at it for the set sizes; plot.py
-regenerates it once bonsai-ac's wosx table is done (the machine is its
-until its 'done').
+regenerated it at 20:00 (the column takes Embree's hit count, f5dcc003).
+
+**The three Embree cells rechecked** (21:12-21:17, the machine idle after
+bonsai-ac's 'done' at 21:12; compare.sh's embree schedule at side 1024 and
+three repeats, twice over each of pavilion, ivy, villa, landscape, ganesha
+and dragon, into scratch/embree-recheck-1030/, the table untouched). Two of
+the three reproduce and one was spread:
+
+| cell | table 18:14 | pass 1 | pass 2 |
+|---|---|---|---|
+| pavilion, primary rays | 0.96 (70.7 / 68.0 Mr/s) | 0.99 (73.2 / 72.2) | 0.99 (72.5 / 71.5) |
+| landscape, primary rays | 0.95 (39.9 / 38.0) | 0.95 (39.9 / 37.8) | 0.95 (40.2 / 38.0) |
+| ivy, ambient occlusion | 0.95 (6.51 / 6.20) | 0.95 (6.66 / 6.33) | 0.95 (6.62 / 6.30) |
+
+Pavilion's 0.96 was the spread of a 15 ms run (both sides ran 3 to 6%
+faster on the recheck, ours more); its cell is 0.99, as at 2048. Villa's
+primary rays moved the same way (1.03 in the table, 1.07 and 1.06 on the
+recheck, our rate 32.3 against 33.4 and 33.5); ganesha and dragon held to
+a hundredth on every query. Landscape's primary rays and ivy's ambient
+occlusion are 0.95 three times over: real, and the 3% rule's open items.
+Landscape's primary rays stood at 1.01 over the 2048 image, so the loss is
+to the coarser image alone (a 1.9M-triangle terrain whose nodes stream
+from memory; half the angular density, neighbouring rays sharing fewer
+nodes -- the reading of 1. above, now with one mesh to read it on);
+ivy's ambient occlusion was 0.96 at 2048 too (26,110 rays, a 4 ms run,
+the smallest ray set of the twelve after zero-day's). The two traversals'
+memory stalls on those two cells are the thing to read next; the table
+stands as measured (one run's cells are not swapped for another's).
