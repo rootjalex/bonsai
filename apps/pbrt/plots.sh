@@ -100,7 +100,18 @@ CPU_CSVS="${CPU_CSVS:-$PREFIX/cpu-compare-out-six/cpu-results.csv $PREFIX/cpu-co
 # gpu-compare-out-plume/ (22:09-22:17, the six's renderers reused) holds
 # smoke-plume's, the eighth (the user: a participating medium, the one
 # axis the surface scenes lack, at a fifth of clouds' cost).
-GPU_TABLES="${GPU_TABLES:-$PREFIX/gpu-compare-out-six/table.tsv $PREFIX/gpu-compare-out-two/table.tsv $PREFIX/gpu-compare-out-plume/table.tsv}"
+# gpu-compare-out-wf3/ (10-31, 02:48-02:59) holds the fused wavefront
+# (gpu-optix-fused) on the eight scenes under the compiler at b72c215b --
+# the hoist carrying a size's arithmetic and a continuation with a
+# reordering hint keeping the raygen shape, which change nothing of the
+# eight schedules above (their renderers' key is the compiler's sources,
+# and the tables of 10-30 stand); gpu-compare-out-wf3b/ (09:06-09:20) the
+# fused wavefront with reordering by material (gpu-optix-fused-ser) on the
+# eight, every cell matching, beside the pass-of-four wavefront's rows
+# (gpu-optix-pass), which hold no time: it matched pbrt at 1 spp and dies
+# at 16 spp on every scene with an illegal address (PLAN, 10-31), so the
+# figure leaves that side out with a note until it renders.
+GPU_TABLES="${GPU_TABLES:-$PREFIX/gpu-compare-out-six/table.tsv $PREFIX/gpu-compare-out-two/table.tsv $PREFIX/gpu-compare-out-plume/table.tsv $PREFIX/gpu-compare-out-wf3/table.tsv $PREFIX/gpu-compare-out-wf3b/table.tsv}"
 # The sweeps' scenes, in the figures' order (the user, 10-29: pbrt --gpu's
 # time at 128 spp, ascending), keyed by path under the scene set; both
 # sweep figures draw these and only these from their tables (the

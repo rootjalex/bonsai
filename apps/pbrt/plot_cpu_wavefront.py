@@ -276,6 +276,30 @@ READINGS = {
         "wavefront is best at both counts, 11-18% over the unsorted. Its texture pool is past 2 GB:",
         "the packet schedules crashed on it before caa9eb9b (10-30); every cell matches pbrt now.",
     ],
+    "plume": [
+        "a smoke plume: a uniform-grid medium under an interface material, a scaled sphere, one light,",
+        "1.44M pixels -- the eight's one participating medium. pbrt's wavefront loses 6.2-6.5x to its",
+        "megakernel (the medium march is a queue pass per step for a wavefront, straight-line code",
+        "for a megakernel), so the per-thread queues buy the most of the eight (3.2-3.3x) and the",
+        "vectorized drains 29-36% more; the per-thread vectorized wavefront is best at both counts",
+        "(7.8x, 7.3x), the samples-outer order a wash, the sort 3-7% behind (nothing to sort for",
+        "inside a medium). Our megakernel is the one CPU cell pair of the eight below pbrt's own",
+        "(0.92x and 0.95x of pbrt's VolPath): the medium march, which the GPU megakernels lose on",
+        "too (0.3-0.7x there). Its image is 0.9335x pbrt's VolPath and 0.9999x pbrt's wavefront --",
+        "pbrt's two integrators differ on media by design and the program follows the wavefront, so",
+        "the cell is checked against the wavefront's render (cpu_compare.sh, 10-31).",
+    ],
+    "frame542": [
+        "1.3M triangles, Dielectric and Diffuse, paths of up to 256 bounces (0.06% of camera paths",
+        "reach the last): pbrt's wavefront loses the most of the eight to its megakernel (8.1x), a",
+        "round of queue passes for every bounce any path reaches. The per-thread queues buy 4.7x;",
+        "the vectorized drains lose 2-9% here (dielectric paths split between reflection and",
+        "refraction and few survive deep, so the gang's lanes are masked), the sort recovers 1-4% of",
+        "that, the samples-outer order costs 11-12%; the plain per-thread wavefront is the best",
+        "wavefront at both counts (8.3x, 7.9x). Our megakernel beats it, 9.2x and 8.9x, 1.12x and",
+        "1.11x of pbrt's own megakernel -- the CPU's version of the GPU reading (pbrt-gpu-depth): a",
+        "thread following its path to its end pays nothing for the bounces nobody reaches.",
+    ],
 }
 # Where the measured causes are written up.
 CAUSES = [

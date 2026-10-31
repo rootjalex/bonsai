@@ -19788,3 +19788,250 @@ clouds would be about half an hour plus two to three and a half hours
 neither has been rendered on the CPU by our schedules yet. Against the
 eight-hour budget: the six took six hours; with frame542 about six and a
 half; with clouds as well about nine and a half. The user decides.
+
+**The evening's decisions (the user, 10-30 21:2x-22:3x) and what ran.**
+frame542 joins both sweeps (its GPU cells from gpu-compare-out-two; its
+CPU block runs tonight), and smoke-plume is the eighth scene, chosen and
+confirmed as the one participating medium the sweep lacked -- volpath's
+medium stage never ran on the seven surface scenes -- at a fifth of
+clouds' cost (pbrt --gpu 0.39 s and 2.54 s; its pbrt CPU render at 16
+spp took 6.1 s, so its CPU block is about 45 minutes). Both sweep
+figures now read the same way: pbrt's own megakernel where there is one,
+the schedule that matches pbrt's wavefront, the wavefront's modifications
+by increasing departure, then this renderer's megakernels, the ramp
+palest to darkest down the legend (5644fecc). The GPU sweep's speedup
+axis is linear and cut at 6x (the user: 'speedups should not be log
+axis'), a cut bar carrying loom's break mark and its value on one line
+over the bars; the CPU sweep's ends at 8x and cuts nothing. **plume's
+GPU cells** (22:09-22:17, gpu-compare-out-plume, the six's renderers
+reused after bonsai-ac parked an uncommitted runtime header for the
+window): the wavefront 2.15x and 1.81x (the heatmap's 2.16x and 1.81x),
+the sort 1.76x and 1.47x, every megakernel below pbrt -- 0.28-0.71x at
+16 spp, 0.20-0.57x at 128, the SER per-sample one the worst cell of the
+sweep (0.20x) and SER gaining nothing on the flat launch (0.57x against
+0.56x): the medium walk diverges inside the bounce loop and has no
+surface hit to regroup by (a reading from the walls). **frame542's
+depth sweep** (22:17-22:22, depth-out/frame542-depth.tsv; 16 spp, least
+of three; the scene's maxdepth rewritten to 4, 16, 64, 256): pbrt --gpu
+0.13, 0.18, 0.43, 1.33 s; our wavefront 50, 90, 234, 803 ms; the SER
+flat megakernel 21, 38, 56, 74 ms. From depth 4 to 256 pbrt's wall grows
+10x and ours 16x where the megakernel's grows 3.5x -- the megakernel's
+growth is the deep paths' own work (0.06% of camera paths reach bounce
+256), the wavefronts' growth beyond it the rounds of launches for
+bounces almost nobody reaches, which is the reading the kernel profiles
+gave (65,792 launches a kernel at 128 spp, most at the launch floor) now
+confirmed by the walls. Every depth's images match pbrt's. Every
+schedule's image of frame542 is the wavefront's to the pixel (the SER
+flat one within 4.8e-7), so the 18-20x is not a different image. **The
+disk** (the user: "we can't upload huge images to git", "are we keeping
+tons of stale data around?"): nothing under any run directory, plots/
+or scratch/ is tracked (.gitignore), and apps/pbrt held 586 GB of
+untracked run data; at the user's word every run and scratch directory
+last changed before 10-23 22:18 was deleted -- 127 entries, 226 GB, the
+list in scratch/trim-1030.txt, the first five heatmap runs and 6/6-dark/
+6-broken, the fourteen compare-out-gpu16/64-* experiments of early
+October, compare-out-gpu-sweep, the 10-23 tables (cpu-compare-out,
+gpu-compare-out, gpu-compare-out-sort; their numbers are in the 10-23
+sections) and scratch/surface among them; nothing the current figures
+draw from was older than 10-27. 272 GB of runs inside the week remain
+(heatmap7-11, gpu-compare-out-c/d/e/explore, cpu-compare-out-eight,
+scratch/packet-hunt), the user's call. What fills a run directory is the
+float images the check compares (396 PFMs are 7.5 GB of
+gpu-compare-out-six's 9 GB); trimming a passed cell to its PNG is the
+proposed tool change.
+
+## 10-31, the night: the CPU sweep of plume and frame542, pbrt disagreeing with itself on the plume, two compiler fixes for the wavefront variants
+
+**The CPU sweep of plume and frame542** (23:34-02:12, cpu-compare-out-two,
+40 rows: the nine sides at 16 and 128 spp, three repeats, the renderers
+compiled fresh under the tree of 23:34, which is caa9eb9b's compiler for
+everything a CPU schedule uses). Both scenes read as the six did. plume
+(a participating medium under an interface, 1.44M pixels): pbrt's CPU
+wavefront 39.5 s / 314.6 s; the frame wavefronts 1.75-2.18x (the packet
+frame wavefront best of them at 2.18x/2.16x); the per-thread wavefronts
+5.6-7.8x, the packet per-thread one best at 7.83x/7.26x, the reorder a
+wash (7.81x/7.27x), the sort behind (7.61x/6.78x); the scalar, pbrt's own
+shape, 5.97x/5.62x against pbrt's CPU wavefront and 0.92x/0.91x of
+pbrt's CPU VolPath (6.08 s / 50.80 s) -- the one CPU cell of the eight
+scenes where pbrt's megakernel beats ours, by the medium march (the GPU
+reads the same way: every megakernel loses on plume). frame542 (the
+dielectric machines, depth 256): pbrt's CPU wavefront 27.0 s / 214.6 s;
+frame wavefronts 1.75-2.25x; per-thread 6.4-8.3x, the plain per-thread
+wavefront best (8.26x/7.94x) with the packet one a hair behind at 16 spp
+and ahead at 128 (8.07x/7.25x), the reorder last (7.20x/6.41x); the
+scalar 9.15x/8.93x against the wavefront and 1.12x/1.11x against pbrt's
+VolPath (3.32 s / 26.72 s) -- the CPU's version of the GPU reading, a
+deep scene paying the wavefront's rounds. Thirty-eight of the forty
+rows' images match pbrt's. The two that did not are the plume's scalar
+cells, and they are not ours.
+
+**pbrt disagrees with itself on the plume.** The scalar schedule's
+image check compares against pbrt's CPU VolPath integrator, the renderer
+it is timed against, and read 0.93345x / 0.93350x of it. Measured from
+the cached renders with compare_gbuffer.py, pbrt's own wavefront is
+0.93383x / 0.93354x of pbrt's own VolPath on plume (agreeing to 1e-3 on
+1% of pixels), where on frame542 the two agree to 0.99996x (86.6% of
+pixels to 1e-3). Our scalar image is 0.9999x of pbrt's wavefront, as our
+wavefront schedules' are (all eight matched). The program follows the
+wavefront where pbrt's two integrators differ (the ruling of 09-25, the
+catalogue above: an interface crossing costs the wavefront a bounce, the
+wavefront rolls Russian roulette after a medium scatter and adds no
+emission at the last bounce; a medium scene is where all three bite), so
+on a medium scene the scalar schedule renders the wavefront's image and
+the VolPath reference is the wrong one to fail it against. Two things
+were tried. First the rule the GPU table has had since 10-18 (the
+spread: a failing check is held against pbrt's other integrator's render
+of the same cell, and passes when pbrt's two disagree by more than ours
+does with the timed one), which compare.sh and cpu_compare.sh never
+applied: compare.sh gained `--pbrt-spread`, and the plume's scalar cells
+measured again under it (02:29-02:33) still failed -- by noise: ours
+0.93345x / 0.93350x of VolPath against pbrt's own 0.93383x / 0.93354x,
+two independent estimates of the same image a few ten-thousandths apart,
+ours the further by a coin's toss. The rule is strict by design and
+stays as the user set it. The right reference for the scalar's image is
+simply the wavefront's, by the ruling of 09-25 that the program's images
+are compared against `pbrt --wavefront`: compare.sh now also takes
+`--check-against-wavefront` -- the time is the timed CPU integrator's,
+the image check's reference pbrt's wavefront render (from the
+--pbrt-cache by the timed run's key with `--wavefront` toggled, which a
+cell has by the time the scalar runs, that being why the scalar runs
+last in a cell; else rendered once untimed), and compare_gbuffer.py
+names the reference in its verdict (`--reference-name`), so the row
+reads "ok: the image matches pbrt's wavefront" and no reader takes it
+for a check against the CPU integrator. cpu_compare.sh passes it for the
+scalar cell and `--pbrt-spread` for every cell (a failing wavefront cell
+is held against the CPU integrator's render, as the GPU table's are),
+and reads the last verdict line. plume's two scalar rows are measured a
+third time under it after the night's GPU run; their times stand within
+the sweep's protocol either way (6.50 s / 53.06 s at 02:30, against
+6.61 s / 56.02 s at 00:17, a quieter machine).
+
+**Two compiler fixes, for the three wavefront variants the user asked
+for (b72c215b).** The variants: `gpu-optix-fused` (the material stage
+fused into the trace program: compiled and ran at 1 spp, 2.41x on
+killeroo-simple), `gpu-optix-fused-ser` (that, with shader execution
+reordering by material before the shading: OptiX refused the module,
+"Illegal call to optixReorder in function __closesthit__trace", as on
+10-24) and `gpu-optix-pass` (a band of pixels times four samples per
+round of launches, a quarter of pbrt's rounds: the compiler refused it,
+"the caller's storage, of which there is one per call, is made once per
+iteration of a loop").
+
+The first fix, in the pass that moves allocations out of loops. The
+pass-of-four schedule's queue is sized by the product of the two split
+counts, a multiply the deferral puts at the head of the band loop, and
+the pass hoisted only an allocation whose size was already known before
+the loop, so the queue stayed inside it and the GPU storage rule refused
+it. Before:
+
+    func render(...) {
+      parfor band in bands {
+        n = pixels_in_band * 4      // the queue's size, computed in the loop
+        rays = alloc n              // so the queue's storage was made once per band
+        ...
+      }
+    }
+
+After:
+
+    func render(...) {
+      n = pixels_in_band * 4        // moved to the entry with the allocation it sizes
+      rays = alloc n                // once per call
+      parfor band in bands { ... }
+      free rays
+    }
+
+The pass now moves the pure arithmetic a size depends on along with the
+allocation -- loop-invariant code motion (Allen and Cocke 1971; Muchnick
+ch. 13): an operand may move when it is a constant, a definition from
+before the loop, or a pure instruction (add, multiply, shift, select,
+cast and the like; never a load) over operands that may move. Each
+moved instruction is moved once however many sizes share it. The golden
+of tests/bonsai/ssa/defer-nest-guard changed the same way, as it should:
+a chunk's twelve-slot record is now one allocation per call rather than
+one per chunk (at the LLVM level, four mallocs at the entry where the
+constant-size record had folded to stack arrays).
+
+The second fix, in the pass that turns a trace's continuation into the
+closest-hit program (the shape pbrt's trace kernel has). The fused SER
+wavefront's continuation begins with the reordering hint, and OptiX
+allows that hint in a raygen program alone. Before:
+
+    raygen:      trace(ray); on a miss, push the escaped ray
+    closest-hit: reorder by material key   // illegal here: the module fails to build
+                 shade(...)
+
+After, the pass refuses a continuation that reaches a reordering hint
+(BONSAI_EXPLAIN_HIT_CONTINUATIONS=1 says so), and the loop keeps the
+raygen shape, as the SER megakernels have it:
+
+    raygen:      hit = trace(ray)
+                 if hit { reorder by material key; shade(...) } else { push the escaped ray }
+    closest-hit: record the hit alone
+
+Tests: tests/bonsai/ssa/hoist-size-arithmetic (the product at the entry,
+the allocations after it, the round loop after them) and
+tests/bonsai/ssa/hit-continuation-reorder (the generic closest-hit
+program alone, no hit copy of the shading function, the hint in the
+raygen before the call). The suite's 1950 tests pass. The variants' run
+under the fixed compiler follows (post_fix_gpu.sh: a 1 spp check of each,
+then the ones that run on the eight scenes at 16 and 128 spp); its
+reading is the next paragraph.
+
+**The three variants measured (02:33-02:59 and 09:00-09:20).** All three
+compile under b72c215b (the pass variant's compiler error is gone: 434 s
+to compile, as the others), and two run. The fused wavefront
+(gpu-compare-out-wf3, 02:48-02:59, the eight scenes at 16 and 128 spp,
+three repeats, every image matching pbrt's): 2.63, 2.17, 2.19, 2.01,
+1.87, 2.02, 2.42, 1.76x at 16 spp and 2.01, 1.60, 1.54, 1.69, 1.50,
+1.67, 1.92, 1.68x at 128 spp over pbrt --gpu, in the figure's scene
+order -- against the matched wavefront's bars of 10-30, 0.85-0.97x on
+killeroo-gold, book, ganesha, dragon_10 and plume (a cheap trace: the
+material stage inside the trace program lengthens the raygen's
+continuation, which runs once the warp's traversals are back, and pays
+for the hit queue it removes), 1.04-1.13x on sanmiguel, bistro and
+frame542 (a heavy or deep trace, where the hit queue's round trip was the
+larger cost). That is the 10-24 reading of the fused wavefront, now with
+the gain side measured. The fused wavefront with reordering by material
+(gpu-compare-out-wf3b, 09:06-09:20, every image matching): 1.99, 2.33,
+2.15, 1.89, 1.92, 2.00, 2.06, 1.42x at 16 spp and 1.98, 1.75, 1.53,
+1.61, 1.54, 1.64, 1.64, 1.36x at 128 spp -- against the fused wavefront
+without it 1.03-1.09x on book and dragon_10, a wash on sanmiguel and
+plume (0.98-0.99x), a loss on ganesha (0.94-0.95x), bistro (0.85x),
+frame542 (0.81x) and killeroo-gold at 16 spp (0.76x; 0.99x at 128).
+Where the SER megakernel buys 1.14-1.46x over its flat sibling by
+refilling warps whose lanes have diverged over whole paths, the fused
+wavefront's raygen holds one bounce: a trace, one material's evaluation,
+a push -- too little work after the reorder to repay a sort of the
+launch's rays every bounce (a reading from the walls; not profiled). The
+two sides go into the GPU sweep figure as `wf-fused` and `wf-fused-ser`
+in the user's order. **The pass-of-four wavefront** matched pbrt at 1 spp
+on killeroo-simple (0.59x -- one sample, a quarter-filled band) and died
+on every sweep cell at 16 and 128 spp at the first copy back,
+`cuMemcpyDtoH failed: CUDA_ERROR_ILLEGAL_ADDRESS`. At 1 spp the sample
+loop's split (groups of four with a tail guard) has one group of one
+sample; at 16 spp four full groups, so a band's queues -- owned by the
+band loop and sized pass_pixels x 4 since the hoist -- hold four rays a
+pixel. The probe (scratch/pass_spp_probe.sh, 09:21: killeroo-simple at 4,
+8 and 16 spp with the sweep's renderer) fails at 4 spp already, the first
+full group, so it is not the reuse of the storage across groups but its
+size. And the size is the driver's: an extern queue's capacity is only
+known at run time, so the header says each array's element bytes and the
+driver multiplies by "the capacity it computes as the program does"
+(SSA/QueueStorage.cpp) -- and the driver computes the pass of pixels,
+pbrt's maxQueueSize (render_hook.cpp, the queue_capacity lambda), which
+was the program's capacity in every schedule until this one. The pass
+schedule's program fills pass_pixels x 4 entries into storage of
+pass_pixels: four rays a pixel into room for one, hence the illegal
+address at the first full group and a clean run at 1 spp (one ray a
+pixel). The header shows the shape, too: the pass renderer's entries
+carry three slot indices (`_slot`, `_slot1`, `_slot2`) where the matched
+wavefront's carry one. The root fix is the interface, not the schedule:
+the compiler knows the capacity as an expression over the exported
+function's parameters (the hoisted product is one), so the header should
+print it -- `BONSAI_render_<queue>_CAPACITY(params)`, say -- and the
+driver multiply by that rather than by a rule of its own; a driver that
+guesses the program's capacity is the kind of hidden coupling the
+storage argument was meant to remove. That is a compiler (CodeGen/CPP)
+and driver change for the user's eyes; until it lands the pass side stays
+out of the figure with a note (plots.sh, plot_gpu_wavefront.py).

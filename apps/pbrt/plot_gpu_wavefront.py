@@ -171,6 +171,21 @@ WHY = [
     "  The eight of 10-29 (gpu-compare-out-eight: the six less dragon_10, plus landscape, kroken,",
     "  watercolor) had SER doubling the flat megakernel on kroken and watercolor; those cells",
     "  stand as measurements and are not drawn.",
+    "the wavefront's variants (10-31, under the compiler at b72c215b): the material stage inside",
+    "  the trace program (wf-fused) is 0.85-0.97x of the matched wavefront where the trace is cheap",
+    "  (killeroo-gold, book, ganesha, dragon_10, plume: the raygen's continuation, which runs once",
+    "  the warp's traversals are back, grows by a material's evaluation) and 1.04-1.13x where it is",
+    "  heavy or deep (sanmiguel, bistro, frame542: the hit queue's round trip was the larger cost),",
+    "  so it is the best side on sanmiguel and bistro at both counts. Reordering by material before",
+    "  the fused material switch (wf-fused-ser) is 0.76-1.09x of wf-fused: a gain on book and",
+    "  dragon_10 (3-9%), a wash on sanmiguel and plume, a loss on ganesha, bistro (0.85x) and",
+    "  frame542 (0.81x) -- one bounce's work after the reorder (a trace, one material, a push) is too",
+    "  little to repay a sort of the launch's rays every bounce, where the SER megakernel sorts once",
+    "  for a whole path's divergence (a reading from the walls; not profiled). The pass-of-four",
+    "  wavefront (wf-pass: a band of pixels times four samples per round of launches) compiles",
+    "  under the fix and matches pbrt at 1 spp, and dies at 4 spp and above with an illegal",
+    "  address -- the driver allocates its band queues for one sample a pixel (PLAN, 10-31); it is",
+    "  left out of the figure until it renders.",
 ]
 READINGS = {
     "killeroo-simple": [
@@ -221,6 +236,9 @@ READINGS = {
         "wavefront here (1.81x against 2.03x at 16 spp). pbrt's own 16-spp wall is not steady between",
         "runs: 0.24 s on 10-28, 0.19 s on 10-29, 0.24 s on 10-30 (the least of three processes each",
         "time) while ours stayed at 0.118 s, so this cell's speedups read 2.03x, 1.61x and 2.03x.",
+        "Measured on 10-31, the fused wavefront is the best side here at both counts (2.19x, 1.54x:",
+        "1.05-1.08x of the matched wavefront) -- the hit queue's round trip saved on a trace this",
+        "heavy outweighs the longer raygen continuation; reordering by material adds nothing (0.98x).",
     ],
     # The scenes added on 10-29 (the user: eight scenes at 16 and 128 spp)
     # and on 10-30 (dragon_10 in landscape's place; landscape, kroken and
@@ -247,6 +265,9 @@ READINGS = {
         "cells of the sweep. Why SER loses here is not measured (no profile of bistro); the suspicion is",
         "the light sampling's share of the frame -- a sort by material does nothing for a stage that",
         "walks a light BVH of twenty thousand emitters -- and it is a reading, not a measurement.",
+        "Measured on 10-31, the fused wavefront is the best side here at both counts (2.42x, 1.92x:",
+        "1.09-1.13x of the matched wavefront, its largest gain of the eight), and reordering by",
+        "material costs it 15% (2.06x, 1.64x) -- the same stage that SER cannot help in the megakernel.",
     ],
     # The seventh scene (the user, 10-30 evening), measured after the CPU
     # sweep into gpu-compare-out-two with the six's renderers.
