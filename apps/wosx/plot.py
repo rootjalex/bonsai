@@ -553,11 +553,28 @@ def cpu_notes(base, exclude):
     return notes
 
 
+# The order the bars and the legend take on a tree's figure, by label
+# (the user, 2026-10-31, on the fcpwb figure: "parallel, parallel-fcpwb2,
+# then the packets, then the defers, then the persistents"): the TBB
+# forms first, the vectorized forms among them, the persistent workers
+# last. A label not named keeps its place after the named ones; a tree
+# without an entry draws CPU_BARS then CPU_EXTRA_BARS as listed.
+CPU_BAR_ORDER = {
+    "fcpwb": ["parallel", "parallel-fcpwb2", "parallel-packet16", "parallel-packet8",
+              "parallel-defer16", "parallel-defer-sort16", "persistent", "persistent-fcpwb2"],
+}
+
+
 def cpu_bars(base):
     """The two bars of a tree and, where the exploration has them, its extra
-    bars: (schedule, label, colour) in drawing order."""
+    bars: (schedule, label, colour) in drawing order (CPU_BAR_ORDER where
+    the tree has one)."""
     bars = [(base + suffix, label, colour) for suffix, label, colour in CPU_BARS]
     bars += [(s, label, colour) for s, label, colour, _ in CPU_EXTRA_BARS.get(base, [])]
+    order = CPU_BAR_ORDER.get(base)
+    if order:
+        rank = {label: i for i, label in enumerate(order)}
+        bars.sort(key=lambda b: rank.get(b[1], len(order)))
     return bars
 
 
