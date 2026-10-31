@@ -68,7 +68,7 @@ import csv
 import sys
 
 from figure_style import SCHEDULE_COLOURS
-from plot_cpu_wavefront import add_figure_arguments, choose_sides, draw
+from plot_cpu_wavefront import add_figure_arguments, choose_scenes, choose_sides, draw
 
 REFERENCE = "pbrt --gpu"
 REFERENCE_LABEL = "PBRT wf"
@@ -144,16 +144,22 @@ WHY = [
     "  time and 20-31% by wall -- a dozen small launches before every trace (96 sorts in a 30 ms",
     "  frame at 16 spp) for coherence the traversal hardware's own scheduling already had.",
     "with more samples every speedup falls, to 0.75-0.80x of its 16-spp value at 128 spp over the",
-    "  six scenes (0.82-0.86x over the eight of 10-29, whose three large scenes fell least; about",
-    "  0.7x on the five cheap scenes of 10-28 alone): pbrt's per-frame costs (launch setup, queue",
-    "  resets, camera rays) are a smaller share of a longer render.",
-    "over the six scenes (10-30), the wavefront is best on five and the SER flat megakernel on",
-    "  killeroo-gold alone; where the trace is heavy (ganesha, dragon_10, bistro) every megakernel",
-    "  is below pbrt's wavefront at both counts, and SER's gain on the flat launch runs from a loss",
-    "  (bistro, 0.76x) to 1.47x (killeroo-gold at 128 spp) -- the figure's spread. The eight of",
-    "  10-29 (gpu-compare-out-eight: these six less dragon_10, plus landscape, kroken, watercolor)",
-    "  had SER doubling the flat megakernel on kroken and watercolor; those cells stand as",
-    "  measurements and are not drawn.",
+    "  first six scenes (0.82-0.86x over the eight of 10-29, whose three large scenes fell least;",
+    "  about 0.7x on the five cheap scenes of 10-28 alone): pbrt's per-frame costs (launch setup,",
+    "  queue resets, camera rays) are a smaller share of a longer render. frame542's hold",
+    "  (0.98-1.11x): its frame is rounds of launches at both counts.",
+    "over the first six scenes (10-30), the wavefront is best on five and the SER flat megakernel",
+    "  on killeroo-gold alone; where the trace is heavy (ganesha, dragon_10, bistro) every",
+    "  megakernel is below pbrt's wavefront at both counts, and SER's gain on the flat launch runs",
+    "  from a loss (bistro, 0.76x) to 1.47x (killeroo-gold at 128 spp) -- the figure's spread.",
+    "  frame542, the seventh (10-30 evening), is the other extreme: depth 256 with short paths, so",
+    "  the wavefronts pay launches for bounces almost nobody reaches and every megakernel is far",
+    "  ahead (the SER flat 18-20x). killeroo-coated-gold (gpu-compare-out-coated, not drawn) is",
+    "  killeroo-gold with CoatedConductor for the Conductor: every megakernel 2.0-2.7x slower, the",
+    "  wavefront 1.2x, so the megakernel's one win on the six is the conductor's closed-form BSDF.",
+    "  The eight of 10-29 (gpu-compare-out-eight: the six less dragon_10, plus landscape, kroken,",
+    "  watercolor) had SER doubling the flat megakernel on kroken and watercolor; those cells",
+    "  stand as measurements and are not drawn.",
 ]
 READINGS = {
     "killeroo-simple": [
@@ -230,6 +236,20 @@ READINGS = {
         "cells of the sweep. Why SER loses here is not measured (no profile of bistro); the suspicion is",
         "the light sampling's share of the frame -- a sort by material does nothing for a stage that",
         "walks a light BVH of twenty thousand emitters -- and it is a reading, not a measurement.",
+    ],
+    # The seventh scene (the user, 10-30 evening), measured after the CPU
+    # sweep into gpu-compare-out-two with the six's renderers.
+    "frame542": [
+        "1.3M triangles in 229 meshes (5 instances), Dielectric and Diffuse, one light, depth 256,",
+        "2.81 rays a camera ray, 1920x840: the paths are short but the depth is deep, and a wavefront",
+        "runs its round of launches for every bounce up to the depth while any path of the pass lives,",
+        "so both wavefronts pay rounds of nearly empty launches -- pbrt's kernel time is 47 ns a camera",
+        "path here against 6.6 on killeroo-gold, ours 27 against 3.0 -- while a megakernel's thread",
+        "leaves when its path dies (the SER flat one 2.8 ns a path against 2.6). So every megakernel",
+        "is far ahead: the SER flat 18.3x and 20.4x, the largest speedup of any scene, the SER 8.1x and",
+        "8.7x, the per-sample 6.2x and 6.5x, the flat 4.7x and 4.6x; the wavefront 1.66x and 1.62x (the",
+        "heatmap's 1.66x and 1.59x) and the sort below pbrt (0.92x, 0.90x: a sort a round on those",
+        "near-empty queues). The reading is not verified by a launch count (nsys would give it).",
     ],
     "landscape": [
         "27.9M triangles, 30,034 instances of 32 objects (a two-level traversal through the deepest",
@@ -319,7 +339,7 @@ def main(argv):
     if args.out is None:
         args.out = "pbrt-gpu-sweep.pdf"
 
-    rows = load(args.tables, kernel=args.kernel)
+    rows = choose_scenes(load(args.tables, kernel=args.kernel), args.scenes)
     sides = choose_sides(rows, SIDES, args.sides)
     if sides is None:
         return 1

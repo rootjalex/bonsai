@@ -80,7 +80,16 @@ CPU_CSVS="${CPU_CSVS:-$PREFIX/cpu-compare-out-six/cpu-results.csv}"
 # (wf-b128, wf-b512, wf-fused, wf-fused-ser, wf-sort36, mk-ser-ray) are
 # in gpu-compare-out-explore-b/table.tsv, an older compiler's; to draw
 # them, list that table here too and name them in GPU_SIDES.
-GPU_TABLES="${GPU_TABLES:-$PREFIX/gpu-compare-out-six/table.tsv}"
+# gpu-compare-out-two/ (10-30, 17:20-17:45, the same eight schedules and
+# compiler) holds frame542's cells, the sweep's seventh scene (the user,
+# 10-30 evening), beside clouds', which SWEEP_SCENES leaves out.
+GPU_TABLES="${GPU_TABLES:-$PREFIX/gpu-compare-out-six/table.tsv $PREFIX/gpu-compare-out-two/table.tsv}"
+# The sweeps' scenes, in the figures' order (the user, 10-29: pbrt --gpu's
+# time at 128 spp, ascending), keyed by path under the scene set; both
+# sweep figures draw these and only these from their tables (the
+# plotters' --scenes). A scene whose CPU sweep has not run yet is left out
+# of the CPU figure with a note.
+SWEEP_SCENES="${SWEEP_SCENES:-killeroos/killeroo-gold,pbrt-book/book,sanmiguel/sanmiguel-courtyard,ganesha/ganesha,sssdragon/dragon_10,bistro/bistro_vespa,transparent-machines/frame542}"
 # The heatmap of the same night (00:45-02:22), the gpu-optix renderer
 # reused from the sweep; compare-out-heatmap11/ is 10-27's under 39c67ab9.
 HEATMAP_TABLE="${HEATMAP_TABLE:-$PREFIX/compare-out-heatmap12/table.tsv}"
@@ -114,13 +123,13 @@ python3 "$PREFIX/scene_statistics.py" $HEATMAP_TABLE --sweep $GPU_TABLES -o "$OU
 formats=(pdf)
 (( png )) && formats+=(png)
 for ext in "${formats[@]}"; do
-  python3 "$PREFIX/plot_cpu_wavefront.py" $CPU_CSVS -o "$OUT/pbrt-cpu-sweep.$ext"
+  python3 "$PREFIX/plot_cpu_wavefront.py" $CPU_CSVS --scenes "$SWEEP_SCENES" -o "$OUT/pbrt-cpu-sweep.$ext"
   # The paper's four GPU sides (10-24) and the three megakernel shapes of
   # 10-27 (the user: the GPU figures other than the heatmap gain them):
   # seven, within the ramp's nine; the exploration sides the tables also
   # hold (wf-b128, wf-b512, wf-fused, wf-sort36, mk-ser-ray) are drawn by
   # naming them in GPU_SIDES.
-  python3 "$PREFIX/plot_gpu_wavefront.py" $GPU_TABLES --sides "$GPU_SIDES" -o "$OUT/pbrt-gpu-sweep.$ext"
+  python3 "$PREFIX/plot_gpu_wavefront.py" $GPU_TABLES --sides "$GPU_SIDES" --scenes "$SWEEP_SCENES" -o "$OUT/pbrt-gpu-sweep.$ext"
   python3 "$PREFIX/plot_gpu_heatmap.py" "$OUT/pbrt-gpu-heatmap.$ext" "$HEATMAP_TABLE" --sort geometry
   python3 "$PREFIX/plot_gpu_profile.py" "${cells[@]}" --sides "$PROFILE_SIDES" --profiles "$PROFILES" -o "$OUT/pbrt-gpu-profile.$ext"
 done

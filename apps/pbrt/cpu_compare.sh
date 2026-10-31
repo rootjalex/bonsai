@@ -50,20 +50,21 @@
 # by the scene's name.)
 #
 # Scenes are named `<dir>/<name>` under $SCENES_DIR (~/projects/
-# pbrt-v4-scenes); the default eight are the paper's sweep (the user,
-# 10-29: eight scenes at 16 and 128 spp, the same eight on the CPU and
-# the GPU figures), in order of pbrt --gpu's time at 128 spp -- two
-# shapes under a conductor over a diffuse floor (killeroo-gold, 532k
-# triangles), a textured mesh (book, 21k), a large architectural scene of
-# many materials, instanced (sanmiguel-courtyard, 2.5M), a four-million-
-# triangle statue (ganesha), a production street of 1,693 meshes and
-# 20,638 area lights (bistro_vespa, 2.9M), a landscape of 30,034 instances
-# (landscape/view-0, 27.9M), the largest geometry (kroken/camera-1, 288M
-# triangles, 248M from displacement) and the heaviest frame (watercolor/
-# camera-1, 58M triangles, 34M displaced; the highest GPU wavefront
-# speedup on the heatmap) -- and `--scenes` takes any list scene_dump
-# converts (the five of 10-21..10-28 were killeroo-simple, killeroo-gold,
-# book, ganesha, sanmiguel-courtyard at 16/64/128 spp). The default
+# pbrt-v4-scenes); the default seven are the paper's sweep (the user,
+# 10-29 and 10-30: the same scenes at 16 and 128 spp on the CPU and the
+# GPU figures), in order of pbrt --gpu's time at 128 spp -- two shapes
+# under a conductor over a diffuse floor (killeroo-gold, 532k triangles),
+# a textured mesh (book, 21k), a large architectural scene of many
+# materials, instanced (sanmiguel-courtyard, 2.5M), a four-million-
+# triangle statue (ganesha), a subsurface dragon (sssdragon/dragon_10,
+# 7.2M), a production street of 1,693 meshes and 20,638 area lights
+# (bistro_vespa, 2.9M) and dielectric machines traced to depth 256
+# (transparent-machines/frame542, 1.3M; the user, 10-30 evening) -- and
+# `--scenes` takes any list scene_dump converts (the five of 10-21..10-28
+# were killeroo-simple, killeroo-gold, book, ganesha, sanmiguel-courtyard
+# at 16/64/128 spp; landscape/view-0, kroken/camera-1 and watercolor/
+# camera-1 made the eight of 10-29 with the first five of these, out on
+# 10-30 as too long for an eight-hour sweep). The default
 # schedules are the CPU wavefront study's (REPORT.md, 2026-10-21);
 # `--schedules` takes any list from schedules/ and `scalar` is always run
 # first against pbrt's volpath. Everything the run acts on is checked
@@ -80,7 +81,7 @@ OUT="$PREFIX/cpu-compare-out"
 SCHEDULES="scalar wavefront-frame wavefront-frame-packet wavefront-frame-packet-reorder \
 wavefront-thread wavefront-thread-packet wavefront-thread-packet-reorder wavefront-thread-packet-sort"
 SCENES="killeroos/killeroo-gold pbrt-book/book sanmiguel/sanmiguel-courtyard \
-ganesha/ganesha sssdragon/dragon_10 bistro/bistro_vespa"
+ganesha/ganesha sssdragon/dragon_10 bistro/bistro_vespa transparent-machines/frame542"
 RESUME=0
 while [[ $# -gt 0 ]]; do
   case "$1" in

@@ -290,6 +290,10 @@ def add_figure_arguments(ap):
     ap.add_argument("-o", "--out", default=None)
     ap.add_argument("--sides", default=None,
                     help="comma-separated side names to draw, in this order")
+    ap.add_argument("--scenes", default=None,
+                    help="comma-separated scene keys (paths under the scene set, or the "
+                         "figure's labels) to draw, in this order; the default is every "
+                         "scene of the tables in the order they appear")
     ap.add_argument("--width", type=float, default=TEXT_WIDTH,
                     help="inches; the default is the paper's text width (figure_style.py)")
     ap.add_argument("--height", type=float, default=2.4,
@@ -318,6 +322,27 @@ def choose_sides(rows, all_sides, wanted):
         print("no side of the table is one the figure knows", file=sys.stderr)
         return None
     return sides
+
+
+def choose_scenes(rows, wanted):
+    """The rows of the scenes `wanted` (comma-separated keys -- paths under
+    the scene set -- or figure labels), in that order, so that a figure
+    drawn from several tables shows the paper's scenes in the paper's
+    order whatever else the tables hold (the user, 10-30: frame542's cells
+    share a table with clouds'). None or empty keeps every row in the
+    tables' order. A wanted scene no table has is named on stderr and
+    left out: the CPU figure may lag the GPU figure by a scene until its
+    sweep runs."""
+    if not wanted:
+        return rows
+    names = [w for w in wanted.split(",") if w]
+    chosen = []
+    for name in names:
+        hit = [r for r in rows if r["key"] == name or scene_label(r["key"]) == name]
+        if not hit:
+            print(f"no rows for scene {name}; left out", file=sys.stderr)
+        chosen.extend(hit)
+    return chosen
 
 
 def best_where(points, scenes, spps):
@@ -514,7 +539,7 @@ def main(argv):
     if args.out is None:
         args.out = "pbrt-cpu-sweep.pdf"
 
-    rows = load(args.csvs)
+    rows = choose_scenes(load(args.csvs), args.scenes)
     sides = choose_sides(rows, SIDES, args.sides)
     if sides is None:
         return 1

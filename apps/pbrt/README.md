@@ -183,11 +183,15 @@ before it.
   measurements (the user, 10-24: no guessing what is what). `plots/` holds
   exactly these and is not committed:
   - `pbrt-cpu-sweep.pdf`: the CPU schedules over pbrt's CPU wavefront on
-    the paper's six scenes x 16/128 spp (plot_cpu_wavefront.py from
-    cpu-compare-out-six, the afternoon of 10-30's run under caa9eb9b);
+    the paper's scenes x 16/128 spp (plot_cpu_wavefront.py from
+    cpu-compare-out-six, the afternoon of 10-30's run under caa9eb9b;
+    plots.sh's SWEEP_SCENES names the scenes and their order, and a scene
+    whose CPU sweep has not run is left out with a note -- frame542's is
+    pending);
   - `pbrt-gpu-sweep.pdf`: every measured OptiX schedule over `pbrt --gpu`
-    on the same six scenes x 16/128 spp (plot_gpu_wavefront.py from
-    gpu-compare-out-six, the morning of 10-30's run under caa9eb9b);
+    on the same scenes x 16/128 spp (plot_gpu_wavefront.py from
+    gpu-compare-out-six, the morning of 10-30's run under caa9eb9b, and
+    frame542's cells from gpu-compare-out-two, the evening's);
   - `pbrt-gpu-heatmap.pdf`: the matching GPU wavefront (gpu-optix) over
     `pbrt --gpu` on all thirty scenes x 16/64/128 spp, the scenes in
     order of the geometry pbrt built for them, volumes first (`--sort
