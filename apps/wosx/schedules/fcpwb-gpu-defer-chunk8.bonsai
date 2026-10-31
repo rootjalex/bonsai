@@ -1,0 +1,51 @@
+// A compacting block wavefront for the walk on spheres (the user, 2026-10-30:
+// "can't you make a compacting-block wavefront schedule for wos?"): a chunk
+// of eight points per block, the 512 walks of the chunk the block's threads,
+// their steps deferred onto one queue in the block's shared memory and
+// drained in rounds inside the kernel -- fcpwb-gpu-defer-block.bonsai's
+// shape with the queue owned by a chunk of points rather than one, the CPU's
+// fcpwb-packet-defer-chunk-threads.bonsai's chunk brought to the card. A
+// block of one point's sixty-four walks runs the tail of its longest walk
+// with one lane of two warps live (defer-block: 0.99x over WoSX); a block of
+// eight points' walks keeps sixteen warps full while at least 512 steps
+// live, and the late rounds hold the long walks of eight points together,
+// so the tails amortize eightfold. Each round's push compacts: the queue
+// after a round holds exactly the walks still going, and the next round's
+// threads read them from the front. The entries never leave the SM and the
+// rounds are a loop of the kernel's, not launches, as in defer-block; the
+// card-wide deferral (fcpwb-gpu-defer.bonsai) pays a launch a round and
+// global traffic per entry for a compaction that spans every walk.
+//
+// The directives: the points split into chunks of eight; the two reorders
+// (the GPU deferral's idiom, fcpwb-gpu-defer.bonsai) distribute what a
+// point does before and after its walks into loops of their own and leave
+// the (point, walk) nest perfect, its sums a slot per point of the chunk;
+// `collapse` makes the nest one loop of 512 (walk, point) pairs, the pushes
+// of the first steps, one per thread; the queue is placed at the chunk and
+// lives in shared memory (`queue(i_chunk, DeviceShared)`: 512 entries of
+// about forty bytes -- position, distance, step count, generator, the pair
+// -- in two buffers, since a step pushes onto the queue it was drained
+// from, about 45 KB, under the card's 48 KB without the opt-in); the drain
+// and the pass over the record are the block's other thread phases. Block
+// size 512, the largest thread phase.
+import apps/rtq/schedules/layouts/fcpwb_gpu;
+
+schedule {
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        distmin(s, AABB{lo[i], hi[i]}))
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
+
+    solve_all.split(i, i_chunk, i_in, 8, true);
+    solve_all.reorder(i_in, w);
+    solve_all.reorder(w, i_in);
+    solve_all.collapse(i_in, w, k);
+    steps = solve_all.queue(i_chunk, DeviceShared);
+    solve_all.defer(walk, steps);
+    walk.defer(walk, steps);
+    solve_all.bind(i_chunk, GPUBlock);
+    solve_all.bind(k, GPUThread);
+    solve_all.bind(steps, GPUThread);
+    solve_all.bind(steps_rest, GPUThread);
+}

@@ -1,0 +1,29 @@
+// fcpwb-gpu-defer-chunk8.bonsai with a chunk of two points: 128 walks a
+// block, four warps, two buffers of 128 entries (about 11 KB of shared
+// memory). The block's rounds end with its longest walk, and the longest of
+// 128 is shorter than the longest of 512, so a small chunk gives the
+// hardware's block scheduler shorter blocks to rotate where the big chunk
+// holds a multiprocessor's slot through a long tail of near-empty rounds;
+// the chunk sizes 2, 4, 8 and 16 measure that trade against the compaction
+// a bigger queue gives (the user, 2026-10-30).
+import apps/rtq/schedules/layouts/fcpwb_gpu;
+
+schedule {
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        distmin(s, AABB{lo[i], hi[i]}))
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
+
+    solve_all.split(i, i_chunk, i_in, 2, true);
+    solve_all.reorder(i_in, w);
+    solve_all.reorder(w, i_in);
+    solve_all.collapse(i_in, w, k);
+    steps = solve_all.queue(i_chunk, DeviceShared);
+    solve_all.defer(walk, steps);
+    walk.defer(walk, steps);
+    solve_all.bind(i_chunk, GPUBlock);
+    solve_all.bind(k, GPUThread);
+    solve_all.bind(steps, GPUThread);
+    solve_all.bind(steps_rest, GPUThread);
+}

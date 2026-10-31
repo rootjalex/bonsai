@@ -1,0 +1,31 @@
+// fcpwb-gpu-defer-chunk8.bonsai with a chunk of sixteen points: 1024 walks
+// a block, the card's largest block, two buffers of 1024 entries (about 90
+// KB of shared memory, past the 48 KB a block has by default and within the
+// 99 KB the RTX 5090 allows a block that asks -- the runtime sets the
+// attribute from the launch's size), one block to a multiprocessor. The
+// largest of the chunk sizes 2, 4, 8 and 16 that measure the block's tail
+// against its compaction (fcpwb-gpu-defer-chunk2.bonsai says the trade),
+// and the answer to whether shared memory is large enough: it holds a
+// thousand walks of the walk on spheres, and half that of the walk on
+// stars (the user, 2026-10-30).
+import apps/rtq/schedules/layouts/fcpwb_gpu;
+
+schedule {
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        distmin(s, AABB{lo[i], hi[i]}))
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
+
+    solve_all.split(i, i_chunk, i_in, 16, true);
+    solve_all.reorder(i_in, w);
+    solve_all.reorder(w, i_in);
+    solve_all.collapse(i_in, w, k);
+    steps = solve_all.queue(i_chunk, DeviceShared);
+    solve_all.defer(walk, steps);
+    walk.defer(walk, steps);
+    solve_all.bind(i_chunk, GPUBlock);
+    solve_all.bind(k, GPUThread);
+    solve_all.bind(steps, GPUThread);
+    solve_all.bind(steps_rest, GPUThread);
+}

@@ -76,7 +76,9 @@ stars (`wost-fcpwb-gpu`, the schedule of `fcpwb-gpu` on the other program)
 and the walk on spheres' variants on this walk under the same labels, with
 the per-point deferral beside them ("defer-block": a point per block, its
 walks' steps on a queue in shared memory, a round running the next step of
-every walk still going).
+every walk still going) and the compacting block wavefront ("defer-chunk2":
+the same queue owned by a chunk of two points, 128 walks a block;
+2026-10-30).
 The mesh table is wosx-stars-meshes.*: the walk lengths differ from the
 walk on spheres', since a star is bounded by the reflecting boundary's
 silhouettes as well as by the absorbing boundary.
@@ -159,6 +161,9 @@ SCHEDULE_COLOURS = {
     "optix-ser": RAMP8[7],
     "optix-ser-persistent": YLGNBU[0],
     "defer-block": "#9E9E9E",
+    # the compacting block wavefront (2026-10-30): defer-block's queue
+    # owned by a chunk of two points, the darker grey of the same family
+    "defer-chunk2": "#616161",
     # drawn only when asked for (--gpu-schedules): shades borrowed
     "defer": YLGNBU[0],
     "persistent-point": "#9E9E9E",
@@ -264,6 +269,12 @@ GPU_BARS = [(s, label, SCHEDULE_COLOURS[label]) for s, label in [
     # table has their rows.
     ("fcpwb-gpu-defer", "defer"),
     ("fcpwb-gpu-defer-block", "defer-block"),
+    # The compacting block wavefront (the user, 2026-10-30): defer-block's
+    # queue owned by a chunk of two points, 128 walks a block -- the one
+    # chunk size that came near the one-point block; the chunks of four,
+    # eight and sixteen fall further behind (PLAN.md, "The compacting
+    # block wavefront") and are measured by name, not drawn.
+    ("fcpwb-gpu-defer-chunk2", "defer-chunk2"),
     # A point a claim, its walks in sequence: a tenth of WoSX's rate on
     # every mesh, the card left nearly empty; removed from the table's
     # defaults and the figure on 2026-10-28 (the user). Named here so that
@@ -287,7 +298,9 @@ STARS_GPU_BARS = [(s, label, SCHEDULE_COLOURS[label]) for s, label in [
     ("wost-fcpwb-gpu-optix", "optix"),
     ("wost-fcpwb-gpu-optix-ser", "optix-ser"),
     ("wost-fcpwb-gpu-optix-ser-persistent", "optix-ser-persistent"),
+    ("wost-fcpwb-gpu-defer", "defer"),
     ("wost-fcpwb-gpu-defer-block", "defer-block"),
+    ("wost-fcpwb-gpu-defer-chunk2", "defer-chunk2"),
 ]]
 # What each GPU schedule changed against another, for the summary: (label
 # of the schedule, label of the one it differs from in one thing, the
@@ -306,6 +319,8 @@ GPU_STEPS = [
     ("defer", "parallel", "the walk's steps deferred onto one card-wide queue, a launch per round"),
     ("defer-block", "defer", "a queue per point in the block's shared memory, the rounds inside the kernel"),
     ("defer-block", "persistent", "a point per block, its walks' steps on a queue in shared memory, against the persistent claim"),
+    ("defer-chunk2", "defer-block", "the block's queue owned by a chunk of two points, 128 walks a block instead of 64"),
+    ("defer-chunk2", "persistent", "the compacting block wavefront of two points' walks, against the persistent claim"),
 ]
 REFERENCE = "WoSX"
 

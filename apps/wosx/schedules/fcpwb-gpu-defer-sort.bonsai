@@ -1,0 +1,39 @@
+// fcpwb-gpu-defer.bonsai with the card-wide queue sorted each round by the
+// walks' positions: `walk.sort(walk, key)` on the deferred call, the key
+// walk_keys.bonsai's fifteen-bit Morton code of the position in the
+// problem's box (the directive the CPU's sorted chunk used,
+// fcpwb-packet-defer-sort-threads.bonsai, worth 1.8x over the unsorted
+// drain there), the sort the device radix sort before each round's pass.
+// A warp's lanes then take thirty-two consecutive entries of the sorted
+// queue -- walks standing in one cell of a 32x32x32 grid -- and their
+// traversals visit nearby nodes together, where the unsorted drain's warp
+// holds thirty-two walks from anywhere in the domain. The card-wide form
+// lost 0.79x unsorted on the head; what this measures is whether the
+// coherence buys back more than the sort costs (the user, 2026-10-30).
+import apps/rtq/schedules/layouts/fcpwb_gpu;
+import apps/wosx/walk_keys;
+
+schedule {
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        distmin(s, AABB{lo[i], hi[i]}))
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
+
+    walk.sort(walk, |x : vec3f, problem : Problem| walk_sort_key(x, problem.lo, problem.hi));
+    solve_all.reorder(i, w);
+    solve_all.reorder(w, i);
+    solve_all.collapse(i, w, k);
+    steps = solve_all.queue(root);
+    solve_all.defer(walk, steps);
+    walk.defer(walk, steps);
+    solve_all.split(k, k_blk, k_thr, 256, true);
+    solve_all.bind(k_blk, GPUBlock);
+    solve_all.bind(k_thr, GPUThread);
+    solve_all.split(steps, steps_blk, steps_thr, 256, true);
+    solve_all.bind(steps_blk, GPUBlock);
+    solve_all.bind(steps_thr, GPUThread);
+    solve_all.split(steps_rest, rest_blk, rest_thr, 256, true);
+    solve_all.bind(rest_blk, GPUBlock);
+    solve_all.bind(rest_thr, GPUThread);
+}

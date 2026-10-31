@@ -1,0 +1,26 @@
+// fcpwb-gpu-defer-chunk8.bonsai with a chunk of four points: 256 walks a
+// block, eight warps, two buffers of 256 entries (about 22 KB of shared
+// memory); the middle of the chunk sizes 2, 4, 8 and 16 that measure the
+// block's tail (its longest walk) against the compaction a bigger queue
+// gives (fcpwb-gpu-defer-chunk2.bonsai says the trade).
+import apps/rtq/schedules/layouts/fcpwb_gpu;
+
+schedule {
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        distmin(s, AABB{lo[i], hi[i]}))
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
+
+    solve_all.split(i, i_chunk, i_in, 4, true);
+    solve_all.reorder(i_in, w);
+    solve_all.reorder(w, i_in);
+    solve_all.collapse(i_in, w, k);
+    steps = solve_all.queue(i_chunk, DeviceShared);
+    solve_all.defer(walk, steps);
+    walk.defer(walk, steps);
+    solve_all.bind(i_chunk, GPUBlock);
+    solve_all.bind(k, GPUThread);
+    solve_all.bind(steps, GPUThread);
+    solve_all.bind(steps_rest, GPUThread);
+}

@@ -62,7 +62,15 @@ the word a queue that lives there has to carry), its rounds a loop of the
 kernel's. Over the table the card-wide one is at 0.48x of WoSX by geomean
 and the per-block one at 1.03x, the matching schedule's equal on the
 largest meshes and behind it on the rest (PLAN.md, "Both deferrals built,
-both measured on the head"); both compute the same estimate.
+both measured on the head"); both compute the same estimate. The chunk
+forms of the per-block one (`fcpwb-gpu-defer-chunk2` to `-chunk16`, and
+`wost-fcpwb-gpu-defer-chunk2`, `-chunk4` on the stars; 2026-10-30) put two
+to sixteen points' walks on one block's queue, the compacting block
+wavefront: it loses to the persistent claim on both walks, and more the
+more walks it holds, since a block's rounds end with its longest walk and
+the tail holds the multiprocessor's slot (PLAN.md, "The compacting block
+wavefront"); what would mend it, a block refilling its queue with new
+points as its lanes free, is new scheduling, on PLAN.md's Next list.
 
 The walk on stars is the second solver here (`wost.bonsai`, over
 apps/rtq's silhouette query and the cone and edge arithmetic of its FCPW
@@ -524,7 +532,20 @@ in question (PLAN.md, the persistent schedule).
   the device; `schedules/fcpwb-gpu-defer-block.bonsai`: a point per block,
   its walks the threads, the steps deferred onto a queue per point in the
   block's shared memory (`queue(i, DeviceShared)`), the drain's rounds a
-  loop inside the kernel with a thread phase per round.
+  loop inside the kernel with a thread phase per round;
+  `schedules/fcpwb-gpu-defer-chunk2.bonsai`, `-chunk4`, `-chunk8`,
+  `-chunk16`: the same queue owned by a chunk of two, four, eight or
+  sixteen points -- the compacting block wavefront (the user, 2026-10-30;
+  PLAN.md, "The compacting block wavefront") -- the chunk split off the
+  point loop, the nest reordered twice and collapsed as the card-wide
+  deferral has it, the chunk's walks the block's threads (128 to 1024)
+  and the queue sized to them (the chunks claimed by persistent blocks,
+  `scratch/fcpwb-gpu-defer-chunk2-persistent.bonsai`, the compiler refuses
+  today: the block-level claim is not built, PLAN.md's Next list);
+  `schedules/fcpwb-gpu-defer-sort.bonsai`: the card-wide queue sorted each
+  round by the walks' positions (`walk.sort(walk, key)`, walk_keys.bonsai's
+  Morton code, the device radix sort), measured by name (0.75x on the head
+  and the dragon, PLAN.md, "Seven more without the bounded queue").
 - `schedules/layouts/fcpwb2.bonsai`: the same binary tree in another
   layout, each interior node's row holding its two children's boxes and
   rows (56 bytes, built from FCPW's rows by the driver, `fcpw_bvh2.h`), so
@@ -583,7 +604,18 @@ in question (PLAN.md, the persistent schedule).
   `wost-fcpwb-gpu-defer-block`, the per-point deferral of
   fcpwb-gpu-defer-block on this walk (the three traversals written out,
   the walk deferred rather than loopified), the exploration the user asked
-  for on 2026-10-28.
+  for on 2026-10-28, `wost-fcpwb-gpu-defer-chunk2`, `-chunk4`, the
+  compacting block wavefront on this walk (a chunk of two or four points
+  a block, their walks its threads; the user, 2026-10-30), and
+  `wost-fcpwb-gpu-defer`, the card-wide queue on this walk (fcpwb-gpu-
+  defer's directives on solve_stars; the stars' GPU figure's `defer` bar:
+  0.82x by geomean, the best schedule on the rover at 1.97x and ahead of
+  the claim on the ivy and the dambreak, a quarter of WoSX's rate on the
+  small meshes whose run is its hundreds of launches -- the long walks'
+  divergence worth the compaction where a run is long enough to pay for
+  the rounds; PLAN.md, "Three more without the bounded queue") with
+  `wost-fcpwb-gpu-defer-sort`, the queue sorted each round by the walks'
+  positions, measured by name.
 - `gpu/wosx-pde-definition.slang`: the PDE WoSX's GPU solver is given,
   the Laplace problem with the program's Dirichlet data, in the shape
   WoSX asks for (a module named `wosx_pde_definition` with a `PDEType`).

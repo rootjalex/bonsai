@@ -2844,8 +2844,176 @@ table and the sorted drain's previous logs stand beside it as
 `logs-before-2026-10-30-unsigned-offsets`. The two CPU figures are
 redrawn from it; all five wosx figures stand on the current compiler.
 
+### The compacting block wavefront, on both walks (2026-10-30, night)
+
+The user asked for a compacting block wavefront for the walk on spheres
+and the walk on stars, and whether shared memory is large enough for it.
+The shape: a chunk of points per block, the chunk's walks the block's
+threads, their steps deferred onto one queue in the block's shared memory
+and drained in rounds inside the kernel, each round's push compacting the
+live walks to the front -- fcpwb-gpu-defer-block's per-point queue made a
+chunk's, the CPU's fcpwb-packet-defer-chunk-threads brought to the card.
+It is a composition of today's directives and compiled first time:
+`split(i, i_chunk, i_in, C)`, the two reorders (the point's prologue and
+epilogue distributed, the nest perfect, the sums a slot per point of the
+chunk), `collapse(i_in, w, k)`, `queue(i_chunk, DeviceShared)`, the two
+`defer`s, the chunk to the block and the pushes, the drain and the pass
+to the threads (schedules/fcpwb-gpu-defer-chunk{2,4,8,16}.bonsai,
+wost-fcpwb-gpu-defer-chunk{2,4}.bonsai). The block's size is the chunk's
+walks, 128 to 1024.
+
+**Shared memory.** The RTX 5090 gives a block 48 KB without asking, 99 KB
+(101,376 bytes) when the kernel opts in, 100 KB to a multiprocessor. The
+launch's dynamic shared memory, read off the host code: the walk on
+spheres takes 74 bytes a walk (a 40-byte entry -- position, distance,
+step count, generator, the pair -- and a 32-byte one for the two buffers,
+plus the record's byte), the walk on stars 100 (two 28-byte halves beside
+the 40 and the byte). So a block holds about 650 walks of the one and 480
+of the other at 48 KB, 1,300 and 1,000 at 99 KB: ten to twenty points'
+walks, which is the answer -- large enough for a chunk, not for a card.
+The chunk of sixteen (1024 walks, 76 KB) found a runtime defect on the
+way: the opt-in asked CUDA for the device's whole limit, which it refuses
+for any kernel that also has static `.shared` words (a block queue's
+header, the block's sums), so every launch past 48 KB aborted. Fixed at
+the root in runtime/bonsai_cuda.h (the launch's own size, raised when a
+later launch asks for more; the limit checked against the static part),
+with tests/bonsai/correctness/gpu/queue-shared-large.bonsai; the chunk of
+sixteen then ran, 0.69x on the head, the trend's next step down.
+
+**Measured** (head and dragon, 64 walks a point, three repeats, Msteps/s
+over WoSX's persistent kernel; the same-day references in the same
+column):
+
+| schedule | head | dragon |
+|---|---|---|
+| persistent (fcpwb-gpu, the matching schedule) | 1.45x | 1.44x |
+| persistent-reorder / reorder-256k (the table) | 1.60x / 1.75x | 1.69x / 1.98x |
+| defer-block (a point a block, 64 walks) | 1.21x | 1.44x |
+| defer-chunk2 (128 walks) | 1.18x | 1.34x |
+| defer-chunk4 (256) | 0.95x | |
+| defer-chunk8 (512; one kernel, 28.4 ms) | 0.79x | |
+| defer-chunk16 (1024, 76 KB of shared memory) | 0.69x | |
+| defer (card-wide queue, a launch a round) | 0.79x | 0.77x |
+| stars: persistent / defer-block / chunk2 / chunk4 | 1.64x / 0.92x / 0.84x / 0.43x | |
+
+Over the tables' eighteen drawn meshes (the GPU figures, redrawn 22:37
+and 22:47 with the two bars): the one-point block 1.17x by geomean on the
+walk on spheres (0.78x on the crown to 1.27x on the dambreak), the chunk
+of two 1.11x (0.68x on the beast); on the stars 0.99x and 0.87x (0.51x on
+the crown). Against the persistent claim, bar for bar: 0.85x and 0.80x on
+the walk on spheres, 0.64x and 0.57x on the stars. The landscape, left out
+of the figures, is the one mesh where the block forms win (1.88x and
+1.79x; 3.47x on the stars): its walks escape the box in a step, mean
+length 1.15, so there is no tail to hold the block and every lane's one
+step is the block's whole work.
+
+**Reading.** The compacting block loses to the per-lane persistent claim
+on both walks, and loses more the more walks it holds. A block's rounds
+end with its longest walk: in round r the lanes live are the walks longer
+than r, so the block's lane use over its life is about the mean walk
+length over the longest in the block -- 13.7 over a few hundred for the
+walk on spheres, 78 over a thousand (the cap) for the stars -- and the
+longest grows with the chunk while the mean does not. The block holds its
+multiprocessor's slot through that tail, where a persistent lane whose
+walk ended claims the next walk at once and the hardware's scheduler
+replaces a finished small block at once (which is why the one-point block
+and the chunk of two come nearest, and the stars, with the longer tail,
+fall furthest). The compaction itself works -- the statistics match on
+every cell -- it compacts within too small a population. The card-wide
+queue compacts across every walk and loses the same 0.8x to its launch a
+round and its entries' trip through L2. What would make the block form
+win is the refill: a block that claims new points into its shared queue
+whenever its live count falls under its lanes, so the tail of one chunk
+runs under the first steps of the next and the lanes stay full to the end
+of the work -- the per-lane persistent claim with the block's compaction
+and no entry traffic past the SM. That is not a composition of today's
+directives (`persistent` claims a whole iteration; the claim inside the
+drain's round is new), and a first half of it, `persistent` on the chunk
+loop with the block as the worker (scratch/fcpwb-gpu-defer-chunk2-
+persistent.bonsai, kept out of schedules/ since it does not compile), the
+compiler refuses today: the claim's fetch-and-add stands in
+the block loop's body outside its thread phases, where every thread would
+run it (CodeGen_LLVM_SSA.cpp:608, "not built yet" -- one lane fetches,
+the block reads it from shared memory after a barrier). Both are the
+user's to open; the measurements say the refill is the one worth having.
+
+**The refill, corrected (the user, the same night).** The refill is a
+composition of today's directives after all: `persistent` on the
+collapsed (walk, point) loop with the workers split into blocks -- each
+thread claims the next pair from the counter, as the matching schedule
+does -- and the pairs' first steps deferred onto a queue placed at the
+block loop in shared memory with a *given* size, `queue(t_blk, 256,
+DeviceShared)`, since a claim loop has no trip count to size the queue
+by. What is unbuilt is one lowering: a bounded queue's flush. Today a
+written size may only enlarge the queue (the deferral refuses a size
+below the pushes it can count: "a capacity below it needs a flush
+policy, which is not built"), so a queue always holds every push and the
+drain runs after the last of them. The refill needs the pushes to stop
+when the queue is full, a round to run, and the pushes to resume -- the
+policy the defer design of 09-19 foresaw ("triggers a drain before a
+write that would overflow"). Proposed to the user, who wants a plan
+approved first: in a block, rounds of {drain the count into the other
+buffer; each lane claims one pair and pushes its first step while the
+counter has pairs and there is room for every lane; swap} until the
+counter is spent and the queue is empty; the compiler refuses a size
+below the block's lanes (the one way to spin: nothing ever claimed, the
+counter never spent); a round never fills the queue further (a step
+pushes at most one next step, enforced); a walk ends within the program's
+step cap, so room appears. The proposal's schedule is
+apps/wosx/scratch/fcpwb-gpu-defer-refill.bonsai (gitignored, since the
+compiler refuses it). Not to be built without the user's approval.
+
+**Three more without the bounded queue** (the user: "what else can you
+try without this?"; head / dragon over WoSX, three repeats, the same
+night; execution schedules over FCPW's tree as WoSX runs it -- the user
+ruled the same night that this work explores execution schedules only
+and the tree is matched exactly, so two layout variants tried on the GPU
+that night were withdrawn and are no part of the comparison):
+
+| schedule | head | dragon | what it is |
+|---|---|---|---|
+| wost-fcpwb-gpu-defer | 1.33x | 1.57x | the card-wide queue on the stars (its launches a few percent of a second's run) |
+| wost-fcpwb-gpu-defer-sort | 1.13x | 1.42x | the same, the queue sorted each round by the walks' positions (the device radix sort) |
+| fcpwb-gpu-defer-sort | 0.75x | 0.75x | the walk on spheres' card-wide queue sorted each round (unsorted 0.79x / 0.77x) |
+| (the references) persistent / reorder-256k | 1.45x / 1.75x | 1.44x / 1.98x | the stars 1.64x / 1.74x and 1.63x / 1.88x |
+
+The card-wide queue on the stars is the one of the three worth a bar,
+and the table shows two faces of it. On the two meshes above it stands
+between the block forms and the claim (1.33x against defer-block's 0.92x
+and the claim's 1.64x on the head; 1.57x against 1.05x and 1.63x on the
+dragon): the compaction across every walk worth what the long walks'
+divergence cost, the launches cheap at a second a run. Over the
+nineteen meshes (measured 22:55-23:05, the stars' GPU figure redrawn
+with the `defer` bar) it is 0.82x by geomean over the eighteen drawn, the
+best of the twelve schedules on the rover (1.97x) and ahead of the claim
+on the ivy (1.89x) and the dambreak (1.51x), and a quarter of WoSX's
+rate on the small meshes -- the whale 0.23x, the crown 0.28x, the
+octopus 0.34x, the beast 0.35x, the comb 0.41x -- where a run is a few
+tens of milliseconds and the hundreds of rounds, each a launch over a few
+thousand live steps, are the run; the head and the dragon of the table
+(1.31x, 1.57x) repeat the single runs. Sorting the queue each round costs
+more than the coherence returns on both walks (the stars 1.33x to 1.13x
+on the head, 1.57x to 1.42x on the dragon; the spheres 0.79x to 0.75x) --
+a radix sort of up to a million entries per round, a few hundred rounds.
+So no schedule of the night passes the persistent reorder with 262144
+workers by geomean; the card-wide queue on the stars is the first of the
+deferrals to beat the claim on any mesh of size, and what it wants is the
+small meshes' rounds without their launches -- the block form's rounds
+inside the kernel with the card-wide form's population, which is the
+refill (above). The sorted drains are measured by name.
+
 ### Next
 
+- The refill for the compacting block, as the user's plan (above): a
+  bounded block queue drained when full, fed by per-thread persistent
+  claims. Not to be built before the user approves the plan.
+- The block-level persistent claim -- one lane's fetch-and-add broadcast
+  through shared memory -- so that `persistent(i_chunk, b)` with the
+  block as the worker compiles (scratch/fcpwb-gpu-defer-chunk2-persistent,
+  refused today). Compiler work, the user's to open.
+- A true wavefront for the stars: the three traversals of a step staged
+  onto three queues (`stage`), each kernel one traversal type over one
+  tree; the last of the night's list, not yet tried.
 - OptiX's one loop: a form of the traversal that survives OptiX's
   compiler with the leaf visit as the exit of an inner loop over the
   interior nodes -- the lanes gathered before the triangle tests, as ptxas

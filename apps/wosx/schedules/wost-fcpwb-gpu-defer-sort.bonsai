@@ -1,0 +1,52 @@
+// wost-fcpwb-gpu-defer.bonsai with the queue sorted each round by the
+// walks' positions: `walk_stars.sort(walk_stars, key)` on the deferred
+// call, the key walk_keys.bonsai's fifteen-bit Morton code of the position
+// in the problem's box (the directive the CPU's sorted chunk used, where it
+// was worth 1.8x over the unsorted drain: a gang's lanes then walk one
+// neighbourhood of the tree), the sort the device radix sort before each
+// round's pass. Here a warp's thirty-two lanes take consecutive entries of
+// the sorted queue, so their three traversals -- the silhouette query, the
+// ray and the distance -- begin from one cell of the box and visit nearby
+// nodes of the three trees together (the user, 2026-10-30).
+import apps/wosx/schedules/layouts/fcpw_stars_gpu;
+import apps/wosx/walk_keys;
+
+schedule {
+    closest_absorbing.sort(absorbing.Interior,
+                           |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                           distmin(s, AABB{lo[i], hi[i]}))
+                     .unroll(absorbing.Interior.children)
+                     .loopify(64);
+    closest_absorbing.skip(closest_point_fcpw);
+    hit_reflecting.sort(reflecting.Interior,
+                        |i : u32, r : Ray, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                         axis : vector[vec3f, 2], half_angle : vector[f32, 2],
+                         radius : vector[f32, 2]|
+                        distmin(r, AABB{lo[i], hi[i]}))
+                  .unroll(reflecting.Interior.children)
+                  .loopify(64);
+    closest_silhouette.sort(silhouettes.Interior,
+                            |i : u32, q : SilhouetteQuery, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                             axis : vector[vec3f, 2], half_angle : vector[f32, 2],
+                             radius : vector[f32, 2]|
+                            distmin(q, ConeBox{lo[i], hi[i], axis[i], half_angle[i], radius[i]}))
+                      .unroll(silhouettes.Interior.children)
+                      .loopify(64);
+
+    walk_stars.sort(walk_stars, |x : vec3f, problem : StarProblem| walk_sort_key(x, problem.lo, problem.hi));
+    solve_stars.reorder(i, w);
+    solve_stars.reorder(w, i);
+    solve_stars.collapse(i, w, k);
+    steps = solve_stars.queue(root);
+    solve_stars.defer(walk_stars, steps);
+    walk_stars.defer(walk_stars, steps);
+    solve_stars.split(k, k_blk, k_thr, 256, true);
+    solve_stars.bind(k_blk, GPUBlock);
+    solve_stars.bind(k_thr, GPUThread);
+    solve_stars.split(steps, steps_blk, steps_thr, 256, true);
+    solve_stars.bind(steps_blk, GPUBlock);
+    solve_stars.bind(steps_thr, GPUThread);
+    solve_stars.split(steps_rest, rest_blk, rest_thr, 256, true);
+    solve_stars.bind(rest_blk, GPUBlock);
+    solve_stars.bind(rest_thr, GPUThread);
+}

@@ -1,0 +1,57 @@
+// The walk on stars with its walks deferred step by step onto one
+// card-wide queue -- fcpwb-gpu-defer.bonsai's shape on solve_stars: the
+// loop of (point, walk) pairs pushes the first step of every walk, the
+// drain runs one step per thread in rounds (round r the r-th step of every
+// walk still going, so a warp's lanes hold live steps rather than walks of
+// which the longest keeps the rest waiting), and the pass over the record
+// adds each walk's value into its point's sums; every loop in blocks of
+// 256 on the device, a launch per round. On the walk on spheres this form
+// lost (0.79x on the head, 0.77x on the dragon: the walks are fourteen
+// steps and a run 23 ms, so a launch a round and an entry's trip through
+// L2 are a large share of a short step). Here a step is three traversals
+// and the walks are seventy-eight steps with a heavy tail, so the
+// walk-length divergence the compaction removes is five times larger and
+// the launches are a few percent of a second's run -- the one place the
+// card-wide compaction should pay (the user, 2026-10-30: what else to try
+// without the bounded queue). The traversals are kernel/wost_fcpwb's,
+// written out since the walk is deferred, not loopified.
+import apps/wosx/schedules/layouts/fcpw_stars_gpu;
+
+schedule {
+    closest_absorbing.sort(absorbing.Interior,
+                           |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                           distmin(s, AABB{lo[i], hi[i]}))
+                     .unroll(absorbing.Interior.children)
+                     .loopify(64);
+    closest_absorbing.skip(closest_point_fcpw);
+    hit_reflecting.sort(reflecting.Interior,
+                        |i : u32, r : Ray, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                         axis : vector[vec3f, 2], half_angle : vector[f32, 2],
+                         radius : vector[f32, 2]|
+                        distmin(r, AABB{lo[i], hi[i]}))
+                  .unroll(reflecting.Interior.children)
+                  .loopify(64);
+    closest_silhouette.sort(silhouettes.Interior,
+                            |i : u32, q : SilhouetteQuery, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                             axis : vector[vec3f, 2], half_angle : vector[f32, 2],
+                             radius : vector[f32, 2]|
+                            distmin(q, ConeBox{lo[i], hi[i], axis[i], half_angle[i], radius[i]}))
+                      .unroll(silhouettes.Interior.children)
+                      .loopify(64);
+
+    solve_stars.reorder(i, w);
+    solve_stars.reorder(w, i);
+    solve_stars.collapse(i, w, k);
+    steps = solve_stars.queue(root);
+    solve_stars.defer(walk_stars, steps);
+    walk_stars.defer(walk_stars, steps);
+    solve_stars.split(k, k_blk, k_thr, 256, true);
+    solve_stars.bind(k_blk, GPUBlock);
+    solve_stars.bind(k_thr, GPUThread);
+    solve_stars.split(steps, steps_blk, steps_thr, 256, true);
+    solve_stars.bind(steps_blk, GPUBlock);
+    solve_stars.bind(steps_thr, GPUThread);
+    solve_stars.split(steps_rest, rest_blk, rest_thr, 256, true);
+    solve_stars.bind(rest_blk, GPUBlock);
+    solve_stars.bind(rest_thr, GPUThread);
+}

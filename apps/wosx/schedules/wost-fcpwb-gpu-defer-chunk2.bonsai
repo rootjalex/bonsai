@@ -1,0 +1,44 @@
+// wost-fcpwb-gpu-defer-chunk4.bonsai with a chunk of two points: 128 walks
+// a block, four warps, two buffers of 128 entries. On the walk on spheres
+// the chunk of two was the one chunk size ahead of the one-point block
+// (fcpwb-gpu-defer-chunk2.bonsai: the block's rounds end with its longest
+// walk, so the small chunk rotates where the big one holds its slot through
+// a tail of near-empty rounds); the walk on stars' walks are five times as
+// long with a heavier tail, so the same measurement here (the user,
+// 2026-10-30).
+import apps/wosx/schedules/layouts/fcpw_stars_gpu;
+
+schedule {
+    closest_absorbing.sort(absorbing.Interior,
+                           |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                           distmin(s, AABB{lo[i], hi[i]}))
+                     .unroll(absorbing.Interior.children)
+                     .loopify(64);
+    closest_absorbing.skip(closest_point_fcpw);
+    hit_reflecting.sort(reflecting.Interior,
+                        |i : u32, r : Ray, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                         axis : vector[vec3f, 2], half_angle : vector[f32, 2],
+                         radius : vector[f32, 2]|
+                        distmin(r, AABB{lo[i], hi[i]}))
+                  .unroll(reflecting.Interior.children)
+                  .loopify(64);
+    closest_silhouette.sort(silhouettes.Interior,
+                            |i : u32, q : SilhouetteQuery, lo : vector[vec3f, 2], hi : vector[vec3f, 2],
+                             axis : vector[vec3f, 2], half_angle : vector[f32, 2],
+                             radius : vector[f32, 2]|
+                            distmin(q, ConeBox{lo[i], hi[i], axis[i], half_angle[i], radius[i]}))
+                      .unroll(silhouettes.Interior.children)
+                      .loopify(64);
+
+    solve_stars.split(i, i_chunk, i_in, 2, true);
+    solve_stars.reorder(i_in, w);
+    solve_stars.reorder(w, i_in);
+    solve_stars.collapse(i_in, w, k);
+    steps = solve_stars.queue(i_chunk, DeviceShared);
+    solve_stars.defer(walk_stars, steps);
+    walk_stars.defer(walk_stars, steps);
+    solve_stars.bind(i_chunk, GPUBlock);
+    solve_stars.bind(k, GPUThread);
+    solve_stars.bind(steps, GPUThread);
+    solve_stars.bind(steps_rest, GPUThread);
+}
