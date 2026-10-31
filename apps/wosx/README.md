@@ -474,7 +474,20 @@ in question (PLAN.md, the persistent schedule).
   32x32x32 grid and ask the tree about one neighbourhood (the user,
   2026-10-29: "maybe a defer + vectorize would work"; PLAN.md, "Why the
   packets lose on the CPU": the compaction alone changes nothing, the sort
-  is worth 1.8x). Beside them, as files run by name: `-defer-chunk-threads`
+  is worth 1.8x); `schedules/fcpwb-packet-defer-sort-persistent.bonsai`: the
+  sorted drain with its chunks claimed by sixteen persistent workers from a
+  counter instead of handed out by TBB's partition (the user, 2026-10-31:
+  "is there a good persistent-defer schedule that could be tried?"), the
+  figure's seventh bar (`persistent-defer-sort16`): 0.77x by geomean
+  against the TBB drain's 0.73x, the claim worth four to five percent on
+  the drain as it is worth six on the scalar walk, and the best schedule
+  of the tree on the comb (2.31x), the pavilion (1.35x) and the head
+  (1.22x) while the drain's deficit on the large meshes stays (PLAN.md,
+  "The sorted drain with persistent claims"); its first form, written with
+  the traversal's sort and loopify before the vectorize, was the per-lane
+  traversal below at the same 0.54x on the head -- the order of two
+  directives is the whole of the difference. Beside them, as files run by
+  name: `-defer-chunk-threads`
   (the chunk's queue unsorted), `-defer-sort-fine-threads` and
   `-defer-sort-fine-c256-threads` (a 1024x1024x1024 grid's thirty-bit key,
   chunks of 64 and of 256 points), `-defer-sort-c16-threads` (chunks of 16:

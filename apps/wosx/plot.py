@@ -30,16 +30,19 @@ the reference runs; one thread against one thread (the bare `fcpwb`,
 `fcpw4w16`, a cell the tables once held) is a microbenchmark's question,
 apps/rtq's, and is no bar (the user, 2026-10-28). On WoSX's default tree
 the exploration's bars stand beside the two (CPU_EXTRA_BARS; the user,
-2026-10-28: more schedules, vectorization among them): the same tree in the
-layout where a node holds its children's boxes (`fcpwb2-threads`,
-`fcpwb2-persistent`), the walk vectorized over a point's walks in gangs
+2026-10-28: more schedules, vectorization among them; execution schedules
+over FCPW's own rows alone since 2026-10-31, the two-child layout's bars
+gone): the walk vectorized over a point's walks in gangs
 of sixteen and eight lanes (`fcpwb-packet-16-threads`,
 `fcpwb-packet-8-threads`; the gangs of thirty-two and of four are in the
-table and not drawn), and the walks deferred step by step onto a queue
+table and not drawn), the walks deferred step by step onto a queue
 drained in gangs of sixteen, a point's queue and a chunk's queue sorted by
 the walks' positions (`fcpwb-packet-defer-threads`,
 `fcpwb-packet-defer-sort-threads`), each run in parallel under WoSX's
-schedule.
+schedule, and the sorted drain's chunks claimed by sixteen persistent
+workers instead of TBB's partition (`fcpwb-packet-defer-sort-persistent`;
+the user, 2026-10-31: "is there a good persistent-defer schedule?"), the
+best schedule of the tree on the comb, the pavilion and the head.
 Walk on spheres has one schedule per thread count and no parameter the
 speedup is swept over: a step is one distance query, and the epsilon shell
 and the walk count set how many steps a point takes, not what a step costs
@@ -161,6 +164,9 @@ SCHEDULE_COLOURS = {
     "parallel-packet8": RAMP8[5],
     "parallel-defer16": RAMP8[6],
     "parallel-defer-sort16": RAMP8[7],
+    # the sorted drain with persistent claims (2026-10-31): the shade the
+    # two-child layout's persistent bar had until it left the figure
+    "persistent-defer-sort16": RAMP8[3],
     # the GPU figures' legend, after persistent and parallel
     "persistent-reorder": RAMP8[2],
     "persistent-256k": RAMP8[3],
@@ -238,6 +244,16 @@ CPU_EXTRA_BARS = {
          SCHEDULE_COLOURS["parallel-defer-sort16"],
          "the walks deferred onto a chunk of sixty-four points' queue, drained in gangs of "
          "sixteen in the order of the walks' positions (a Morton code), the threads"),
+        # The user, 2026-10-31: "is there a good persistent-defer schedule
+        # that could be tried?" -- the sorted drain with its chunks claimed
+        # by sixteen persistent workers from a counter instead of TBB's
+        # partition: 0.77x by geomean against the drain's 0.73x, and the
+        # best schedule of the tree on the comb, the pavilion and the head,
+        # so kept (every schedule that is the best on some mesh is drawn).
+        ("fcpwb-packet-defer-sort-persistent", "persistent-defer-sort16",
+         SCHEDULE_COLOURS["persistent-defer-sort16"],
+         "the sorted drain's chunks of sixty-four points claimed by sixteen persistent "
+         "workers from a counter instead of TBB's partition"),
     ],
 }
 # Measured but not drawn by default, the ramp's eight shades spoken for
@@ -628,7 +644,8 @@ def cpu_notes(base, exclude):
 # without an entry draws CPU_BARS then CPU_EXTRA_BARS as listed.
 CPU_BAR_ORDER = {
     "fcpwb": ["parallel", "parallel-packet16", "parallel-packet8",
-              "parallel-defer16", "parallel-defer-sort16", "persistent"],
+              "parallel-defer16", "parallel-defer-sort16", "persistent",
+              "persistent-defer-sort16"],
 }
 
 

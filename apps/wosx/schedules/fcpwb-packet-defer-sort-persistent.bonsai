@@ -1,0 +1,48 @@
+// fcpwb-packet-defer-sort-threads.bonsai with the chunks of points claimed
+// by persistent workers (the user, 2026-10-31: "is there a good
+// persistent-defer schedule that could be tried?"): sixteen workers, one
+// per hardware thread, each claiming the next chunk of sixty-four points
+// from a counter (`persistent`, as fcpwb-persistent.bonsai claims points),
+// pushing its walks' first steps onto the chunk's queue, draining the queue
+// in gangs of sixteen lanes in the order of the walks' positions, and
+// claiming the next chunk -- where the threads form hands the chunks to
+// TBB's partition. On the scalar walk the persistent claim is worth 1.23x
+// against the threads' 1.17x on this tree; this measures the same claim
+// on the sorted drain (0.71x by geomean under TBB). A worker's queue is
+// still one chunk's: the refill that would keep its gangs full across
+// chunks -- new points claimed into the queue as walks end -- is the
+// bounded queue (PLAN.md, "The refill, corrected"), not built.
+//
+// The directives stand in the threads file's order, which matters: the
+// vectorize before the traversal's sort and loopify, so that the sort
+// votes by majority and the gang visits one node at a time (the box test
+// on one AABB, the children by multicall). Written the other way round --
+// sort and loopify first, then vectorize -- the loopified traversal is
+// vectorized per lane: every lane its own stack and its own node, each
+// node load a gather (147 against 14), and the schedule ran at 0.54x on the
+// head and 0.50x on the rover (02:26 on 10-31), half the threads file's
+// rate on the head.
+import apps/rtq/schedules/layouts/fcpwb;
+import apps/wosx/walk_keys;
+
+schedule {
+    walk.sort(walk, |x : vec3f, problem : Problem| walk_sort_key(x, problem.lo, problem.hi));
+    solve_all.split(i, i_chunk, i_in, 64, true);
+    solve_all.reorder(i_in, w);
+    solve_all.reorder(w, i_in);
+    steps = solve_all.queue(i_chunk);
+    solve_all.defer(walk, steps);
+    walk.defer(walk, steps);
+    solve_all.split(steps, steps_gang, steps_lane, 16, true)
+             .vectorize(steps_lane);
+    closest_within.sort(triangles.Interior,
+                        |i : u32, s : Sphere, lo : vector[vec3f, 2], hi : vector[vec3f, 2]|
+                        select(distmin(s, AABB{lo[0u], hi[0u]}) == 0.0 &&
+                               distmin(s, AABB{lo[1u], hi[1u]}) == 0.0,
+                               distmax(s, AABB{lo[i], hi[i]}),
+                               distmin(s, AABB{lo[i], hi[i]})))
+                  .loopify(64);
+    closest_within.skip(closest_point_fcpw);
+    solve_all.persistent(i_chunk, t, 16);
+    solve_all.bind(t, CPUThread);
+}

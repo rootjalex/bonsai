@@ -3002,6 +3002,89 @@ small meshes' rounds without their launches -- the block form's rounds
 inside the kernel with the card-wide form's population, which is the
 refill (above). The sorted drains are measured by name.
 
+### The sorted drain with persistent claims, and the order of two directives (2026-10-31, night)
+
+The user's question of the evening, "is there a good persistent-defer
+schedule that could be tried?": `fcpwb-packet-defer-sort-persistent`, the
+sorted drain (fcpwb-packet-defer-sort-threads) with its chunks of
+sixty-four points claimed by sixteen persistent workers from a counter
+instead of handed out by TBB's partition -- `persistent(i_chunk, t, 16);
+bind(t, CPUThread)` for `bind(i_chunk, CPUThread)`, nothing else changed.
+A worker's queue is still one chunk's; the refill that would keep its gangs
+full across chunks, new points claimed into the queue as walks end, is the
+bounded queue (above), not built.
+
+Written first with the traversal's sort and loopify ahead of the
+vectorize, it ran at 02:26 (f9's 'clear' for the hour before their GPU
+run; two cells, seventy seconds) at 0.54x on the head and 0.50x on the
+rover, where the TBB drain runs 1.20x and 0.58x. The final SSA
+(`--dump-ssa-final`) said why: the gang's box test took an `AABB$v16`, a
+node per lane; the recursion had no multicall; the LLVM held 147 gathers
+against the threads file's 14 -- the per-lane traversal of
+fcpwb-packet-defer-sort-fine-perlane-threads (10-29: 0.54x on the head,
+the same number), which is what vectorizing an already loopified traversal
+makes: every lane its own stack and its own node, each node load a gather.
+Directives apply in the order written (the ruling of 10-08); the threads
+file vectorizes first, so its sort votes by majority and its gang visits
+one node at a time. The file was reordered to the threads file's order with
+the claim alone changed, and checked under build/'s compiler before the
+second run: 14 gathers, the box test on one `AABB`, the recursion by
+multicall. The other eighteen CPU schedules were audited for the order:
+the two written sort-first are the four-wide tree's matching schedule
+(the vectorize over a node's four children, FCPW's own form) and the
+perlane file, both on purpose. The 02:26 cells are kept under
+results/logs-before-2026-10-31-sort-order.
+
+Measured 03:25 to 03:36 under the stall rule (f9's lock off since 03:03
+with no 'done', nothing running, nothing of theirs changed in twenty
+minutes, their session waiting; f9 told before and after), least of three,
+the nineteen meshes; speedup over WoSX:
+
+| mesh | persistent sorted drain | TBB sorted drain | persistent (scalar) | threads (scalar) |
+|---|---|---|---|---|
+| geomean, 19 | 0.767x | 0.733x | 1.264x | 1.195x |
+| comb | 2.31x | 1.99x | 1.30x | 1.30x |
+| pavilion | 1.35x | 1.34x | 1.18x | 1.18x |
+| landscape | 1.23x | 1.29x | 1.97x | 1.89x |
+| head | 1.22x | 1.20x | 1.18x | 1.17x |
+| ivy | 0.85x | 0.84x | 1.23x | 1.21x |
+| whale | 0.80x | 0.76x | 1.16x | 1.15x |
+| zero-day | 0.79x | 0.79x | 1.23x | 1.20x |
+| villa | 0.77x | 0.75x | 1.19x | 1.17x |
+| car | 0.76x | 0.74x | 1.17x | 1.15x |
+| octopus | 0.72x | 0.65x | 1.18x | 1.15x |
+| sportscar | 0.72x | 0.70x | 1.19x | 1.17x |
+| bmw | 0.69x | 0.67x | 1.18x | 1.16x |
+| dambreak | 0.65x | 0.60x | 1.20x | 1.17x |
+| rover | 0.61x | 0.58x | 1.22x | 1.17x |
+| ganesha | 0.59x | 0.45x | 1.39x | 1.16x |
+| beast | 0.53x | 0.58x | 1.19x | 1.18x |
+| lte-orb | 0.49x | 0.47x | 1.42x | 1.10x |
+| dragon | 0.48x | 0.44x | 1.46x | 1.06x |
+| crown | 0.42x | 0.41x | 1.19x | 1.14x |
+
+The claim is worth four to five percent over TBB's partition on the drain
+(0.767x against 0.733x), as it is worth six on the scalar walk (1.264x
+against 1.195x), on every mesh but the landscape and the beast. It makes
+the schedule the best of the tree on three meshes -- the comb, where the
+sorted drain already led the scalar claim (1.99x against 1.30x), the
+pavilion and the head -- and leaves it a loser by geomean: the drain's
+deficit on the large meshes (the crown 0.42x, the dragon 0.48x, the lte-orb
+0.49x) is the drain's own, the vote's order against a lane's own (the lane
+counts of 10-29), and where the chunks come from does not touch it. By the
+figure's rule (every schedule that is the best on some mesh is kept) it is
+the fcpwb CPU figure's seventh bar, `persistent-defer-sort16`, after the
+persistent bar.
+
+The compiler commit of 02:19 the same night (b72c215b: the hoist of
+loop-invariant allocations moving pure size arithmetic with the
+allocation; the hit continuations keeping the raygen shape around a
+reordering hint) changes no wosx code: fourteen defer schedules -- the two
+CPU drains and every GPU deferral on both walks -- print identical final
+SSA under the 10-29 compiler (build-rtq) and the new one (the hoist runs
+before the dump, Convert.cpp), the CPU drains' queue arrays being at the
+worker's entry already, sized from the walks count. The tables stand.
+
 ### Next
 
 - The refill for the compacting block, as the user's plan (above): a
