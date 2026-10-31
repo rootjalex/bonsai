@@ -19677,3 +19677,52 @@ and plot_gpu_wavefront.py's WHY and READINGS (dragon_10 written;
 sanmiguel's and the eight-scene lines updated; landscape, kroken and
 watercolor's readings kept for the eight's table) point at
 gpu-compare-out-six. The CPU sweep runs from 11:13.
+
+**The CPU sweep of the six (10-30, 11:13-17:12, cpu-compare-out-six; the
+figure's default).** 120 rows: the six scenes at 16 and 128 spp, pbrt's
+two integrators and our nine sides, the least of three runs each, every
+core; the renderers' compiles took the first 35 minutes, then the blocks
+ran killeroo-gold 4 + 16 min, book 5 + 24, sanmiguel 6 + 25, ganesha
+6 + 25, dragon_10 6 + 32, bistro 12 + 48 -- six hours in all, as
+estimated. Every cell of ours matches pbrt's image but one, sanmiguel's
+scalar schedule at 16 spp, the known gap against pbrt's volpath (853,108
+lit pixels to its 856,648, where pbrt's own two integrators differ by
+more; ruled fine 10-23; passes at 128 spp). It is the first CPU table
+with bistro, on which every packet schedule crashed before caa9eb9b: all
+eight of its packet cells match. Against 10-28's table (cpu-compare-out-
+head, under 7af5bd86, before the fix) the four shared scenes repeat
+within 2.2% on every side at both counts (new over old 0.979-1.022; the
+per-thread scalar wavefront at 128 spp the furthest below, our megakernel
+on killeroo-gold the furthest above), so the fix's two instructions on
+every gang gather do not show at the figure's scale; pbrt's wavefront
+walls repeat to within 10 ms, since its own render timer, read from the
+image it writes, is quantized -- every one of the twelve lies 10-60 ms
+above a multiple of half a second. The new scenes: **dragon_10** (7.2M
+triangles, the Subsurface material) -- pbrt's wavefront 2.7x behind its
+megakernel, the per-thread queues 2.0x over the bands, the vectorized
+drains 14-15%, and our megakernel best at both counts by 1-3% over the
+per-thread vectorized wavefront (3.31x and 3.28x against 3.21x and 3.26x;
+1.22-1.24x pbrt's megakernel): the subsurface bounce's probe trace and
+second material evaluation are two more queue passes for the wavefront
+and straight-line code for the megakernel (a reading, not profiled); the
+GPU's reading of the same scene (its megakernels 0.3-0.9x pbrt, lanes
+diverging under the subsurface sample) has no counterpart with one path a
+thread. **bistro** (2.9M triangles, 133 materials, 409 textures, 20,638
+area lights) -- the heaviest shading of the six: pbrt's wavefront loses
+least to its megakernel (2.1x), so every speedup over it is the smallest
+of the six (our megakernel 2.3x, the best wavefront 3.5x and 3.7x); the
+per-thread queues buy least (1.8-1.9x), the vectorized drains most
+(29-30% per thread) and the ray sort most (per-thread 1.11x and 1.18x,
+band 1.13x), so the sorted per-thread wavefront is best at both counts.
+Over the six: the per-thread vectorized wavefront geomean 4.63x over
+pbrt's wavefront, its sorted twin 4.55x, our megakernel 4.07x, pbrt's own
+3.48x, the band wavefronts 1.42-1.52x; the best side is our megakernel on
+killeroo-gold and dragon_10, the sorted per-thread wavefront on
+sanmiguel and bistro (and book at 16 spp), the unsorted on ganesha (and
+book at 128); from 16 to 128 spp the speedups move 0.95-1.01x, where the
+GPU's fall to 0.75-0.80x. plots.sh's CPU_CSVS default, the README's
+bullet and plot_cpu_wavefront.py's WHY (six scenes, two counts, the
+megakernel's wins), READINGS (killeroo-gold, book, ganesha and sanmiguel
+rewritten against the six; dragon_10 and bistro written;
+killeroo-simple's kept for 10-28's table, undrawn) and CAUSES point at
+cpu-compare-out-six.

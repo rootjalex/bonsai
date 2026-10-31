@@ -8,12 +8,13 @@
 #   bash apps/pbrt/plots.sh [--png]
 #
 #   plots/pbrt-cpu-sweep.pdf   the CPU schedules' speedup over pbrt's CPU
-#                              wavefront, five scenes x 16/64/128 spp, from
-#                              cpu_compare.sh's CSVs (plot_cpu_wavefront.py)
+#                              wavefront, six scenes x 16/128 spp (the
+#                              user's set, 10-30), from cpu_compare.sh's
+#                              CSVs (plot_cpu_wavefront.py)
 #   plots/pbrt-gpu-sweep.pdf   every measured OptiX schedule's speedup over
-#                              pbrt --gpu, eight scenes x 16/128 spp (the
-#                              user's set, 10-29), from gpu_compare.sh's
-#                              tables (plot_gpu_wavefront.py)
+#                              pbrt --gpu, the same six scenes x 16/128 spp,
+#                              from gpu_compare.sh's tables
+#                              (plot_gpu_wavefront.py)
 #   plots/pbrt-gpu-heatmap.pdf the matching GPU wavefront (gpu-optix) over
 #                              pbrt --gpu on all thirty scenes x 16/64/128
 #                              spp, from the last heatmap run
@@ -50,11 +51,18 @@
 set -euo pipefail
 PREFIX=$(cd "$(dirname "$0")" && pwd)
 OUT="$PREFIX/plots"
-# The CPU sweep of the night of 10-28 (02:28-07:41): cpu_compare.sh's nine
-# schedules on the five scenes at 16/64/128 spp under the compiler at
-# 7af5bd86 (the exit merge in place of the funnel). The 10-23/24 tables
-# it replaces are cpu-compare-out/ and cpu-compare-out-sortfix/.
-CPU_CSVS="${CPU_CSVS:-$PREFIX/cpu-compare-out-head/cpu-results.csv}"
+# The CPU sweep of 10-30 (11:13-17:12, scratch/run_six_scenes.sh
+# --then-cpu): cpu_compare.sh's nine sides on the six scenes at 16 and 128
+# spp, three repeats, under the compiler at caa9eb9b (a gang's 32-bit
+# lane offsets read unsigned -- the first CPU table on which the packet
+# schedules render bistro at all). The night of 10-28's table under
+# 7af5bd86 (killeroo-simple, killeroo-gold, book, sanmiguel-courtyard,
+# ganesha at 16/64/128 spp) is cpu-compare-out-head/, which the four
+# shared scenes repeat within two percent on every side; 10-29/30's
+# stopped eight-scene run is cpu-compare-out-eight/ (108 rows, pre-fix
+# compiler); the 10-23/24 tables are cpu-compare-out/ and
+# cpu-compare-out-sortfix/.
+CPU_CSVS="${CPU_CSVS:-$PREFIX/cpu-compare-out-six/cpu-results.csv}"
 # The GPU sweep of 10-30 morning (09:37-11:13, scratch/run_six_scenes.sh):
 # the paper figure's eight sides on the six scenes at 16 and 128 spp (the
 # user's set of 10-30: killeroo-gold, book, sanmiguel-courtyard, ganesha,
