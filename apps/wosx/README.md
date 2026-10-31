@@ -200,9 +200,11 @@ equal steps laid over each figure's bars in the legend's order, palest
 first, `parallel` and `persistent` the same shades on the CPU and GPU
 figures (plot.py's SCHEDULE_COLOURS), drawn at the paper's
 page width in apps/pbrt/figure_style.py's style. Beside each figure a
-`.txt` of the statistics the paper quotes (per schedule the geomean, the
-least and greatest cell and its mesh, what each change of schedule bought,
-notes reading the figure), and the mesh facts in one table rather than on
+`.txt` of the statistics the paper quotes (per schedule one line that
+begins with the range, least-greatest, and the geomean, then the count and
+the least, quartile, median and greatest cells with their meshes -- the
+user, 10-30; what each change of schedule bought, the same way; notes
+reading the figure), and the mesh facts in one table rather than on
 every plot, `wosx-meshes.txt` and `wosx-meshes.tex` (a tabular to
 `\input`), so the figures carry the mesh names alone. The landscape is
 left out, since nearly every walk on it escapes on its first step, and

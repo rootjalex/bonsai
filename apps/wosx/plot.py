@@ -84,9 +84,11 @@ walk on spheres', since a star is bounded by the reflecting boundary's
 silhouettes as well as by the absorbing boundary.
 
 Beside each figure (the user's rule, 10-24) go the statistics the paper
-quotes, `<figure>.txt`: per schedule the geomean over the plotted meshes,
-the least and greatest cell and which mesh each is, what each change of
-schedule bought cell by cell, and notes reading the figure; and the mesh
+quotes, `<figure>.txt`: per schedule one line beginning with the range
+(least-greatest) and the geomean over the plotted meshes (the user, 10-30),
+then the count and the least, quartile, median and greatest cells with
+their meshes (figure_style.describe), what each change of schedule bought
+cell by cell in the same form, and notes reading the figure; and the mesh
 facts go in one table rather than on every plot, `wosx-meshes.txt` to read
 and `wosx-meshes.tex` to \\input (a booktabs tabular: triangles, closed or
 not, sample points, walks, WoSX's mean walk length), so the tick labels

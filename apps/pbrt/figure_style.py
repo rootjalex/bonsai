@@ -24,9 +24,11 @@ Arial, Helvetica and DejaVu Sans when a machine lacks it.
 `lean_labels(ax, labels, pitch)` sets x tick labels at the least angle at
 which they do not overlap (`lean_angle`, `lean_height` size a figure for
 them). `write_summary` writes the statistics the paper quotes beside a figure,
-`<figure>.txt`: for each series the geometric mean, the least value, the
-lower quartile, the median, the upper quartile and the greatest value, and
-which point each is (the user, 10-24 and 10-26; `describe` has the form).
+`<figure>.txt`: for each series a line that begins with the range
+(least-greatest) and the geometric mean, then the count, the least value,
+the lower quartile, the median, the upper quartile and the greatest value,
+and which point each is (the user, 10-24, 10-26 and 10-30; `describe` has
+the form).
 `YLGNBU` is the paper's one colour ramp (the heatmap's cells, the rtq and
 wosx figures, the sweeps' bars); `RAMP8` is eight of its shades at equal
 perceptual steps, and `SCHEDULE_COLOURS` lays them over the two sweeps
@@ -135,19 +137,22 @@ def _statistic(name, value, cells):
 
 def describe(points):
     """Summary statistics of `points`, (label, value) pairs of one series,
-    as one line of text: the count, the geometric mean, then in order the
-    least value, the lower quartile, the median, the upper quartile and the
-    greatest value, each with the label of the cell it belongs to -- or,
-    where a quartile or the median falls between two cells, both cells with
-    their values. The paper quotes these beside every figure (the user,
-    10-24; the quartiles and the median with their cells, 10-26)."""
+    as one line of text, which begins with the range (least-greatest) and
+    the geometric mean (the user, 10-30: every summary starts with those
+    two), then the count, then in order the least value, the lower
+    quartile, the median, the upper quartile and the greatest value, each
+    with the label of the cell it belongs to -- or, where a quartile or the
+    median falls between two cells, both cells with their values. The paper
+    quotes these beside every figure (the user, 10-24; the quartiles and
+    the median with their cells, 10-26)."""
     points = [(label, v) for label, v in points if v is not None and v > 0]
     if not points:
         return "no points"
     geomean = math.exp(sum(math.log(v) for _, v in points) / len(points))
     low = min(points, key=lambda p: p[1])
     high = max(points, key=lambda p: p[1])
-    return (f"n={len(points)}  geomean {geomean:.2f}x  "
+    return (f"range {low[1]:.2f}x-{high[1]:.2f}x  geomean {geomean:.2f}x  "
+            f"n={len(points)}  "
             f"min {low[1]:.2f}x ({low[0]})  "
             f"{_statistic('lower quartile', *quantile(points, 0.25))}  "
             f"{_statistic('median', *quantile(points, 0.5))}  "
