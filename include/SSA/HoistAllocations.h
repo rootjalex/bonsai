@@ -29,16 +29,25 @@ namespace ssa {
 // An `Alloca` in a block inside a loop is moved outward, one loop at a time,
 // while three things hold:
 //
-//   * Its size is available where it is going. An SSA allocation has no
-//     operands; a run-time size is a value named in its type (`f32[n]`, see
-//     make_alloca in SSA/Storage.h). Each such name is settled to its
-//     definition (SSA/Definitions.h), which has to be in a block dominating
-//     the target: a loop index, a loop-carried argument, a value computed
-//     inside the loop stops the allocation at that loop. Halide's
-//     `hoist_storage` bounds a size that varies over the crossed loops
-//     instead (`bounds_of_expr_in_scope` over each loop variable); a size
-//     that varies is not something a queue has, so the settled value or
-//     nothing.
+//   * Its size is available where it is going, or can be made so. An SSA
+//     allocation has no operands; a run-time size is a value named in its
+//     type (`f32[n]`, see make_alloca in SSA/Storage.h). Each such name is
+//     settled to its definition (SSA/Definitions.h), which has to be in a
+//     block dominating the target -- or be an instruction with no effect
+//     but its value (arithmetic, comparison, selection, conversion) whose
+//     every operand is available or such an instruction in turn: those
+//     move with the allocation, ahead of it, in dependency order. That is
+//     loop-invariant code motion (Allen and Cocke 1971; Muchnick ch. 13;
+//     LLVM's LICM) for the one thing the allocation needs, since the
+//     deferral writes a queue's size at the head of its owner's iteration
+//     and, when the owner's producers are a nest, as the product of their
+//     trip counts -- pure arithmetic on values settled before every loop
+//     (the GPU wavefront with passes of four samples, 10-30). A loop index,
+//     a loop-carried argument, a load or a call in the size stops the
+//     allocation at that loop. Halide's `hoist_storage` bounds a size that
+//     varies over the crossed loops instead (`bounds_of_expr_in_scope` over
+//     each loop variable); a size that varies is not something a queue has,
+//     so the settled or moved value, or nothing.
 //   * Nothing reads what the storage held when an iteration began. Either
 //     the allocation is marked `scratch` by the rewrite that made it -- a
 //     queue is emptied before it is filled, a record slot written by its

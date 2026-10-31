@@ -1,0 +1,79 @@
+//! flags: -p ssa
+
+// A raygen whose continuation after the trace makes a reordering hint keeps
+// the raygen shape (SSA/HitContinuations.h, the soundness paragraph's last
+// clause): tests/bonsai/ssa/hit-continuation.bonsai's program with the
+// work of the hit in a callee, `finish`, that `shade` sorts on in place
+// (`shade.sort(finish, |front : bool| front)`), so that Lower/Sorts.cpp
+// puts an `rt_reorder` -- OptiX's optixReorder -- before the call. OptiX
+// allows that hint in a raygen program alone; a closest-hit program making
+// it fails the module compile ("Illegal call to optixReorder in function
+// __closesthit__trace with semantic type CLOSESTHIT", the fused SER
+// wavefront of apps/pbrt on 10-24 and 10-30). So the pass refuses this loop
+// (BONSAI_EXPLAIN_HIT_CONTINUATIONS=1 says why) and the trace keeps the
+// shape Lower/Trees.cpp gave it: the raygen traces, reorders and calls.
+// What to look for: no `__closesthit__trace$i` and no `shade!hit`; the
+// generic `__closesthit__trace` alone; in `shade` the `rt_reorder` of the
+// key before the call to `finish`, after the trace's answer.
+import stdlib/aabb;
+import stdlib/distance;
+import stdlib/intersects;
+import stdlib/numerics;
+import stdlib/ray;
+import stdlib/topology;
+import stdlib/triangle;
+
+element Tri {
+    tri : Triangle;
+} with extent = aabb_of_triangle(tri);
+
+extern tris : set[Tri];
+
+func trace(r : Ray) =
+    argmin(|t : Tri| distmin(r, t.tri),
+           filter(|t : Tri| intersects(r, t.tri), tris));
+
+func finish(w : f32, i : i32, front : bool, out : mut array[f32]) -> void {
+    if front {
+        out[i] = w;
+    } else {
+        out[i] = -w;
+    }
+    return;
+}
+
+func shade(r : Ray, w : f32, i : i32, out : mut array[f32]) -> void {
+    found = trace(r);
+    if found {
+        hit = *found;
+        finish(w * hit.tri.p0.x, i, hit.tri.p0.z > 0.0, out);
+    } else {
+        out[i] = 0.0;
+    }
+    return;
+}
+
+func [[export]] render(n : i32, rays : array[Ray, n],
+                       weights : array[f32, n],
+                       out : mut array[f32]) -> void {
+    parfor i in 0:n {
+        shade(rays[i], weights[i], i, out);
+    }
+    return;
+}
+
+schedule {
+    // The sort first: a function's sorts come before its other directives
+    // (Lower/Sorts.cpp).
+    shade.sort(finish, |front : bool| front);
+
+    tris : OptixTree;
+
+    layout tris {
+        n : u32;
+        elems : array[Tri, n];
+    };
+
+    trace.bind(RTCore);
+    render.bind(i, OptixThread);
+}

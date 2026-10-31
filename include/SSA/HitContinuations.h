@@ -54,9 +54,15 @@
 // program reads the same; and the continuation reaches no further trace
 // and no loop back to one (the probe walk and the transmittance walk
 // trace in a loop and keep the raygen continuation, as pbrt's
-// `__raygen__randomHit` and `__raygen__shadow_Tr` do). A loop that does
-// not qualify keeps the old shape; BONSAI_EXPLAIN_HIT_CONTINUATIONS=1
-// prints each refusal.
+// `__raygen__randomHit` and `__raygen__shadow_Tr` do), and makes no
+// reordering hint -- an in-place sort's `rt_reorder` (Lower/Sorts.cpp) is
+// OptiX's optixReorder, legal in a raygen program alone, so a wavefront
+// whose material stage is fused into the trace program and reordered by
+// material (gpu-optix-fused-ser) keeps the raygen shape, trace then
+// reorder then the call, as the SER megakernels have it (10-30; on 10-24
+// the hint reached the closest-hit program and OptiX refused the module).
+// A loop that does not qualify keeps the old shape;
+// BONSAI_EXPLAIN_HIT_CONTINUATIONS=1 prints each refusal.
 //
 // Runs in SSA/Convert.cpp after gate_drains (the drains are final) and
 // before the pushes are lowered and the functions simplified. The copies

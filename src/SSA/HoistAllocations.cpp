@@ -8,6 +8,8 @@
 #include "Error.h"
 #include "Utils.h"
 
+#include <algorithm>
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -77,6 +79,26 @@ Definition definition_of(Definitions &defs, const Function &func,
                    << ", which nothing in " << func.blocks.front()->name
                    << " defines";
     return {};
+}
+
+// An instruction with no effect but its value: arithmetic, comparison,
+// selection, conversion. What may move with an allocation whose size it
+// computes (see hoist_invariant_allocations). Anything that reads or
+// writes memory, calls, accumulates, pushes, claims a slot or takes an
+// address is not on the list and stays where it is.
+bool pure(const Instruction &i) {
+    using Op = Instruction::Op;
+    switch (i.op) {
+    case Op::Abs: case Op::Add: case Op::BwAnd: case Op::BwOr: case Op::Cast:
+    case Op::Div: case Op::Eq: case Op::LAnd: case Op::LOr: case Op::Leq:
+    case Op::Lt: case Op::Max: case Op::Min: case Op::Mod: case Op::Mul:
+    case Op::Ne: case Op::Not: case Op::Popcount: case Op::Reinterpret:
+    case Op::Select: case Op::Shl: case Op::Shr: case Op::SizeOf: case Op::Sub:
+    case Op::Xor:
+        return true;
+    default:
+        return false;
+    }
 }
 
 const string &name_of(const Value &v) {
@@ -174,8 +196,70 @@ size_t hoist_invariant_allocations(Function &func) {
         shared_ptr<Instruction> instr;
         shared_ptr<Block> from, to;
         map<string, Definition> sizes;
+        // Pure instructions the sizes depend on, computed inside the loops
+        // the allocation leaves, moved to `to` ahead of it in dependency
+        // order (see `movable` below).
+        vector<shared_ptr<Instruction>> companions;
     };
     vector<Move> moves;
+    // Where an earlier move takes a companion: a later allocation that needs
+    // the same instruction finds it there.
+    map<const Instruction *, BlockId> moved_to;
+    const auto has = [](const vector<shared_ptr<Instruction>> &list,
+                        const shared_ptr<Instruction> &i) {
+        return std::find(list.begin(), list.end(), i) != list.end();
+    };
+    // Whether `v`, as the block named `block` refers to it, is available at
+    // `next` -- a constant, or defined in a block that dominates it -- or
+    // can be made available by moving pure arithmetic there: an instruction
+    // with no effect but its value, every operand of which is available or
+    // movable in turn (a loop index, a value carried round the loop, a
+    // load, a call stop it). Loop-invariant code motion (Allen and Cocke,
+    // "A Catalogue of Optimizing Transformations", 1971; Muchnick, Advanced
+    // Compiler Design and Implementation, ch. 13; LLVM's LICM pass) for the
+    // one thing a hoisted allocation needs, its size: the deferral sizes a
+    // queue owned by a loop whose producers are a nest by the product of
+    // their trip counts, written at the head of the owner's iteration, and
+    // without this the product, pure arithmetic on values settled before
+    // every loop, kept the allocation in the loop (gpu-optix-pass.bonsai,
+    // 10-30). The movable instructions go onto `out` in dependency order,
+    // each once.
+    std::function<bool(const shared_ptr<Value> &, const string &, BlockId,
+                       vector<shared_ptr<Instruction>> &)>
+        movable = [&](const shared_ptr<Value> &v, const string &block, BlockId next,
+                      vector<shared_ptr<Instruction>> &out) -> bool {
+            const Definition d = defs.of(block, v);
+            if (d.block.empty()) {
+                return true; // a constant
+            }
+            const BlockId def = cfg.find(d.block);
+            if (def != NO_BLOCK && dom.dominates(def, next)) {
+                return true;
+            }
+            const auto *held = std::get_if<shared_ptr<Instruction>>(&d.value->data);
+            if (held == nullptr || !pure(**held)) {
+                return false;
+            }
+            if (const auto earlier = moved_to.find(held->get()); earlier != moved_to.end()) {
+                return dom.dominates(earlier->second, next);
+            }
+            if (has(out, *held)) {
+                return true;
+            }
+            vector<shared_ptr<Instruction>> mine;
+            for (const auto &operand : (*held)->operands) {
+                if (!movable(operand, d.block, next, mine)) {
+                    return false;
+                }
+            }
+            for (const auto &i : mine) {
+                if (!has(out, i)) {
+                    out.push_back(i);
+                }
+            }
+            out.push_back(*held);
+            return true;
+        };
     for (BlockId b : cfg.rpo) {
         const shared_ptr<Block> home = cfg.block(b);
         for (const auto &instr : home->instrs) {
@@ -200,6 +284,7 @@ size_t hoist_invariant_allocations(Function &func) {
             // available in, stopping at a loop whose iterations are threads.
             BlockId at = b;
             BlockId target = NO_BLOCK;
+            vector<shared_ptr<Instruction>> companions;
             while (true) {
                 const Loop *natural = loops.innermost(at);
                 const Nest *parfor = innermost_parfor(nests, at);
@@ -232,13 +317,15 @@ size_t hoist_invariant_allocations(Function &func) {
                         next = parfor->header;
                     }
                 }
+                // Every size available at `next`, or made so by moving the
+                // pure arithmetic that computes it (`movable`).
                 bool available = true;
+                vector<shared_ptr<Instruction>> needed;
                 for (const auto &[name, d] : sizes) {
                     if (d.block.empty()) {
                         continue; // a constant
                     }
-                    const BlockId def = cfg.find(d.block);
-                    if (def == NO_BLOCK || !dom.dominates(def, next)) {
+                    if (!movable(d.value, d.block, next, needed)) {
                         available = false;
                         break;
                     }
@@ -247,16 +334,56 @@ size_t hoist_invariant_allocations(Function &func) {
                     break;
                 }
                 target = next;
+                companions = std::move(needed);
                 at = next;
             }
             if (target == NO_BLOCK) {
                 continue;
             }
-            moves.push_back(Move{instr, home, cfg.block(target), std::move(sizes)});
+            for (const auto &c : companions) {
+                moved_to.emplace(c.get(), target);
+            }
+            moves.push_back(Move{instr, home, cfg.block(target), std::move(sizes),
+                                 std::move(companions)});
         }
     }
 
+    // Take `i` out of the block that holds it and put it at the end of `to`,
+    // its name following it.
+    const auto relocate = [](const shared_ptr<Instruction> &i, const shared_ptr<Block> &from,
+                             const shared_ptr<Block> &to) {
+        auto &instrs = from->instrs;
+        for (auto it = instrs.begin(); it != instrs.end(); ++it) {
+            if (*it == i) {
+                instrs.erase(it);
+                break;
+            }
+        }
+        if (const auto look = from->lookups.find(i->name); look != from->lookups.end()) {
+            const auto *held = std::get_if<shared_ptr<Instruction>>(&look->second->data);
+            if (held != nullptr && held->get() == i.get()) {
+                from->lookups.erase(look);
+            }
+        }
+        i->owner = to;
+        to->instrs.push_back(i);
+        to->lookups[i->name] = std::make_shared<Value>(i);
+    };
     for (Move &m : moves) {
+        // The companions first, in dependency order, each operand that was
+        // a block's argument replaced by the value it is threaded from, as
+        // the target block refers to it.
+        for (const auto &c : m.companions) {
+            const shared_ptr<Block> from = c->owner.lock();
+            internal_assert(from != nullptr)
+                << "hoist_invariant_allocations: " << c->name << " has no block";
+            for (auto &operand : c->operands) {
+                if (std::holds_alternative<Argument>(operand->data)) {
+                    operand = defs.of(from->name, operand).value;
+                }
+            }
+            relocate(c, from, m.to);
+        }
         auto &from = m.from->instrs;
         for (auto it = from.begin(); it != from.end(); ++it) {
             if (*it == m.instr) {

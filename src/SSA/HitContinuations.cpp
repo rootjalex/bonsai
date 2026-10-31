@@ -391,6 +391,35 @@ struct EffectCheck {
     }
 };
 
+// Whether any block of `blocks`, or any function they reach, makes a
+// reordering hint (`rt_reorder`, an in-place sort's optixReorder; Lower/
+// Sorts.cpp). OptiX allows the hint in a raygen program alone, so a
+// continuation that makes one cannot become a closest-hit program: the
+// loop keeps the raygen shape, trace then reorder then the call, as the
+// SER megakernels have it (gpu-optix-fused-ser, 10-24 and 10-30: "Illegal
+// call to optixReorder in function __closesthit__trace").
+bool reaches_reorder(const FuncMap &funcs, const vector<shared_ptr<Block>> &blocks,
+                     set<string> &seen) {
+    for (const auto &block : blocks) {
+        for (const auto &instr : block->instrs) {
+            if (instr->op == Instruction::Op::Intrinsic &&
+                instr->intrinsic == Intrinsic::rt_reorder) {
+                return true;
+            }
+        }
+    }
+    for (const string &callee : callees_of(blocks)) {
+        if (!seen.insert(callee).second) {
+            continue;
+        }
+        const auto f = funcs.find(callee);
+        if (f != funcs.end() && reaches_reorder(funcs, f->second->blocks, seen)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Whether any block of `blocks`, or any function they reach, traces.
 bool reaches_trace(const FuncMap &funcs, const vector<shared_ptr<Block>> &blocks,
                    set<string> &seen, bool held_only = false) {
@@ -772,6 +801,16 @@ void split_hit_continuations(FuncMap &funcs) {
             set<string> seen;
             if (reaches_trace(funcs, rest, seen)) {
                 refuse(loop.index, "the continuation of the trace traces again");
+                continue;
+            }
+        }
+        {
+            set<string> seen;
+            if (reaches_reorder(funcs, rest, seen)) {
+                refuse(loop.index,
+                       "the continuation of the trace makes a reordering hint "
+                       "(rt_reorder), which OptiX allows in a raygen program alone; "
+                       "the loop keeps the raygen shape, where the hint is legal");
                 continue;
             }
         }

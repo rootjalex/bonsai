@@ -9,17 +9,17 @@ type vec4f = f32x4
 
 func run(values : f32[10], counts : u32[1], out : mut f32[16], total : mut (f32*)) -> void {
   let @0 = counts[0] in
+  let @9 = 4u * 3u in
+  alloc rays_ran : mut u8[@9]
+  alloc rays_x_0 : mut f32[@9]
+  alloc rays_n_0 : mut i32[@9]
+  alloc rays_x_1 : mut f32[@9]
+  alloc rays_n_1 : mut i32[@9]
   rays_queue : mut Queue_rays[2]
   parfor io in [0u:@0:4u] {
     rays!round : mut u32
     let @6 = @0 in
-    let @9 = 4u * 3u in
-    rays_ran : mut u8[@9]
     let @10 = fill_bytes(rays_ran, 0u, @9) in
-    rays_x_0 : mut f32[@9]
-    rays_n_0 : mut i32[@9]
-    rays_x_1 : mut f32[@9]
-    rays_n_1 : mut i32[@9]
     let @13 = build<Queue_rays>(0u, rays_x_0, rays_n_0) in
     rays_queue[0u] = @13
     let @15 = build<Queue_rays>(0u, rays_x_1, rays_n_1) in
@@ -86,6 +86,11 @@ func run(values : f32[10], counts : u32[1], out : mut f32[16], total : mut (f32*
     }
     continue
   }
+  free(rays_ran)
+  free(rays_x_0)
+  free(rays_n_0)
+  free(rays_x_1)
+  free(rays_n_1)
   return
 }
 

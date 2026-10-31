@@ -1,0 +1,44 @@
+//! flags: -p ssa
+
+// Storage a pass owns whose size is arithmetic the deferral writes inside
+// the pass (SSA/HoistAllocations.h, the first rule's second half).
+//
+// `run.queue(r)` is a queue per iteration of the outer, unbound loop `r`,
+// and its producers are a nest: every `i` of `n` pixels pushes once per
+// `j` of its 4 samples, so the deferral sizes the queue by n * 4 -- a
+// multiply it inserts at the head of `r`'s body, where it sizes the
+// storage. Both operands are settled before every loop (`n` is a
+// parameter, 4 a constant), so the hoist moves the multiply out with the
+// allocations rather than stopping at `r` because the size is "computed
+// inside the loop": the shape of apps/pbrt/schedules/gpu-optix-pass.bonsai,
+// whose band's queues hold four samples of its pixels, and which the hoist
+// refused on 10-30 until this (its storage is the caller's, one per call,
+// which SSA/QueueStorage.cpp checks).
+//
+// What to read for: one `mul` of `n` and 4 at the function's entry, every
+// `alloc <name> : mut T[<that product>]` after it and before `parfor r`,
+// and the queue's per-pass initialization still inside `r`.
+
+func tally(n : i32, acc : i32) -> i32 {
+    if (n <= 0) {
+        return acc;
+    }
+    return tally(n - 1, acc + n);
+}
+
+func run(n : i32, out : mut array[i32, n]) -> void {
+    parfor r in 0:2 {
+        parfor i in 0:n {
+            parfor j in 0:4 {
+                v = tally(i + j, r);
+                out[i] = out[i] + v;
+            }
+        }
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(r);
+    tally.defer(tally, sums);
+}

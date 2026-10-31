@@ -69,6 +69,7 @@ add_bonsai_tests(
     round-hoist-split.bonsai
     defer-gpu-launch.bonsai
     hit-continuation.bonsai
+    hit-continuation-reorder.bonsai
     queue-storage.bonsai
     defer-gang.bonsai
     defer-gang-bools.bonsai
@@ -110,6 +111,7 @@ add_bonsai_tests(
     divergence.bonsai
     forall.bonsai
     hoist-allocations.bonsai
+    hoist-size-arithmetic.bonsai
     inline-names.bonsai
     invariant-division.bonsai
     vectorize-two-parfors.bonsai
