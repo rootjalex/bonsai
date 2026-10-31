@@ -308,6 +308,14 @@ def add_figure_arguments(ap):
                     help="cut the speedup axis at this value: a bar past it is drawn to the "
                          "cutoff with a break mark and its value written above (the user, "
                          "10-30: no log axis for speedups; frame542's 20x bars)")
+    ap.add_argument("--leaders", action="store_true",
+                    help="a thin line from each cut bar's value to its bar")
+    ap.add_argument("--rotate-cut-labels", action="store_true",
+                    help="the cut bars' values upright (rotated 90 degrees), spread over their group")
+    ap.add_argument("--ybreak", type=float, default=None,
+                    help="break the speedup axis at --ymax: the bars past it continue in a short "
+                         "upper axis that runs to this value, the break marked on the axis and "
+                         "across the bars, no value written (the user, 10-30)")
     ap.add_argument("--values", action="store_true", help="the speedup written on each bar")
     ap.add_argument("--title", default=None)
 
@@ -435,7 +443,19 @@ def draw(rows, sides, reference, reference_label, y_label, args, comparisons=(),
     paper_style()
     # Constrained layout keeps the legend, the scene names and the y label
     # inside a figure of exactly the size asked, so the PDF is the text width.
-    fig, ax = plt.subplots(figsize=(args.width, args.height), layout="constrained")
+    broken = args.ybreak is not None and args.ymax is not None
+    if broken:
+        # A broken axis: the body below --ymax, a short upper axis from there
+        # to --ybreak, one bar in four parts of the height; both hold every
+        # bar and each clips it to its own range.
+        fig, (ax_top, ax) = plt.subplots(2, 1, figsize=(args.width, args.height),
+                                         layout="constrained", sharex=True,
+                                         gridspec_kw={"height_ratios": [1, 3], "hspace": 0.04})
+        axes_all = [ax, ax_top]
+    else:
+        fig, ax = plt.subplots(figsize=(args.width, args.height), layout="constrained")
+        ax_top = None
+        axes_all = [ax]
 
     bar = 1.0                     # one bar's width in x units
     gap_spp = 1.5                 # between the sample counts of a scene
@@ -444,6 +464,8 @@ def draw(rows, sides, reference, reference_label, y_label, args, comparisons=(),
     scene_centres, spp_centres, spp_labels = [], [], []
     points = {label: [] for _, label, _ in sides}      # the bars, for the summary
     cut_labels = []                                    # (x, text) of bars past --ymax
+    label_top, label_headroom_pt = None, 0.0           # where the cut values sit
+    checked, unverified = 0, []                        # the drawn bars' image checks
     for scene in scenes:
         scene_start = x
         for j, spp in enumerate(spps):
@@ -455,13 +477,28 @@ def draw(rows, sides, reference, reference_label, y_label, args, comparisons=(),
                 if c is not None and ref is not None:
                     speedup = ref / c["seconds"]
                     points[label].append((f"{labels[scene]} {spp} spp", speedup))
-                    cut = args.ymax is not None and speedup > args.ymax
-                    ax.bar(x, args.ymax if cut else speedup, bar * 0.9, color=colour,
-                           edgecolor=EDGE, linewidth=0.3, zorder=2)
+                    # Every drawn bar's image check, for the .txt (the user,
+                    # 10-30: "make sure all results are being verified").
+                    # pbrt's own sides (PBRT mk, pbrt's volpath on the CPU)
+                    # are references and carry no verdict.
+                    if not side.startswith("pbrt"):
+                        verdict = str(c.get("verdict") or "")
+                        checked += 1
+                        if not verdict.startswith("ok"):
+                            unverified.append(f"{labels[scene]} {spp} spp {label}: "
+                                              f"{verdict[:90] or 'no verdict'}")
+                    past = args.ymax is not None and speedup > args.ymax
+                    cut = past and not broken
+                    for a in axes_all:
+                        a.bar(x, args.ymax if cut else speedup, bar * 0.9, color=colour,
+                              edgecolor=EDGE, linewidth=0.3, zorder=2)
                     if cut:
                         cut_mark(ax, x, args.ymax, bar * 0.45)
                         cut_labels.append((x, f"{speedup:.1f}x"))
                         cuts += 1
+                    elif past:
+                        # Broken axis: the bar is broken where the axis is.
+                        cut_mark(ax, x, args.ymax, bar * 0.45)
                     if args.values and not cut:
                         ax.text(x, speedup, f"{speedup:.2f}", ha="center", va="bottom",
                                 fontsize=TICK_FONT - 2, rotation=90, zorder=4)
@@ -482,7 +519,11 @@ def draw(rows, sides, reference, reference_label, y_label, args, comparisons=(),
         # at the axes' scale, the axes taken as the figure less its margin.
         size = TICK_FONT - 1
         per_point = (right + 2 * bar) / ((args.width - 0.8) * 72.0)   # x units a point
-        widths = [0.56 * size * len(text) * per_point for _, text in cut_labels]
+        upright = args.rotate_cut_labels
+        # An upright label is as wide as the text is tall; a flat one as its
+        # characters.
+        widths = [(1.1 * size if upright else 0.56 * size * len(text)) * per_point
+                  for _, text in cut_labels]
         xs = [x for x, _ in cut_labels]
         for _ in range(100):
             moved = False
@@ -495,9 +536,20 @@ def draw(rows, sides, reference, reference_label, y_label, args, comparisons=(),
                     moved = True
             if not moved:
                 break
-        for xl, (_, text) in zip(xs, cut_labels):
-            ax.text(xl, args.ymax * 1.015, text, ha="center", va="bottom", fontsize=size,
-                    zorder=6, clip_on=False)
+        # With leaders the values sit a little higher, so the line from a
+        # bar's cut top to its value has a length to be seen.
+        y_text = args.ymax * (1.07 if args.leaders else 1.015)
+        # The headroom the values need above y_text, in points: an upright
+        # value is as tall as its characters, a flat one as the type.
+        longest = max(len(text) for _, text in cut_labels)
+        label_headroom_pt = (0.6 * size * longest if upright else 1.2 * size) + 2.0
+        label_top = y_text
+        for xl, (xb, text) in zip(xs, cut_labels):
+            if args.leaders:
+                ax.plot([xb, xl], [args.ymax, y_text - 0.008 * args.ymax], color="#555555",
+                        linewidth=0.4, zorder=6, clip_on=False)
+            ax.text(xl, y_text, text, ha="center", va="bottom", fontsize=size,
+                    rotation=90 if upright else 0, zorder=6, clip_on=False)
     reference_line = ax.axhline(1.0, color="black", linestyle=(0, (4, 2)), linewidth=0.8,
                                 zorder=3, label=reference_label)
     ax.set_xticks(spp_centres)
@@ -510,21 +562,46 @@ def draw(rows, sides, reference, reference_label, y_label, args, comparisons=(),
         # eight scenes side by side at text width (figure_style.scene_label).
         ax.text(centre, -0.15, labels[scene], ha="center", va="top",
                 transform=ax.get_xaxis_transform(), fontsize=TICK_FONT)
-    ax.set_ylabel(y_label)
+    if broken:
+        fig.supylabel(y_label, fontsize=plt.rcParams["axes.labelsize"])
+    else:
+        ax.set_ylabel(y_label)
     if args.log:
         ax.set_yscale("log")
+    elif broken:
+        ax.set_ylim(0, args.ymax)
+        ax.set_yticks([t for t in ax.get_yticks() if 0 <= t <= args.ymax])
+        ax_top.set_ylim(args.ymax, args.ybreak)
+        from matplotlib.ticker import MaxNLocator
+        ax_top.yaxis.set_major_locator(MaxNLocator(nbins=3, steps=[1, 2, 5, 10], integer=True))
+        ax_top.set_yticks([t for t in ax_top.get_yticks() if args.ymax < t <= args.ybreak])
+        ax_top.tick_params(axis="x", which="both", bottom=False, labelbottom=False)
+        ax_top.spines["bottom"].set_visible(False)
+        # The break marks on the axis: a short slash at the foot of the upper
+        # axis and the head of the lower, as matplotlib's broken-axis recipe.
+        slash = dict(marker=[(-1, -0.5), (1, 0.5)], markersize=6, linestyle="none",
+                     color="black", mec="black", mew=0.6, clip_on=False, zorder=9)
+        ax_top.plot([0], [0], transform=ax_top.transAxes, **slash)
+        ax.plot([0], [1], transform=ax.transAxes, **slash)
     elif args.ymax is not None:
-        # Room above the cutoff for the cut bars' values, no tick past it.
-        ax.set_ylim(0, args.ymax * 1.24)
+        # Room above the cutoff for the cut bars' values and nothing more,
+        # no tick past the cutoff.
+        if label_top is None:
+            top = args.ymax * 1.04
+        else:
+            axes_pt = max(60.0, (args.height - 0.55) * 72.0)
+            top = label_top / max(0.5, 1.0 - label_headroom_pt / axes_pt)
+        ax.set_ylim(0, top)
         ax.set_yticks([t for t in ax.get_yticks() if 0 <= t <= args.ymax])
     else:
         top = ax.get_ylim()[1]
         ax.set_ylim(0, top * (1.12 if args.values else 1.04))
-    ax.set_xlim(-bar, right + bar)
-    for spine in ("top", "right"):
-        ax.spines[spine].set_visible(False)
-    ax.yaxis.grid(True, linewidth=0.3, alpha=0.5, zorder=0)
-    ax.set_axisbelow(True)
+    for a in axes_all:
+        a.set_xlim(-bar, right + bar)
+        for spine in ("top", "right"):
+            a.spines[spine].set_visible(False)
+        a.yaxis.grid(True, linewidth=0.3, alpha=0.5, zorder=0)
+        a.set_axisbelow(True)
     if args.title:
         ax.set_title(args.title)
 
@@ -534,9 +611,10 @@ def draw(rows, sides, reference, reference_label, y_label, args, comparisons=(),
                                         label=label) for _, label, colour in sides]
     ncol = len(handles) if len(handles) <= 5 else (len(handles) + 1) // 2
     legend_rows = (len(handles) + ncol - 1) // ncol
-    ax.legend(handles=handles, ncol=ncol, frameon=False, loc="lower center",
-              bbox_to_anchor=(0.5, 1.0 + 0.02),
-              borderaxespad=0.0, columnspacing=1.0, handletextpad=0.5)
+    (ax_top if broken else ax).legend(
+        handles=handles, ncol=ncol, frameon=False, loc="lower center",
+        bbox_to_anchor=(0.5, 1.0 + 0.02),
+        borderaxespad=0.0, columnspacing=1.0, handletextpad=0.5)
 
     out_dir = os.path.dirname(args.out)
     if out_dir:
@@ -551,6 +629,13 @@ def draw(rows, sides, reference, reference_label, y_label, args, comparisons=(),
                          [(label, [p for p in points[label] if p[0].endswith(f" {spp} spp")])
                           for _, label, _ in sides]))
     notes = []
+    if unverified:
+        notes.append(f"image checks: {checked - len(unverified)} of {checked} drawn bars match pbrt's "
+                     f"image; NOT matching or unchecked:")
+        notes.extend(f"  {line}" for line in unverified)
+    else:
+        notes.append(f"image checks: every one of the {checked} drawn bars matches pbrt's image "
+                     f"(the harness's verdict on each cell)")
     for a, b, what in comparisons:
         if a in points and b in points:
             notes.append(f"{what}: {a} over {b}  {describe(ratios(points[a], points[b]))}")

@@ -1,0 +1,242 @@
+// gpu-optix.bonsai with passes of four samples (`wf-pass` on the figure):
+// the one change is at the pass directives below, where its comment says
+// what it does and why. The rest of this file is gpu-optix.bonsai's,
+// comment included, so that the two can be diffed.
+//
+// pbrt's GPU wavefront (`pbrt --gpu`) for volpath, on the RT cores: gpu-
+// wavefront.bonsai with the two ray queries answered by the ray tracing
+// hardware and the two kernels that trace launched as OptiX raygen programs
+// -- pbrt's `__raygen__findClosest` over its ray queue and `__raygen__shadow`
+// (or `__raygen__shadow_Tr` in a scene with media) over its shadow-ray queue,
+// each an `optixLaunch` over the queue (wavefront/aggregate.cpp,
+// OptiXAggregate::IntersectClosest and ::IntersectShadow). Every other kernel
+// is the CUDA launch gpu-wavefront.bonsai makes of it, as pbrt's are.
+//
+// `trace.bind(RTCore)` says the acceleration structure answers `trace`: the
+// query becomes an `optixTrace` from the raygen program, with the query's
+// filter split between the hardware's triangle test and an anyhit program
+// (the alpha test, pbrt's `__anyhit__triangle`), a closest-hit program that
+// records which primitive was hit (pbrt's `__closesthit__triangle`, the
+// ClosestHitContext idea: the result is written through a pointer the two
+// payload words carry), and an intersection program for the shapes the
+// hardware does not test itself (spheres and disks, pbrt's
+// `__intersection__quadric`). `trace_any` is the same with `any`'s early
+// exit as OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT (pbrt's shadow trace). The
+// scene's acceleration structure is the driver's to build -- pbrt's
+// OptiXAggregate builds one GAS of triangles per mesh and an IAS over them
+// and the instances, and render_hook.cpp does the same -- and reaches the
+// program as the `traversable` word of the tree's layout (Lower/Layouts.cpp).
+//
+// The two queries no longer name a traversal of their own, so the sort and
+// loopify directives that shaped the software traversal are gone: the
+// hardware orders its own visits. The sets they search are the hardware's
+// trees (trees/optix.bonsai: `primitives : OptixTree`).
+import apps/pbrt/schedules/trees/optix;
+
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_shadow_track.loopify();
+    vol_probe_step.loopify();
+
+    render.specialize(integrator);
+    // pbrt: `initializeVisibleSurface`, the integrator's flag for a film
+    // that records the visible surface, tested at run time around the
+    // surface's initialization and its fill. Here the pixel loop is copied
+    // per value of the flag, and every queue below is one per copy (docs/
+    // schedule-semantics.md, 4.6): the host dispatches on the flag once, an
+    // RGB film's arm reads nothing of the surface, so its record keeps no
+    // array of it and its camera kernel writes none -- pbrt's kernels for an
+    // RGB film, by specialization rather than by pbrt's branch.
+    render[VolPath].specialize(film_visible_surface);
+    // The pass (the user, 10-30 evening: "wf-pass"): four samples of every
+    // pixel of a band, not one. pbrt's wavefront cuts the frame into passes
+    // of at most a million camera paths (maxQueueSize; wavefront/
+    // integrator.cpp) because its queues are sized by the pass, and runs
+    // the bounce loop -- a round of every kernel per bounce, up to the
+    // depth -- once per pass per sample; gpu-optix.bonsai does the same
+    // (`reorder(p, s)`, then `split(p, p_band, p_in, pass_pixels, true)`,
+    // the queues on p_band). Here the samples are split into groups of
+    // four and the group loop made the outermost, so a band's queues hold
+    // pass_pixels x 4 entries (about three to four million paths on the
+    // sweep's scenes) and the frame takes a quarter of pbrt's rounds: the
+    // launches a round costs regardless of how many paths are left, which
+    // frame542's depth-256 tail paid most for, are paid a quarter as often.
+    // The card has the memory pbrt's cap guards against (32 GB); nothing
+    // else of the schedule changes.
+    render[VolPath].split(s, s_grp, s_in, 4, true);
+    render[VolPath].reorder(p, s_grp);
+    render[VolPath].split(p, p_band, p_in, pass_pixels, true);
+
+    // The queues' storage is the driver's (ExternDevice, IR/Storage.h):
+    // their arrays are parameters of `render`, allocated once per process
+    // by render_hook.cpp -- in managed memory as pbrt allocates its queues,
+    // or plain device memory, by --queue-memory -- so that nothing is
+    // allocated or freed inside a render, as nothing is in pbrt's.
+    rays = render[VolPath].queue(p_band, ExternDevice);
+    li_vol_path.defer(vol_path_step, rays);
+    vol_medium_scatter.defer(vol_path_step, rays);
+    vol_surface.defer(vol_path_step, rays);
+    vol_route.defer(vol_path_step, rays);
+    vol_exit.defer(vol_path_step, rays);
+    // pbrt: GenerateRaySamples (wavefront/samples.cpp), a kernel over the
+    // ray queue ahead of IntersectClosest that draws the bounce's random
+    // numbers and stores them by pixel (pixelSampleState.samples), for the
+    // kernels after the trace to read. The cut on the same queue (docs/
+    // schedule-semantics.md, 4.5): the ray drain is two passes over the
+    // same entries in each round, `samples`, which runs vol_path_step up
+    // to its draws and stores them in the record at the ray's slot, and
+    // `rays`, the trace, which reads them back; nothing of the ray is
+    // copied. Until 10-10 the draws ran inside the raygen ahead of
+    // optixTrace, their values live across the trace (PLAN.md, "The draws
+    // made pbrt's").
+    vol_path_step.stage(vol_ray_samples, rays, samples);
+
+    medium_samples = render[VolPath].queue(p_band, ExternDevice);
+    vol_path_step.defer(vol_medium_sample, medium_samples);
+    medium_scatters = render[VolPath].queue(p_band, ExternDevice);
+    vol_medium_sample.defer(vol_medium_scatter, medium_scatters);
+
+    escaped = render[VolPath].queue(p_band, ExternDevice);
+    vol_route.defer(escaped_contribution, escaped);
+    emissive = render[VolPath].queue(p_band, ExternDevice);
+    vol_route.defer(emissive_contribution, emissive);
+    hits = render[VolPath].queue(p_band, ExternDevice);
+    vol_route.defer(vol_surface, hits);
+    // pbrt: two material queues per material type, by texture evaluator
+    // (basicEvalMaterialQueue and universalEvalMaterialQueue, wavefront/
+    // integrator.h): the trace kernel sends a hit whose material's textures
+    // are all constants or images to the basic one, whose kernel carries
+    // only the leaf texture readers, and any other hit to the universal
+    // one (textures.bonsai, TextureEvaluator; render.bonsai, vol_route).
+    // The same split here, the evaluator first and the material under each.
+    hits.specialize(evaluator);
+    hits[Basic].specialize(material);
+    hits[Universal].specialize(material);
+    shadow = render[VolPath].queue(p_band, ExternDevice);
+    vol_sample_ld.defer(shadow_contribution, shadow);
+    // pbrt's subsurface queues, in pbrt's order after the material kernels
+    // and their shadow rays (SampleSubsurface, wavefront/subsurface.cpp):
+    // the material kernel pushes a path that went into a subsurface
+    // material onto the BSSRDF queue (`bssrdfEvalQueue`), whose kernel,
+    // "Get BSSRDF and enqueue probe ray", samples the probe segment and
+    // pushes it onto the subsurface-scatter queue; IntersectOneRandom is a
+    // raygen launch over that queue (`__raygen__randomHit`), since the probe
+    // walk traces; "Handle out-scattering after SSS" is a CUDA kernel over
+    // the same queue, which pushes the exit's shadow ray and its next ray;
+    // and SampleSubsurface ends with a second TraceShadowRays for those
+    // shadow rays, the first having run before it ("do immediately so that
+    // we have space for shadow rays for subsurface", integrator.cpp): a
+    // sample whose entry was a rough boundary sends one from the entry and
+    // one from the exit in a round, one more than a queue holds for it. The
+    // same four here: the BSSRDF kernel is the drain of `bssrdfs`, pushed by
+    // the material kernel (until 10-09 it was the Subsurface material
+    // kernel's own tail), the walk the drain of `probes` on the hardware,
+    // the exit's shading the drain of `exits`, and the exit's shadow rays
+    // the drain of `exit_shadow`, on the hardware too; the drains run in the
+    // order their queues are deferred.
+    bssrdfs = render[VolPath].queue(p_band, ExternDevice);
+    vol_surface.defer(vol_subsurface, bssrdfs);
+    probes = render[VolPath].queue(p_band, ExternDevice);
+    vol_subsurface.defer(vol_probe, probes);
+    exits = render[VolPath].queue(p_band, ExternDevice);
+    vol_probe.defer(vol_exit, exits);
+    exit_shadow = render[VolPath].queue(p_band, ExternDevice);
+    vol_exit.defer(exit_shadow_contribution, exit_shadow);
+
+    // The ray tracing hardware answers both queries.
+    trace.bind(RTCore);
+    trace_any.bind(RTCore);
+
+    // The two kernels that trace are raygen launches over their queue's
+    // count: the ray drain (pbrt's IntersectClosest, whose continuation is
+    // the medium sampling and the routing of the hit) and the shadow drain
+    // (pbrt's IntersectShadow / IntersectShadowTr). OptiX chooses their
+    // block shape.
+    render.bind(rays, OptixThread);
+    render.bind(shadow, OptixThread);
+    render.bind(probes, OptixThread);
+    render.bind(exit_shadow, OptixThread);
+    // pbrt's `haveMedia`: TraceShadowRays runs `__raygen__shadow` in a scene
+    // without media and `__raygen__shadow_Tr` in one with them, a host-side
+    // switch per scene, and nothing else of the wavefront is specialized on
+    // it (its medium kernels are skipped, its material kernels branch on it
+    // at run time). The same here: the shadow drain alone is copied for
+    // `have_media` false and true, the launch dispatching on it, so the
+    // kernel of a scene without media is the plain occlusion trace with the
+    // transmittance walk folded away (a 115-line raygen in place of 4,300,
+    // 6-8% of book). After the defer that made the drain and the bind that
+    // put it on the hardware: the loop form of specialize comes late.
+    render.specialize(shadow, have_media);
+    render.specialize(exit_shadow, have_media);
+
+    // Every other kernel over blocks of 256 threads, as gpu-wavefront.bonsai
+    // has them: the camera rays over a band's pixels (and the prologue's
+    // zeroing), each drain that does not trace over its count, the film pass
+    // and the finalization.
+    render.split(p_in, p_blk, p_thr, 256, true);
+    render.bind(p_blk, GPUBlock);
+    render.bind(p_thr, GPUThread);
+    // pbrt's sample kernel: a CUDA launch over the ray queue, ahead of the
+    // raygen that traces it.
+    render.split(samples, samples_blk, samples_thr, 256, true);
+    render.bind(samples_blk, GPUBlock);
+    render.bind(samples_thr, GPUThread);
+    // pbrt: GenerateCameraRays and GenerateRaySamples are templates
+    // instantiated per sampler type and dispatched on the host by the
+    // sampler the scene names (wavefront/camera.cpp:25, samples.cpp:24),
+    // so each is one kernel per sampler in which only that sampler's draws
+    // are compiled; the kernels after the trace never touch the sampler.
+    // The loop form of specialize (SSA/Specialize.h) copies the camera
+    // kernel and the sample kernel per variant of `sampler` and enters one
+    // by its tag. Until 10-10 one camera kernel held every sampler's arm
+    // behind a switch (8068 SASS instructions against pbrt's Halton
+    // instance's 3800) and ran 1.35x pbrt's on 29 of 30 scenes.
+    render.specialize(p_blk, sampler);
+    render.specialize(samples_blk, sampler);
+    render.split(medium_samples, medium_samples_blk, medium_samples_thr, 256, true);
+    render.bind(medium_samples_blk, GPUBlock);
+    render.bind(medium_samples_thr, GPUThread);
+    render.split(medium_scatters, medium_scatters_blk, medium_scatters_thr, 256, true);
+    render.bind(medium_scatters_blk, GPUBlock);
+    render.bind(medium_scatters_thr, GPUThread);
+    render.split(escaped, escaped_blk, escaped_thr, 256, true);
+    render.bind(escaped_blk, GPUBlock);
+    render.bind(escaped_thr, GPUThread);
+    render.split(emissive, emissive_blk, emissive_thr, 256, true);
+    render.bind(emissive_blk, GPUBlock);
+    render.bind(emissive_thr, GPUThread);
+    render.split(hits, hits_blk, hits_thr, 256, true);
+    render.bind(hits_blk, GPUBlock);
+    render.bind(hits_thr, GPUThread);
+    render.split(bssrdfs, bssrdfs_blk, bssrdfs_thr, 256, true);
+    render.bind(bssrdfs_blk, GPUBlock);
+    render.bind(bssrdfs_thr, GPUThread);
+    render.split(exits, exits_blk, exits_thr, 256, true);
+    render.bind(exits_blk, GPUBlock);
+    render.bind(exits_thr, GPUThread);
+    render.split(rays_rest, rays_rest_blk, rays_rest_thr, 256, true);
+    render.bind(rays_rest_blk, GPUBlock);
+    render.bind(rays_rest_thr, GPUThread);
+    render.split(q, q_blk, q_thr, 256, true);
+    render.bind(q_blk, GPUBlock);
+    render.bind(q_thr, GPUThread);
+
+    // pbrt's image textures on the GPU are CUDA texture objects
+    // (`cudaTextureObject_t`, gpu/textures.cpp), filtered by the texture
+    // units; as gpu.bonsai has it.
+    texture_filter.bind(TextureUnit,
+                        |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                         dstdy : vec2f|
+                        texture_filter_unit(texture_handles[t.id], st, dstdx,
+                                            dstdy));
+    texture_filter_float.bind(TextureUnit,
+                              |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                               dstdy : vec2f|
+                              texture_filter_float_unit(
+                                  texture_handles[t.id], t.average_channels,
+                                  st, dstdx, dstdy));
+}

@@ -83,6 +83,15 @@ Y_LABEL = "Speedup"
 SIDES = [(side, label, SCHEDULE_COLOURS[label]) for side, label in [
     ("gpu-optix", "wf"),              # pbrt's wavefront on the RT cores, matched
     ("gpu-optix-sort", "wf-sort"),    # its ray queue sorted before each trace
+    # The wavefront's variants of 10-30 night (the user: five wavefronts
+    # against three megakernels): the material stage inside the trace
+    # program (gpu-optix-fused, the 10-24 exploration's), that with shader
+    # execution reordering by material before the switch (gpu-optix-fused-
+    # ser), and passes of four samples in place of one (gpu-optix-pass: a
+    # quarter of pbrt's rounds of launches).
+    ("gpu-optix-fused", "wf-fused"),
+    ("gpu-optix-fused-ser", "wf-fused-ser"),
+    ("gpu-optix-pass", "wf-pass"),
     ("gpu-optix-mega", "mk"),
     # The megakernel's shapes of 10-27 (PLAN, 'the megakernel against
     # Dr.Jit's'): one thread per path with a launch per sample
@@ -104,8 +113,6 @@ SIDES = [(side, label, SCHEDULE_COLOURS[label]) for side, label in [
     ("gpu-optix-mega-ser-ray", "mk-ser-ray"),
     ("gpu-optix-b128", "wf-b128"),
     ("gpu-optix-b512", "wf-b512"),
-    ("gpu-optix-fused", "wf-fused"),
-    ("gpu-optix-fused-ser", "wf-fused-ser"),
     ("gpu-optix-sort36", "wf-sort36"),
 ]]
 # Pairs of sides differing by one decision, for the summary's reading of
@@ -120,7 +127,9 @@ COMPARISONS = [
     ("mk-ser-ray", "mk-ser", "reordering keyed by the ray instead of the material"),
     ("wf-b128", "wf", "bands of 128 pixel rows instead of the matching band size"),
     ("wf-b512", "wf", "bands of 512 pixel rows instead of the matching band size"),
-    ("wf-fused", "wf", "the camera-ray generation fused into the first trace"),
+    ("wf-fused", "wf", "the material stage inside the trace program, the hit queue gone"),
+    ("wf-fused-ser", "wf-fused", "shader execution reordering by material before the fused material switch"),
+    ("wf-pass", "wf", "passes of four samples instead of one: a quarter of the rounds of launches"),
     ("wf-sort", "wf", "the ray queue sorted by the 60-bit two-point Morton key before each trace"),
     ("wf-sort36", "wf-sort", "the coarse 36-bit sort key instead of the 60-bit one"),
 ]
@@ -252,6 +261,20 @@ READINGS = {
         "8.7x, the per-sample 6.2x and 6.5x, the flat 4.7x and 4.6x; the wavefront 1.66x and 1.62x (the",
         "heatmap's 1.66x and 1.59x) and the sort below pbrt (0.92x, 0.90x: a sort a round on those",
         "near-empty queues). The reading is not verified by a launch count (nsys would give it).",
+    ],
+    # The eighth scene (the user, 10-30 evening: a participating medium),
+    # measured 22:09-22:17 into gpu-compare-out-plume with the six's renderers.
+    "plume": [
+        "a smoke plume: a uniformgrid medium in a scaled sphere with an interface boundary, a",
+        "Conductor sphere and a Diffuse floor (two triangles), one light, depth 5, 5.6 rays a camera",
+        "ray, 1200x1200 -- the one participating medium of the sweep, so the only scene whose paths",
+        "run volpath's medium stage (the delta-tracking walk through the grid) rather than a surface",
+        "shading alone. The wavefront is best (2.15x, 1.81x; the heatmap's 2.16x, 1.81x), the sort",
+        "behind it (1.76x, 1.47x), and every megakernel below pbrt at both counts, 0.28-0.71x at 16",
+        "spp and 0.20-0.57x at 128: the medium walk is a loop of per-ray variable length inside the",
+        "bounce loop, so a warp's lanes diverge on it, and SER has no surface hit to regroup by before",
+        "it -- the SER per-sample megakernel is the worst cell (0.20x) and the SER flat one gains",
+        "nothing over the flat (0.57x against 0.56x). A reading from the walls; not profiled.",
     ],
     "landscape": [
         "27.9M triangles, 30,034 instances of 32 objects (a two-level traversal through the deepest",

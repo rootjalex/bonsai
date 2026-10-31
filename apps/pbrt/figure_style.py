@@ -277,15 +277,22 @@ RAMP8 = ["#EDF8B1", "#ADDFB7", "#69C4BF", "#30A4C2", "#1F7EB7", "#2357A4", "#213
 # darkest.
 SCHEDULE_COLOURS = {
     "PBRT mk": PBRT_COLOUR,
-    # The GPU sweep's legend, top to bottom.
+    # The GPU sweep's legend, top to bottom (the user, 10-30 night: five
+    # wavefronts, three megakernels).
     "wf": RAMP8[0],                 # gpu-optix, pbrt's wavefront matched
     "wf-sort": RAMP8[1],            # gpu-optix-sort
-    "mk": RAMP8[2],                 # gpu-optix-mega
-    "mk-pass": RAMP8[3],
-    "mk-flat": RAMP8[4],
-    "mk-blk": RAMP8[5],
-    "mk-ser": RAMP8[6],
+    "wf-fused": RAMP8[2],           # gpu-optix-fused: the material stage in the trace program
+    "wf-fused-ser": RAMP8[3],       # gpu-optix-fused-ser: that with reordering by material
+    "wf-pass": RAMP8[4],            # gpu-optix-pass: passes of four samples
+    "mk": RAMP8[5],                 # gpu-optix-mega
+    "mk-flat": RAMP8[6],
     "mk-ser-flat": RAMP8[7],
+    # Megakernel shapes out of the figure since 10-30 night (never best,
+    # each below a sibling at every cell); drawn only when --sides asks,
+    # and then they borrow shades.
+    "mk-pass": RAMP8[5],
+    "mk-blk": RAMP8[6],
+    "mk-ser": RAMP8[7],
     # The CPU sweep's legend, top to bottom (after PBRT mk).
     "wf-b-s-sp": RAMP8[0],          # wavefront-frame, pbrt's wavefront matched
     "wf-b-v-sp": RAMP8[1],
@@ -302,7 +309,5 @@ SCHEDULE_COLOURS = {
     "mk-ser-ray": "#9E9E9E",        # a neutral: the control of the reorder key
     "wf-b128": RAMP8[2],
     "wf-b512": RAMP8[3],
-    "wf-fused": RAMP8[4],
-    "wf-fused-ser": RAMP8[5],
     "wf-sort36": RAMP8[1],
 }
