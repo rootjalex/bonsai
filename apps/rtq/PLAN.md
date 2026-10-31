@@ -7992,3 +7992,101 @@ figures (plots/rtq-*.png, .pdf, .txt) are redrawn from this table at 03:54
 and current. Its rows are stamped 2026-10-28 and e20b6ebe, the tree's head
 when folded, while the compiler is 39c67ab9's, built at 21:26 (the commits
 since touch apps/ and the PLAN files only).
+
+### One protocol for every system and query (2026-10-30, evening)
+
+The user, 14:00, on how the figures were measured: "We should probably be
+consistent across the two systems. Please rerun with one consistent
+methodology. And use the minimum of 3 runs (after one warmup), like the
+pbrt/wosx benchmarks should be doing." Until now Embree's ray queries ran
+over a 2048 by 2048 camera image (so that its runs took over a tenth of a
+second), its point queries, every FCPW query and every GPU query over 1024
+by 1024 (FCPW at a third of Embree's rate), each cell the least of five
+runs; so the two panels of rtq-queries-cpu stood on query sets four times
+apart on the secondary rays. dcdcb2ea makes benchmark.sh's three sides one
+--side (1024) and its REPEATS 3, Embree's three compare.sh runs a mesh one
+run over every query, and the lock it writes names the session
+(RTQ_HOLDER); the driver's default repeats and its usage, and the README,
+say so.
+
+**The run**: 17:48 to 18:14, 27 minutes for the six plotted schedules
+(embree, fcpw4w16, fcpwb, fcpws, fcpwb-gpu, fcpws-gpu) over the thirteen
+meshes, 52 logs, 418 rows, the machine idle (bonsai-f9's 'done' at 17:46
+after its pbrt sweeps, bonsai-ac's wosx table after my 'done' at 18:15).
+The logs in results/logs/; the 10-28 table and its logs set aside as
+rtq-results.before-2026-10-30-one-side.csv and
+logs-before-2026-10-30-one-side/ (the exploratory schedules -- tuned,
+embree4, fcpw4w8 and the rest -- live on there and were not remeasured).
+The rows stamp febd378d, the tree's head when folded, while the compiler
+is caa9eb9b's: build/compiler was built at 08:49 from the sources
+committed at 09:00, cmake rebuilt nothing at 17:48, and no commit since
+touches CMakeLists.txt, include, src or runtime. Every cell agrees with
+its reference up to ties except the 36 cells that disagreed on 10-28, with
+the same counts to the ray: FCPW's wide tree and its GPUScene on the
+primary rays of nine meshes (1 to 15 rays of 1,048,576, ours finding the
+hit FCPW misses), and single rays or points on five secondary cells.
+
+**Against the 10-28 table**, geomeans over the twelve plotted meshes
+(apps/rtq/scratch/compare_tables_1030.py, before -> after, then our rate's
+and the reference's ratio after/before as geomeans):
+
+| reference, schedule | primary | diffuse | ao | closest near | closest volume | silhouette near | silhouette volume |
+|---|---|---|---|---|---|---|---|
+| Embree, embree (2048 -> 1024 on the rays) | 1.026 -> 1.022 (0.81, 0.81) | 1.050 -> 1.053 (0.89, 0.89) | 1.026 -> 1.040 (0.90, 0.89) | 2.359 -> 2.363 (0.99, 0.99) | 2.948 -> 2.947 (0.99, 0.97) | | |
+| FCPW Mbvh, fcpw4w16 | 1.632 -> 1.621 (0.99, 1.00) | 1.635 -> 1.630 (0.99, 0.99) | 1.907 -> 1.903 (0.99, 0.99) | 1.169 -> 1.171 (0.99, 0.98) | 1.183 -> 1.189 (1.00, 1.00) | | |
+| FCPW binary, fcpwb | 1.143 -> 1.109 (0.99, 1.02) | 1.133 -> 1.124 (0.99, 0.99) | 1.147 -> 1.141 (0.99, 0.99) | 1.177 -> 1.176 (0.98, 0.99) | 1.154 -> 1.154 (0.99, 0.98) | | |
+| FCPW cones, fcpws | 1.177 -> 1.176 | 1.135 -> 1.138 | 1.054 -> 1.058 | 1.184 -> 1.187 | 1.160 -> 1.164 | 1.145 -> 1.143 | 1.132 -> 1.133 |
+| GPUScene binary, fcpwb-gpu | 1.510 -> 1.533 (1.01, 0.99) | 1.489 -> 1.489 | 1.488 -> 1.491 | 1.262 -> 1.250 (0.99, 1.00) | 1.181 -> 1.181 | | |
+| GPUScene cones, fcpws-gpu | 1.363 -> 1.360 | 1.369 -> 1.370 | 1.367 -> 1.377 | 1.177 -> 1.177 | 1.175 -> 1.178 | 1.266 -> 1.271 | 1.306 -> 1.299 |
+
+(fcpws's and the GPU's ratios not shown are 0.99 to 1.00 on both sides.)
+Four readings:
+
+1. *Embree's rays at 1024 in place of 2048.* Both sides' rates fall
+   together -- the primary rays to 0.81 of before, the diffuse and
+   ambient-occlusion rays to 0.89 and 0.90 -- and the speedups hold (1.02,
+   1.05, 1.04). Half the angular density means neighbouring rays share
+   fewer nodes, and the fall is largest on the biggest trees, whose nodes
+   stream from memory: landscape, ganesha and dragon run at 0.62 to 0.66 of
+   their 2048 rate on our side and 0.65 to 0.68 on Embree's. Ours falls two
+   to four points more than Embree's on each of pavilion, villa, landscape,
+   ganesha and dragon (0.921 against 0.946 on pavilion, 0.640 against 0.677
+   on landscape), so the primary rays over the four large meshes read 3 to
+   6% lower against Embree than at 2048 (villa 1.07 -> 1.03, landscape 1.01
+   -> 0.95, ganesha 1.04 -> 1.00, dragon 1.04 -> 1.01) while head, zero-day
+   and sportscar read 2 to 6% higher; the geomean 1.026 -> 1.022. Three
+   cells stand under 0.97 against Embree: pavilion's primary rays 0.96
+   (0.99 at 2048; a 15 ms run), landscape's 0.95 (1.01 at 2048; 26 ms), and
+   ivy's ambient occlusion 0.95 (0.96 at 2048). Whether Embree's as-shipped
+   traversal (its software prefetch of the children it is about to visit)
+   carries it on the less coherent rays, or the three cells are the spread
+   of runs this short, a rerun of the Embree cells (two minutes) and a read
+   of the two traversals' memory stalls would say. Open.
+2. *The 10-28 table's reference rates were low on the large meshes.*
+   FCPW's binary BVH on landscape ran 18.2 Mr/s on 10-28 against 22.0 to
+   22.6 in every other table (10-25, 10-26 twice, today 22.63), its
+   ambient occlusion 14.2 against 15.7 to 15.9; its Mbvh on dragon's
+   primary rays 11.8 against 13.0 to 13.2. Today's cells read 10-26's again
+   (landscape fcpwb 1.06x, 1.05x, 1.14x where 10-26 had 1.09, 1.04, 1.15 and
+   10-28 1.32, 1.18, 1.28; dragon fcpw4w16 1.36x where 10-26 had 1.34 and
+   10-28 1.49), and the fcpwb first-hit geomean's move, 1.143 -> 1.109, is
+   this alone: ours 0.99 of before, the reference 1.02. The reference's
+   run-to-run spread on the large meshes is 10 to 25% between tables, ours
+   1 to 2%; the 10-28 section above found the same of its 10-26 cells.
+3. *The gather fix* (caa9eb9b, a gang's lane offsets read as signed) left
+   fcpw4w16's rates at 0.99 of 10-28's on every query: it changed the code
+   of every CPU gang gather, not its speed here.
+4. *The GPU tables*, at the same side as before, hold within 1.5% (fcpwb-gpu
+   primary +1.5%, its near point -1%), ours 0.99 to 1.01 of before on every
+   query. The clock numbers stand as before (the dispatch and the wait
+   alone, each API's launch overhead included; see the Nsight Systems
+   section of 10-26).
+
+The three figures are redrawn from this table at 18:14 and current
+(plots/rtq-queries-cpu, rtq-fcpwb-cpu, rtq-fcpwb-gpu, .pdf/.png/.txt), the
+three older per-query figures with them. The mesh table gains a camera
+hits column -- the pixels of the primary image the mesh covers, the size
+of each secondary set: 9,527 on zero-day to 344,769 on villa -- so the
+paper's methodology paragraph can point at it for the set sizes; plot.py
+regenerates it once bonsai-ac's wosx table is done (the machine is its
+until its 'done').
