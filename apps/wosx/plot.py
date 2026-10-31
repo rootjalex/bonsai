@@ -64,6 +64,12 @@ reordering ("optix-ser"), and the persistent claim under that reordering
 ("persistent-point", `fcpwb-gpu-point`) was a bar until 2026-10-28: at a
 tenth of WoSX's rate on every mesh it left most of the card's threads with
 no point to claim, and the user had it removed; its rows stay in the CSV.
+Each GPU figure draws eight bars by default (the user, 2026-10-31): the
+matching schedule, its claim and launch variants -- each the best of the
+table on some mesh -- with the plain one-launch form, then the best OptiX
+form and the best deferral (GPU_DEFAULT_SCHEDULES, STARS_GPU_DEFAULT_
+SCHEDULES); every other schedule keeps its rows and is drawn when
+--gpu-schedules names it.
 
 --stars draws the walk on stars' figures (benchmark.sh --stars): the same
 comparison for wost.bonsai against WoSX's WalkOnStars, each mesh split at
@@ -304,6 +310,46 @@ STARS_GPU_BARS = [(s, label, SCHEDULE_COLOURS[label]) for s, label in [
     ("wost-fcpwb-gpu-defer-block", "defer-block"),
     ("wost-fcpwb-gpu-defer-chunk2", "defer-chunk2"),
 ]]
+# What the two GPU figures draw by default: eight bars each (the user,
+# 2026-10-31: "we shouldn't have more than 8 schedules ... matching first,
+# then any close variants of it that perform well, then others that show
+# the exploration (always keep any schedule that is a winner on a
+# benchmark!)"; and before it, "get rid of every schedule that is never a
+# win (and not the matching schedules). Keep one defer and one optix (the
+# best performing of each)"). So: the matching schedule; its claim and
+# launch variants, every one of which is the best of the table on some
+# mesh (the readings file says which; on the walk on spheres the
+# walk-fastest claim with 262144 workers on fourteen of eighteen, the
+# one-launch blocks of 64 on two, the walk-fastest claim and the 262144
+# workers on one each; on the stars the two walk-fastest claims on six
+# each, the blocks of 64 on three, the 262144 workers on two) with the
+# plain one-launch form beside them; then the exploration's two: the best
+# OptiX form by geomean (the plain launch on the spheres, the reordered
+# one on the stars) and the best deferral (the one-point block on the
+# spheres, 1.17x; on the stars the card-wide queue, which wins the rover).
+# The rest keep their rows and are drawn when --gpu-schedules names them.
+# Check the lists against the readings' "is the best ... on" lines when a
+# table changes.
+GPU_DEFAULT_SCHEDULES = [
+    "fcpwb-gpu",
+    "fcpwb-gpu-parallel",
+    "fcpwb-gpu-reorder",
+    "fcpwb-gpu-256k",
+    "fcpwb-gpu-reorder-256k",
+    "fcpwb-gpu-parallel-reorder-blk64",
+    "fcpwb-gpu-optix",
+    "fcpwb-gpu-defer-block",
+]
+STARS_GPU_DEFAULT_SCHEDULES = [
+    "wost-fcpwb-gpu",
+    "wost-fcpwb-gpu-parallel",
+    "wost-fcpwb-gpu-reorder",
+    "wost-fcpwb-gpu-256k",
+    "wost-fcpwb-gpu-reorder-256k",
+    "wost-fcpwb-gpu-parallel-reorder-blk64",
+    "wost-fcpwb-gpu-optix-ser",
+    "wost-fcpwb-gpu-defer",
+]
 # What each GPU schedule changed against another, for the summary: (label
 # of the schedule, label of the one it differs from in one thing, the
 # thing). The labels are the same on both walks' figures.
@@ -710,10 +756,14 @@ def main():
     trees = STARS_CPU_TREES if a.stars else CPU_TREES
     if a.gpu:
         gpu_bars = STARS_GPU_BARS if a.stars else GPU_BARS
-        # The figure's bars by default: every schedule of the list but the
-        # retired one, each drawn where the table has its rows.
-        named = (a.gpu_schedules if a.gpu_schedules is not None
-                 else ",".join(s for s, _, _ in gpu_bars if s != "fcpwb-gpu-point"))
+        # The figure's bars by default: on the walk on spheres the winners,
+        # the matching schedule, the best deferral and the best OptiX form
+        # (GPU_DEFAULT_SCHEDULES); on the stars every schedule of the list;
+        # each drawn where the table has its rows.
+        if a.gpu_schedules is not None:
+            named = a.gpu_schedules
+        else:
+            named = ",".join(STARS_GPU_DEFAULT_SCHEDULES if a.stars else GPU_DEFAULT_SCHEDULES)
         schedules = [s for s in named.split(",") if s]
         draw_gpu(rows, schedules, a.out, a.format.split(","), exclude, a.stars, a.width)
     else:

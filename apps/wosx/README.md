@@ -511,13 +511,18 @@ in question (PLAN.md, the persistent schedule).
   claim under OptiX with no reordering: against `fcpwb-gpu` it measures
   OptiX's compilation of the same kernel with the same warps -- 1.04x
   against 1.44x on the head, PLAN.md "The OptiX launch under Nsight
-  Compute"). The figure's legend
-  names them persistent, parallel, persistent-reorder, persistent-256k,
-  persistent-reorder-256k, parallel-reorder-blk64, optix, optix-ser and
-  optix-ser-persistent; the 256k and blk64 ones came out of the exploration
-  PLAN.md records (2026-10-24), each the best schedule on at least one
-  mesh; the OptiX ones out of the user's ask of 2026-10-28 for the
-  reordering at each step of the walk. `fcpwb-gpu-point` (a point a claim,
+  Compute"). The figure draws eight of them (the user, 2026-10-31: at most
+  eight schedules a figure -- the matching schedule first, then its close
+  variants that perform well, then the exploration's, and every schedule
+  that is the best on some mesh kept): persistent, parallel,
+  persistent-reorder, persistent-256k, persistent-reorder-256k and
+  parallel-reorder-blk64 (the last four each the best of the table on at
+  least one mesh; the 256k and blk64 ones came out of the exploration
+  PLAN.md records, 2026-10-24), then optix, the best of the three OptiX
+  forms (the user's ask of 2026-10-28 for the reordering at each step of
+  the walk), and defer-block, the best of the deferrals; optix-ser,
+  optix-ser-persistent and defer-chunk2 keep their rows and are drawn when
+  `plot.py --gpu-schedules` names them. `fcpwb-gpu-point` (a point a claim,
   its walks in sequence; "persistent-point") was a bar until 2026-10-28:
   a tenth of WoSX's rate on every mesh, since a point a claim leaves most
   of the card's threads with no point to claim, and the user had it
@@ -617,7 +622,13 @@ in question (PLAN.md, the persistent schedule).
   divergence worth the compaction where a run is long enough to pay for
   the rounds; PLAN.md, "Three more without the bounded queue") with
   `wost-fcpwb-gpu-defer-sort`, the queue sorted each round by the walks'
-  positions, measured by name.
+  positions, measured by name. The stars' GPU figure draws eight by the
+  same rule as the walk on spheres' (the user, 2026-10-31): persistent,
+  parallel, persistent-reorder, persistent-256k, persistent-reorder-256k,
+  parallel-reorder-blk64 (the last four each the best on some mesh), then
+  optix-ser, the best OptiX form here, and defer, the card-wide queue,
+  which is the best schedule on the rover; optix, optix-ser-persistent,
+  defer-block and defer-chunk2 keep their rows and are drawn when named.
 - `gpu/wosx-pde-definition.slang`: the PDE WoSX's GPU solver is given,
   the Laplace problem with the program's Dirichlet data, in the shape
   WoSX asks for (a module named `wosx_pde_definition` with a `PDEType`).
