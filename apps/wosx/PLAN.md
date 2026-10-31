@@ -2803,6 +2803,47 @@ that agree on the order *and* a leaf test that is not sixteen wide for
 two lanes -- the hybrid switch, which remains the one schedule word not
 yet in the language (Next).
 
+### The unsigned lane offsets measured on the CPU (2026-10-30, evening)
+
+The compiler's fix of the morning (caa9eb9b, found by the pbrt packet
+schedules on bistro and landscape) changed how a gang's gather forms its
+addresses. A gang reads one element per lane at `base + offset[lane]`,
+the offsets 32-bit numbers formed by the program's unsigned arithmetic,
+and the machine reads a 32-bit gather index as signed:
+
+    before:  addr[lane] = base + signed(offset[lane])      -- an offset of 2^31 or more lands below base
+    after:   addr[lane] = (base + 2^31) + signed(offset[lane] xor 2^31)
+                                                           -- the same address for every offset below 2^32
+
+Every gather over 32-bit offsets now carries one xor and a differently
+formed base, and its address computation is no longer marked in bounds,
+so the question for the CPU figures was which bars' code moved. Compiled
+under the new compiler and counted: `fcpw4w16-threads` and
+`-persistent` have no gathers at all (the four-wide tree's lanes read a
+node's children as one row), nor do `fcpwb-packet-16-threads` and the
+scalar `fcpwb-threads`; `fcpwb-packet-defer-threads` has five gathers,
+all over 64-bit offsets, and its code is yesterday's line for line;
+`fcpwb-packet-defer-sort-threads` has fourteen, one of them over 32-bit
+offsets -- the one place in the drawn CPU schedules the fix touches. The
+GPU backends do not form addresses this way, so the GPU tables stand.
+
+**Measured** (18:17-18:53, the four schedules over the nineteen meshes,
+three repeats each, the machine otherwise idle): nothing moved. Every
+cell came back within 2.6% of its 10-28/29 value and the geomeans to two
+decimals -- `fcpwb-packet-defer-sort-threads` 0.73x -> 0.73x,
+`fcpwb-packet-defer-threads` 0.58x -> 0.58x, `fcpw4w16-threads` 1.24x ->
+1.24x, `fcpw4w16-persistent` 1.34x -> 1.33x -- so the xor and the
+unmarked address cost nothing the clock sees, and the three schedules
+whose code did not change repeated their numbers, which is the table's
+noise floor for a day. The table keeps the 10-28/29 cells for those
+three (their code being the same, and their fresh logs lost to a cleanup
+of mine after the run: the run had finished before the cleanup assumed
+it was still going) and today's cells for the sorted drain; the previous
+table and the sorted drain's previous logs stand beside it as
+`wosx-results.before-2026-10-30-unsigned-offsets.csv` and
+`logs-before-2026-10-30-unsigned-offsets`. The two CPU figures are
+redrawn from it; all five wosx figures stand on the current compiler.
+
 ### Next
 
 - OptiX's one loop: a form of the traversal that survives OptiX's
