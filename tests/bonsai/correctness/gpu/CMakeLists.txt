@@ -41,6 +41,7 @@ add_bonsai_tests(
     block-shared.bonsai
     block-phases.bonsai
     queue-shared.bonsai
+    queue-shared-large.bonsai
     buffers-cpp.bonsai
     defer-capacity.bonsai
     defer-device.bonsai

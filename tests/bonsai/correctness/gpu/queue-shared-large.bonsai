@@ -1,0 +1,52 @@
+//! flags: -p ssa -b llvm -e
+
+// queue-shared.bonsai's block queue with entries enough to need more dynamic
+// shared memory than the 48 KB every kernel may take without asking: a step
+// of eight words, 1021 of them a block, two buffers (a step pushes onto the
+// queue it was drained from) -- about 65 KB of entries beside the block's
+// own static `.shared` words (the queue's header, the block's sum). The
+// runtime opts the kernel in to the launch's size (bonsai_cuda_launch:
+// cuFuncSetAttribute with the dynamic bytes asked, which the static part
+// leaves room for); until 2026-10-30 it asked for the device's whole limit,
+// which CUDA refuses for any kernel with static shared memory, so a block
+// of apps/wosx's walks past 48 KB aborted at the launch. A walk of k steps
+// returns k(k+1)/2 + 21k: {0, 22, 45, 69, 94, 120, 147, 175} for k = 0..7.
+// With 1021 walks a block, k = (p + s) mod 8, the residues (p + r) mod 8
+// for r = 0..4 come 128 times and the other three 127, so out[p] =
+// 127 * 672 + the five values from v[p] on, cyclically:
+// {85574, 85694, 85819, 85949}.
+
+func walk(k : i32, a : i32, b : i32, c : i32, d : i32, e : i32, f : i32, g : i32) -> i32 {
+    if (k <= 0) {
+        return a + b + c + d + e + f + g;
+    }
+    return walk(k - 1, a + k, b + 1, c + 2, d + 3, e + 4, f + 5, g + 6);
+}
+
+func run(out : mut array[i32, 4], n : i32) -> void {
+    parfor p in 0:4 {
+        total : mut i32 = 0;
+        parfor s in 0:n {
+            atomic total += walk((p + s) % 8, 0, 0, 0, 0, 0, 0, 0);
+        }
+        out[p] = total;
+    }
+    return;
+}
+
+func main() -> i32 {
+    out : mut array[i32, 4] = {-1, -1, -1, -1};
+    run(out, 1021);
+    print(out);
+    return 0;
+}
+
+schedule {
+    sums = run.queue(p, DeviceShared);
+    run.defer(walk, sums);
+    walk.defer(walk, sums);
+    run.bind(p, GPUBlock);
+    run.bind(s, GPUThread);
+    run.bind(sums, GPUThread);
+    run.bind(sums_rest, GPUThread);
+}

@@ -303,7 +303,10 @@ constexpr int CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK = 1;
 constexpr int CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR = 75;
 constexpr int CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR = 76;
 constexpr int CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN = 97;
-// cuda.h's CUfunction_attribute, an int-sized enum: the one value asked for.
+// cuda.h's CUfunction_attribute, an int-sized enum: the two values used --
+// the static shared memory a kernel's `.shared` declarations take, read, and
+// the most dynamic shared memory a launch of it may add, set.
+constexpr int CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES = 1;
 constexpr int CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES = 8;
 
 struct Driver {
@@ -325,9 +328,12 @@ struct Driver {
                                unsigned, unsigned, unsigned, unsigned,
                                CUstream, void **, void **);
     // A kernel's dynamic shared memory past the 48 KB every kernel may ask
-    // for is opted into per function (bonsai_cuda_launch). The attribute is
-    // cuda.h's CUfunction_attribute, an int-sized enum.
+    // for is opted into per function (bonsai_cuda_launch), up to the
+    // device's limit less the kernel's own static shared memory, which the
+    // get reads. The attribute is cuda.h's CUfunction_attribute, an
+    // int-sized enum.
     CUresult (*cuFuncSetAttribute)(CUfunction, int, int);
+    CUresult (*cuFuncGetAttribute)(int *, int, CUfunction);
     CUresult (*cuCtxSynchronize)(void);
     // Asynchronous launches (bonsai_cuda_launch, bonsai_optix_launch): a
     // launch's parameters go to the device from pinned memory without the
@@ -368,11 +374,14 @@ struct Driver {
     CUdevice device = 0;
     CUcontext context = nullptr;
     int max_threads_per_block = 0;
-    // The most dynamic shared memory a block may have once its kernel has
-    // opted in (CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN), and
-    // the kernels that have.
+    // The most shared memory a block may have, static and dynamic together,
+    // once its kernel has opted in (CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_
+    // PER_BLOCK_OPTIN); per kernel, the static shared memory its `.shared`
+    // declarations take (read once) and the dynamic shared memory it has
+    // been opted into so far (48 KB until a launch asks for more).
     int max_shared_per_block = 0;
-    std::unordered_map<CUfunction, bool> shared_opted_in;
+    std::unordered_map<CUfunction, int> shared_static;
+    std::unordered_map<CUfunction, int64_t> shared_opted_in;
     std::string arch;
     std::unordered_map<const char *, CUmodule> modules;
     // A launch's kernel, looked up once: keyed by the name's address, a
@@ -416,6 +425,7 @@ inline Driver &driver() {
         load(d.cuMemcpyDtoH, "cuMemcpyDtoH_v2");
         load(d.cuLaunchKernel, "cuLaunchKernel");
         load(d.cuFuncSetAttribute, "cuFuncSetAttribute");
+        load(d.cuFuncGetAttribute, "cuFuncGetAttribute");
         load(d.cuCtxSynchronize, "cuCtxSynchronize");
         load(d.cuMemHostAlloc, "cuMemHostAlloc");
         load(d.cuMemcpyHtoDAsync, "cuMemcpyHtoDAsync_v2");
@@ -1078,21 +1088,44 @@ bonsai_cuda_launch(const char *ptx, const char *kernel, int64_t grid_x,
         fail("`" + std::string(kernel) + "` asks for a grid of " +
              std::to_string(grid_x) + " blocks; the device allows 1 to 2^31-1.");
     }
-    if (shared_bytes < 0 || shared_bytes > d.max_shared_per_block) {
-        fail("`" + std::string(kernel) + "` asks for " +
-             std::to_string(shared_bytes) + " bytes of shared memory per block; "
-             "the device allows up to " + std::to_string(d.max_shared_per_block) +
-             ". Place less in the block's shared memory, or split the block.");
+    // The block's shared memory is the kernel's static `.shared` (a block
+    // queue's header, the block's locals) plus the launch's dynamic bytes,
+    // and the device's limit is on their sum: the dynamic part may reach the
+    // limit less the static part. Past 48 KB of dynamic memory a kernel has
+    // to opt in, to the size the launch asks (CUDA refuses a size the static
+    // part leaves no room for, so asking for the device's whole limit fails
+    // on any kernel with a static `.shared` word), raised when a later launch
+    // of the same kernel asks for more.
+    auto static_shared = d.shared_static.find(function);
+    if (static_shared == d.shared_static.end()) {
+        int bytes = 0;
+        check(d,
+              d.cuFuncGetAttribute(&bytes, CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES,
+                                   function),
+              "cuFuncGetAttribute(" + std::string(kernel) + ", shared size)");
+        static_shared = d.shared_static.emplace(function, bytes).first;
     }
-    // Past 48 KB a kernel has to opt in, once, up to the device's limit.
-    if (shared_bytes > 48 * 1024 && !d.shared_opted_in[function]) {
+    const int64_t dynamic_limit = int64_t(d.max_shared_per_block) - static_shared->second;
+    if (shared_bytes < 0 || shared_bytes > dynamic_limit) {
+        fail("`" + std::string(kernel) + "` asks for " +
+             std::to_string(shared_bytes) + " bytes of dynamic shared memory per "
+             "block beside its " + std::to_string(static_shared->second) +
+             " static; the device allows " + std::to_string(d.max_shared_per_block) +
+             " for the two together, so " + std::to_string(dynamic_limit) +
+             " dynamic. Place less in the block's shared memory, or split the block.");
+    }
+    auto opted = d.shared_opted_in.find(function);
+    if (opted == d.shared_opted_in.end()) {
+        opted = d.shared_opted_in.emplace(function, int64_t(48 * 1024)).first;
+    }
+    if (shared_bytes > opted->second) {
         check(d,
               d.cuFuncSetAttribute(function,
                                    CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-                                   d.max_shared_per_block),
+                                   int(shared_bytes)),
               "cuFuncSetAttribute(" + std::string(kernel) +
-                  ", max dynamic shared size)");
-        d.shared_opted_in[function] = true;
+                  ", max dynamic shared size " + std::to_string(shared_bytes) + ")");
+        opted->second = shared_bytes;
     }
 
     // The buffers: to the device, and their slots repointed.
