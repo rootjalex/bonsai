@@ -561,10 +561,11 @@ in question (PLAN.md, the persistent schedule).
   schedule's traversal on it on one thread, in FCPW's CPU order;
   `schedules/fcpwb2-threads.bonsai` and `schedules/fcpwb2-persistent.bonsai`:
   the same with the points over the threads and with the persistent
-  workers, run as the CPU table's cells are and drawn on the fcpwb CPU
-  figure as its exploration bars (parallel-fcpwb2, persistent-fcpwb2:
-  what the layout alone is worth in parallel, WoSX's side unchanged on
-  FCPW's own rows; the user, 2026-10-28);
+  workers, run as the CPU table's cells are, measured by name (they were
+  the fcpwb CPU figure's exploration bars from 2026-10-28 to 2026-10-31,
+  when the user ruled that this work explores execution schedules only
+  and matches the tree exactly: the layout alone was worth 1.22x and 1.27x
+  against FCPW's rows' 1.17x and 1.23x, and the rows stay in the table);
   `schedules/fcpwb2-gpu.bonsai`: WoSX's GPU kernel over it, in the
   kernel's order (`schedules/kernel/fcpwb2.bonsai`), a candidate for the
   optimized schedule.

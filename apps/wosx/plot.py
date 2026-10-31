@@ -198,10 +198,10 @@ CPU_TREES = [
 # The exploration's bars beside the two, per tree base: (schedule, legend
 # label, colour, what it changes against the parallel bar), drawn after
 # the two and only where the table has their rows. On WoSX's default tree
-# (the user, 2026-10-28: more CPU schedules, vectorization among them):
-# the same tree in the layout where each node's row holds its children's
-# boxes, one row read a visit where FCPW's rows take three (fcpwb2*, WoSX's
-# side unchanged on FCPW's own rows); and the walk vectorized over a
+# (the user, 2026-10-28: more CPU schedules, vectorization among them),
+# execution schedules over FCPW's own rows (the two-child layout's bars
+# left the figure on 2026-10-31, the user: "we're not exploring memory
+# layouts just yet"): the walk vectorized over a
 # point's walks -- the lanes are walks, the traversal one node for the
 # gang, each child entered by the lanes whose query reaches it -- in gangs
 # of sixteen lanes (the machine's vector width) and of eight (the user,
@@ -219,10 +219,13 @@ CPU_TREES = [
 # leaf any lane reaches is tested gang-wide for a lane or two.
 CPU_EXTRA_BARS = {
     "fcpwb": [
-        ("fcpwb2-threads", "parallel-fcpwb2", SCHEDULE_COLOURS["parallel-fcpwb2"],
-         "the node's row holding its children's boxes (layouts/fcpwb2), the threads"),
-        ("fcpwb2-persistent", "persistent-fcpwb2", SCHEDULE_COLOURS["persistent-fcpwb2"],
-         "the node's row holding its children's boxes, the persistent workers"),
+        # The two-child layout's bars (fcpwb2-threads, fcpwb2-persistent;
+        # "parallel-fcpwb2", "persistent-fcpwb2") were drawn here from
+        # 2026-10-28 to 2026-10-31, when the user ruled that this work
+        # explores execution schedules only and matches the tree exactly
+        # ("we're not exploring memory layouts just yet"): their rows stay
+        # in the table, the schedules run by name, and the figure keeps to
+        # FCPW's own rows.
         ("fcpwb-packet-16-threads", "parallel-packet16", SCHEDULE_COLOURS["parallel-packet16"],
          "a point's walks vectorized in gangs of sixteen lanes, the threads"),
         ("fcpwb-packet-8-threads", "parallel-packet8", SCHEDULE_COLOURS["parallel-packet8"],
@@ -601,13 +604,14 @@ def cpu_notes(base, exclude):
 
 # The order the bars and the legend take on a tree's figure, by label
 # (the user, 2026-10-31, on the fcpwb figure: "parallel, parallel-fcpwb2,
-# then the packets, then the defers, then the persistents"): the TBB
-# forms first, the vectorized forms among them, the persistent workers
-# last. A label not named keeps its place after the named ones; a tree
+# then the packets, then the defers, then the persistents" -- the fcpwb2
+# bars left the figure the same day): the TBB forms first, the vectorized
+# forms among them, the persistent workers last. A label not named keeps
+# its place after the named ones; a tree
 # without an entry draws CPU_BARS then CPU_EXTRA_BARS as listed.
 CPU_BAR_ORDER = {
-    "fcpwb": ["parallel", "parallel-fcpwb2", "parallel-packet16", "parallel-packet8",
-              "parallel-defer16", "parallel-defer-sort16", "persistent", "persistent-fcpwb2"],
+    "fcpwb": ["parallel", "parallel-packet16", "parallel-packet8",
+              "parallel-defer16", "parallel-defer-sort16", "persistent"],
 }
 
 
