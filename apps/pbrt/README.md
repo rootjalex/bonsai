@@ -207,7 +207,8 @@ before it.
     value stands upright over the bars with a thin leader to its bar
     (CUT_FLAGS; the user's choice of 10-30 night), as frame542's six
     megakernel bars are (4.6x to 20.4x). The
-    CPU figure's axis ends at 8x and cuts nothing (CPU_YMAX). Both legends
+    CPU figure's axis ends at 10x and cuts nothing (CPU_YMAX; the user,
+    11-01, with frame542's bars at 8.0x to 9.2x). Both legends
     read the same way (the user, 10-30): pbrt's own megakernel where there
     is one, then the schedule that matches pbrt's wavefront, the
     wavefront's modifications by increasing departure, then this

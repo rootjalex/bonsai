@@ -130,11 +130,13 @@ SWEEP_SCENES="${SWEEP_SCENES:-killeroos/killeroo-gold,pbrt-book/book,sanmiguel/s
 # bars with a thin leader to its bar (the user's choice among six trials,
 # 10-30 night: the values on one line, never stacked; frame542's
 # megakernels, 4.6x to 20.4x over pbrt --gpu). The CPU sweep's bars run to
-# 7.7x with thirteen of them between 6x and 8x (killeroo-gold's and book's
-# per-thread wavefronts and megakernels), so its axis ends at 8x and cuts
-# nothing; the same flags for the day a bar passes it.
+# 9.2x (frame542's megakernels and per-thread wavefronts, 8.0x to 9.2x,
+# since its CPU sweep of 10-31; every other scene's under 7.9x), so its
+# axis ends at 10x and cuts nothing (the user, 11-01: "Definitely use 10x
+# for the CPU cut off"; at 8x seven of frame542's bars were cut); the same
+# flags for the day a bar passes it.
 GPU_YMAX="${GPU_YMAX:-4}"
-CPU_YMAX="${CPU_YMAX:-8}"
+CPU_YMAX="${CPU_YMAX:-10}"
 CUT_FLAGS="--leaders --rotate-cut-labels"
 # The heatmap of the same night (00:45-02:22), the gpu-optix renderer
 # reused from the sweep; compare-out-heatmap11/ is 10-27's under 39c67ab9.
