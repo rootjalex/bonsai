@@ -8116,3 +8116,25 @@ ivy's ambient occlusion was 0.96 at 2048 too (26,110 rays, a 4 ms run,
 the smallest ray set of the twelve after zero-day's). The two traversals'
 memory stalls on those two cells are the thing to read next; the table
 stands as measured (one run's cells are not swapped for another's).
+
+**The table against the compiler since (2026-10-31, 23:42).** The
+compiler the table was measured with was build/compiler of 10-30 08:49,
+caa9eb9b's sources; the tree has since taken b72c215b (10-31 02:19, two
+SSA fixes for apps/pbrt's GPU wavefront variants: the hoist of
+loop-invariant allocations carries a size's arithmetic out of the loop
+with it, and a hit continuation that makes a reordering hint is refused).
+Whether either moves an rtq cell is a compile, not a measurement: the six
+plotted schedules (embree, fcpw4w16, fcpwb, fcpws, fcpwb-gpu, fcpws-gpu)
+compiled as compare.sh compiles them (`-p ssa --no-heap --ffp-contract`,
+the reference's metrics file, snch.bonsai for fcpws) with
+`--dump-ssa-final -b llvm` under build-rtq's compiler of 10-29 14:16 and
+under build/compiler of 10-30 23:45, which carries b72c215b. The final SSA
+is byte-identical for all six, and so is the LLVM module, so nothing
+between the two builds -- d14da45b, caa9eb9b, b72c215b -- changes rtq's
+code, and the table stands for the tree's head. (No rtq schedule has a
+deferral queue, the one construct the hoist's new case reaches; the two
+`queue` matches in schedules/ are comments on FCPW's enqueueNodes.) The
+dumps and the compared modules are in scratch/ssa-check-b72c215b/
+(`<schedule>.<build>.ssa`, `.ll`), 12 seconds of one core under a lock of
+my own, nothing timed on the machine. bonsai-ac ran the same check over
+apps/wosx's fourteen deferral schedules with the same result.
