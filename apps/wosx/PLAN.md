@@ -3085,6 +3085,29 @@ SSA under the 10-29 compiler (build-rtq) and the new one (the hoist runs
 before the dump, Convert.cpp), the CPU drains' queue arrays being at the
 worker's entry already, sized from the walks count. The tables stand.
 
+The compiler commit of 00:24 on 11-01 (e08e0195: the generated header
+states each extern queue array's capacity as an expression over the
+exported function's parameters, for pbrt's driver) changes no wosx code
+either, checked at the level the change reaches. All sixty-three schedule
+files compiled under the 10-29 compiler and under e08e0195's build
+(compile only, under a lock of this session's, 00:25-00:28), three outputs
+each -- the final SSA, the LLVM module and the generated header. Twenty
+are byte-identical in all three. The other forty-three differ in ways that
+predate this commit: the thirty-four GPU schedules' headers differ in one
+line, the path of the sort library the compiler was built beside
+(build-rtq against build); nine CPU packet schedules' LLVM differs by the
+unsigned lane offsets of caa9eb9b (the index flipped by 2^31 against a
+base moved the same way), the 10-30 change the 10-30 tables were measured
+under; and the persistent sorted drain's final SSA differs by b72c215b's
+hoist alone -- its twenty-four queue arrays, sized sixty-four times the
+walks count, moved from the claim loop's body to the worker's entry --
+the compiler its table of 03:25 was measured with (its new SSA is
+byte-identical to that night's check dump). The fourteen defer schedules
+dumped under the 10-30 23:45 compiler for the hoist check print identical
+SSA and LLVM under e08e0195's build. The wosx driver reads no capacity
+from the header; no wosx schedule puts a queue in extern storage, the one
+place the new line is printed. The tables stand.
+
 ### Next
 
 - The refill for the compacting block, as the user's plan (above): a
