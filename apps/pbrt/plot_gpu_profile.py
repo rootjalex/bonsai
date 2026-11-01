@@ -19,7 +19,8 @@ line per instruction with its executed-instruction and thread counts). For
 the wavefront (gpu-optix, drawn `wf trace`) the launch is its first
 closest-hit trace, the raygen over the ray queue -- the kernel that does
 in the wavefront what the megakernel's raygen does in one piece with the
-shading; for the megakernels (`mk-flat`, `mk-ser-flat`) it is the paths'
+shading; for the megakernels (`mk-flat-px`, `mk-flat-ser-px`, the pixel-order
+flat launches profiled on 10-28) it is the paths'
 raygen, the frame. A side without a profile is left out of its row with a
 note on stderr.
 

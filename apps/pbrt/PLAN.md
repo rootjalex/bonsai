@@ -20126,3 +20126,228 @@ gpu-compare-out-wf3c/table.tsv; the notes that left it out are gone),
 gpu sweep plot, it looks better than 6x" -- plots.sh's GPU_YMAX is 4:
 frame542's six megakernel bars (4.6x to 20.4x) are cut and labelled,
 every other bar is under 3.7x and gets the height.
+
+## 11-01 afternoon, the schedule exploration: which compositions of the directives are sometimes best
+
+The user's ask (11-01, after the capacity fix): "do a little bit better
+schedule (NOT LAYOUT) exploration. Using the existing scheduling commands
+that we have, and compositions of them, with no changes to the tree, what
+sometimes-optimal schedules can you find across these sweep scenes?
+Ideally each sweep has a few mk and wf variants each." Then the rule for
+the GPU figure: "Obviously any schedule that is the winner on at least one
+configuration ... If there are less than 8, we should select the others to
+approximately balance out the number of wf versus mk schedules. And of
+course, the sweep needs to include the matching schedule to PBRT"; seven
+rather than eight once wf-sort, which never wins, went ("it makes the
+legend look weird"); and for the CPU, "we NEED an exactly matching
+schedule to the megakernel approach ... the first Bonsai bar of the
+chart", with pbrt's doubling waves left out ("don't worry about the
+doubling-waves part. Just match the schedule otherwise with the tiling").
+
+Every schedule below is a file under schedules/ made of directives the
+language already had -- `defer` removed to fuse a stage, `reorder` and
+`collapse` for a launch's order, `sort` for a reordering hint, `split` and
+`bind` for tiles -- with nothing added to the language and the trees
+untouched. Each file's header says what it changes and why.
+
+**The GPU variants, and what each one is.** The matched wavefront
+(gpu-optix.bonsai) gives every stage pbrt's queue and kernel. Fusing a
+stage is removing the `defer` that put it on a queue, so that the call
+runs where the program wrote it:
+
+    before (gpu-optix):            after (gpu-optix-fused-route):
+      trace program: route hit ->    trace program: route hit ->
+        push onto hits / escaped /     material, light sample, shadow push,
+        emissive queue                  next ray push; a miss or an emissive
+      hits kernel per material:        hit handled right there
+        material, light sample,
+        shadow push, next ray push
+      escaped kernel, emissive kernel
+
+- gpu-optix-fused-route: the material stage in the trace program (10-24's
+  gpu-optix-fused) and the two one-line routings beside it, a miss's
+  infinite-light contribution and an emissive hit's. Drawn as wf-fuse-mat.
+- gpu-optix-fused-shadow: gpu-optix-fused with the shadow ray traced in
+  the trace program too, a second optixTrace in the same raygen.
+- gpu-optix-bounce: the ray queue alone, every other stage fused -- the
+  samples, the media, the routing, the material, the shadow ray, the
+  subsurface chain -- one launch per bounce, specialized by the scene's
+  media and subsurface flags as the megakernels are. Laine, Karras and
+  Aila's one-logic-kernel wavefront (HPG 2013) without their path
+  regeneration. Drawn as wf-bounce.
+- gpu-optix-mega-flat-samples: the flat megakernel (one launch over every
+  (pixel, sample) pair of the frame) with a pixel's samples adjacent in
+  the launch instead of a row's pixels -- the "samples order", a warp of
+  32 being one pixel's samples at 128 spp. Drawn as mk-flat (the pixel
+  order of 10-27, gpu-optix-mega-flat, is mk-flat-px from now on).
+- gpu-optix-mega-ser-ray-flat: the SER flat megakernel (reordering by
+  material before the material switch) with a second reordering before
+  every trace, by where the next ray starts and heads (the top sixteen
+  bits of the coarse two-point Morton key), on every call that continues
+  the path -- 10-24's mega-ser-ray idea on the flat launch. Drawn as
+  mk-flat-ser-ray-px.
+- gpu-optix-mega-ser-flat-samples and gpu-optix-mega-ser-ray-flat-samples:
+  the two SER shapes in the samples order. Drawn as mk-flat-ser and
+  mk-flat-ser-ray.
+
+The samples order is `collapse(p, s, ps)` with the pixel loop outside, and
+the collapse is refused on the loops as written: the pixel loop zeroes the
+pixel's film slots before its sample loop, and a collapsed loop would zero
+them once per sample (SSA/CollapseLoops.cpp, correctly). `reorder(p, s)`
+moves the sample loop outside and leaves that prologue in a pixel loop of
+its own -- gpu-optix-mega-flat's shape -- and `reorder(s, p)` puts the
+pixel loop outside again, now a perfect nest, so `collapse(p, s, ps)` is
+allowed: two interchanges for a fission the language has no directive
+for. The generated code confirms the order (the collapsed index splits as
+pixel = index / spp, sample = index % spp; scratch/explore-1101/compile/
+ssa/).
+
+**The two GPU runs** (scratch/explore-1101/gpu_explore.sh: each schedule
+compiled, checked on killeroo-simple at 1, 4 and 16 spp against pbrt,
+then the eight scenes at 16 and 128 spp, the least of three, every image
+checked): gpu-compare-out-explore3 (10:54-12:07) the first five above,
+gpu-compare-out-explore4 (12:13-13:04) the two samples-order SER shapes
+beside gpu-optix, gpu-optix-mega-flat and gpu-optix-mega-ser-flat
+measured again in the same run. 160 cells, 158 matching pbrt's image; the
+two that do not are gpu-optix-fused-shadow on plume, where the first
+kernel fails with `CUDA_ERROR_LAUNCH_FAILED (unspecified launch failure)`
+at both counts -- the media path with the shadow trace inside the raygen;
+open, below. The three re-measured incumbents reproduced their 10-30
+cells within 2% by wall and 1% by kernel time (scratch/explore-1101/
+compare_tables.py prints the two side by side), so the tables of 10-30
+and 10-31 stand and the plotter takes the later rows for those three.
+
+**What was found**, by kernel time where the wall's spread would hide it:
+
+- The samples order is ahead of the pixel order on every megakernel at
+  every cell but one: by 4-80% on the flat launch (book the 4%, frame542
+  at 16 spp the 80%), 2-37% on the SER one, 2-26% on the ray-reordered
+  one; the exception is frame542 at 128 spp, where the pixel order is
+  ahead by 4-8% (not measured why). A pixel's samples leave the camera
+  through one footprint and hit one surface, so the warp's first trace
+  and first material are as coherent as camera rays get; the reading from
+  the kernel times, not a profile.
+- The reordering by ray before every trace, on top of the one by
+  material, is worth 1.2-1.4x on book, sanmiguel and bistro, 1.4x on
+  ganesha, 1.6x on dragon_10 and 1.9x on plume -- the heavier the trace,
+  the more a warp of rays walking one part of the tree is worth -- and
+  costs 7-8% on killeroo-gold, where the conductor's closed-form BSDF
+  leaves the warps little divergence for a second sort to regroup (a
+  reading). It is the best megakernel on seven of eight scenes, and the
+  schedule with the highest geomean of any in the sweep (mk-flat-ser-ray
+  2.28x against the matched wavefront's 1.94x), with its losses on
+  ganesha, dragon_10, plume and bistro intact.
+- wf-fuse-mat is 1.00-1.04x of wf-fused by kernel time on every scene
+  (1.14x on frame542): the two routing stages cost a launch and a queue
+  each and did nothing a fused program minds. It takes bistro at both
+  counts (2.44x, 1.94x) and draws in wf-fused's place.
+- wf-bounce is the best wavefront on frame542 (2.65x, 2.57x against the
+  matched 1.66x, 1.59x: a fifth of the launches a round) and level with
+  the matched one on killeroo-gold at 16 spp; elsewhere below wf-fuse-mat,
+  worst on ganesha and dragon_10 (0.69x, 0.67x of wf at 128 spp), where
+  the fused program's size cost most on 10-31 too. It matches wf-pass on
+  frame542 at 128 spp without the paging and beats it everywhere else, so
+  wf-pass is out of the figure.
+- wf-fused-shadow is 0.64-0.88x of wf-fused everywhere but frame542
+  (1.27x): the trace program's lanes wait on a second traversal before
+  they push the next ray. Not drawn.
+
+**The figure** (plots/pbrt-gpu-sweep.pdf, redrawn 14:25, 112 drawn bars
+all matching): the per-cell winners are the matched wavefront (ganesha,
+dragon_10, plume), wf-fuse-mat (bistro), mk-flat-ser (killeroo-gold,
+4.06x and 3.13x), mk-flat-ser-ray (book 3.28x and 2.59x, sanmiguel 2.62x
+and 1.97x, frame542 at 16 spp 20.1x) and mk-flat-ser-ray-px (frame542 at
+128 spp, 21.2x); wf-bounce and mk-flat fill to three wavefronts and four
+megakernels. plots.sh names the seven (GPU_SIDES) and the two new tables
+(GPU_TABLES); figure_style.SCHEDULE_COLOURS lays the ramp over them, the
+wavefronts the three greens and the megakernels the four blues, skipping
+one shade between the families. The labels are the user's short ones: a
+flat megakernel is in the samples order unless it says -px, and
+wf-fuse-mat is the material stage fused (with the routing). The axis is
+cut at 5x (GPU_YMAX; the user: "remove that pesky 4.1x speedup label"),
+so only frame542's megakernel bars are cut. The .txt's WHY and READINGS
+carry the above per scene.
+
+**The CPU: the match that was missing.** Reading pbrt's source for the
+tiling (cpu/integrators.cpp, ImageTileIntegrator::Render; util/
+parallel.cpp, ParallelFor2D) showed that the schedule the CPU figure had
+called the megakernel match, scalar.bonsai, is not pbrt's shape: pbrt
+hands its threads square tiles of `clamp(sqrt(pixels / (8 * threads)), 1,
+32)` pixels a side -- 32 on this machine for every sweep scene -- walks a
+tile's pixels row by row, and renders in waves of samples over the whole
+frame (1, 1, 2, 4, ... 64 a wave; pbr-book 4ed, 1.3.4: previews during
+rendering, and "a cost for threads to acquire work for a new image tile"
+that the growing waves amortize), while scalar.bonsai takes a pixel's
+samples in turn in the runtime's chunks of about 8,100 pixels. The match
+is scalar-tiled.bonsai: `split(p, p_ty, p_in_band, tile_band_pixels)`
+(bands of 32 rows; `tile_band_pixels = width * 32u` is a program value
+beside `pass_pixels`, computed as pbrt computes its tile), `split(p_in_
+band, p_iy, p_x, width)`, `split(p_x, p_tx, p_ix, 32)`, `reorder(p_iy,
+p_tx)`, `collapse(p_ty, p_tx, p_tile)`, `bind(p_tile, CPUThread)` -- the
+rows had to come from a band of rows rather than the frame, since a split
+needs a constant stride and a row loop's stride is the frame's width.
+The waves are not expressible (a split whose pieces grow) and the user
+set them aside; the one residue is the runtime's chunk of the tile loop
+where pbrt's threads claim one tile at a time. It goes first in the CPU
+legend as the megakernel match, scalar.bonsai staying as the variant it
+is (a pixel's samples in one visit, best on three scenes on 10-30).
+
+**The CPU variants** (the sweep running at the time of writing,
+scratch/explore-1101/cpu_explore.sh, 13:52-, resumed into
+cpu-compare-out-six and -two so that every new cell is timed against the
+pbrt wavefront time cached in its cell): scalar-sample-outer (the sample
+loop outside, every pixel once per sample), scalar-waves16 (waves of
+sixteen samples, pbrt's wave count at 128 spp), scalar-chunk1024 (1,024
+pixels a task, pbrt's grain in one dimension), scalar-collapsed (the
+pixel and sample loops collapsed, the CPU's flat launch, by the same two
+interchanges), and the per-thread vectorized wavefront with 256 and 4,096
+pixels a thread instead of 1,024 (wavefront-thread-packet-chunk256,
+-chunk4096) and with the material stage in the trace drain's gang
+(wavefront-thread-packet-fused). Their numbers and the CPU figure's new
+selection follow in the next entry.
+
+**Two compiler findings on the way, and the fixes.** The vectorized
+megakernels -- packet.bonsai, perlane.bonsai and a gang of sixteen pixels
+(perlane-pixels.bonsai) -- were refused on volpath: the gang reaches
+`nanovdb_grid`, a foreign function (docs/foreign-functions.md), which the
+vectorizer could not give a lane's arguments. Specializing the integrator
+copy by `have_media` (packet-media-scalar.bonsai) did not help, and the
+reason is worth writing down:
+
+    func render(..., have_media):                 // the schedule's specialize(have_media)
+        parfor p: parfor s: path_step(ray, have_media, ...)   // copies this loop per value
+    func path_step(ray, have_media, ...):          // but the flag is a PARAMETER here
+        if have_media and ray.medium >= 0: medium_sample(...)   // reaches nanovdb_grid
+
+The copy for `have_media = false` passes a constant, but the vectorizer
+built one sixteen-lane `path_step` for both copies, keyed only by which
+arguments vary, so the branch and the foreign call were still in it. The
+user: "Specialization should constant-propagate the value through";
+"shouldn't vectorization of an extern function just scalarize that
+chunk?" Both are in SSA/Vectorize.cpp now (built and tested after the
+sweep; this entry is extended with the suite's count): (a) a constant a
+call hands a parameter that the callee's control depends on is part of
+the gang variant's key (VariantKey::constants, parameter_steers_control),
+and the clone substitutes the constant for every use of the parameter and
+simplifies before it is vectorized, so the arm no caller of the clone can
+reach is gone -- LLVM's function specialization, weighed the same way by
+the branches a constant decides; the GPU already had this through its
+always-inline device functions, the CPU gang path did not; (b) a callee
+with no body -- a foreign function -- gets a wrapper variant that makes
+the scalar call once per lane that is on, in lane order, each lane's
+arguments extracted, each result shuffled into its lane, the lanes the
+mask has off skipped (specialize_foreign): ispc's `foreach_active`,
+written by the compiler. Tests: ssa/vectorize-constant-argument (the two
+clones of a flag-branching callee, no select left), ssa/vectorize-
+foreign-call (the per-lane wrapper under a mask, four lanes; the former
+error test foreign-vectorized retired), correctness/cpp/
+vectorize_constant_argument and foreign_gang (run against drivers that
+count the foreign calls: eight when the flag is on and none when off; the
+four even lanes in order and no other).
+
+**Open.** gpu-optix-fused-shadow's launch failure on plume (the user:
+"afterwards, it would be good to debug why"); the bare error says only
+that the first kernel failed -- the shadow trace with the medium
+transmittance walk inside the raygen is the one thing this schedule adds
+on a media scene. To be looked at on the card when the CPU sweep is done,
+without compute-sanitizer unless the user says so.

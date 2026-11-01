@@ -1,0 +1,54 @@
+// gpu-optix-mega-ser-flat.bonsai with gpu-optix-mega-flat-samples.bonsai's
+// order of the collapsed loop: one launch over every (pixel, sample) pair
+// of the frame with the sample fastest, so a warp is one pixel's samples
+// (two pixels' sixteen at 16 spp), and shader execution reordering by
+// material before the material switch. On the flat launch the sample-
+// fastest order was ahead of the pixel-fastest on every scene of the sweep
+// (11-01, explore3: 4% on book to 58% on frame542), and the reordering
+// bought 1.14-1.46x on the pixel-fastest launch (10-27); this is the two
+// together. The interchange and back that the collapse needs are explained
+// in gpu-optix-mega-flat-samples.bonsai.
+//
+// The exploration of 11-01 (the user: "what sometimes-optimal schedules can
+// you find across these sweep scenes", from the directives the language
+// has and their compositions, nothing new and no layout change). The sorts
+// are written first: a function's sorts come before its other directives
+// (Lower/Sorts.cpp).
+import apps/pbrt/schedules/trees/optix;
+
+schedule {
+    vol_route.sort(vol_surface,
+                   |prim : Geometric| materials[cast[[u32]](prim.material)]);
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_probe_step.loopify();
+    vol_shadow_track.loopify();
+    render.specialize(integrator);
+    render[VolPath].specialize(have_media);
+    render[VolPath].specialize(VolPath::have_subsurface);
+    render[VolPath].reorder(p, s);
+    render[VolPath].reorder(s, p);
+    render[VolPath].collapse(p, s, ps);
+    trace.bind(RTCore);
+    trace_any.bind(RTCore);
+    render.bind(p, OptixThread);
+    render[VolPath].bind(ps, OptixThread);
+    render.split(q, q_blk, q_thr, 256, true);
+    render.bind(q_blk, GPUBlock);
+    render.bind(q_thr, GPUThread);
+    texture_filter.bind(TextureUnit,
+                        |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                         dstdy : vec2f|
+                        texture_filter_unit(texture_handles[t.id], st, dstdx,
+                                            dstdy));
+    texture_filter_float.bind(TextureUnit,
+                              |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                               dstdy : vec2f|
+                              texture_filter_float_unit(
+                                  texture_handles[t.id], t.average_channels,
+                                  st, dstdx, dstdy));
+}

@@ -1,0 +1,102 @@
+// gpu-optix-fused.bonsai with the routing of a miss and of an emissive hit
+// inside the trace program too: the escaped and emissive queues are gone,
+// and `escaped_contribution` and `emissive_contribution` -- the infinite
+// lights' radiance for a ray that left the scene, an area light's for a ray
+// that hit one -- run in the raygen right where `vol_route` decides them,
+// as the material stage already does in gpu-optix-fused. pbrt's wavefront
+// gives each its own queue and kernel (HandleEscapedRays and
+// HandleEmissiveIntersection, wavefront/surfscatter.cpp and
+// wavefront/integrator.cpp); both are small, so the trade is a queue write,
+// a launch and a reload a round against a few more instructions in a
+// program whose lanes mostly take the material arm anyway. Every other
+// stage keeps its queue and kernel (the camera rays, the samples, the
+// media, the shadow rays, the subsurface chain).
+//
+// The exploration of 11-01 (the user: "what sometimes-optimal schedules can
+// you find across these sweep scenes", from the directives the language
+// has and their compositions, nothing new and no layout change). This file
+// repeats gpu-optix-fused's directives and says only what it drops.
+import apps/pbrt/schedules/trees/optix;
+
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_shadow_track.loopify();
+    vol_probe_step.loopify();
+    render.specialize(integrator);
+    render[VolPath].specialize(film_visible_surface);
+    render[VolPath].reorder(p, s);
+    render[VolPath].split(p, p_band, p_in, pass_pixels, true);
+    rays = render[VolPath].queue(p_band, ExternDevice);
+    li_vol_path.defer(vol_path_step, rays);
+    vol_medium_scatter.defer(vol_path_step, rays);
+    vol_surface.defer(vol_path_step, rays);
+    vol_route.defer(vol_path_step, rays);
+    vol_exit.defer(vol_path_step, rays);
+    vol_path_step.stage(vol_ray_samples, rays, samples);
+    medium_samples = render[VolPath].queue(p_band, ExternDevice);
+    vol_path_step.defer(vol_medium_sample, medium_samples);
+    medium_scatters = render[VolPath].queue(p_band, ExternDevice);
+    vol_medium_sample.defer(vol_medium_scatter, medium_scatters);
+    // No escaped or emissive queue: vol_route calls escaped_contribution and
+    // emissive_contribution where the program writes the calls, inside the
+    // trace program.
+    shadow = render[VolPath].queue(p_band, ExternDevice);
+    vol_sample_ld.defer(shadow_contribution, shadow);
+    bssrdfs = render[VolPath].queue(p_band, ExternDevice);
+    vol_surface.defer(vol_subsurface, bssrdfs);
+    probes = render[VolPath].queue(p_band, ExternDevice);
+    vol_subsurface.defer(vol_probe, probes);
+    exits = render[VolPath].queue(p_band, ExternDevice);
+    vol_probe.defer(vol_exit, exits);
+    exit_shadow = render[VolPath].queue(p_band, ExternDevice);
+    vol_exit.defer(exit_shadow_contribution, exit_shadow);
+    trace.bind(RTCore);
+    trace_any.bind(RTCore);
+    render.bind(rays, OptixThread);
+    render.bind(shadow, OptixThread);
+    render.bind(probes, OptixThread);
+    render.bind(exit_shadow, OptixThread);
+    render.specialize(shadow, have_media);
+    render.specialize(exit_shadow, have_media);
+    render.split(p_in, p_blk, p_thr, 256, true);
+    render.bind(p_blk, GPUBlock);
+    render.bind(p_thr, GPUThread);
+    render.split(samples, samples_blk, samples_thr, 256, true);
+    render.bind(samples_blk, GPUBlock);
+    render.bind(samples_thr, GPUThread);
+    render.specialize(p_blk, sampler);
+    render.specialize(samples_blk, sampler);
+    render.split(medium_samples, medium_samples_blk, medium_samples_thr, 256, true);
+    render.bind(medium_samples_blk, GPUBlock);
+    render.bind(medium_samples_thr, GPUThread);
+    render.split(medium_scatters, medium_scatters_blk, medium_scatters_thr, 256, true);
+    render.bind(medium_scatters_blk, GPUBlock);
+    render.bind(medium_scatters_thr, GPUThread);
+    render.split(bssrdfs, bssrdfs_blk, bssrdfs_thr, 256, true);
+    render.bind(bssrdfs_blk, GPUBlock);
+    render.bind(bssrdfs_thr, GPUThread);
+    render.split(exits, exits_blk, exits_thr, 256, true);
+    render.bind(exits_blk, GPUBlock);
+    render.bind(exits_thr, GPUThread);
+    render.split(rays_rest, rays_rest_blk, rays_rest_thr, 256, true);
+    render.bind(rays_rest_blk, GPUBlock);
+    render.bind(rays_rest_thr, GPUThread);
+    render.split(q, q_blk, q_thr, 256, true);
+    render.bind(q_blk, GPUBlock);
+    render.bind(q_thr, GPUThread);
+    texture_filter.bind(TextureUnit,
+                        |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                         dstdy : vec2f|
+                        texture_filter_unit(texture_handles[t.id], st, dstdx,
+                                            dstdy));
+    texture_filter_float.bind(TextureUnit,
+                              |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                               dstdy : vec2f|
+                              texture_filter_float_unit(
+                                  texture_handles[t.id], t.average_channels,
+                                  st, dstdx, dstdy));
+}

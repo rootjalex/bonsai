@@ -1,0 +1,64 @@
+// gpu-optix-mega-flat.bonsai with the other order of the collapsed loop:
+// the pixel outside and its samples inside, so that consecutive threads of
+// the one launch are consecutive samples of one pixel -- a warp of 32 is 32
+// samples of a pixel at 128 spp, two pixels' sixteen at 16 spp -- where
+// gpu-optix-mega-flat's warp is 32 pixels of a row at one sample. A pixel's
+// samples leave the camera through one pixel's footprint and hit the same
+// surface, so the warp's first trace and first material are as coherent as
+// camera rays get; after the first bounce the lanes scatter as any warp's
+// do. The trade is that coherence against the row's: pixels of a row see
+// neighbouring but different surfaces, and the samples' atomic adds to one
+// pixel's sum now land in one warp.
+//
+// The program's pixel loop zeroes the pixel's film slots before its sample
+// loop, so `collapse(p, s, ps)` on the loops as written is refused: the
+// collapsed loop would zero the slots once per sample. `reorder(p, s)`
+// moves the sample loop outside and leaves that prologue in a pixel loop of
+// its own (gpu-optix-mega-flat's shape); `reorder(s, p)` then puts the
+// pixel loop outside again, now a perfect nest, and the collapse in the
+// program's order is allowed. Two interchanges for a fission the language
+// has no directive for.
+//
+// The exploration of 11-01 (the user: "what sometimes-optimal schedules can
+// you find across these sweep scenes", from the directives the language
+// has and their compositions, nothing new and no layout change). This file
+// repeats gpu-optix-mega-flat's directives and says only what it changes.
+import apps/pbrt/schedules/trees/optix;
+
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_probe_step.loopify();
+    vol_shadow_track.loopify();
+    render.specialize(integrator);
+    render[VolPath].specialize(have_media);
+    render[VolPath].specialize(VolPath::have_subsurface);
+    // The sample loop outside (the prologue left in its own pixel loop),
+    // the pixel loop outside again, then one loop over (pixel, sample)
+    // pairs, the sample fastest.
+    render[VolPath].reorder(p, s);
+    render[VolPath].reorder(s, p);
+    render[VolPath].collapse(p, s, ps);
+    trace.bind(RTCore);
+    trace_any.bind(RTCore);
+    render.bind(p, OptixThread);
+    render[VolPath].bind(ps, OptixThread);
+    render.split(q, q_blk, q_thr, 256, true);
+    render.bind(q_blk, GPUBlock);
+    render.bind(q_thr, GPUThread);
+    texture_filter.bind(TextureUnit,
+                        |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                         dstdy : vec2f|
+                        texture_filter_unit(texture_handles[t.id], st, dstdx,
+                                            dstdy));
+    texture_filter_float.bind(TextureUnit,
+                              |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                               dstdy : vec2f|
+                              texture_filter_float_unit(
+                                  texture_handles[t.id], t.average_channels,
+                                  st, dstdx, dstdy));
+}

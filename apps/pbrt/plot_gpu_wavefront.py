@@ -100,12 +100,12 @@ SIDES = [(side, label, SCHEDULE_COLOURS[label]) for side, label in [
     # material stage. The user (10-27): the GPU figures other than the
     # heatmap gain them.
     ("gpu-optix-mega-pass", "mk-pass"),
-    ("gpu-optix-mega-flat", "mk-flat"),
+    ("gpu-optix-mega-flat", "mk-flat-px"),
     # The flat launch in blocks of 2^18 paths, the host looping over the
     # blocks (the user, 10-27 evening); drawn when a table has it.
     ("gpu-optix-mega-blocked", "mk-blk"),
     ("gpu-optix-mega-ser", "mk-ser"),
-    ("gpu-optix-mega-ser-flat", "mk-ser-flat"),
+    ("gpu-optix-mega-ser-flat", "mk-flat-ser-px"),
     # The exploration of 10-24 (apps/pbrt/schedules/gpu-optix-*.bonsai):
     # variants of the megakernel and the wavefront, drawn when a table has
     # them or `--sides` asks; more than nine sides exceed the ramp, which
@@ -114,16 +114,35 @@ SIDES = [(side, label, SCHEDULE_COLOURS[label]) for side, label in [
     ("gpu-optix-b128", "wf-b128"),
     ("gpu-optix-b512", "wf-b512"),
     ("gpu-optix-sort36", "wf-sort36"),
+    # The exploration of 11-01 (the user: "what sometimes-optimal schedules
+    # can you find", from the directives the language has): the wavefront
+    # with the escaped and emissive stages inside the trace program as well
+    # as the material (fused-route), with the shadow ray traced there too
+    # (fused-shadow), and reduced to the ray queue alone, one launch per
+    # bounce (bounce); the flat megakernel with a pixel's samples adjacent in
+    # the launch (flat-samples), the SER flat megakernel with a reordering by
+    # ray before every trace (ser-ray-flat), and those two SER shapes in the
+    # samples order.
+    # The labels are the user's short ones (11-01): a flat megakernel is in
+    # the samples order unless it says -px, and wf-fuse-mat is the material
+    # stage in the trace program with the two one-line routings beside it.
+    ("gpu-optix-fused-route", "wf-fuse-mat"),
+    ("gpu-optix-fused-shadow", "wf-fused-shadow"),
+    ("gpu-optix-bounce", "wf-bounce"),
+    ("gpu-optix-mega-flat-samples", "mk-flat"),
+    ("gpu-optix-mega-ser-ray-flat", "mk-flat-ser-ray-px"),
+    ("gpu-optix-mega-ser-flat-samples", "mk-flat-ser"),
+    ("gpu-optix-mega-ser-ray-flat-samples", "mk-flat-ser-ray"),
 ]]
 # Pairs of sides differing by one decision, for the summary's reading of
 # the figure (plot_cpu_wavefront.COMPARISONS explains).
 COMPARISONS = [
     ("wf", "mk", "pbrt's wavefront schedule, matched, against the OptiX megakernel"),
     ("mk-pass", "mk", "one thread per path and a launch per sample instead of a pixel's samples in turn"),
-    ("mk-flat", "mk-pass", "the sample and pixel loops collapsed into one launch per frame"),
-    ("mk-blk", "mk-flat", "the frame's paths launched in blocks of 2^18 from a host loop instead of all at once"),
+    ("mk-flat-px", "mk-pass", "the sample and pixel loops collapsed into one launch per frame"),
+    ("mk-blk", "mk-flat-px", "the frame's paths launched in blocks of 2^18 from a host loop instead of all at once"),
     ("mk-ser", "mk", "shader execution reordering before the material stage"),
-    ("mk-ser-flat", "mk-flat", "shader execution reordering before the material stage, on the flat launch"),
+    ("mk-flat-ser-px", "mk-flat-px", "shader execution reordering before the material stage, on the flat launch"),
     ("mk-ser-ray", "mk-ser", "reordering keyed by the ray instead of the material"),
     ("wf-b128", "wf", "bands of 128 pixel rows instead of the matching band size"),
     ("wf-b512", "wf", "bands of 512 pixel rows instead of the matching band size"),
@@ -132,6 +151,17 @@ COMPARISONS = [
     ("wf-pass", "wf", "passes of four samples instead of one: a quarter of the rounds of launches"),
     ("wf-sort", "wf", "the ray queue sorted by the 60-bit two-point Morton key before each trace"),
     ("wf-sort36", "wf-sort", "the coarse 36-bit sort key instead of the 60-bit one"),
+    ("wf-fuse-mat", "wf", "the material stage inside the trace program (with the miss and emissive routing), the hit queue gone"),
+    ("wf-fuse-mat", "wf-fused", "the miss and emissive routing inside the trace program as well as the material"),
+    ("wf-fused-shadow", "wf-fused", "the shadow ray traced inside the trace program as well as the material"),
+    ("wf-bounce", "wf", "one launch per bounce: every stage inside the trace program, the ray queue alone"),
+    ("wf-bounce", "wf-fuse-mat", "every remaining stage inside the trace program too, the ray queue alone"),
+    ("mk-flat", "mk-flat-px", "the flat launch with a pixel's samples adjacent (samples order) instead of a row's pixels"),
+    ("mk-flat-ser", "mk-flat", "shader execution reordering by material before the material stage, on the samples-order flat launch"),
+    ("mk-flat-ser", "mk-flat-ser-px", "the SER flat launch in the samples order instead of the pixel order"),
+    ("mk-flat-ser-ray", "mk-flat-ser", "a reordering by ray before every trace, on the SER flat launch"),
+    ("mk-flat-ser-ray-px", "mk-flat-ser-px", "a reordering by ray before every trace, on the pixel-order SER flat launch"),
+    ("mk-flat-ser-ray", "mk-flat-ser-ray-px", "the ray-reordered SER flat launch in the samples order instead of the pixel order"),
 ]
 # Why the schedules stand where they do, as measured (the user, 10-29;
 # plot_cpu_wavefront.WHY and READINGS explain the form): the mechanisms,
@@ -146,11 +176,34 @@ WHY = [
     "  The balance is the scene's: a cheap trace with few materials favours the megakernel, a",
     "  heavy trace or a program whose lanes diverge the wavefront.",
     "the megakernel's shapes: a pixel's samples in turn (mk) cost 1.7-1.9x against one thread per",
-    "  path (mk-pass); one launch per frame (mk-flat) saves 2-6% more; blocks of 2^18 paths from a",
-    "  host loop (mk-blk) cost 0.83x of mk-flat, each launch draining its block's longest path with",
+    "  path (mk-pass); one launch per frame (mk-flat-px) saves 2-6% more; blocks of 2^18 paths from a",
+    "  host loop (mk-blk) cost 0.83x of mk-flat-px, each launch draining its block's longest path with",
     "  the card part empty, 30 to 1013 times a frame; shader execution reordering before the",
-    "  material stage (mk-ser-flat) buys 1.14x on ganesha to 1.46x on killeroo-gold over mk-flat",
-    "  by kernel time, by refilling the warps.",
+    "  material stage (mk-flat-ser-px) buys 1.14x on ganesha to 1.46x on killeroo-gold over mk-flat-px",
+    "  by kernel time, by refilling the warps. The exploration of 11-01 (gpu-compare-out-explore3 and",
+    "  -explore4) added two decisions. The launch's order: with a pixel's samples adjacent in the",
+    "  launch (the samples order, the labels without -px) a warp of 32 is one pixel's samples at 128",
+    "  spp and two pixels' at 16, whose camera rays leave through one footprint and hit one surface,",
+    "  where the flat launch of 10-27 had a row's pixels adjacent (-px). It is ahead at every cell but",
+    "  frame542 at 128 spp: by kernel time 4-80% on the flat launch (frame542 the 80%, book the 4%),",
+    "  2-37% on the SER one and 2-26% on the ray-reordered one; at frame542's 128 spp the pixel order",
+    "  is ahead by 4-8%. The reordering by ray before every trace (mk-flat-ser-ray: optixReorder on",
+    "  the next ray's origin and direction cells, the top sixteen bits of the coarse Morton key, on",
+    "  top of the reordering by material; the idea of mk-ser-ray on 10-24): over mk-flat-ser by",
+    "  kernel time 1.2-1.4x on book, sanmiguel and bistro, 1.4x on ganesha, 1.6x on dragon_10, 1.9x",
+    "  on plume -- the heavier the trace, the more a warp of rays walking one part of the tree is",
+    "  worth -- and 0.92-0.93x on killeroo-gold, where the conductor leaves little for a second sort",
+    "  to regroup (a reading). It is the best megakernel on seven of eight scenes and takes book and",
+    "  sanmiguel from the wavefronts; on bistro the plain samples-order flat launch is the best",
+    "  megakernel, SER costing 0.72x of it there as it did on the pixel order.",
+    "the figure since 11-01 draws seven sides (the user: every schedule that is the best on at least",
+    "  one cell, the matched one, the rest filling out the two families, wf-sort out): the matched",
+    "  wavefront is best on ganesha, dragon_10 and plume, wf-fuse-mat on bistro, mk-flat-ser on",
+    "  killeroo-gold (4.06x, 3.13x), mk-flat-ser-ray on book (3.28x, 2.59x), sanmiguel (2.62x,",
+    "  1.97x) and frame542 at 16 spp (20.1x), its pixel-order twin mk-flat-ser-ray-px on frame542 at",
+    "  128 spp (21.2x); wf-bounce and mk-flat fill. The incumbents re-measured beside the new sides",
+    "  (gpu-optix, gpu-optix-mega-flat and gpu-optix-mega-ser-flat in explore4) reproduced their",
+    "  10-30 cells within 2% by wall and 1% by kernel time, so the earlier tables stand.",
     "the ray sort (wf-sort) never pays on the GPU: 9-15% over the unsorted wavefront by kernel",
     "  time and 20-31% by wall -- a dozen small launches before every trace (96 sorts in a 30 ms",
     "  frame at 16 spp) for coherence the traversal hardware's own scheduling already had.",
@@ -194,6 +247,23 @@ WHY = [
     "  pbrt's cap of a million paths a pass is the memory bound this schedule crossed; a quarter of",
     "  the rounds is bought with four times the queue memory, and only frame542 at 128 spp, where",
     "  256 bounces of rounds are the whole cost, comes out ahead (2.62x, the best wavefront there).",
+    "the wavefront's variants of 11-01 (explore3): the material stage in the trace program with the",
+    "  routing of a miss and of an emissive hit beside it (wf-fuse-mat: the two one-line stages pbrt",
+    "  gives kernels of their own, HandleEscapedRays and HandleEmissiveIntersection) is 1.00-1.04x of",
+    "  wf-fused by kernel time on every scene and 1.14x on frame542, so it is the best wavefront",
+    "  where wf-fused was, bistro at both counts (2.44x, 1.94x), and draws in its place. The shadow",
+    "  ray traced in the trace program too (wf-fused-shadow, not drawn) is 0.64-0.88x of wf-fused by",
+    "  kernel time everywhere but frame542 (1.27x) -- the trace program's lanes wait on a second",
+    "  traversal before they push the next ray -- and fails with an unspecified launch failure on",
+    "  plume, the media scene (open, PLAN 11-01). One launch per bounce (wf-bounce: the ray queue",
+    "  alone, every stage in the trace program, Laine et al.'s one-logic-kernel shape without their",
+    "  path regeneration) is the best wavefront on frame542 (2.65x, 2.57x against the matched 1.66x,",
+    "  1.59x: a fifth of the launches a round) and level with the matched one on killeroo-gold at 16",
+    "  spp; elsewhere it is below wf-fuse-mat, worst where the fused program's size cost most",
+    "  (ganesha 0.69x, dragon_10 0.67x of wf at 128 spp): it carries every stage's code, as the",
+    "  megakernel does, without the megakernel's one launch. wf-pass is out of the figure: wf-bounce",
+    "  matches it on frame542 at 128 spp (2.57x against 2.62x) without the paging and is ahead",
+    "  everywhere else.",
 ]
 READINGS = {
     "killeroo-simple": [
@@ -210,15 +280,24 @@ READINGS = {
         "instruction fetch, 101 ms; with SER 23.3 lanes and 65 ms; the wavefront's trace kernel 15k",
         "instructions at 31.6 lanes, 64% of its cycles waiting on memory (the queues) and 23% on the",
         "traversal -- so the SER flat megakernel is best at every count and the plain flat one is",
-        "within 20% of the wavefront.",
+        "within 20% of the wavefront (10-30, the pixel-order launches). Measured on 11-01, the SER flat",
+        "megakernel in the samples order (mk-flat-ser) is best at both counts, 4.06x and 3.13x (kernel",
+        "54 and 422 ms against the pixel order's 59 and 470), and the reordering by ray costs it 7-8%",
+        "here, the one scene where it does: the conductor's closed-form BSDF leaves the warps little",
+        "divergence for a second sort to regroup (a reading, not measured).",
     ],
     "book": [
         "21k triangles, CoatedDiffuse and Diffuse over textured pages: the material kernels take as",
         "long as the trace (10-24's profiles), and the fused raygen of 10-24 cost book the most of",
         "the five (29-31% over trace + hits), a bigger program lowering the trace's occupancy where",
-        "the trace is cheap -- the wavefront wins every cell, the flat megakernel within 7% at 16 spp.",
-        "SER buys nothing here (mk-ser-flat below mk-flat at every count), the one scene where it does",
-        "not; why is not measured (no megakernel profile of book).",
+        "the trace is cheap -- the wavefront wins every cell, the flat megakernel within 7% at 16 spp",
+        "(10-30). SER bought nothing here on the pixel-order launch (mk-flat-ser-px below mk-flat-px at",
+        "every count), the one scene where it did not; why is not measured (no megakernel profile of",
+        "book). Measured on 11-01, the samples-order SER flat megakernel with the reordering by ray",
+        "(mk-flat-ser-ray) takes both cells, 3.28x and 2.59x against the wavefront's 2.44x and 1.88x:",
+        "in the samples order SER by material is worth 1.03-1.22x by kernel time after all, and the",
+        "reordering by ray another 1.22-1.34x -- the textured pages' CoatedDiffuse and the trace both",
+        "regrouped (a reading from the kernel times; not profiled).",
     ],
     "ganesha": [
         "one statue of 4.3M triangles, CoatedDiffuse and Diffuse; the profile figure's first row says",
@@ -230,6 +309,9 @@ READINGS = {
         "different arms of the one raygen; the counters say the fetch grew, the why is a reading). The",
         "megakernel's loss here is the raygen's size and the empty lanes, not the traversal, which",
         "both sides do on the RT cores (10-28) -- every megakernel is below pbrt, the wavefront 2x.",
+        "On 11-01 the wavefront keeps both cells (2.08x, 1.85x); the nearest megakernel is the",
+        "samples-order SER one with the reordering by ray (mk-flat-ser-ray, 1.25x and 1.20x), the ray",
+        "reorder buying it 1.4x by kernel time over SER alone and leaving it a third short.",
     ],
     "sanmiguel": [
         "2.5M triangles in 796 meshes, instanced (a two-level traversal), four material kinds",
@@ -244,9 +326,14 @@ READINGS = {
         "wavefront here (1.81x against 2.03x at 16 spp). pbrt's own 16-spp wall is not steady between",
         "runs: 0.24 s on 10-28, 0.19 s on 10-29, 0.24 s on 10-30 (the least of three processes each",
         "time) while ours stayed at 0.118 s, so this cell's speedups read 2.03x, 1.61x and 2.03x.",
-        "Measured on 10-31, the fused wavefront is the best side here at both counts (2.19x, 1.54x:",
+        "Measured on 10-31, the fused wavefront is the best wavefront here at both counts (2.19x, 1.54x:",
         "1.05-1.08x of the matched wavefront) -- the hit queue's round trip saved on a trace this",
         "heavy outweighs the longer raygen continuation; reordering by material adds nothing (0.98x).",
+        "Measured on 11-01, the samples-order SER flat megakernel with the reordering by ray",
+        "(mk-flat-ser-ray) is the best side at both counts, 2.62x and 1.97x against wf-fuse-mat's 2.19x",
+        "and 1.55x: the two-level trace that bounded the wavefront's margin is what a warp of rays",
+        "walking one part of the tree speeds up, the reordering by ray 1.37-1.39x over mk-flat-ser by",
+        "kernel time (a reading from the kernel times; not profiled).",
     ],
     # The scenes added on 10-29 (the user: eight scenes at 16 and 128 spp)
     # and on 10-30 (dragon_10 in landscape's place; landscape, kroken and
@@ -263,19 +350,24 @@ READINGS = {
         "subsurface hit adds pbrt's subsurface sample to the bounce -- a probe ray traced through the",
         "dragon and a second material evaluation where it lands -- so the lane's program is longer and",
         "more divergent than ganesha's, and the megakernel's loss is read as its empty lanes and its",
-        "size, as on ganesha, not the traversal; a reading, not a measurement.",
+        "size, as on ganesha, not the traversal; a reading, not a measurement. On 11-01 the wavefront",
+        "keeps both cells (1.90x, 1.59x); the nearest megakernel is mk-flat-ser-ray (1.48x, 1.23x), the",
+        "reordering by ray buying it 1.6x by kernel time over SER alone.",
     ],
     "bistro": [
         "2.9M triangles in 1,693 meshes, 133 materials, 20,638 area lights (the light BVH's scene): the",
         "wavefront wins every cell (2.16x, 1.76x) by 2.5x over the best megakernel, and this is the one",
-        "scene where shader execution reordering costs -- mk-ser-flat 0.67x against mk-flat's 0.85x at 16",
-        "spp (0.52x against 0.66x at 128), and the per-sample SER megakernel 0.33x and 0.25x, the worst",
+        "scene where shader execution reordering costs -- mk-flat-ser-px 0.67x against mk-flat-px's 0.85x",
+        "at 16 spp (0.52x against 0.66x at 128), and the per-sample SER megakernel 0.33x and 0.25x, the worst",
         "cells of the sweep. Why SER loses here is not measured (no profile of bistro); the suspicion is",
         "the light sampling's share of the frame -- a sort by material does nothing for a stage that",
         "walks a light BVH of twenty thousand emitters -- and it is a reading, not a measurement.",
         "Measured on 10-31, the fused wavefront is the best side here at both counts (2.42x, 1.92x:",
         "1.09-1.13x of the matched wavefront, its largest gain of the eight), and reordering by",
         "material costs it 15% (2.06x, 1.64x) -- the same stage that SER cannot help in the megakernel.",
+        "On 11-01 wf-fuse-mat, the fused wavefront with the miss and emissive routing beside the",
+        "material, is the best side (2.44x, 1.94x, 1% over wf-fused); every megakernel stays below pbrt,",
+        "the samples-order flat launch nearest (0.93x, 0.75x) and SER 0.72x of it, as on the pixel order.",
     ],
     # The seventh scene (the user, 10-30 evening), measured after the CPU
     # sweep into gpu-compare-out-two with the six's renderers.
@@ -292,7 +384,12 @@ READINGS = {
         "near-empty queues). The reading is not verified by a launch count (nsys would give it).",
         "Measured on 11-01, the pass-of-four wavefront is the best wavefront here at 128 spp (2.62x",
         "against the matched 1.62x and the fused 1.68x) and 0.79x at 16: the only scene where a quarter",
-        "of the rounds repays the paging of its four-times-larger queues (WHY, the last paragraph).",
+        "of the rounds repays the paging of its four-times-larger queues (WHY, the pass paragraph);",
+        "the one-launch-per-bounce wavefront then matched it there (2.57x) and beat it at 16 spp (2.65x",
+        "against 0.79x), and is the best wavefront drawn. Among the megakernels the samples-order SER",
+        "ones lead at 16 spp (mk-flat-ser-ray 20.1x, mk-flat-ser 19.0x) and the pixel-order",
+        "ray-reordered one at 128 spp (mk-flat-ser-ray-px 21.2x against 19.2x), the one cell of the",
+        "sweep where the pixel order is ahead (by 4-8% of kernel time; why is not measured).",
     ],
     # The eighth scene (the user, 10-30 evening: a participating medium),
     # measured 22:09-22:17 into gpu-compare-out-plume with the six's renderers.
@@ -306,7 +403,11 @@ READINGS = {
         "spp and 0.20-0.57x at 128: the medium walk is a loop of per-ray variable length inside the",
         "bounce loop, so a warp's lanes diverge on it, and SER has no surface hit to regroup by before",
         "it -- the SER per-sample megakernel is the worst cell (0.20x) and the SER flat one gains",
-        "nothing over the flat (0.57x against 0.56x). A reading from the walls; not profiled.",
+        "nothing over the flat (0.57x against 0.56x). A reading from the walls; not profiled. On 11-01",
+        "the wavefront keeps both cells (2.18x, 1.81x); the reordering by ray is worth the most here of",
+        "any scene to the megakernel (1.9x by kernel time over SER alone: the rays leaving the medium",
+        "walk regrouped before their next trace, a reading) and mk-flat-ser-ray still reads 1.41x and",
+        "1.24x; the fused wavefronts are 0.95-0.97x of the matched one.",
     ],
     "landscape": [
         "27.9M triangles, 30,034 instances of 32 objects (a two-level traversal through the deepest",

@@ -115,7 +115,24 @@ CPU_CSVS="${CPU_CSVS:-$PREFIX/cpu-compare-out-six/cpu-results.csv $PREFIX/cpu-co
 # header stating each queue array's capacity and the driver allocating by
 # it -- on the eight, every cell matching, which is the side the figure
 # draws as wf-pass.
-GPU_TABLES="${GPU_TABLES:-$PREFIX/gpu-compare-out-six/table.tsv $PREFIX/gpu-compare-out-two/table.tsv $PREFIX/gpu-compare-out-plume/table.tsv $PREFIX/gpu-compare-out-wf3/table.tsv $PREFIX/gpu-compare-out-wf3b/table.tsv $PREFIX/gpu-compare-out-wf3c/table.tsv}"
+# gpu-compare-out-explore3/ (11-01, 10:54-12:07) holds the schedule
+# exploration's first five (the user: "what sometimes-optimal schedules can
+# you find", from the directives the language has, no layout change): the
+# wavefront with the escaped and emissive stages in the trace program too
+# (gpu-optix-fused-route), with the shadow ray traced there too
+# (gpu-optix-fused-shadow: a loss everywhere and a launch failure on plume,
+# its two cells without a time), reduced to the ray queue alone
+# (gpu-optix-bounce), the flat megakernel with a pixel's samples adjacent in
+# the launch (gpu-optix-mega-flat-samples) and the SER flat megakernel with a
+# reordering by ray before every trace (gpu-optix-mega-ser-ray-flat);
+# gpu-compare-out-explore4/ (12:13-13:04) the two SER shapes in the samples
+# order (gpu-optix-mega-ser-flat-samples, gpu-optix-mega-ser-ray-flat-
+# samples) beside gpu-optix, gpu-optix-mega-flat and gpu-optix-mega-ser-flat
+# measured again in the same run, which reproduced their 10-30 cells within
+# 2% (every kernel time within 1%); the later table's rows are the ones
+# drawn for those three, as the plotter takes them. All 160 cells of the two
+# runs match pbrt's image but fused-shadow's two on plume.
+GPU_TABLES="${GPU_TABLES:-$PREFIX/gpu-compare-out-six/table.tsv $PREFIX/gpu-compare-out-two/table.tsv $PREFIX/gpu-compare-out-plume/table.tsv $PREFIX/gpu-compare-out-wf3/table.tsv $PREFIX/gpu-compare-out-wf3b/table.tsv $PREFIX/gpu-compare-out-wf3c/table.tsv $PREFIX/gpu-compare-out-explore3/table.tsv $PREFIX/gpu-compare-out-explore4/table.tsv}"
 # The sweeps' scenes, in the figures' order (the user, 10-29: pbrt --gpu's
 # time at 128 spp, ascending), keyed by path under the scene set; both
 # sweep figures draw these and only these from their tables (the
@@ -123,9 +140,11 @@ GPU_TABLES="${GPU_TABLES:-$PREFIX/gpu-compare-out-six/table.tsv $PREFIX/gpu-comp
 # of the CPU figure with a note.
 SWEEP_SCENES="${SWEEP_SCENES:-killeroos/killeroo-gold,pbrt-book/book,sanmiguel/sanmiguel-courtyard,ganesha/ganesha,sssdragon/dragon_10,smoke-plume/plume,bistro/bistro_vespa,transparent-machines/frame542}"
 # Where each sweep's speedup axis ends (the user, 10-30: a linear axis, cut
-# on the GPU sweep, never a log axis for speedups; 11-01: cut at 4x rather
-# than 6x, "it looks better" -- every bar but frame542's six megakernel
-# bars is under 3.7x, and they get the height); a bar past the cutoff is
+# on the GPU sweep, never a log axis for speedups; 11-01 morning: cut at
+# 4x rather than 6x, "it looks better"; 11-01 afternoon: 5x, once the SER
+# megakernel in the samples order put killeroo-gold at 4.06x with a label
+# over it -- "remove that pesky 4.1x speedup label" -- so only frame542's
+# megakernel bars, 7.5x to 21.2x, are cut); a bar past the cutoff is
 # drawn to it with a break mark, and its value stands upright over the
 # bars with a thin leader to its bar (the user's choice among six trials,
 # 10-30 night: the values on one line, never stacked; frame542's
@@ -135,23 +154,33 @@ SWEEP_SCENES="${SWEEP_SCENES:-killeroos/killeroo-gold,pbrt-book/book,sanmiguel/s
 # axis ends at 10x and cuts nothing (the user, 11-01: "Definitely use 10x
 # for the CPU cut off"; at 8x seven of frame542's bars were cut); the same
 # flags for the day a bar passes it.
-GPU_YMAX="${GPU_YMAX:-4}"
+GPU_YMAX="${GPU_YMAX:-5}"
 CPU_YMAX="${CPU_YMAX:-10}"
 CUT_FLAGS="--leaders --rotate-cut-labels"
 # The heatmap of the same night (00:45-02:22), the gpu-optix renderer
 # reused from the sweep; compare-out-heatmap11/ is 10-27's under 39c67ab9.
 HEATMAP_TABLE="${HEATMAP_TABLE:-$PREFIX/compare-out-heatmap12/table.tsv}"
 # The GPU sweep's sides, in drawing order (plot_gpu_wavefront.py's SIDES
-# names them): the wavefront that matches pbrt's first, then its variants
-# -- the ray sort, the material stage fused into the trace program, that
-# with shader execution reordering by material, and passes of four samples
-# -- then the megakernels: the naive shape, the flat launch, the flat
-# launch with reordering (the user, 10-30 evening: five wavefronts and
-# three megakernels; mk-pass, mk-blk and mk-ser dropped as never best and
-# each below a sibling at every cell -- their rows stay in the tables and
-# the .txt of 10-30). A side with no timed rows is left out, as the pass
-# wavefront was until its run of 11-01.
-GPU_SIDES="${GPU_SIDES:-gpu-optix,gpu-optix-sort,gpu-optix-fused,gpu-optix-fused-ser,gpu-optix-pass,gpu-optix-mega,gpu-optix-mega-flat,gpu-optix-mega-ser-flat}"
+# names them). The user's rule of 11-01: every schedule that is the best on
+# at least one cell, the matching one among them, the rest filled to
+# balance the wavefronts and the megakernels, and seven in all (wf-sort,
+# never best, out: "it makes the legend look weird"). The winners of the
+# two exploration runs: the matched wavefront (ganesha, dragon_10, plume),
+# the wavefront with the material, escaped and emissive stages in the trace
+# program (bistro), the SER flat megakernel in the samples order (killeroo-
+# gold), that with the reordering by ray (book, sanmiguel, frame542 at 16
+# spp) and the same in the pixel order (frame542 at 128 spp); filled with
+# the one-launch-per-bounce wavefront (the best wavefront on frame542) and
+# the flat megakernel in the samples order without reordering (the step
+# the SER ones are measured from). Out since 11-01: wf-sort, wf-fused (the
+# fused-route wavefront is the same decision and ahead on every scene),
+# wf-fused-ser, wf-pass (the bounce wavefront matches it on frame542 at 128
+# spp and beats it everywhere else), mk, mk-flat and mk-ser-flat (each
+# behind its samples-order sibling at every cell but frame542 at 128 spp
+# for mk-ser-flat); their rows stay in the tables and the .txt's
+# comparisons. The 10-30 choice (five wavefronts, three megakernels) is in
+# plots.sh's history. A side with no timed rows is left out.
+GPU_SIDES="${GPU_SIDES:-gpu-optix,gpu-optix-fused-route,gpu-optix-bounce,gpu-optix-mega-flat-samples,gpu-optix-mega-ser-flat-samples,gpu-optix-mega-ser-ray-flat-samples,gpu-optix-mega-ser-ray-flat}"
 # The profile figure's launches (the user, 10-28): profile_kernels.sh's
 # reports under profile-out-e (02:22-02:28 the same night, on the sweep's
 # renderers) -- the wavefront's trace kernel and the two flat megakernels

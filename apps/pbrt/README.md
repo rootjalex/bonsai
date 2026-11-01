@@ -201,9 +201,11 @@ before it.
     on the same scenes x 16/128 spp (plot_gpu_wavefront.py from
     gpu-compare-out-six, the morning of 10-30's run under caa9eb9b, and
     frame542's cells from gpu-compare-out-two, the evening's, plume's
-    from gpu-compare-out-plume). Its speedup axis is cut at 4x (plots.sh's
+    from gpu-compare-out-plume). Its speedup axis is cut at 5x (plots.sh's
     GPU_YMAX; the user, 10-30: linear, never log; 11-01: 4x rather than
-    6x): a bar past the cutoff is drawn to it with a break mark, and its
+    6x in the morning, then 5x once the SER megakernel in the samples
+    order put killeroo-gold at 4.06x and a label over it): a bar past the
+    cutoff is drawn to it with a break mark, and its
     value stands upright over the bars with a thin leader to its bar
     (CUT_FLAGS; the user's choice of 10-30 night), as frame542's six
     megakernel bars are (4.6x to 20.4x). The
@@ -300,17 +302,28 @@ before it.
   from gpu_compare.sh's table -- every OptiX schedule's speedup over
   `pbrt --gpu` (the dashed line at 1, "PBRT wf": pbrt's GPU renderer is
   its wavefront, and it has no GPU megakernel), wall-clock as the table's
-  speedup column is, or kernel time with `--kernel`; the bars in order
-  `Bonsai mk` (gpu-optix-mega), `Bonsai mk-ser`, `Bonsai mk-ser-ray`,
-  `Bonsai wf` (gpu-optix), `Bonsai wf-b128`, `Bonsai wf-b512`,
-  `Bonsai wf-fused`, `Bonsai wf-sort` (gpu-optix-sort) and
-  `Bonsai wf-sort36`, whichever the tables hold -- the megakernels then
-  the wavefronts, each family from plain to variants -- each in its
-  shade of the ramp (figure_style.SCHEDULE_COLOURS: `mk` the palest to
-  `wf-sort` the darkest, as the CPU figure runs from mk-b-s-ps to
-  wf-t-v-ps-sort). Only schedules on the ray tracing hardware
-  are drawn (the user, 10-23): the software traversals never won a cell.
-  The drawing is plot_cpu_wavefront.py's.
+  speedup column is, or kernel time with `--kernel`; `--sides` names the
+  schedules drawn, in legend order. Since 11-01 plots.sh names seven (the
+  user's rule: every schedule best on at least one cell, the matched one
+  among them, the rest filling out the two families): `wf` (gpu-optix,
+  pbrt's wavefront matched), `wf-fuse-mat` (gpu-optix-fused-route: the
+  material stage in the trace program, with the miss and emissive routing
+  beside it), `wf-bounce` (gpu-optix-bounce: one launch per bounce, the
+  ray queue alone), `mk-flat` (gpu-optix-mega-flat-samples: one launch per
+  frame with a pixel's samples adjacent), `mk-flat-ser` (... with shader
+  execution reordering by material, gpu-optix-mega-ser-flat-samples),
+  `mk-flat-ser-ray` (... and a reordering by ray before every trace,
+  gpu-optix-mega-ser-ray-flat-samples) and `mk-flat-ser-ray-px` (the same
+  in the pixel order, a row's pixels adjacent, gpu-optix-mega-ser-ray-
+  flat). A flat megakernel's label means the samples order unless it says
+  -px; the labels before 11-01 (`mk-flat`, `mk-ser-flat`) named the
+  pixel-order launches, now `mk-flat-px` and `mk-flat-ser-px`. Every side
+  a table holds can be named (plot_gpu_wavefront.SIDES lists them with
+  the file each stands for), each in its shade of the ramp
+  (figure_style.SCHEDULE_COLOURS, palest to darkest down the legend, the
+  wavefronts the greens and the megakernels the blues). Only schedules on
+  the ray tracing hardware are drawn (the user, 10-23): the software
+  traversals never won a cell. The drawing is plot_cpu_wavefront.py's.
 - `profile_kernels.sh [--out DIR] [--renderers DIR] [--single-pass-timing]
   SCHEDULE SCENE SPP LAUNCH` and `profile_kernels.sh --list N SCHEDULE
   SCENE SPP`: one OptiX launch of a renderer gpu_compare.sh compiled
@@ -340,8 +353,9 @@ before it.
 - `plot_gpu_profile.py --cell SCENE:SPP [--cell ...] [--sides a,b,...]
   [--profiles DIR] -o OUT.pdf`: the profile figure from those reports, a
   row per cell and three panels across; `--sides` names the schedules in
-  drawing order (gpu-optix drawn `wf trace`, then `mk-flat` and
-  `mk-ser-flat`), a side without a profile left out of its row with a
+  drawing order (gpu-optix drawn `wf trace`, then `mk-flat-px` and
+  `mk-flat-ser-px`, the pixel-order flat launches profiled on 10-28), a
+  side without a profile left out of its row with a
   note. Beside it `<figure>.txt`: every launch's duration, instructions,
   registers, achieved warps, issue-slot use, the four stall components
   in cycles, lanes, SASS size and the lanes of each function in the

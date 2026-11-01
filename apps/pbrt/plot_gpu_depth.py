@@ -24,7 +24,8 @@ scene's depth capped at 4, 16, 64 and 256 (compare.sh --maxdepth rewrites
 the Integrator's maxdepth in the scene text both sides read), the least of
 three renders on each side, from the depth sweep's table: pbrt --gpu
 (black), the matching wavefront (`Bonsai wf`, gpu-optix) and the flat
-megakernel with reordering (`Bonsai mk-ser-flat`, gpu-optix-mega-ser-flat),
+megakernel with reordering (`Bonsai mk-flat-ser-px`, gpu-optix-mega-ser-flat,
+the pixel-order flat launch; the sweep's label since 11-01),
 in the sweep figures' colours (figure_style.SCHEDULE_COLOURS). A
 wavefront pays a round of launches for every bounce any path reaches --
 seven kernels a round, every one launched whether its queue holds a
@@ -67,7 +68,7 @@ REFERENCE = "pbrt --gpu"
 SIDES = [
     (REFERENCE, "PBRT wf", PBRT_COLOUR),
     ("gpu-optix", "Bonsai wf", SCHEDULE_COLOURS["wf"]),
-    ("gpu-optix-mega-ser-flat", "Bonsai mk-ser-flat", SCHEDULE_COLOURS["mk-ser-flat"]),
+    ("gpu-optix-mega-ser-flat", "Bonsai mk-flat-ser-px", SCHEDULE_COLOURS["mk-flat-ser-px"]),
 ]
 
 CAMERA = re.compile(r"^\s*Camera rays\s+(\d+)\s*$")

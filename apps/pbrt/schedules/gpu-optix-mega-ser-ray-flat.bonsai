@@ -1,0 +1,66 @@
+// gpu-optix-mega-ser-flat.bonsai with gpu-optix-mega-ser-ray.bonsai's
+// second reordering: the flat launch (one thread per (sample, pixel) of
+// the frame, one raygen launch), shader execution reordering by material
+// before the material switch, and before every trace a reordering by where
+// the next ray starts and heads -- the top sixteen bits of the coarse
+// two-point Morton key (render.bonsai, ray_sort_key_coarse), on each call
+// that continues the path, which loopify turns into the path loop's back
+// edges. The exploration of 10-24 found the reorder by ray worth more than
+// the one by material on the per-sample launch (killeroo-gold 1.91x against
+// 1.38x); 10-27 found the flat launch worth 1.7-1.9x over the per-sample
+// one; this is the two together, which no schedule of the sweep has.
+//
+// The exploration of 11-01 (the user: "what sometimes-optimal schedules can
+// you find across these sweep scenes", from the directives the language
+// has and their compositions, nothing new and no layout change). The
+// sorts are written first: a function's sorts come before its other
+// directives (Lower/Sorts.cpp).
+import apps/pbrt/schedules/trees/optix;
+
+schedule {
+    vol_route.sort(vol_surface,
+                   |prim : Geometric| materials[cast[[u32]](prim.material)]);
+    vol_surface.sort(vol_path_step,
+                     |ray : Ray, scene_bounds : AABB|
+                     ray_sort_key_coarse(ray, scene_bounds) >> 20u);
+    vol_route.sort(vol_path_step,
+                   |ray : Ray, scene_bounds : AABB|
+                   ray_sort_key_coarse(ray, scene_bounds) >> 20u);
+    vol_medium_scatter.sort(vol_path_step,
+                            |ray : Ray, scene_bounds : AABB|
+                            ray_sort_key_coarse(ray, scene_bounds) >> 20u);
+    vol_exit.sort(vol_path_step,
+                  |ray : Ray, scene_bounds : AABB|
+                  ray_sort_key_coarse(ray, scene_bounds) >> 20u);
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_probe_step.loopify();
+    vol_shadow_track.loopify();
+    render.specialize(integrator);
+    render[VolPath].specialize(have_media);
+    render[VolPath].specialize(VolPath::have_subsurface);
+    render[VolPath].reorder(p, s);
+    render[VolPath].collapse(s, p, ps);
+    trace.bind(RTCore);
+    trace_any.bind(RTCore);
+    render.bind(p, OptixThread);
+    render[VolPath].bind(ps, OptixThread);
+    render.split(q, q_blk, q_thr, 256, true);
+    render.bind(q_blk, GPUBlock);
+    render.bind(q_thr, GPUThread);
+    texture_filter.bind(TextureUnit,
+                        |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                         dstdy : vec2f|
+                        texture_filter_unit(texture_handles[t.id], st, dstdx,
+                                            dstdy));
+    texture_filter_float.bind(TextureUnit,
+                              |t : ImageTexture, st : vec2f, dstdx : vec2f,
+                               dstdy : vec2f|
+                              texture_filter_float_unit(
+                                  texture_handles[t.id], t.average_channels,
+                                  st, dstdx, dstdy));
+}

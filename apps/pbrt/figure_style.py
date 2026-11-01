@@ -282,22 +282,44 @@ RAMP8 = ["#EDF8B1", "#ADDFB7", "#69C4BF", "#30A4C2", "#1F7EB7", "#2357A4", "#213
 # darkest.
 SCHEDULE_COLOURS = {
     "PBRT mk": PBRT_COLOUR,
-    # The GPU sweep's legend, top to bottom (the user, 10-30 night: five
-    # wavefronts, three megakernels).
+    # The GPU sweep's legend, top to bottom (the user, 11-01: the winners
+    # of at least one cell -- wf, wf-fuse-mat, mk-flat-ser, mk-flat-ser-ray
+    # and mk-flat-ser-ray-px -- and the rest filled to three wavefronts and
+    # four megakernels; wf-sort, which never wins, out: "it makes the
+    # legend look weird"). The labels are the short ones the user chose
+    # (11-01): every drawn megakernel but none of the wavefronts is a flat
+    # launch, and every flat one is in the samples order (a pixel's samples
+    # adjacent in the launch, schedules/gpu-optix-*-samples.bonsai) unless
+    # it says -px, the pixel order; the .txt names each label's file.
+    # Seven sides over the eight shades: the ramp skips one between the
+    # families, so the wavefronts are the greens and the megakernels the
+    # blues, and the ends still agree with the CPU sweep's.
     "wf": RAMP8[0],                 # gpu-optix, pbrt's wavefront matched
+    "wf-fuse-mat": RAMP8[1],        # gpu-optix-fused-route: the material stage (and the miss and emissive routing) in the trace program
+    "wf-bounce": RAMP8[2],          # gpu-optix-bounce: one launch per bounce, the ray queue alone
+    "mk-flat": RAMP8[4],            # gpu-optix-mega-flat-samples: the flat launch, samples order
+    "mk-flat-ser": RAMP8[5],        # gpu-optix-mega-ser-flat-samples: that with SER by material
+    "mk-flat-ser-ray": RAMP8[6],    # gpu-optix-mega-ser-ray-flat-samples: that with the reordering by ray too
+    "mk-flat-ser-ray-px": RAMP8[7], # gpu-optix-mega-ser-ray-flat: the same in the pixel order
+    # Sides out of the figure (10-30 night: mk-pass, mk-blk, mk-ser, never
+    # best and each below a sibling at every cell; 11-01: wf-sort, wf-fused,
+    # wf-fused-ser, wf-pass, mk, the pixel-order mk-flat-px and
+    # mk-flat-ser-px, and the exploration's wf-fused-shadow); drawn only
+    # when --sides asks, and then they borrow shades. Before 11-01 the
+    # labels mk-flat and mk-ser-flat named the pixel-order launches
+    # (gpu-optix-mega-flat, gpu-optix-mega-ser-flat), which PLAN.md's
+    # entries up to 10-31 still call them.
     "wf-sort": RAMP8[1],            # gpu-optix-sort
-    "wf-fused": RAMP8[2],           # gpu-optix-fused: the material stage in the trace program
-    "wf-fused-ser": RAMP8[3],       # gpu-optix-fused-ser: that with reordering by material
-    "wf-pass": RAMP8[4],            # gpu-optix-pass: passes of four samples
-    "mk": RAMP8[5],                 # gpu-optix-mega
-    "mk-flat": RAMP8[6],
-    "mk-ser-flat": RAMP8[7],
-    # Megakernel shapes out of the figure since 10-30 night (never best,
-    # each below a sibling at every cell); drawn only when --sides asks,
-    # and then they borrow shades.
-    "mk-pass": RAMP8[5],
-    "mk-blk": RAMP8[6],
-    "mk-ser": RAMP8[7],
+    "wf-fused": RAMP8[1],           # gpu-optix-fused: the material stage alone in the trace program
+    "wf-fused-ser": RAMP8[2],       # gpu-optix-fused-ser: that with reordering by material
+    "wf-fused-shadow": RAMP8[3],    # gpu-optix-fused-shadow: the shadow ray traced in the trace program too
+    "wf-pass": RAMP8[3],            # gpu-optix-pass: passes of four samples
+    "mk": RAMP8[3],                 # gpu-optix-mega
+    "mk-flat-px": RAMP8[4],         # gpu-optix-mega-flat: the flat launch, pixel order
+    "mk-flat-ser-px": RAMP8[5],     # gpu-optix-mega-ser-flat
+    "mk-pass": RAMP8[4],
+    "mk-blk": RAMP8[5],
+    "mk-ser": RAMP8[6],
     # The CPU sweep's legend, top to bottom (after PBRT mk).
     "wf-b-s-sp": RAMP8[0],          # wavefront-frame, pbrt's wavefront matched
     "wf-b-v-sp": RAMP8[1],
