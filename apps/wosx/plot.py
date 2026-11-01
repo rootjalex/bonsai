@@ -69,12 +69,17 @@ reordering ("optix-ser"), and the persistent claim under that reordering
 ("persistent-point", `fcpwb-gpu-point`) was a bar until 2026-10-28: at a
 tenth of WoSX's rate on every mesh it left most of the card's threads with
 no point to claim, and the user had it removed; its rows stay in the CSV.
-Each GPU figure draws eight bars by default (the user, 2026-10-31): the
-matching schedule, its claim and launch variants -- each the best of the
-table on some mesh -- with the plain one-launch form, then the best OptiX
-form and the best deferral (GPU_DEFAULT_SCHEDULES, STARS_GPU_DEFAULT_
-SCHEDULES); every other schedule keeps its rows and is drawn when
---gpu-schedules names it.
+Each GPU figure draws eight bars by default, the same eight on both walks
+(the user, 2026-10-31: at most eight, the matching schedule first, its
+close variants, then the exploration's; 2026-11-01: the same names and the
+same shades on the two figures): the matching schedule, its claim and
+launch variants -- each the best of the table on some mesh -- with the
+plain one-launch form, then one OptiX form, the reordered launch
+("optix-ser"), and one deferral, the per-point block queue ("defer-block")
+(GPU_DEFAULT_SCHEDULES, STARS_GPU_DEFAULT_SCHEDULES); every other schedule
+keeps its rows and is drawn when --gpu-schedules names it, and a schedule
+that is the best of the table on some mesh and is not drawn is named in
+the figure's .txt.
 
 --stars draws the walk on stars' figures (benchmark.sh --stars): the same
 comparison for wost.bonsai against WoSX's WalkOnStars, each mesh split at
@@ -84,12 +89,13 @@ BVH of the absorbing boundary and its normal cone hierarchy of the
 reflecting one -- and the same two bars (`wost-fcpwb*`); with --gpu,
 wosx-stars-gpu-speedup: the matching schedule over WoSX's GPU walk on
 stars (`wost-fcpwb-gpu`, the schedule of `fcpwb-gpu` on the other program)
-and the walk on spheres' variants on this walk under the same labels, with
-the per-point deferral beside them ("defer-block": a point per block, its
-walks' steps on a queue in shared memory, a round running the next step of
-every walk still going) and the compacting block wavefront ("defer-chunk2":
-the same queue owned by a chunk of two points, 128 walks a block;
-2026-10-30).
+and the walk on spheres' variants on this walk under the same labels and
+the same shades, the same eight bars ("defer-block" among them: a point per
+block, its walks' steps on a queue in shared memory, a round running the
+next step of every walk still going); the card-wide queue ("defer", the
+best schedule of the stars' table on the rover) and the compacting block
+wavefront ("defer-chunk2": the same queue owned by a chunk of two points,
+128 walks a block; 2026-10-30) are drawn when --gpu-schedules names them.
 The mesh table is wosx-stars-meshes.*: the walk lengths differ from the
 walk on spheres', since a star is bounded by the reflecting boundary's
 silhouettes as well as by the absorbing boundary.
@@ -105,12 +111,14 @@ and `wosx-meshes.tex` to \\input (a booktabs tabular: triangles, closed or
 not, sample points, walks, WoSX's mean walk length), so the tick labels
 are the mesh names alone.
 
-The colours are apps/pbrt's figures' (the user's choice, 10-24 and
-10-29): the paper's one ramp, ColorBrewer's YlGnBu, at eight equal
-perceptual steps laid over each figure's bars in the legend's order,
-palest first (figure_style.RAMP8; SCHEDULE_COLOURS below), `parallel`
-and `persistent` the same shades on the CPU and GPU figures, no hatches,
-the edge and the line at 1 as there. No titles: the file's name says which tree
+The colours are apps/pbrt's figures' (the user's choice, 10-24, 10-29 and
+11-01): the paper's one ramp, ColorBrewer's YlGnBu, at eight equal
+perceptual steps laid over each figure's bars in the legend's order, the
+matching schedule palest and every step down the legend a step darker
+(figure_style.RAMP8; CPU_COLOURS and GPU_COLOURS below -- the two GPU
+figures take the eight shades in the one order, the CPU figures their
+own), no shade off the ramp, no hatches, the edge and the line at 1 as
+there. No titles: the file's name says which tree
 and which side, the legend what each bar compares. The figures are drawn
 at the size they are printed (apps/pbrt/figure_style.py has the format):
 5.478 in wide, acmsmall's text block, what \\includegraphics[width=
@@ -137,25 +145,24 @@ from matplotlib.ticker import MultipleLocator  # noqa: E402
 # font sizes, the YlGnBu ramp, Liberation Sans embedded as TrueType, and
 # the summary written beside a figure.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pbrt"))
-from figure_style import (RAMP8, TEXT_WIDTH, YLGNBU, describe, lean_labels,  # noqa: E402
+from figure_style import (RAMP8, TEXT_WIDTH, describe, lean_labels,  # noqa: E402
                           paper_style, ratios, write_summary)
 
 EDGE = "#333333"  # every bar's thin edge, as apps/pbrt's figures
 
 # The schedules' colours, the scheme of apps/pbrt's figures (the user,
 # 10-29: one palette across the paper, the same style on the wosx
-# figures): the paper's YlGnBu ramp at eight equal perceptual steps
-# (figure_style.RAMP8) laid over each figure's bars in the legend's
-# order, palest first, darker with each step down; `parallel` and
-# `persistent`, the two schedules both figures draw, keep their shades
-# on the GPU figure (whose legend has them in the other order). The GPU
-# figure's ninth default bar, optix-ser-persistent, takes the ramp's
-# near-white class 0 past the eight, as it did before; the walk on
-# stars' tenth, defer-block, a neutral grey. The CPU figures' gangs and
-# the GPU figure's reorders are different schedules on the same shades:
-# the two figures' legends name them, as they never share a figure.
-SCHEDULE_COLOURS = {
-    # the CPU figures' legend
+# figures; 11-01: the two GPU figures on pbrt's rule exactly): the
+# paper's YlGnBu ramp at eight equal perceptual steps (figure_style.RAMP8)
+# laid over a figure's bars in the legend's order, the matching schedule
+# the palest, darker with each step down the legend, no shade off the
+# ramp. The CPU figures' table and the GPU figures' are two, since the
+# labels `parallel` and `persistent` name a different schedule on each
+# side (TBB's threads and sixteen workers on the CPU; one launch and
+# 131072 resident threads on the GPU) and lead the two legends in the
+# other order: the CPU figures open with parallel, the matching schedule
+# there, the GPU figures with persistent, the matching schedule there.
+CPU_COLOURS = {
     "parallel": RAMP8[0],
     "persistent": RAMP8[1],
     "parallel-fcpwb2": RAMP8[2],
@@ -167,21 +174,29 @@ SCHEDULE_COLOURS = {
     # the sorted drain with persistent claims (2026-10-31): the shade the
     # two-child layout's persistent bar had until it left the figure
     "persistent-defer-sort16": RAMP8[3],
-    # the GPU figures' legend, after persistent and parallel
+}
+# The GPU figures' legend, top to bottom, the same eight schedules on the
+# walk on spheres and on the stars (the user, 11-01: the two figures
+# differed in their last two bars' names and shades -- optix and
+# defer-block on the one, optix-ser and defer on the other, a grey and
+# the ramp's near-white class 0 past the eight; "be consistent about
+# naming"). A schedule out of the figures borrows the shade of the bar of
+# its kind, as apps/pbrt's do, and is drawn when --gpu-schedules names it.
+GPU_COLOURS = {
+    "persistent": RAMP8[0],               # fcpwb-gpu, the matching schedule
+    "parallel": RAMP8[1],
     "persistent-reorder": RAMP8[2],
     "persistent-256k": RAMP8[3],
     "persistent-reorder-256k": RAMP8[4],
     "parallel-reorder-blk64": RAMP8[5],
+    "optix-ser": RAMP8[6],                # the OptiX form drawn
+    "defer-block": RAMP8[7],              # the deferral drawn
+    # out of the figures, drawn by name on a borrowed shade
     "optix": RAMP8[6],
-    "optix-ser": RAMP8[7],
-    "optix-ser-persistent": YLGNBU[0],
-    "defer-block": "#9E9E9E",
-    # the compacting block wavefront (2026-10-30): defer-block's queue
-    # owned by a chunk of two points, the darker grey of the same family
-    "defer-chunk2": "#616161",
-    # drawn only when asked for (--gpu-schedules): shades borrowed
-    "defer": YLGNBU[0],
-    "persistent-point": "#9E9E9E",
+    "optix-ser-persistent": RAMP8[6],
+    "defer": RAMP8[7],
+    "defer-chunk2": RAMP8[7],
+    "persistent-point": "#9E9E9E",        # a neutral, as pbrt's control side
 }
 
 # The CPU figures' bars, on either tree: (suffix of the tree's schedule,
@@ -192,8 +207,8 @@ SCHEDULE_COLOURS = {
 # question, apps/rtq's (the user, 2026-10-28). Its rows stay in the CSV
 # where they were measured; a table measured with it folds the same.
 CPU_BARS = [
-    ("-threads", "parallel", SCHEDULE_COLOURS["parallel"]),
-    ("-persistent", "persistent", SCHEDULE_COLOURS["persistent"]),
+    ("-threads", "parallel", CPU_COLOURS["parallel"]),
+    ("-persistent", "persistent", CPU_COLOURS["persistent"]),
 ]
 # (schedule base, figure name, what the tree is): the two trees.
 CPU_TREES = [
@@ -233,15 +248,15 @@ CPU_EXTRA_BARS = {
         # ("we're not exploring memory layouts just yet"): their rows stay
         # in the table, the schedules run by name, and the figure keeps to
         # FCPW's own rows.
-        ("fcpwb-packet-16-threads", "parallel-packet16", SCHEDULE_COLOURS["parallel-packet16"],
+        ("fcpwb-packet-16-threads", "parallel-packet16", CPU_COLOURS["parallel-packet16"],
          "a point's walks vectorized in gangs of sixteen lanes, the threads"),
-        ("fcpwb-packet-8-threads", "parallel-packet8", SCHEDULE_COLOURS["parallel-packet8"],
+        ("fcpwb-packet-8-threads", "parallel-packet8", CPU_COLOURS["parallel-packet8"],
          "a point's walks vectorized in gangs of eight lanes, the threads"),
-        ("fcpwb-packet-defer-threads", "parallel-defer16", SCHEDULE_COLOURS["parallel-defer16"],
+        ("fcpwb-packet-defer-threads", "parallel-defer16", CPU_COLOURS["parallel-defer16"],
          "a point's walks deferred step by step onto the point's queue, the queue drained "
          "in gangs of sixteen lanes (no lane idles behind a longer walk), the threads"),
         ("fcpwb-packet-defer-sort-threads", "parallel-defer-sort16",
-         SCHEDULE_COLOURS["parallel-defer-sort16"],
+         CPU_COLOURS["parallel-defer-sort16"],
          "the walks deferred onto a chunk of sixty-four points' queue, drained in gangs of "
          "sixteen in the order of the walks' positions (a Morton code), the threads"),
         # The user, 2026-10-31: "is there a good persistent-defer schedule
@@ -251,7 +266,7 @@ CPU_EXTRA_BARS = {
         # best schedule of the tree on the comb, the pavilion and the head,
         # so kept (every schedule that is the best on some mesh is drawn).
         ("fcpwb-packet-defer-sort-persistent", "persistent-defer-sort16",
-         SCHEDULE_COLOURS["persistent-defer-sort16"],
+         CPU_COLOURS["persistent-defer-sort16"],
          "the sorted drain's chunks of sixty-four points claimed by sixteen persistent "
          "workers from a counter instead of TBB's partition"),
     ],
@@ -275,7 +290,7 @@ STARS_CPU_TREES = [
 # the schedule's shape in a word or two; README.md's schedule list says
 # what each is. Schedules only: the other layout and the other tree
 # (fcpwb2-gpu, fcpw4w16-gpu) are a sweep of their own, not this figure's.
-GPU_BARS = [(s, label, SCHEDULE_COLOURS[label]) for s, label in [
+GPU_BARS = [(s, label, GPU_COLOURS[label]) for s, label in [
     ("fcpwb-gpu", "persistent"),
     ("fcpwb-gpu-parallel", "parallel"),
     ("fcpwb-gpu-reorder", "persistent-reorder"),
@@ -316,7 +331,7 @@ GPU_BARS = [(s, label, SCHEDULE_COLOURS[label]) for s, label in [
 # (wost-fcpwb-gpu-*.bonsai: each the same directives on solve_stars), with
 # the per-point deferral, which a step of three traversals should reward
 # more than the one-query walk did.
-STARS_GPU_BARS = [(s, label, SCHEDULE_COLOURS[label]) for s, label in [
+STARS_GPU_BARS = [(s, label, GPU_COLOURS[label]) for s, label in [
     ("wost-fcpwb-gpu", "persistent"),
     ("wost-fcpwb-gpu-parallel", "parallel"),
     ("wost-fcpwb-gpu-reorder", "persistent-reorder"),
@@ -330,26 +345,34 @@ STARS_GPU_BARS = [(s, label, SCHEDULE_COLOURS[label]) for s, label in [
     ("wost-fcpwb-gpu-defer-block", "defer-block"),
     ("wost-fcpwb-gpu-defer-chunk2", "defer-chunk2"),
 ]]
-# What the two GPU figures draw by default: eight bars each (the user,
-# 2026-10-31: "we shouldn't have more than 8 schedules ... matching first,
-# then any close variants of it that perform well, then others that show
-# the exploration (always keep any schedule that is a winner on a
-# benchmark!)"; and before it, "get rid of every schedule that is never a
-# win (and not the matching schedules). Keep one defer and one optix (the
-# best performing of each)"). So: the matching schedule; its claim and
-# launch variants, every one of which is the best of the table on some
-# mesh (the readings file says which; on the walk on spheres the
+# What the two GPU figures draw by default: the same eight bars on both
+# walks (the user, 2026-10-31: "we shouldn't have more than 8 schedules
+# ... matching first, then any close variants of it that perform well,
+# then others that show the exploration (always keep any schedule that is
+# a winner on a benchmark!)"; and before it, "Keep one defer and one optix
+# (the best performing of each)"; 2026-11-01, the two figures having come
+# to differ in their last two bars: "be consistent about naming (e.g.,
+# defer-block versus defer and optix versus optix-ser)", so one OptiX form
+# and one deferral, the same on both). So: the matching schedule; its
+# claim and launch variants, every one of which is the best of the table
+# on some mesh (the readings file says which; on the walk on spheres the
 # walk-fastest claim with 262144 workers on fourteen of eighteen, the
 # one-launch blocks of 64 on two, the walk-fastest claim and the 262144
-# workers on one each; on the stars the two walk-fastest claims on six
-# each, the blocks of 64 on three, the 262144 workers on two) with the
-# plain one-launch form beside them; then the exploration's two: the best
-# OptiX form by geomean (the plain launch on the spheres, the reordered
-# one on the stars) and the best deferral (the one-point block on the
-# spheres, 1.17x; on the stars the card-wide queue, which wins the rover).
-# The rest keep their rows and are drawn when --gpu-schedules names them.
-# Check the lists against the readings' "is the best ... on" lines when a
-# table changes.
+# workers on one each; on the stars the walk-fastest claim on seven, with
+# 262144 workers on five, the blocks of 64 on three, the 262144 workers on
+# two) with the plain one-launch form beside them; then the exploration's
+# two: optix-ser, the launch through OptiX with the threads reordered
+# before every step -- the reordering is what the user asked for on
+# 2026-10-28, the plain launch its control; the best OptiX form on the
+# stars (1.04x against the plain launch's 0.97x) and 7% under the control
+# on the spheres (0.97x against 1.03x) -- and defer-block, the per-point
+# block queue, the best deferral by geomean on both walks (1.17x and
+# 0.99x). The card-wide queue, defer, is the best schedule of the stars'
+# table on the rover (1.97x; 0.82x by geomean) and left the stars' figure
+# for the one set of eight: draw_gpu names an undrawn winner in the
+# figure's .txt. The rest keep their rows and are drawn when
+# --gpu-schedules names them. Check the lists against the readings' "is
+# the best ... on" lines when a table changes.
 GPU_DEFAULT_SCHEDULES = [
     "fcpwb-gpu",
     "fcpwb-gpu-parallel",
@@ -357,7 +380,7 @@ GPU_DEFAULT_SCHEDULES = [
     "fcpwb-gpu-256k",
     "fcpwb-gpu-reorder-256k",
     "fcpwb-gpu-parallel-reorder-blk64",
-    "fcpwb-gpu-optix",
+    "fcpwb-gpu-optix-ser",
     "fcpwb-gpu-defer-block",
 ]
 STARS_GPU_DEFAULT_SCHEDULES = [
@@ -368,7 +391,7 @@ STARS_GPU_DEFAULT_SCHEDULES = [
     "wost-fcpwb-gpu-reorder-256k",
     "wost-fcpwb-gpu-parallel-reorder-blk64",
     "wost-fcpwb-gpu-optix-ser",
-    "wost-fcpwb-gpu-defer",
+    "wost-fcpwb-gpu-defer-block",
 ]
 # What each GPU schedule changed against another, for the summary: (label
 # of the schedule, label of the one it differs from in one thing, the
@@ -739,6 +762,21 @@ def draw_gpu(rows, schedules, out_dir, formats, exclude, stars, width=TEXT_WIDTH
     for lab, ms in sorted(counts.items(), key=lambda kv: -len(kv[1])):
         notes.append(f"{lab} is the best of the {len(drawn)} on {len(ms)} of {len(meshes)} meshes"
                      + (f" ({', '.join(ms)})" if len(ms) <= 4 else ""))
+    # A schedule of the table that is the best on some mesh and is not a
+    # bar (the two figures draw the same eight; the user, 2026-11-01) is
+    # named with its cells, so that the paper can say so and the lists
+    # above can be checked against the table.
+    table = {s: cells(rows, s) for s in sorted({r["schedule"] for r in rows})}
+    undrawn = {}
+    for m in meshes:
+        here = [(s, v[m]) for s, v in table.items() if m in v]
+        if here:
+            s, v = max(here, key=lambda p: p[1])
+            if s not in drawn:
+                undrawn.setdefault(s, []).append(f"{m} {v:.2f}")
+    for s, ms in sorted(undrawn.items(), key=lambda kv: -len(kv[1])):
+        notes.append(f"not drawn, and the best of the table on {len(ms)} of {len(meshes)} meshes: "
+                     f"{known.get(s, (s, None))[0]} ({', '.join(ms)})")
     if stars:
         if exclude:
             notes.append(f"left out: {', '.join(sorted(exclude))} (nearly every walk escapes on "
