@@ -1,0 +1,37 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/gpu/queue-extern-capacity-cpp
+//! commands: clang++ -std=c++20 -O3 -c $<>/main_queue_extern_capacity_cpp.cpp -I. -o $<>/main_queue_extern_capacity_cpp.o, clang++ $<>/main_queue_extern_capacity_cpp.o $<>/queue-extern-capacity-cpp.o -o $<>/queue-extern-capacity-cpp, ./$<>/queue-extern-capacity-cpp, rm $<>/queue-extern-capacity-cpp, rm $<>/main_queue_extern_capacity_cpp.o, rm $<>/queue-extern-capacity-cpp.h, rm $<>/queue-extern-capacity-cpp.o
+
+// A queue in the caller's device memory whose capacity the schedule does
+// not state (`queue(root, ExternDevice)`, IR/Storage.h), driven from C++:
+// the loop that owns the pushes runs `n * 2` times, `n` a parameter, so the
+// queue holds `n * 2` entries and the driver that allocates its six arrays
+// has to know it. The header says so -- BONSAI_run_<array>_CAPACITY is
+// `(n * 2)`, the count the program computes, as an expression over the
+// parameter by name -- and the driver allocates each array by it times
+// BONSAI_run_<array>_ELEMENT_BYTES, with `n` in scope under that name.
+// Same program and result as queue-extern-cpp, whose capacity is the
+// schedule's constant 8, with n = 4. Until 10-31 the header gave the
+// element's bytes alone and the driver computed the count for itself
+// (apps/pbrt's a pass of pixels), which a schedule whose passes held four
+// samples a pixel overran.
+func walk(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return walk(k - 1, acc + k);
+}
+
+func [[export]] run(n : i32, out : mut array[i32]) -> void {
+    parfor i in 0:(n * 2) {
+        out[i] = walk(i, 0);
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(root, ExternDevice);
+    walk.defer(walk, sums);
+    run.bind(i, GPUThread);
+    run.bind(sums, GPUThread);
+    run.bind(sums_rest, GPUThread);
+}

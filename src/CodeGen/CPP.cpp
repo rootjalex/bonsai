@@ -826,10 +826,13 @@ class BonsaiToCpp : ir::Printer {
             }
             // A queue's array in Extern storage (IR/Storage.h) says what the
             // driver that allocates it needs: the element's size in bytes
-            // always, and the array's when the capacity is a constant of
-            // the schedule (a run-time capacity -- a render's pass of pixels
-            // -- the driver computes as the program does and multiplies by
-            // the element).
+            // (`_ELEMENT_BYTES`) and the capacity in elements (`_CAPACITY`)
+            // -- a constant of the schedule, or the count the program
+            // computes from the function's parameters, printed as that
+            // expression over them by name (a render's pass of pixels from
+            // its width and height; ir::Function::Argument::capacity), which
+            // a driver has in scope under those names where it allocates
+            // -- and, for a constant capacity, their product (`_BYTES`).
             for (const Function::Argument *arg : arrays) {
                 const Array_t *array = arg->type.as<Array_t>();
                 if (!arg->storage.has_value() || array == nullptr) {
@@ -843,6 +846,17 @@ class BonsaiToCpp : ir::Printer {
                 const std::optional<uint64_t> n =
                     array->size.defined() ? get_constant_value(array->size)
                                           : std::nullopt;
+                ss << "#define BONSAI_" << func->name << "_" << macro
+                   << "_CAPACITY (";
+                if (n.has_value()) {
+                    ss << *n << "ull";
+                } else {
+                    internal_assert(arg->capacity.defined())
+                        << func->name << "'s " << arg->name
+                        << " is the caller's storage of no stated capacity";
+                    print_no_parens(arg->capacity);
+                }
+                ss << ")\n";
                 if (n.has_value()) {
                     ss << "#define BONSAI_" << func->name << "_" << macro
                        << "_BYTES (" << *n << "ull * sizeof(";

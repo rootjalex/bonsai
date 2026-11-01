@@ -40,6 +40,12 @@ struct Function {
         // header reads to export the array's size in bytes, since the
         // caller allocates it.
         std::optional<Storage> storage;
+        // How many elements the caller's storage holds, when the parameter
+        // is such an array and its type does not say: an expression over
+        // the function's parameters (see ssa::Argument::capacity), which
+        // the header prints as `BONSAI_<f>_<array>_CAPACITY` for the caller
+        // to allocate by.
+        Expr capacity;
 
         Argument() {}
 

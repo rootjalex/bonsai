@@ -1,0 +1,115 @@
+type Entry_sums = struct Entry_sums{ k : i32; acc : i32; _slot : i32 }
+type Queue_sums = struct Queue_sums{ count : u32; k : i32[]; acc : i32[]; _slot : i32[] }
+
+extern func bonsai_cuda_round_guard(round : u32, count : (u32*)) -> u32;
+
+func [[export]] run(n : i32, out : mut i32[], sums_k_0 : mut i32[] capacity (n << 1), sums_acc_0 : mut i32[] capacity (n << 1), sums__slot_0 : mut i32[] capacity (n << 1), sums_k_1 : mut i32[] capacity (n << 1), sums_acc_1 : mut i32[] capacity (n << 1), sums__slot_1 : mut i32[] capacity (n << 1)) -> void {
+  sums!round : mut u32
+  let @0 = n << 1 in
+  alloc sums_ran : mut u8[@0] device
+  let @3 = fill_bytes(sums_ran, 0u, @0) in
+  alloc sums_result : mut i32[@0] device
+  alloc sums_queue : mut Queue_sums[2] device
+  let @5 = build<Queue_sums>(0u, sums_k_0, sums_acc_0, sums__slot_0) in
+  sums_queue[0u] = @5
+  let @7 = build<Queue_sums>(0u, sums_k_1, sums_acc_1, sums__slot_1) in
+  sums_queue[1u] = @7
+  parfor i in [0:@0:1] {
+    let @10 = walk(i, 0, (&sums_queue[0u]), (&sums_result[i]), i) in
+    let @11 = out in
+    let @12 = i in
+    let @13 = @10.set in
+    let @14 = @10.value in
+    if (@13) {
+      let @1 = @14 in
+      out[i] = @1
+      continue
+    } else {
+      sums_ran[i] = 1u
+      continue
+    }
+  }
+  sums!round = 0u
+  do {
+    let @17 = (*sums!round) & 1u in
+    let @49 = bonsai_cuda_round_guard((*sums!round), (&sums_queue[@17].count)) in
+    let @50 = @49 == 0u in
+    if (@50) {
+      break
+    } else {
+      let @21 = @17 ^ 1u in
+      sums_queue[@21].count = 0u
+      let @43 = cast<u32>(@0) in
+      parfor sums in [0u:@43:1u] {
+        let @22 = (&sums_queue[@21]) in
+        let @46 = (&sums_queue[@17].count) in
+        let @47 = (*@46) in
+        let @48 = sums < @47 in
+        if (@48) {
+          let @26 = sums_queue[@17].k in
+          let @27 = @26[sums] in
+          let @29 = sums_queue[@17].acc in
+          let @30 = @29[sums] in
+          let @32 = sums_queue[@17]._slot in
+          let @33 = @32[sums] in
+          walk(@27, @30, @22, (&sums_result[@33]), @33)
+          continue
+        } else {
+          continue
+        }
+      }
+      let @16 = (*sums!round) + 1u in
+      sums!round = @16
+      continue
+    }
+  } while (true)
+  parfor sums_rest in [0:@0:1] {
+    let @40 = sums_result[sums_rest] in
+    let @42 = sums_ran[sums_rest] in
+    switch (@42) {
+    case 0: {
+      continue
+    } break;
+    default: {
+      let @36 = @40 in
+      let @37 = out in
+      let @38 = sums_rest in
+      @37[@38] = @36
+      continue
+    }
+    }
+  }
+  return
+}
+
+func walk(k : i32, acc : i32, _queue_sums : mut (Queue_sums*), _result_sums : mut (i32*), _slot_sums : i32) -> _option_sums {
+  let @0 = k <= 0 in
+  if (@0) {
+    _result_sums = acc
+    let @4 = build<_option_sums>(acc, true) in
+    return @4
+  } else {
+    let @1 = k - 1 in
+    let @2 = acc + k in
+    let @5 = build<Entry_sums>(@1, @2, _slot_sums) in
+    let @6 = build<_option_sums>(undef, false) in
+    let @9 = atomic_add((&(*_queue_sums).count), 1u) in
+    let @11 = (*_queue_sums).k in
+    @11[@9] = @1
+    let @14 = (*_queue_sums).acc in
+    @14[@9] = @2
+    let @17 = (*_queue_sums)._slot in
+    @17[@9] = _slot_sums
+    return @6
+  }
+}
+
+
+schedule {
+    sums = run.queue(root, ExternDevice);
+    run.bind(i, GPUThread)
+       .bind(sums, GPUThread)
+       .bind(sums_rest, GPUThread)
+    walk.defer(walk, sums)
+
+}

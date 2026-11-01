@@ -84,11 +84,17 @@ struct Resolver {
     // value of the body that resolves to the same definition is that
     // capture, however many block arguments it went through on the way.
     std::vector<std::pair<Definition, const Argument *>> captures;
+    // Whether the head's first argument is the loop's index, which no value
+    // of the launch may depend on: a body head's is; a function's entry
+    // block, whose arguments are all parameters, has none.
+    const bool index_first;
 
-    Resolver(const Function &func, const Block &body_head, string *why)
+    Resolver(const Function &func, const Block &body_head, string *why,
+             bool index_first = true)
         : func(func), body_head(body_head),
-          defs(func, /*lenient=*/true, /*bound=*/true), why(why) {
-        for (size_t i = 1; i < body_head.args.size(); i++) {
+          defs(func, /*lenient=*/true, /*bound=*/true), why(why),
+          index_first(index_first) {
+        for (size_t i = index_first ? 1 : 0; i < body_head.args.size(); i++) {
             const Argument &arg = body_head.args[i];
             captures.emplace_back(
                 defs.of(body_head.name, std::make_shared<Value>(arg)), &arg);
@@ -124,8 +130,8 @@ struct Resolver {
             }
         }
         if (const auto *a = std::get_if<Argument>(&d.value->data)) {
-            if (d.block == body_head.name && !body_head.args.empty() &&
-                body_head.args.front().name == a->name) {
+            if (index_first && d.block == body_head.name &&
+                !body_head.args.empty() && body_head.args.front().name == a->name) {
                 return fail("the loop's own index `" + a->name +
                             "`, which differs from one iteration to the next");
             }
@@ -148,6 +154,26 @@ struct Resolver {
         }
         return pure_instruction_expr(*in, std::move(operands));
     }
+
+    // An expression a body's allocation is sized by (SSA/Storage.h,
+    // as_expr): a constant, or a variable naming a value of the body -- an
+    // instruction's, found in its block's table, or an argument reached by
+    // name -- which the definitions resolve as `block` refers to it.
+    std::optional<Expr> of(const string &block, const Expr &e) {
+        if (e.is<IntImm>() || e.is<UIntImm>() || e.is<BoolImm>() || e.is<FloatImm>()) {
+            return e;
+        }
+        const Var *var = e.as<Var>();
+        if (var == nullptr) {
+            return fail("an expression the body computes");
+        }
+        for (const auto &b : func.blocks) {
+            if (const auto it = b->lookups.find(var->name); it != b->lookups.end()) {
+                return of(block, it->second);
+            }
+        }
+        return of(block, std::make_shared<Value>(Argument{var->type, var->name}));
+    }
 };
 
 } // namespace
@@ -160,26 +186,13 @@ std::optional<Expr> launch_value(const Function &func, const Block &body_head,
 
 std::optional<Expr> launch_value(const Function &func, const Block &body_head,
                                  const string &block, const Expr &e, string *why) {
-    if (e.is<IntImm>() || e.is<UIntImm>() || e.is<BoolImm>() || e.is<FloatImm>()) {
-        return e;
-    }
-    const Var *var = e.as<Var>();
-    if (var == nullptr) {
-        if (why != nullptr) {
-            *why = "an expression the body computes";
-        }
-        return std::nullopt;
-    }
-    // The value the variable names: an instruction's, found in its block's
-    // table, or an argument reached by name, which the definitions resolve
-    // as `block` refers to it.
-    for (const auto &b : func.blocks) {
-        if (const auto it = b->lookups.find(var->name); it != b->lookups.end()) {
-            return launch_value(func, body_head, block, it->second, why);
-        }
-    }
-    return launch_value(func, body_head, block,
-                        std::make_shared<Value>(Argument{var->type, var->name}), why);
+    return Resolver(func, body_head, why).of(block, e);
+}
+
+std::optional<Expr> parameter_value(const Function &func, const Expr &e, string *why) {
+    internal_assert(!func.blocks.empty());
+    const Block &entry = *func.blocks.front();
+    return Resolver(func, entry, why, /*index_first=*/false).of(entry.name, e);
 }
 
 } // namespace ssa

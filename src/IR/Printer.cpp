@@ -279,6 +279,11 @@ void Printer::print(const Function &function) {
             }
             os << arg.type;
         }
+        // The caller's storage of a capacity the type does not state
+        // (Function::Argument::capacity): the count, over the parameters.
+        if (arg.capacity.defined()) {
+            os << " capacity " << arg.capacity;
+        }
         if (arg.default_value.defined()) {
             os << " = " << arg.default_value;
         }

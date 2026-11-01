@@ -1,0 +1,37 @@
+//! flags: -p ssa
+
+// An Extern queue whose capacity the schedule does not state, on a loop
+// bounded by a parameter: `queue(root, ExternDevice)` on `run`, whose loop
+// runs `n * 2` times, so the queue holds `n * 2` entries and the caller,
+// which allocates them, has to be told so (SSA/QueueStorage.h).
+//
+// What to read for. The queue's arrays are parameters of `run` after
+// `out`, unsized -- `sums_k_0 : mut i32[]` and the rest -- and each prints
+// `capacity (n * 2)`: the count the function computes, as an expression
+// over its parameters (SSA/LaunchValues.h, parameter_value), which the C++
+// header prints as `BONSAI_run_<array>_CAPACITY` for the driver to allocate
+// by. Compare queue-storage, whose `tally` states a capacity of 8 and whose
+// arrays stay `i32[8]`, the capacity in the type. The drain still runs over
+// the count the function computes.
+
+func walk(k : i32, acc : i32) -> i32 {
+    if (k <= 0) {
+        return acc;
+    }
+    return walk(k - 1, acc + k);
+}
+
+func [[export]] run(n : i32, out : mut array[i32]) -> void {
+    parfor i in 0:(n * 2) {
+        out[i] = walk(i, 0);
+    }
+    return;
+}
+
+schedule {
+    sums = run.queue(root, ExternDevice);
+    walk.defer(walk, sums);
+    run.bind(i, GPUThread);
+    run.bind(sums, GPUThread);
+    run.bind(sums_rest, GPUThread);
+}

@@ -71,6 +71,7 @@ add_bonsai_tests(
     hit-continuation.bonsai
     hit-continuation-reorder.bonsai
     queue-storage.bonsai
+    queue-storage-capacity.bonsai
     defer-gang.bonsai
     defer-gang-bools.bonsai
     defer-gang-vector.bonsai

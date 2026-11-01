@@ -52,11 +52,15 @@ namespace ssa {
 //     the program passes queue storage to another.
 //
 // An Extern queue's arrays then become parameters of the function: an
-// entry-block argument per array, of the array's type (its capacity a
-// constant, so that the header the C++ backend prints can say its size in
-// bytes, `BONSAI_<function>_<array>_BYTES`), mutating, carrying the storage
-// so that the exported prologue binds the name to the device's pointer for
-// device and managed memory (CodeGen_LLVM_SSA.cpp). The header stays the
+// entry-block argument per array, of the array's type when its capacity is
+// a constant and unsized otherwise, in which case the argument carries the
+// capacity as an expression over the function's parameters
+// (ssa::Argument::capacity, by SSA/LaunchValues.h) -- either way the header
+// the C++ backend prints tells the caller how much to allocate,
+// `BONSAI_<function>_<array>_CAPACITY` elements of `_ELEMENT_BYTES` each --
+// mutating, carrying the storage so that the exported prologue binds the
+// name to the device's pointer for device and managed memory
+// (CodeGen_LLVM_SSA.cpp). The header stays the
 // function's own allocation, in the memory the Extern kind names: it is a
 // few words the function fills with the arrays' addresses and the count,
 // and the caller has no business with it.

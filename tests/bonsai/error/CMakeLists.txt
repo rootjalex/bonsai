@@ -46,6 +46,7 @@ add_bonsai_tests(
     queue-storage-host-on-gpu.bonsai
     queue-storage-device-on-cpu.bonsai
     queue-storage-extern-unexported.bonsai
+    queue-storage-extern-capacity.bonsai
     queue-storage-shared-untagged.bonsai
     queue-storage-shared-not-per-block.bonsai
     extent-undeclared-element.bonsai

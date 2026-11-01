@@ -2,6 +2,7 @@
 
 #include "Error.h"
 #include "SSA/Analysis.h"
+#include "SSA/LaunchValues.h"
 #include "Utils.h"
 
 #include <algorithm>
@@ -354,17 +355,36 @@ size_t place_queue_storage(Function &func, bool exported) {
             << describe(*alloc) << " is not a sized array: " << alloc->type;
         // A constant capacity stays in the parameter's type, and the header
         // the C++ backend prints says the array's bytes
-        // (`BONSAI_<f>_<array>_BYTES`); a capacity only known at run time --
+        // (`BONSAI_<f>_<array>_BYTES`). A capacity only known at run time --
         // a render's pass of pixels, pbrt's maxQueueSize -- makes the
-        // parameter an unsized array, and the header says the element's
-        // bytes (`_ELEMENT_BYTES`) for the caller to multiply by the
-        // capacity it computes as the program does. The drain's launch
-        // still runs over the capacity the function computes.
+        // parameter an unsized array and goes with it as its `capacity`:
+        // the count the function computes, as an expression over its
+        // parameters (SSA/LaunchValues.h), which the header prints for the
+        // caller to allocate by (`_CAPACITY`, times `_ELEMENT_BYTES`).
+        // Until 10-31 the header gave the element's bytes alone and the
+        // caller computed the count for itself, and a schedule whose queues
+        // hold four samples a pixel (apps/pbrt/schedules/gpu-optix-pass
+        // .bonsai) overran storage the driver had sized for one. The
+        // drain's launch still runs over the capacity the function
+        // computes.
         const bool constant = get_constant_value<int64_t>(array->size).has_value();
-        const Type parameter_type =
-            constant ? alloc->type : Array_t::make(array->etype, Expr());
-        Argument arg{parameter_type, alloc->name, /*mutating=*/true};
+        Argument arg{constant ? alloc->type : Array_t::make(array->etype, Expr()),
+                     alloc->name, /*mutating=*/true};
         arg.storage = storage;
+        if (!constant) {
+            string why;
+            const std::optional<Expr> capacity =
+                parameter_value(func, array->size, &why);
+            internal_assert(capacity.has_value())
+                << describe(*alloc) << " is the caller's storage, sized by "
+                << array->size << ", and that is not arithmetic over "
+                << func.blocks.front()->name << "'s parameters (" << why
+                << "): the caller allocates a queue in Extern memory by a count "
+                   "the header gives it, which has to be computable from what it "
+                   "passes. Bound the loop that owns the pushes by the parameters, "
+                   "or use the function's own memory (DeviceGlobal, Managed, Heap).";
+            arg.capacity = *capacity;
+        }
         const shared_ptr<Value> parameter = func.blocks.front()->add_argument(arg);
         replace_uses(func, alloc.get(), parameter);
         made++;

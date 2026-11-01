@@ -1,0 +1,7 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/gpu/main_queue_extern_capacity_cpp.cpp -I. -o tests/bonsai/correctness/gpu/main_queue_extern_capacity_cpp.o
+[test] clang++ tests/bonsai/correctness/gpu/main_queue_extern_capacity_cpp.o tests/bonsai/correctness/gpu/queue-extern-capacity-cpp.o -o tests/bonsai/correctness/gpu/queue-extern-capacity-cpp
+[test] ./tests/bonsai/correctness/gpu/queue-extern-capacity-cpp
+sides: 2 2 2 2 2 2 2
+capacity: 8
+bytes per array: 32
+0 1 3 6 10 15 21 28

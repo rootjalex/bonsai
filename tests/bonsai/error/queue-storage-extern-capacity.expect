@@ -1,0 +1,7 @@
+---CODE---
+1
+---STDERR---
+[internal] Error: src/SSA/QueueStorage.cpp:378
+
+--> capacity.has_value()
+sums_k_0 (in ExternDevice memory) is the caller's storage, sized by m, and that is not arithmetic over run's parameters (`m`, computed by extract_idx, which reads memory, has an effect or draws a random number): the caller allocates a queue in Extern memory by a count the header gives it, which has to be computable from what it passes. Bound the loop that owns the pushes by the parameters, or use the function's own memory (DeviceGlobal, Managed, Heap).

@@ -2766,6 +2766,7 @@ std::shared_ptr<ir::Function> codegen_stmt(const ssa::Function &func,
                                               arg.mutating, arg.unaliased,
                                               arg.reducer));
         args.back().storage = arg.storage;
+        args.back().capacity = arg.capacity;
     }
 
     Type ret_type = func.ret_type;

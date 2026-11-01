@@ -41,6 +41,14 @@ struct Argument {
     // and the header which side the caller has to have the buffer on. Last,
     // after the flags lowering copies positionally (SSA/Convert.cpp).
     std::optional<Storage> storage;
+    // Likewise: how many elements the caller's storage holds, when the
+    // parameter is such an array and its type does not say -- a capacity
+    // only known at run time, a render's pass of pixels from its width and
+    // height -- as an expression over the function's parameters and
+    // constants (SSA/QueueStorage.cpp, by SSA/LaunchValues.h): what the
+    // generated header prints for the caller to allocate by. Undefined when
+    // the type states the capacity.
+    Expr capacity;
 
     void dump(std::ostream &os) const;
 };

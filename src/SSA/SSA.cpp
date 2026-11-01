@@ -9,7 +9,12 @@ namespace bonsai {
 namespace ir {
 namespace ssa {
 
-void Argument::dump(std::ostream &os) const { os << name << " : " << type; }
+void Argument::dump(std::ostream &os) const {
+    os << name << " : " << type;
+    if (capacity.defined()) {
+        os << " capacity " << capacity;
+    }
+}
 
 std::ostream &operator<<(std::ostream &os, const Undefined &) {
     return os << "undef";

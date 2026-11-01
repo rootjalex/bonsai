@@ -43,6 +43,16 @@ std::optional<Expr> launch_value(const Function &func, const Block &body_head,
                                  const std::string &block, const Expr &e,
                                  std::string *why);
 
+// The same for a value of the function itself, as an expression over the
+// function's parameters -- the entry block's arguments, every one of them,
+// there being no index -- and constants: how the caller that allocates an
+// Extern queue's storage is told how many elements it holds
+// (SSA/QueueStorage.cpp; the C++ header prints the expression). `e` is the
+// expression the storage is sized by (SSA/Storage.h, as_expr), resolved as
+// the entry block refers to it.
+std::optional<Expr> parameter_value(const Function &func, const Expr &e,
+                                    std::string *why);
+
 } // namespace ssa
 } // namespace ir
 } // namespace bonsai

@@ -3654,21 +3654,20 @@ int main(int argc, char **argv) {
     bonsai_buffer b_env_illuminants = buffer_of(env_illuminants);
     // The queues' storage, when the schedule made it this driver's
     // (`ExternDevice`, see --queue-memory above): one buffer per array the
-    // header lists in BONSAI_render_EXTERN_STORAGE, each of the queue's
-    // capacity times its element -- the capacity being the pass of pixels
-    // the program computes from the resolution (render.bonsai: at most a
-    // million samples a pass, the scanlines divided evenly among the
-    // passes), which is pbrt's maxQueueSize = resolution.x *
-    // scanlinesPerPass -- allocated once here and freed with the rest.
-    const uint64_t queue_capacity = [&]() -> uint64_t {
-        const uint64_t w = uint64_t(width), h = uint64_t(height);
-        const uint64_t scanlines_at_most = std::max<uint64_t>(1, 1048576 / w);
-        const uint64_t n_passes = (h + scanlines_at_most - 1) / scanlines_at_most;
-        const uint64_t scanlines_per_pass = (h + n_passes - 1) / n_passes;
-        return w * scanlines_per_pass;
-    }();
-    const auto queue_buffer = [&](size_t element_bytes) {
-        const uint64_t bytes = queue_capacity * element_bytes;
+    // header lists in BONSAI_render_EXTERN_STORAGE, each of the capacity
+    // the header states for it times its element. The capacity is the
+    // count the program computes from `render`'s parameters, which the
+    // compiler prints as that expression over them by name
+    // (BONSAI_render_<array>_CAPACITY, over `width` and `height` here):
+    // the pass of pixels for the wavefront schedules (render.bonsai: at
+    // most a million samples a pass, the scanlines divided evenly among the
+    // passes, pbrt's maxQueueSize = resolution.x * scanlinesPerPass), four
+    // times that for the schedule whose passes hold four samples a pixel
+    // (schedules/gpu-optix-pass.bonsai). Allocated once here and freed with
+    // the rest. Until 10-31 this driver computed the pass of pixels itself
+    // and sized every queue by it, which the four-sample schedule overran.
+    const auto queue_buffer = [&](uint64_t capacity, size_t element_bytes) {
+        const uint64_t bytes = capacity * element_bytes;
         if (queue_memory == "device") {
             return bonsai_buffer_wrap_device(bonsai_cuda_malloc(bytes), bytes);
         }
@@ -3681,8 +3680,9 @@ int main(int argc, char **argv) {
     // header has none.
 #define BONSAI_UNPAREN(...) __VA_ARGS__
 #ifdef BONSAI_render_EXTERN_STORAGE
-#define BONSAI_QUEUE_DECLARE(name, type) \
-    bonsai_buffer b_##name = queue_buffer(sizeof(BONSAI_UNPAREN type));
+#define BONSAI_QUEUE_DECLARE(name, type)                                     \
+    bonsai_buffer b_##name = queue_buffer(BONSAI_render_##name##_CAPACITY,   \
+                                          sizeof(BONSAI_UNPAREN type));
     BONSAI_render_EXTERN_STORAGE(BONSAI_QUEUE_DECLARE)
 #undef BONSAI_QUEUE_DECLARE
 #define BONSAI_QUEUE_POINTER(name, type) , &b_##name
