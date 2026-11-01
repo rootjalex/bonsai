@@ -8138,3 +8138,167 @@ dumps and the compared modules are in scratch/ssa-check-b72c215b/
 (`<schedule>.<build>.ssa`, `.ll`), 12 seconds of one core under a lock of
 my own, nothing timed on the machine. bonsai-ac ran the same check over
 apps/wosx's fourteen deferral schedules with the same result.
+
+### Where the 5% goes: the two Embree cells under the hardware counters (2026-11-01)
+
+The user, 00:10: "please do profile to see where that 5% goes. Don't try
+to fix it until after I read your profile report and I suggest a fix." The
+cells: landscape's primary rays (0.95x) and ivy's ambient occlusion (0.95x),
+real three times over (above). Nothing is changed here; this section is
+the report.
+
+**Method** (00:29-00:40, the machine idle after bonsai-f9's 'done', the
+lock in my name; scratch/profile-1101/run.sh, run2.sh): compare.sh's embree
+schedule built and run over landscape as the table runs it (RTQ_KEEP=1
+leaves rtq.out), then the driver narrowed to one kernel over one ray set
+(`--batch primary --query intersect`, `--batch ao --query occluded`) with
+the repeats raised so that each side runs about four seconds, under `perf
+record -F 10000` with six groups of five of the Zen 5 counters, pinned as
+compare.sh pins (core 11). Each cell at side 1024 and, as the control, at
+2048, where landscape read 1.01x. The driver runs Embree's side and ours in
+one process and one thread; aggregate.py splits the samples at the first
+sample in our generated function (trace_all / occluded_all) and sums each
+event in Embree's window and ours; the "traversal only" rows below take
+Embree's intersector with its rtcIntersect1 wrapper and PLT stub against
+our generated function (which holds the loop over the rays too), leaving
+out each window's untimed setup (the hook's reset of the RTCRayHit array,
+our staging copies) -- the sum the driver's clock sees. annotate.py lays
+the samples over objdump's listing per instruction and per address range.
+Under perf the cells read 0.93-0.96x and 0.96-0.98x; the 2048 controls
+1.00x and 0.98x.
+
+**Per ray, traversal only** (Embree / ours; a ray-pass is one ray of one
+pass; landscape 159M / 158M of them, ivy 26.1M each):
+
+| counter, per ray | landscape 1024 | landscape 2048 | ivy ao 1024 |
+|---|---|---|---|
+| cycles | 146.1 / 153.3 (1.049) | 98.1 / 98.0 (1.000) | 870 / 891 (1.023) |
+| instructions retired | 177.2 / 172.4 (0.973) | 177.7 / 173.0 | 983 / 951 (0.968) |
+| ops retired | 184.6 / 175.9 | | 964 / 945 |
+| ops dispatched (op cache + decoder) | 215.0 / 204.4 | | 2940 / 3076 (1.046) |
+| cycles with retire blocked, any op | 106.6 / 114.7 (+8.1) | 57.1 / 59.6 | 345 / 299 |
+| ... blocked by a load | 97.6 / 102.4 (+4.8) | 49.5 / 48.3 | 146 / 93 |
+| branch mispredicts | 0.121 / 0.119 | 0.101 / 0.100 | 13.78 / 14.03 (1.019) |
+| branches retired, taken | 16.5, 12.9 / 8.9, 4.1 | | 89.5, 44.4 / 97.5, 36.2 |
+| L1 demand fills (misses) | 0.087 / 0.083 | 0.048 / 0.050 | 4.12 / 4.17 |
+| ... from DRAM | 0.060 / 0.057 | 0.026 / 0.024 | 0.002 / 0.000 |
+| L2 misses (ls_rd_blk_c) | 0.71 / 0.74 | 0.35 / 0.35 | 7.0 / 7.0 |
+| prefetch instructions dispatched | 3.09 / 3.08 | | 209 / 251 |
+| software prefetch fills | 0.72 / 0.69 | 0.43 / 0.41 | 25.3 / 24.5 |
+| ineffective software prefetches | 1.80 / 1.80 | | 36.6 / 36.7 |
+| hardware prefetch fills | 1.39 / 1.04 | 1.36 / 0.96 | 8.2 / 11.3 |
+| dTLB misses | 0.021 / 0.018 | 0.021 / 0.016 | 2.27 / 0.28 |
+| dispatch slots empty, front end | 63.6 / 40.3 | 62.0 / 29.0 | 1962 / 2017 |
+| dispatch slots stalled, back end | 884 / 985 | 509 / 553 | 2026 / 2030 |
+| op-cache misses | 1.5 / 1.2 | | 0.83 / 0.93 |
+
+(ivy at 2048: cycles 866 / 872, instructions 1005 / 953, load-blocked 137
+/ 80, mispredicts 13.5 / 13.7 -- the same picture.)
+
+**Landscape.** Ours retires 3% fewer instructions and 5% fewer ops, with
+the same mispredicts, the same demand misses, L2 misses and DRAM fills,
+the same prefetch instructions, prefetch fills and ineffective prefetches,
+fewer TLB misses and a less empty front end, and takes 7.2 more cycles a
+ray -- every one of them a cycle with retirement blocked: 4.8 waiting on a
+load, 3.4 on another incomplete op. At the 2048 image the same two
+binaries over the same mesh are even (98.1 against 98.0, with the same
+instruction counts), and per ray the 1024 image costs both sides twice the
+misses (L2 misses 0.71 against 0.35 a ray, DRAM fills 0.060 against
+0.026): the loss is the cost of those extra misses, which Embree's
+instruction stream hides better than ours. By region (cycles a ray, Embree
+/ ours; Embree's wrapper and PLT 4.8 added to its setup, its hit-record
+write 3.4 to its leaf):
+
+| region | landscape 1024 | landscape 2048 |
+|---|---|---|
+| ray setup | 17.4 / 14.3 | 15.6 / 15.6 |
+| stack pop, ray end | 4.8 / 6.7 | 5.0 / 5.0 |
+| node test, child selection | 80.9 / 85.3 | 54.7 / 53.1 |
+| children sort (two or more hits) | 0.6 / 1.6 | 0.6 / 1.1 |
+| leaf (with Embree's hit write) | 42.2 / 45.3 | 22.2 / 23.3 |
+| the traversal proper (the last three) | 123.7 / 132.2 | 77.5 / 77.5 |
+
+The fixed per-ray parts are even at both sides; the traversal proper is
+even at 2048 and 8.5 cycles (7%) dearer for ours at 1024, 4.4 of them in
+the node loop and 3.1 in the leaf. (The per-region instruction counts are
+not reliable to better than about ten percent -- the retirement samples
+land in bursts after a stall clears -- so the split is read from cycles
+and the totals, which are.) The load-blocked cycles by region: node loop
+59.6 / 57.6, leaf 32.1 / 38.0 at 1024 (33.1 / 29.7 and 12.5 / 14.8 at
+2048): in the node loop ours waits less on loads than Embree and spends
+more cycles retiring; in the leaf ours waits 5.9 cycles a ray more, 0.2
+of them at the first touch of a triangle block (29.3 / 29.5 -- the
+dominant stall on both sides, a quarter of all cycles) and 5.7 after it.
+The hottest instructions: Embree's leaf `vmovaps 0x40(%r14,%rax,1),%xmm5`
+(the block's second line, after its 0x80 load) 24.7% of cycles, 30% of the
+load-blocked samples; ours `vmovdqa (%rcx),%xmm1; vptest %xmm13,%xmm1`
+22.9% and 28.8%. The node test's first use of the bounds: Embree's
+`vfmadd132ps` 11.1%, our two bounds loads 10.1% and 4.1%. kortest/je: 5.4
++ 5.3% against 7.4 + 3.3%. The child extraction and its four prefetcht0:
+Embree's vpcompressd/vpermt2q/vmovq/prefetch 7.2 + 6.8 + 4.2 + 0.5%, our
+tzcnt/blsr/load/prefetch 4.6 + 4.6%. The one hardware-counter difference
+of size, hardware-prefetch fills 1.39 against 1.04 a ray, is the same at
+2048 where the sides are even (1.36 against 0.96) -- Embree's 96-byte
+RTCRayHit stream against our 32-byte ray records, not the tree.
+
+What the listings show different in those two loops (scratch/profile-1101/
+trace_all.dis, embree-intersect.dis), for the user to weigh:
+
+1. *The leaf's empty-block test.* Ours loads each triangle block's geomIDs
+   first (`vmovdqa (%rcx)`, rcx the block's 0x90) and tests the four
+   against -1 (`vptest %xmm13` with xmm13 all ones, `jb` skips the block)
+   before the nine vertex and edge loads; Embree's leaf loads the nine
+   (0x80, 0x40, 0x70, 0x50, 0x60, 0x00, 0x10, 0x20, 0x30) and touches the
+   ids only in the hit path, the block count coming off the pointer's low
+   bits (`and $0xf; add -8`). Both first-touch the block's third cache
+   line; ours adds a load, a test and a branch to each block ahead of the
+   test, and the branch's samples carry 36.5% of our mispredict samples
+   against 33.6% at Embree's leaf top.
+2. *The hit record.* Ours stores the hit inside the leaf to the stack
+   frame (`vmovss %xmm0,0x4c(%rsp)`, `vinsertps $0x20,0x140(%rsp,%rdx,1)`,
+   `vmovaps %xmm0,0xd0(%rsp)`) and writes the output record at the ray's
+   end from there (`vmovss 0x48(%rsp)`, `vmovq %xmm0,(%rcx,%rax,1)`);
+   Embree writes the RTCRayHit fields once, after the traversal.
+3. *The child pointer.* Ours loads all eight (`vmovdqu64 (%rax),%zmm3`)
+   and then the first hit child's slot again by tzcnt (`mov
+   (%rax,%rdx,8),%rbp`) before the four prefetches; Embree extracts it
+   from two ymm halves in registers (vpcompressd, vpermt2q, vmovq).
+4. *The ray setup* is 108 instructions (17 mov, 16 vbroadcastss, 7 shl, 6
+   or, 6 and: the six near/far byte offsets built and parked in stack
+   slots) against Embree's 78 plus its wrapper; even in cycles at both
+   sides, so not the loss.
+
+**Ivy.** No memory component: ours waits 36% less on loads (93 against
+146 cycles a ray), has 13% fewer retire-blocked cycles, 3% fewer
+instructions, the same misses, and the TLB misses are Embree's (2.27 a
+ray against 0.28). Both traversals are bound by branch mispredicts: 13.8
+and 14.0 a ray, 8.1 and 8.6 of them on taken branches, and two thirds of
+every op dispatched is thrown away (2940 dispatched against 964 retired;
+3076 against 945). Ours has 1.9% more mispredicts and 4.6% more ops
+dispatched a ray, so 155 more discarded ops a ray (2131 against 1976:
+152 against 143 an event) -- the same mispredicts flushing more work
+each, which is the 20 cycles. By region (cycles a ray, Embree / ours,
+Embree's 15.4 after a hit added to its leaf): ray setup 43.3 / 47.6, stack
+pop and ray end 47.1 / 49.8, node test and child selection 344.5 / 380.6,
+children push (two or more hits) 77.8 / 71.0, leaf 352.2 / 341.8.
+Mispredicts a ray by region: node 5.36 / 5.94, leaf 5.47 / 5.45, push
+1.17 / 1.06, setup 0.68 / 0.77, pop 0.76 / 0.82. The node region holds
+the whole difference: +36 cycles, +0.58 mispredicts, 13.5 fewer
+load-blocked cycles a ray. Its branches: the node hit-or-miss (kortest,
+je), one child or several (`blsr; je`), then our `popcnt; cmp $2; je; cmp
+$3; je; cmp $4; jne` chain to one code path for two, three and four or
+more children (the schedule's any-hit pushes in stored order, nothing
+sorted, as Embree's traverseAnyHit does; Embree pushes the rest in a
+loop); node-or-leaf (`test $0x8; jne`). The samples spread over the same
+four decisions on both sides; the per-branch attribution is a sample
+behind the branch and is not finer than that.
+
+**What it is not**, on either cell: miss counts (demand, L2, DRAM) within
+5%; prefetch instructions, their fills and the ineffective ones equal;
+TLB misses fewer on ours; op-cache misses and decoder ops negligible on
+both (op cache 99.9% of ops); instruction-cache misses fewer on ours.
+
+Data: scratch/profile-1101/ -- `<cell>.g<1-6>.data` (perf), `.agg.txt`
+(the window sums with the top symbols per event), `*.dis`, run.log,
+run2.log; aggregate.py and annotate.py reproduce every number above
+from them. The table stands; no fix before the user's word.
