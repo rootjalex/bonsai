@@ -8354,8 +8354,41 @@ it), and it is a reading, not a measurement. The measurement that settles
 it is AMD's instruction-based sampling (`perf mem record` over the ibs_op
 PMU, checked usable unprivileged on this kernel): for each sampled load
 its latency, its data source (L1, L2, L3, DRAM, in flight) and its
-tag-to-retire time, per instruction. Queued behind bonsai-f9's hold on
-the machine ('timing' 10:20, about an hour, a CPU sweep after).
+tag-to-retire time, per instruction. Run 12:08-12:12 in a break bonsai-f9
+gave between its GPU runs (run_ibs.sh; `<cell>.ibs.data` tags the op
+dispatched when a cycle counter expires, `<cell>.ibsops.data` the op when
+a dispatched-op counter expires; ibs.py lays either over a listing, per
+instruction or per region, scaled to a ray by run2.sh's retired ops).
+What it says, landscape 1024, per instruction: the two sides' loads have
+the same sources and the same latencies. The node's bounds loads hit L1
+90% of the time on both sides and come from DRAM 7% of the time, a miss
+costing about 430 cycles; the leaf's loads come from DRAM 70-75% of the
+time on both sides, a miss costing 560-600 cycles; the first child's
+four prefetches find their line already in L1 71-73% of the time and
+come from DRAM 20-24% (and report 4400-4700 cycles to complete, on both
+sides -- they queue). DRAM-sourced loads a ray under uniform tagging: leaf
+1.76 against Embree's 1.75, node loop 1.86 against 2.34 (ours fewer). So
+not more lines, not slower lines. The difference is *when* our loads
+enter the machine. Cycle-triggered tagging favours the first op
+dispatched after a dispatch stall; uniform tagging favours none. Our
+DRAM-sourced loads are sampled 3.50 a ray under the first and 3.79 under
+the second (0.92), Embree's 2.50 and 4.26 (0.59): ours are 1.6 times as
+likely as Embree's to be the op that dispatches the moment a stall
+clears -- they wait behind a full window instead of being in flight
+while the older miss is served; the ratio is independent of the scaling
+and holds in the leaf (0.85 against 0.56) and in the node loop (1.02
+against 0.53). The loads' time in flight agrees: the sum of tag-to-retire
+over the memory ops a ray is 3,483 cycles for ours and 3,695 for Embree
+(uniform tagging), which by Little's law is 22.7 memory ops in flight
+on average against 25.3 -- Embree's loads are issued earlier relative to
+their retirement, and overlap more. The leaf has one concrete instance
+of this: in the alignment where the ids line is the block's own fourth
+line (base = 48 mod 64, one block in four) our first request is for a
+line the vertex loads never need, and the three vertex lines follow it
+in the DRAM queue, one burst slot each; a quarter of the blocks a ray
+times one slot is of the order of the 5.7 cycles after the first touch.
+The counters that would show it directly (per-line arrival order) do not
+exist; the user's fix decides it.
 
 **Ivy and `likely()`** (the user's question). Embree's hints change the
 block layout only, the likely arm falling through; Zen takes no static
