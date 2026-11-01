@@ -8253,16 +8253,49 @@ trace_all.dis, embree-intersect.dis), for the user to weigh:
    bits (`and $0xf; add -8`). Both first-touch the block's third cache
    line; ours adds a load, a test and a branch to each block ahead of the
    test, and the branch's samples carry 36.5% of our mispredict samples
-   against 33.6% at Embree's leaf top.
-2. *The hit record.* Ours stores the hit inside the leaf to the stack
-   frame (`vmovss %xmm0,0x4c(%rsp)`, `vinsertps $0x20,0x140(%rsp,%rdx,1)`,
-   `vmovaps %xmm0,0xd0(%rsp)`) and writes the output record at the ray's
-   end from there (`vmovss 0x48(%rsp)`, `vmovq %xmm0,(%rcx,%rax,1)`);
-   Embree writes the RTCRayHit fields once, after the traversal.
+   against 33.6% at Embree's leaf top. (Read closer, 11-01 midday: ours
+   has Embree's `den != 0` test too, `vcmpneqps` at 2b166, and that test
+   is what excludes Embree's padding lanes, zero triangles; the geomID
+   test, `vpcmpneqd` into k2, excludes the same lanes a second time, and
+   its block-skip branch never fires, no block being empty. The ids sit
+   at +0x90..0x9f of the 176-byte block: in the line of the +0x80 load for
+   three of the four 16-byte alignments, in a line of their own for the
+   fourth, base = 48 mod 64, where our first touch is to a line the
+   vertex loads never need; L2 misses are +4%, so that line is mostly an
+   L2 hit, overlapped with the block's other lines.)
+2. *The hit record.* Both compilers take a lane out of a vector the same
+   way, a store of the vector to the stack and a scalar load of the lane:
+   ours `vmovaps %xmm15,0x190(%rsp); vmovss 0x190(%rsp,%rdx,1)`, six of
+   them; Embree `vmovaps %xmm4,0xd0(%rsp)` ... `vmovss
+   0x120(%rsp,%rcx,1)`, eight. Embree then writes the hit into the
+   RTCRayHit at once, in the leaf (`vmovss %xmm2,0x20(%rsi)` tfar,
+   0x30..0x4c the hit; the first reading here, "once after the
+   traversal", was wrong), and its next block reads tfar back from the
+   record (`vmulps 0x20(%rsi){1to4}`); ours parks t, u, v and Ng in the
+   frame (0x4c, 0x48, 0x44, 0xd0(%rsp)), keeps tfar in xmm6, and writes
+   the output record at the ray's end. Rare on landscape (8.3% of rays
+   hit); not the loss on either side.
 3. *The child pointer.* Ours loads all eight (`vmovdqu64 (%rax),%zmm3`)
    and then the first hit child's slot again by tzcnt (`mov
-   (%rax,%rdx,8),%rbp`) before the four prefetches; Embree extracts it
-   from two ymm halves in registers (vpcompressd, vpermt2q, vmovq).
+   (%rax,%rdx,8),%rbp`) before the four prefetches; Embree's closest-hit
+   extracts it from two ymm halves in registers (vpcompressd, vpermt2q,
+   vmovq). Not a CSE miss: the index is a run-time tzcnt, and a load of
+   lane i from memory is what LLVM makes of an `extractelement` with a
+   variable index when it can (its other lowering is a store of the
+   vector to the stack and a load of the lane, which is what our node
+   loop gets for the hit children's *distances*: `vmovdqa32
+   %ymm8,%ymm0{%k1}{z}; vmovdqu %ymm0,0x90(%rsp); vmovdqu %ymm0,0xb0(%rsp)`
+   then four `mov 0x90(%rsp,%rdx,1)`-style loads, the one vector stored
+   to two slots, on every node with two or more hits). Embree's own
+   any-hit traversal (embree-occluded.dis, 2f83a8) fetches the first
+   child exactly as ours does, `tzcnt; mov (%rax,%r8,8),%r15`; the
+   register path belongs to its closest-hit sort, where the compress
+   that orders the children leaves the first in lane 0 for free. Our
+   zmm3 feeds only the four-or-more path (`vpcompressq` at 2ad77). The
+   samples put our extraction below Embree's (4.6 + 4.6% against 7.2 +
+   6.8 + 4.2%). One more frame slot of ours: the stack depth (`mov
+   %rax,(%rsp)` at each node, `mov (%rsp),%rax` at the pop) where Embree
+   keeps its stack pointer in r9.
 4. *The ray setup* is 108 instructions (17 mov, 16 vbroadcastss, 7 shl, 6
    or, 6 and: the six near/far byte offsets built and parked in stack
    slots) against Embree's 78 plus its wrapper; even in cycles at both
@@ -8276,8 +8309,11 @@ and 14.0 a ray, 8.1 and 8.6 of them on taken branches, and two thirds of
 every op dispatched is thrown away (2940 dispatched against 964 retired;
 3076 against 945). Ours has 1.9% more mispredicts and 4.6% more ops
 dispatched a ray, so 155 more discarded ops a ray (2131 against 1976:
-152 against 143 an event) -- the same mispredicts flushing more work
-each, which is the 20 cycles. By region (cycles a ray, Embree / ours,
+152 against 143 an event). At about 37 cycles an event (2017 empty
+front-end slots a ray over 14 events is 18 cycles of bubble each, and
+the 152 discarded ops took 19 cycles to dispatch) the extra 0.25
+mispredicts are 9 of the 20 cycles; the rest is the node region's
+longer path. By region (cycles a ray, Embree / ours,
 Embree's 15.4 after a hit added to its leaf): ray setup 43.3 / 47.6, stack
 pop and ray end 47.1 / 49.8, node test and child selection 344.5 / 380.6,
 children push (two or more hits) 77.8 / 71.0, leaf 352.2 / 341.8.
@@ -8292,6 +8328,53 @@ sorted, as Embree's traverseAnyHit does; Embree pushes the rest in a
 loop); node-or-leaf (`test $0x8; jne`). The samples spread over the same
 four decisions on both sides; the per-branch attribution is a sample
 behind the branch and is not finer than that.
+
+**How Embree hides the misses** (11-01 midday, the user's question). The
+counters say where the time goes and not through which mechanism: they
+count fills, and a load that finds its line already in flight -- a
+prefetch's, the hardware prefetcher's, a neighbouring load's -- waits and
+fills nothing. Inside a node or a block the two sides request the same
+lines within a few instructions of each other (the bounds' three lines;
+the block's three or four), so one miss overlaps the next the same way
+there, and the chain from a node's data to its child's first load is the
+same length to a few cycles (Embree: compress, permute, movq; ours: kmov,
+tzcnt, a load from L1). What is left to hide a miss under is the work of
+the rays that follow: the out-of-order window (448 ops on Zen 5) runs
+past a stalled ray's predictable end into the next ray's setup and root,
+and the next ray's misses start under this one's. Between two
+traversals ours spends more ops a ray -- the setup of 108 instructions
+against 78, the record copied out at the ray's end -- so the window
+reaches fewer of the next ray's nodes; the slot counters show it: our
+back end stalls dispatch on 11% more slots a ray (985 against 884) with
+37% fewer empty front-end slots (40 against 64), the window fuller with
+ops that wait. This reading fits every number (proportional to the
+misses; equal counts; the extra cycles at the bounds' first use and in
+the block after its first touch; even at 2048, where our fewer ops offset
+it), and it is a reading, not a measurement. The measurement that settles
+it is AMD's instruction-based sampling (`perf mem record` over the ibs_op
+PMU, checked usable unprivileged on this kernel): for each sampled load
+its latency, its data source (L1, L2, L3, DRAM, in flight) and its
+tag-to-retire time, per instruction. Queued behind bonsai-f9's hold on
+the machine ('timing' 10:20, about an hour, a CPU sweep after).
+
+**Ivy and `likely()`** (the user's question). Embree's hints change the
+block layout only, the likely arm falling through; Zen takes no static
+hint. Our layout already falls through more: 36.2 taken branches a ray
+against Embree's 44.4, with as empty a front end (2017 against 1962
+slots). The loss is in the data-dependent branches no hint predicts.
+By instruction (occluded_all.dis under ivy-ao-1024.g1, the samples a line
+behind the branch): the one-or-more test `blsr; je` carries 7.6% of our
+mispredict samples (3.5% at its taken target, 4.1% at the fall-through),
+the node's hit-any `kortest; je` 6.3%, the count chain's compares about
+3%, the leaf's hit test 8%, the block loop 3%; the rest is spread thin.
+The two encodings of the hit count -- Embree's loop exit, taken once
+after k-1 falls, against our one-hot compares `cmp $2; je; cmp $3; je;
+cmp $4; jne` -- give the predictor the same information in a different
+history, and Embree's history predicts 11% better in that region (5.36
+against 5.94 a ray). The node region's other cost: our node code is four
+copies (two, three, four, more children), each with its own loads,
+prefetches and jump back, and the op cache misses 12% more (0.93 against
+0.83 a ray).
 
 **What it is not**, on either cell: miss counts (demand, L2, DRAM) within
 5%; prefetch instructions, their fills and the ineffective ones equal;
