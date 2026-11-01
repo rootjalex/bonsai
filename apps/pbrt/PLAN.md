@@ -20035,3 +20035,94 @@ guesses the program's capacity is the kind of hidden coupling the
 storage argument was meant to remove. That is a compiler (CodeGen/CPP)
 and driver change for the user's eyes; until it lands the pass side stays
 out of the figure with a note (plots.sh, plot_gpu_wavefront.py).
+
+## 11-01, the capacity in the header: the pass-of-four wavefront rendered, and what it costs
+
+The user, 10-31 late: "Please make that fix you suggested with the driver
+and the C++ codegen, it should be clean and minimal." Committed e08e0195.
+The change is to the interface between a program whose queues live in the
+driver's memory and the driver that allocates them. Before, the generated
+header gave each queue array's element size and the driver chose the count
+by a rule of its own:
+
+    // the header, per queue array
+    #define BONSAI_render_rays_ray_o_ELEMENT_BYTES sizeof(std::array<float, 3>)
+    // render_hook.cpp
+    capacity = width * scanlines_per_pass    // pbrt's maxQueueSize, computed again here
+    bytes    = capacity * ELEMENT_BYTES
+
+After, the header states the count too, as the program computes it from
+the function's own parameters, and the driver multiplies:
+
+    // the header, per queue array
+    #define BONSAI_render_rays_ray_o_ELEMENT_BYTES sizeof(std::array<float, 3>)
+    #define BONSAI_render_rays_ray_o_CAPACITY ((width * (((height + (((height
+        + max(1u, 1048576u / width)) - 1u) / max(1u, 1048576u / width))) - 1u)
+        / (((height + max(1u, 1048576u / width)) - 1u) / max(1u, 1048576u / width)))) * 4u)
+    // render_hook.cpp
+    bytes = CAPACITY * ELEMENT_BYTES
+
+(the pass renderer's: pbrt's pass of pixels, times the four samples a
+group holds; the matched renderer's is the same without the `* 4u`; a
+schedule that states a constant capacity prints that constant). Where the
+count comes from. The storage pass turns an Extern queue's array into a
+parameter of the exported function; the value that sized the array is
+arithmetic computed at the function's entry (the hoist of 10-31 put it
+there when it was not). The resolver that gives a kernel launch its block
+size -- a value of the body computed again on the host from the captures,
+Briggs, Cooper and Torczon's rematerialization (PLDI 1992) -- is run on
+the entry block with every parameter a capture and no loop index, and
+yields an expression over the parameters and constants, or the reason it
+cannot (a value read from memory, a call, something merged inside a loop).
+The parameter carries the expression as its `capacity`, the IR argument
+carries it on to the C++ backend, which prints the macro, and the SSA and
+IR printers show it after the parameter's type (`sums_k_0 : mut i32[]
+capacity (n << 1)`). A capacity that cannot be so expressed is refused
+where the parameter is made, with the reason: the caller has to be told how
+much to allocate, and only arithmetic over what it passes can be printed
+for it. Three tests: the SSA golden ssa/queue-storage-capacity (the
+capacity on the parameters of a function whose loop runs `n * 2` times),
+the refusal error/queue-storage-extern-capacity (a loop bounded by
+`out[0]`), and the execution test correctness/gpu/queue-extern-capacity-cpp,
+whose C++ driver allocates by the header's capacity over `n` and prints
+it (8 entries of 4 bytes, the sums of queue-extern-cpp). The driver's
+lambda that recomputed pbrt's pass of pixels is gone; its queue_buffer
+takes the header's capacity. Suite 1956.
+
+**The pass-of-four wavefront under it** (scratch/check_pass_capacity.sh,
+23:59-00:22). killeroo-simple at 1, 4 and 16 spp matches pbrt (0.38x,
+0.36x, 0.58x of pbrt --gpu; the crash at 4 spp is gone), and the
+eight-scene sweep at 16 and 128 spp, three repeats, matches on all sixteen
+cells (gpu-compare-out-wf3c). It is slow: 0.17, 0.10, 0.28, 0.09, 0.25,
+0.28, 0.16, 0.79x at 16 spp and 0.75, 0.45, 0.99, 0.50, 0.94, 1.01, 0.72,
+2.62x at 128 (figure order), below every other wavefront on every scene but
+frame542 at 128 spp, where it is the best wavefront. The cause is in the
+header the fix prints. Every queue array is allocated at the band's
+capacity -- 1,950 arrays, 15,650 bytes an entry summed across them (the
+material queues are one per material under each texture evaluator, each
+at the full capacity, as pbrt's are) -- and four samples a pixel makes
+4,147,200 entries on book (1920x1080, pass_pixels 1,036,800): 60.4 GB of
+managed memory, against the matched renderer's 1,644 arrays, 14,394 bytes
+an entry, 13.9 GB, on a card of 32.6 GB. The pages migrate as the kernels
+touch them: the wall time exceeds the renderers' own kernel statistics by
+0.6-2.4 s a render (killeroo-gold 0.87 s, book 2.03 s, bistro 2.35 s,
+frame542 1.29 s at 16 spp), the same at 16 and 128 spp -- a cost paid once
+a render, not per sample -- where the matched renderer's wall is within
+0.02 s of its kernels on book; and a single trace launch takes 57-126 ms
+(the raygen's maximum in the statistics) where the matched renderer's
+longest is 0.42 ms. The schedule's comment said the card has the memory
+pbrt's cap guards against; it does not, and the comment now says what was
+measured. A quarter of the rounds is bought with four times the queue
+memory, so the only scene the pass wins is the one whose cost is all
+rounds: frame542 at 128 spp, 256 bounces, 2.62x against the matched
+wavefront's 1.62x and the fused wavefront's 1.68x (the megakernel with
+reordering is still 20.4x there). No profiler was run; this is the
+renderers' own statistics and the header's arithmetic.
+
+**The figure.** wf-pass joins the GPU sweep (plots.sh, GPU_TABLES gains
+gpu-compare-out-wf3c/table.tsv; the notes that left it out are gone),
+128 drawn bars. The user, 11-01, on seeing the sweep cut at 4x instead of
+6x (apps/pbrt/scratch/gpu-sweep-ymax4.png): "Use the 4x cut on the real
+gpu sweep plot, it looks better than 6x" -- plots.sh's GPU_YMAX is 4:
+frame542's six megakernel bars (4.6x to 20.4x) are cut and labelled,
+every other bar is under 3.7x and gets the height.

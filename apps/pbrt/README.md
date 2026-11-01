@@ -201,11 +201,12 @@ before it.
     on the same scenes x 16/128 spp (plot_gpu_wavefront.py from
     gpu-compare-out-six, the morning of 10-30's run under caa9eb9b, and
     frame542's cells from gpu-compare-out-two, the evening's, plume's
-    from gpu-compare-out-plume). Its speedup axis is cut at 6x (plots.sh's
-    GPU_YMAX; the user, 10-30: linear, never log): a bar past the cutoff
-    is drawn to it with a break mark, and its value stands upright over
-    the bars with a thin leader to its bar (CUT_FLAGS; the user's choice
-    of 10-30 night), as frame542's megakernels are (6.2x to 20.4x). The
+    from gpu-compare-out-plume). Its speedup axis is cut at 4x (plots.sh's
+    GPU_YMAX; the user, 10-30: linear, never log; 11-01: 4x rather than
+    6x): a bar past the cutoff is drawn to it with a break mark, and its
+    value stands upright over the bars with a thin leader to its bar
+    (CUT_FLAGS; the user's choice of 10-30 night), as frame542's six
+    megakernel bars are (4.6x to 20.4x). The
     CPU figure's axis ends at 8x and cuts nothing (CPU_YMAX). Both legends
     read the same way (the user, 10-30): pbrt's own megakernel where there
     is one, then the schedule that matches pbrt's wavefront, the

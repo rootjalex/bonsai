@@ -182,10 +182,18 @@ WHY = [
     "  frame542 (0.81x) -- one bounce's work after the reorder (a trace, one material, a push) is too",
     "  little to repay a sort of the launch's rays every bounce, where the SER megakernel sorts once",
     "  for a whole path's divergence (a reading from the walls; not profiled). The pass-of-four",
-    "  wavefront (wf-pass: a band of pixels times four samples per round of launches) compiles",
-    "  under the fix and matches pbrt at 1 spp, and dies at 4 spp and above with an illegal",
-    "  address -- the driver allocates its band queues for one sample a pixel (PLAN, 10-31); it is",
-    "  left out of the figure until it renders.",
+    "  wavefront (wf-pass: a band of pixels times four samples per round of launches, a quarter of",
+    "  pbrt's rounds) is 0.09-0.79x of pbrt --gpu at 16 spp and 0.45-2.62x at 128, below every",
+    "  other wavefront on every scene but frame542 at 128 spp: its queues do not fit the card. Every",
+    "  queue array is allocated at the band's capacity -- 1,950 arrays, 15.6 KB an entry across",
+    "  them -- and four samples a pixel makes 4.1M entries on book (1920x1080): 60 GB of managed",
+    "  memory on a 32 GB card, where the matched wavefront's 14 GB fit, so the pages migrate as the",
+    "  kernels touch them. The wall time exceeds the kernels' own by 0.6-2.4 s a render, the same at",
+    "  16 and 128 spp (a cost paid once a render, not per sample), and a single trace launch takes",
+    "  57-126 ms where the matched wavefront's longest is 0.4 ms (the renderers' kernel statistics).",
+    "  pbrt's cap of a million paths a pass is the memory bound this schedule crossed; a quarter of",
+    "  the rounds is bought with four times the queue memory, and only frame542 at 128 spp, where",
+    "  256 bounces of rounds are the whole cost, comes out ahead (2.62x, the best wavefront there).",
 ]
 READINGS = {
     "killeroo-simple": [
@@ -282,6 +290,9 @@ READINGS = {
         "8.7x, the per-sample 6.2x and 6.5x, the flat 4.7x and 4.6x; the wavefront 1.66x and 1.62x (the",
         "heatmap's 1.66x and 1.59x) and the sort below pbrt (0.92x, 0.90x: a sort a round on those",
         "near-empty queues). The reading is not verified by a launch count (nsys would give it).",
+        "Measured on 11-01, the pass-of-four wavefront is the best wavefront here at 128 spp (2.62x",
+        "against the matched 1.62x and the fused 1.68x) and 0.79x at 16: the only scene where a quarter",
+        "of the rounds repays the paging of its four-times-larger queues (WHY, the last paragraph).",
     ],
     # The eighth scene (the user, 10-30 evening: a participating medium),
     # measured 22:09-22:17 into gpu-compare-out-plume with the six's renderers.

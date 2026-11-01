@@ -108,10 +108,14 @@ CPU_CSVS="${CPU_CSVS:-$PREFIX/cpu-compare-out-six/cpu-results.csv $PREFIX/cpu-co
 # and the tables of 10-30 stand); gpu-compare-out-wf3b/ (09:06-09:20) the
 # fused wavefront with reordering by material (gpu-optix-fused-ser) on the
 # eight, every cell matching, beside the pass-of-four wavefront's rows
-# (gpu-optix-pass), which hold no time: it matched pbrt at 1 spp and dies
-# at 16 spp on every scene with an illegal address (PLAN, 10-31), so the
-# figure leaves that side out with a note until it renders.
-GPU_TABLES="${GPU_TABLES:-$PREFIX/gpu-compare-out-six/table.tsv $PREFIX/gpu-compare-out-two/table.tsv $PREFIX/gpu-compare-out-plume/table.tsv $PREFIX/gpu-compare-out-wf3/table.tsv $PREFIX/gpu-compare-out-wf3b/table.tsv}"
+# (gpu-optix-pass) of that run, which hold no time: it died at 16 spp on
+# every scene with an illegal address, the driver having sized its queues
+# for one sample a pixel (PLAN, 10-31); gpu-compare-out-wf3c/ (11-01
+# 00:07-00:22) the pass-of-four wavefront again under e08e0195 -- the
+# header stating each queue array's capacity and the driver allocating by
+# it -- on the eight, every cell matching, which is the side the figure
+# draws as wf-pass.
+GPU_TABLES="${GPU_TABLES:-$PREFIX/gpu-compare-out-six/table.tsv $PREFIX/gpu-compare-out-two/table.tsv $PREFIX/gpu-compare-out-plume/table.tsv $PREFIX/gpu-compare-out-wf3/table.tsv $PREFIX/gpu-compare-out-wf3b/table.tsv $PREFIX/gpu-compare-out-wf3c/table.tsv}"
 # The sweeps' scenes, in the figures' order (the user, 10-29: pbrt --gpu's
 # time at 128 spp, ascending), keyed by path under the scene set; both
 # sweep figures draw these and only these from their tables (the
@@ -119,15 +123,17 @@ GPU_TABLES="${GPU_TABLES:-$PREFIX/gpu-compare-out-six/table.tsv $PREFIX/gpu-comp
 # of the CPU figure with a note.
 SWEEP_SCENES="${SWEEP_SCENES:-killeroos/killeroo-gold,pbrt-book/book,sanmiguel/sanmiguel-courtyard,ganesha/ganesha,sssdragon/dragon_10,smoke-plume/plume,bistro/bistro_vespa,transparent-machines/frame542}"
 # Where each sweep's speedup axis ends (the user, 10-30: a linear axis, cut
-# at 6x on the GPU sweep, never a log axis for speedups); a bar past the
-# cutoff is drawn to it with a break mark, and its value stands upright
-# over the bars with a thin leader to its bar (the user's choice among six
-# trials, 10-30 night: the values on one line, never stacked; frame542's
-# megakernels, 6.2x to 20.4x over pbrt --gpu). The CPU sweep's bars run to
+# on the GPU sweep, never a log axis for speedups; 11-01: cut at 4x rather
+# than 6x, "it looks better" -- every bar but frame542's six megakernel
+# bars is under 3.7x, and they get the height); a bar past the cutoff is
+# drawn to it with a break mark, and its value stands upright over the
+# bars with a thin leader to its bar (the user's choice among six trials,
+# 10-30 night: the values on one line, never stacked; frame542's
+# megakernels, 4.6x to 20.4x over pbrt --gpu). The CPU sweep's bars run to
 # 7.7x with thirteen of them between 6x and 8x (killeroo-gold's and book's
 # per-thread wavefronts and megakernels), so its axis ends at 8x and cuts
 # nothing; the same flags for the day a bar passes it.
-GPU_YMAX="${GPU_YMAX:-6}"
+GPU_YMAX="${GPU_YMAX:-4}"
 CPU_YMAX="${CPU_YMAX:-8}"
 CUT_FLAGS="--leaders --rotate-cut-labels"
 # The heatmap of the same night (00:45-02:22), the gpu-optix renderer
@@ -141,8 +147,8 @@ HEATMAP_TABLE="${HEATMAP_TABLE:-$PREFIX/compare-out-heatmap12/table.tsv}"
 # launch with reordering (the user, 10-30 evening: five wavefronts and
 # three megakernels; mk-pass, mk-blk and mk-ser dropped as never best and
 # each below a sibling at every cell -- their rows stay in the tables and
-# the .txt of 10-30). A side with no rows yet is left out (the fused and
-# pass wavefronts until their run of the night of 10-30 lands).
+# the .txt of 10-30). A side with no timed rows is left out, as the pass
+# wavefront was until its run of 11-01.
 GPU_SIDES="${GPU_SIDES:-gpu-optix,gpu-optix-sort,gpu-optix-fused,gpu-optix-fused-ser,gpu-optix-pass,gpu-optix-mega,gpu-optix-mega-flat,gpu-optix-mega-ser-flat}"
 # The profile figure's launches (the user, 10-28): profile_kernels.sh's
 # reports under profile-out-e (02:22-02:28 the same night, on the sweep's

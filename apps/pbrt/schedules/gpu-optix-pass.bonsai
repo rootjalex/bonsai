@@ -65,8 +65,17 @@ schedule {
     // sweep's scenes) and the frame takes a quarter of pbrt's rounds: the
     // launches a round costs regardless of how many paths are left, which
     // frame542's depth-256 tail paid most for, are paid a quarter as often.
-    // The card has the memory pbrt's cap guards against (32 GB); nothing
-    // else of the schedule changes.
+    // Nothing else of the schedule changes. Measured 11-01 (gpu-compare-
+    // out-wf3c, under the header stating each queue array's capacity): the
+    // card does not have the memory pbrt's cap guards against. Every queue
+    // array is allocated at the band's capacity, and the 1,950 arrays come
+    // to 60 GB of managed memory on book against the matched schedule's
+    // 14 GB and the card's 32 GB, so the pages migrate as the kernels touch
+    // them, 0.6-2.4 s a render over the kernels' own time; the schedule is
+    // 0.09-0.79x of pbrt --gpu at 16 spp and 0.45-2.62x at 128, ahead of the
+    // other wavefronts only on frame542 at 128 spp, where a quarter of 256
+    // bounces' rounds outweighs the paging. A quarter of the rounds is
+    // bought with four times the queue memory.
     render[VolPath].split(s, s_grp, s_in, 4, true);
     render[VolPath].reorder(p, s_grp);
     render[VolPath].split(p, p_band, p_in, pass_pixels, true);
