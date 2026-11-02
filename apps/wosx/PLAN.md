@@ -3149,6 +3149,22 @@ fifteen instructions in the root visit allocated to other registers (r8 for
 rdi, k1 for k2, a zeroing moved). That is one visit per query, in register
 names; nothing a least-of-three measurement resolves. The tables stand.
 
+The compiler commit of 20:52 on 11-01 (4e3f074c: the OptiX pipeline is
+linked for the depth of the traces its programs make, and its continuation
+stack sized for that depth -- two where a hit or miss program traces in
+turn, as pbrt's fused schedules' shadow ray does, one otherwise) reaches
+the wosx GPU drivers through runtime/bonsai_optix.h, which they compile,
+so the check ran again (63 files, compile only, 21:47-21:49, the lock taken
+over from a peer's stalled hold under the twenty-minute rule). Fifty-six
+schedules byte-identical in all three outputs; the seven OptiX schedules
+differ in four lines of host LLVM each: the load call passes the module's
+trace depth as a third argument, and it is 1 for every one of them (wosx
+traces from the raygen program alone; its hit programs trace nothing). In
+the runtime the link's depth was the constant 1 and is now that argument,
+and the stack expression for depth one is, term for term, the one it was.
+The OptiX bars of both GPU figures (10-28) were measured on this pipeline.
+The tables stand.
+
 ### Next
 
 - The refill for the compacting block, as the user's plan (above): a
