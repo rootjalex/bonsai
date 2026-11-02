@@ -3197,6 +3197,14 @@ compiler's own LLVM 23 and disassembled, is identical instruction for
 instruction (equal text sizes; 3,478 instructions either way in
 fcpwb-packet-defer-sort-threads). The tables stand; no remeasure.
 
+The compiler commit of 10:20 on 11-02 (1f5c68b1: a bypass that lands on a
+join keeping its arguments, and a per-lane vector accumulated into an array
+of vectors), checked the same way at 10:21-10:24 under the peer's hold, the
+binary's checksum the same before and after: all sixty-three schedule files
+byte-identical in final SSA, LLVM module and header against 1ab9281e's
+outputs. Both changes give a lowering to shapes that stopped the compiler
+before, and every wosx schedule compiled before. The tables stand.
+
 ### Next
 
 - The refill for the compacting block, as the user's plan (above): a
