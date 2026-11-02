@@ -8194,6 +8194,19 @@ binary stays still, 10:21:18-10:21:25): every LLVM module byte-identical to
 the 10-31 dumps; the final SSA identical to 10-31 for five schedules and,
 for fcpw4w16, identical to the 1ab9281e dump. Nothing of rtq's changed.
 
+**And against a4d805c7 (2026-11-02, 15:58).** f9's commit to
+SSA/UniformizeLoops.cpp and SSA/Linearize.cpp (what the code after a
+divergent loop reads of the loop -- reads that pointed at the loop's own
+instruction, stale name tables, a cloned instruction with a foreign owner,
+the threaded copy now named x!out -- and a kept join that threads a blended
+name on) reaches gang code with a divergent loop whose values are read after
+it, so fcpw4w16 might have moved in text. The same recheck
+(scratch/ssa-check-a4d805c7/run.sh, under build/compiler linked 15:47, this
+commit's build, in the half-hour window f9 gave under its hold,
+15:58:49-15:58:56): every LLVM module byte-identical to the 10-31 dumps; the
+final SSA identical to 10-31 for five schedules and to the 1f5c68b1 dump for
+fcpw4w16. Nothing of rtq's moved, not even in text.
+
 ### Where the 5% goes: the two Embree cells under the hardware counters (2026-11-01)
 
 The user, 00:10: "please do profile to see where that 5% goes. Don't try
