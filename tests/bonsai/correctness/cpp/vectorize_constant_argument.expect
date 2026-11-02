@@ -1,0 +1,5 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_constant_argument.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_constant_argument.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_constant_argument.o tests/bonsai/correctness/cpp/vectorize_constant_argument.o -o tests/bonsai/correctness/cpp/vectorize_constant_argument
+[test] ./tests/bonsai/correctness/cpp/vectorize_constant_argument
+lit: 2 4.5 7 9.5 12 14.5 17 19.5 (bias called 8 times)
+unlit: 1 2 3 4 5 6 7 8 (bias called 0 times)

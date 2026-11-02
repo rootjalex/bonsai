@@ -1,0 +1,40 @@
+//! flags: -p ssa
+
+// A foreign function called from a vectorized loop with a lane's arguments,
+// under a condition some lanes fail.
+//
+// A foreign function (`extern func`, docs/foreign-functions.md) is one scalar
+// call with the C calling convention: the compiler has no body to widen and
+// cannot hand it a vector of arguments or run it under a mask, which is why
+// such a call used to be refused, as ispc refuses a call to an external
+// function with varying arguments. Now the gang's variant of it is a wrapper
+// that makes the scalar call once per lane that is on, in lane order --
+// ispc's `foreach_active`, written by the compiler -- each lane's arguments
+// picked out of the gang's vectors, each result put into its lane of the
+// result vector, and the lanes that are off skipped, since their arguments
+// are nothing any thread computed (SSA/Vectorize.cpp, specialize_foreign).
+// What to read for in the golden: `grid_of`, whose arguments are uniform,
+// called once as before; `grid_value$gang4_v1$masked`, a chain of four tests
+// of the mask's lanes, each leading to one call of `grid_value` on that
+// lane's `i` and a shuffle of the result into the accumulated vector, and
+// the odd lanes' `-1` where the test fails.
+extern element Grid;
+extern func grid_of(bytes : array[f32], at : u32) -> Grid;
+extern func grid_value(g : Grid, i : i32) -> f32;
+
+func [[export]] sample(vals : array[f32], at : u32,
+                       out : mut array[f32, 4]) -> void {
+    parfor i in 0:4 {
+        g = grid_of(vals, at);
+        if i % 2 == 0 {
+            out[i] = grid_value(g, i);
+        } else {
+            out[i] = -1.0;
+        }
+    }
+    return;
+}
+
+schedule {
+    sample.vectorize(i);
+}

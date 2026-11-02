@@ -7,6 +7,7 @@
 #include "SSA/PromoteAllocas.h"
 #include "SSA/Rewrite.h"
 #include "SSA/SSA.h"
+#include "SSA/Simplify.h"
 #include "SSA/SplitAggregates.h"
 #include "SSA/UniformizeLoops.h"
 
@@ -14,6 +15,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <map>
 #include <optional>
@@ -1546,10 +1548,28 @@ struct VariantKey {
     vector<Shape> shapes;
     bool masked = false;
     uint32_t lanes = 0;
+    // A parameter the call hands a constant to, where the callee's control
+    // depends on it (parameter_steers_control): the constant's token
+    // (constant_token), "" for every other parameter. Part of the key, so
+    // that a callee called with a flag true and with it false gets a clone
+    // for each, the constant folded into the clone before it is vectorized
+    // (specialize): what `render[VolPath].specialize(have_media)` on the
+    // caller means for the functions the loop calls, which take the flag
+    // as a parameter and branch on it. The values ride along for the clone
+    // to substitute; they are not compared, the tokens are.
+    vector<string> constants;
+    vector<shared_ptr<Value>> constant_values;
+    // For a callee with no body here (a foreign function, `extern func`):
+    // the call's own types -- the arguments' as the scalars they are before
+    // widening, the result's from the continuation, undefined when the
+    // call drops it -- which are all there is to build its per-lane wrapper
+    // from (specialize_foreign). Not compared.
+    vector<Type> foreign_params;
+    Type foreign_result;
 
     bool operator<(const VariantKey &o) const {
-        return std::tie(callee, shapes, masked, lanes) <
-               std::tie(o.callee, o.shapes, o.masked, o.lanes);
+        return std::tie(callee, shapes, masked, lanes, constants) <
+               std::tie(o.callee, o.shapes, o.masked, o.lanes, o.constants);
     }
 };
 
@@ -1563,8 +1583,92 @@ string variant_name(const VariantKey &key) {
         } else if (key.shapes[i] == Shape::Pointee) {
             name += "_p" + std::to_string(i);
         }
+        if (i < key.constants.size() && !key.constants[i].empty()) {
+            name += "_c" + std::to_string(i) + key.constants[i];
+        }
     }
     return key.masked ? name + "$masked" : name;
+}
+
+// A constant a call hands a callee, as the clone's key and name carry it: a
+// bool or an integer (a float steers no branch a clone would fold), its
+// value and nothing a symbol table objects to. The parameter's type is the
+// callee's, so the value alone tells two constants apart.
+std::optional<string> constant_token(const Value &v) {
+    const auto *c = std::get_if<Constant>(&v.data);
+    if (c == nullptr ||
+        !(c->type.is<Bool_t>() || c->type.is<Int_t>() || c->type.is<UInt_t>())) {
+        return std::nullopt;
+    }
+    return std::visit(
+        overloads{[](bool b) -> std::optional<string> {
+                      return string(b ? "t" : "f");
+                  },
+                  [](int64_t i) -> std::optional<string> {
+                      return i < 0 ? "m" + std::to_string(-i) : std::to_string(i);
+                  },
+                  [](uint64_t u) -> std::optional<string> {
+                      return std::to_string(u);
+                  },
+                  [](const auto &) -> std::optional<string> {
+                      return std::nullopt;
+                  }},
+        c->data);
+}
+
+// The one constant every value of `values` is, or none: a run of calls
+// (Terminator::MultiCall) hands a parameter several values, and the clone
+// folds the constant only when they agree.
+std::optional<string> common_constant_token(const vector<const Value *> &values) {
+    std::optional<string> token;
+    for (const Value *v : values) {
+        const auto t = v != nullptr ? constant_token(*v) : std::nullopt;
+        if (!t.has_value() || (token.has_value() && *token != *t)) {
+            return std::nullopt;
+        }
+        token = t;
+    }
+    return token;
+}
+
+// Whether the callee's control depends on its `i`th parameter: the
+// parameter, under its name in whichever block it was threaded to, is a
+// dispatch's condition or an operand of what computes one, within a few
+// steps. What makes a constant argument worth a clone of its own
+// (specialize_calls): a flag or a tag the callee branches on folds its
+// branches, and the arms no caller of this clone can reach go with them,
+// before the linearizer would have masked them and the gang widened them;
+// a literal the callee only computes with would multiply the clones for
+// nothing a branch reads. LLVM's function specialization weighs a constant
+// argument the same way, by the branches and switches it decides.
+bool parameter_steers_control(const Function &callee, size_t i) {
+    if (callee.blocks.empty() || i >= callee.blocks.front()->args.size()) {
+        return false;
+    }
+    const string &param = callee.blocks.front()->args[i].name;
+    const std::function<bool(const Value &, int)> reaches =
+        [&](const Value &v, int depth) -> bool {
+        if (const auto *a = std::get_if<Argument>(&v.data)) {
+            return a->name == param;
+        }
+        const auto *instr = std::get_if<shared_ptr<Instruction>>(&v.data);
+        if (instr == nullptr || depth == 0) {
+            return false;
+        }
+        for (const auto &operand : (*instr)->operands) {
+            if (operand && reaches(*operand, depth - 1)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    for (const auto &block : callee.blocks) {
+        const auto *d = std::get_if<Terminator::Dispatch>(&block->terminator.data);
+        if (d != nullptr && d->cond && reaches(*d->cond, 4)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // Every variant generated so far, so that a callee reached twice in the same
@@ -1804,6 +1908,55 @@ void specialize_calls(FuncMap &funcs, Function &func, Cfg &region,
             continue;
         }
 
+        key.constants.assign(key.shapes.size(), "");
+        key.constant_values.assign(key.shapes.size(), nullptr);
+        if (callee != funcs.end()) {
+            // A parameter the call hands a constant to, where the callee's
+            // control depends on it, is folded into the clone (specialize):
+            // the constant a `specialize` on the caller made of its flag
+            // reaches the branches the callee makes on it. A per-lane short
+            // vector split into components is never a constant.
+            size_t position = 0;
+            for (size_t i = 0; i < components.size(); i++) {
+                if (components[i] == 1 && key.shapes[i] == Shape::Uniform) {
+                    const auto token = common_constant_token(values_at(position));
+                    if (token.has_value() &&
+                        parameter_steers_control(*callee->second, i)) {
+                        key.constants[i] = *token;
+                        key.constant_values[i] =
+                            std::make_shared<Value>(*values_at(position).front());
+                    }
+                }
+                position += components[i];
+            }
+        } else {
+            // A callee with no body here is a foreign function: its variant
+            // is built from the call's own types (specialize_foreign), the
+            // arguments' as they are before the region is widened and the
+            // result's from the continuation that takes it.
+            const auto *c = std::get_if<Terminator::Call>(&block->terminator.data);
+            internal_assert(c != nullptr)
+                << "A run of calls to the foreign function " << call->name
+                << " in " << name << ": a foreign function is called one "
+                << "call at a time (docs/foreign-functions.md)";
+            // A value the gang already holds one per lane of -- the loop's
+            // index, a ramp -- has the gang's type here; the wrapper wants
+            // the scalar the function takes, and widens it itself.
+            const auto scalar_of = [&](const Type &t) {
+                return is_gang_wide(t, lanes) ? narrow(t, lanes) : t;
+            };
+            for (const auto &a : call->args) {
+                key.foreign_params.push_back(scalar_of(a->get_type()));
+            }
+            if (!c->drop) {
+                const Block &target = region[region.id(c->cont.name)];
+                internal_assert(!target.args.empty())
+                    << "Call continuation " << target.name
+                    << " takes no result argument";
+                key.foreign_result = scalar_of(target.args[0].type);
+            }
+        }
+
         const auto cached = variants.find(key);
         string name_of_variant;
         if (cached != variants.end()) {
@@ -1896,20 +2049,192 @@ void specialize_calls(FuncMap &funcs, Function &func, Cfg &region,
 // which is why it is worth having both: a call that is always executed should
 // not pay for predication (ispc section 5.7 passes the mask the same way, and
 // only for functions that need it).
+// The variant of a callee with no body here: a foreign function (`extern
+// func`, docs/foreign-functions.md), one scalar call with the C calling
+// convention, which a gang cannot hand a vector of arguments or a mask.
+// The variant is a wrapper that makes the call once per lane that is on,
+// in lane order -- ispc's `foreach_active` written out by the compiler --
+// each lane's arguments picked out of the gang's vectors, each result put
+// into its lane of the gang's, the lanes that are off skipped: a lane no
+// thread reached holds arguments nothing computed, and the library would
+// be handed them. Built in the gang's shape already -- every parameter a
+// vector where the call's argument varies, the mask a vector of bools,
+// the result a vector -- so it goes through none of the widening a bonsai
+// callee's clone does, and the call site treats it as any variant: the
+// mask appended, the call guarded by a test of the mask where nothing has
+// tested it (specialize_calls). The values are threaded through the chain
+// as block arguments, as every value is in this form.
+shared_ptr<Function> specialize_foreign(FuncMap &funcs, const VariantKey &key,
+                                        const string &name) {
+    internal_assert(key.foreign_params.size() == key.shapes.size())
+        << "The foreign call to " << key.callee << " passes "
+        << key.shapes.size() << " arguments and has " << key.foreign_params.size()
+        << " types for them";
+    for (size_t i = 0; i < key.shapes.size(); i++) {
+        internal_assert(key.shapes[i] != Shape::Pointee)
+            << "Cannot vectorize the call to the foreign function " << key.callee
+            << ": its argument " << i
+            << " points into the gang's per-lane memory, and a foreign "
+               "function takes an array as one address for every lane "
+               "(docs/foreign-functions.md). Hand each lane its value instead.";
+    }
+    const uint32_t lanes = key.lanes;
+    const bool returns = key.foreign_result.defined();
+    const Type acc_type = returns ? widen(key.foreign_result, lanes) : Type();
+
+    auto wrapper = std::make_shared<Function>();
+    wrapper->ret_type = returns ? acc_type : Void_t::make();
+    wrapper->attributes.push_back(ir::Function::Attribute::vectorized);
+    wrapper->specialized_from = key.callee;
+
+    // The values every block of the chain carries: the parameters, the mask
+    // and the result so far, by these names.
+    struct Carried {
+        Type type;
+        string name;
+    };
+    vector<Carried> carried;
+    for (size_t i = 0; i < key.shapes.size(); i++) {
+        carried.push_back({key.shapes[i] == Shape::Varying
+                               ? widen(key.foreign_params[i], lanes)
+                               : key.foreign_params[i],
+                           "a" + std::to_string(i)});
+    }
+    const size_t mask_at = carried.size();
+    if (key.masked) {
+        carried.push_back({widen(Bool_t::make(), lanes), "!mask"});
+    }
+    const size_t acc_at = carried.size();
+    if (returns) {
+        carried.push_back({acc_type, "acc"});
+    }
+
+    const auto new_block = [&](const string &suffix) {
+        auto b = std::make_shared<Block>();
+        b->name = suffix.empty() ? name : name + "!" + suffix;
+        b->owner = wrapper;
+        wrapper->blocks.push_back(b);
+        return b;
+    };
+    // Declares the carried values as `b`'s arguments (the entry declares
+    // the parameters and the mask, and starts the result undefined) and
+    // returns them in order.
+    const auto declare = [&](const shared_ptr<Block> &b, bool entry) {
+        vector<shared_ptr<Value>> values;
+        for (size_t i = 0; i < carried.size(); i++) {
+            if (entry && i == acc_at) {
+                values.push_back(undef_value(carried[i].type));
+            } else {
+                values.push_back(
+                    b->add_argument(Argument{carried[i].type, carried[i].name}));
+            }
+        }
+        return values;
+    };
+    const auto u32 = [](uint64_t k) {
+        return std::make_shared<Value>(Constant{UInt_t::make(32), k});
+    };
+
+    const auto entry = new_block("");
+    vector<shared_ptr<Block>> tests(lanes), calls(lanes), inserts(lanes);
+    for (uint32_t lane = 0; lane < lanes; lane++) {
+        tests[lane] = new_block("lane" + std::to_string(lane));
+        calls[lane] = new_block("call" + std::to_string(lane));
+        if (returns) {
+            inserts[lane] = new_block("ins" + std::to_string(lane));
+        }
+    }
+    const auto done = new_block("done");
+
+    entry->terminator.data =
+        Terminator::Jump{tests[0]->name, declare(entry, /*entry=*/true)};
+    for (uint32_t lane = 0; lane < lanes; lane++) {
+        const string next = lane + 1 < lanes ? tests[lane + 1]->name : done->name;
+
+        // Is this lane on? If not, past its call with everything as it was.
+        {
+            const auto &test = tests[lane];
+            vector<shared_ptr<Value>> values = declare(test, false);
+            if (key.masked) {
+                auto on = std::make_shared<Instruction>(
+                    wrapper->get_unique_name(), Bool_t::make(),
+                    Instruction::Op::ExtractIdx,
+                    vector<shared_ptr<Value>>{values[mask_at], u32(lane)}, test);
+                test->instrs.push_back(on);
+                // targets[0] is where a false condition goes: past the call.
+                test->terminator.data = Terminator::Dispatch{
+                    std::make_shared<Value>(on),
+                    {Terminator::Jump{next, values},
+                     Terminator::Jump{calls[lane]->name, values}}};
+            } else {
+                test->terminator.data =
+                    Terminator::Jump{calls[lane]->name, values};
+            }
+        }
+        // The call, on this lane's arguments.
+        {
+            const auto &call = calls[lane];
+            vector<shared_ptr<Value>> values = declare(call, false);
+            vector<shared_ptr<Value>> args;
+            for (size_t i = 0; i < key.shapes.size(); i++) {
+                if (key.shapes[i] != Shape::Varying) {
+                    args.push_back(values[i]);
+                    continue;
+                }
+                auto x = std::make_shared<Instruction>(
+                    wrapper->get_unique_name(), key.foreign_params[i],
+                    Instruction::Op::ExtractIdx,
+                    vector<shared_ptr<Value>>{values[i], u32(lane)}, call);
+                call->instrs.push_back(x);
+                args.push_back(std::make_shared<Value>(x));
+            }
+            call->terminator.data = Terminator::Call{
+                Terminator::Jump{key.callee, std::move(args)},
+                Terminator::Jump{returns ? inserts[lane]->name : next, values},
+                /*drop=*/!returns};
+        }
+        // The result into its lane of the gang's: the continuation takes it
+        // first, then everything carried.
+        if (returns) {
+            const auto &ins = inserts[lane];
+            const shared_ptr<Value> r =
+                ins->add_argument(Argument{key.foreign_result, "r"});
+            vector<shared_ptr<Value>> values = declare(ins, false);
+            auto bc = std::make_shared<Instruction>(
+                wrapper->get_unique_name(), acc_type, Instruction::Op::Bc,
+                vector<shared_ptr<Value>>{r, u32(lanes)}, ins);
+            ins->instrs.push_back(bc);
+            auto put = std::make_shared<Instruction>(
+                wrapper->get_unique_name(), acc_type, Instruction::Op::Shuffle,
+                vector<shared_ptr<Value>>{values[acc_at],
+                                          std::make_shared<Value>(bc)},
+                ins);
+            for (uint32_t j = 0; j < lanes; j++) {
+                put->shuffle.push_back(j == lane ? int(lanes) : int(j));
+            }
+            ins->instrs.push_back(put);
+            values[acc_at] = std::make_shared<Value>(put);
+            ins->terminator.data = Terminator::Jump{next, values};
+        }
+    }
+    {
+        vector<shared_ptr<Value>> values = declare(done, false);
+        done->terminator.data =
+            Terminator::Return{returns ? values[acc_at] : nullptr};
+    }
+
+    funcs[name] = wrapper;
+    return wrapper;
+}
+
 shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
                                 const string &name,
                                 const ir::BranchPolicyMap &policies,
                                 Variants &variants) {
     const auto original = funcs.find(key.callee);
-    internal_assert(original != funcs.end())
-        << "Cannot vectorize a call to " << key.callee
-        << ", which has no body here. A function the program declared with "
-           "`extern func` is foreign (docs/foreign-functions.md): it is one "
-           "scalar call with the C calling convention and cannot be given a "
-           "lane's arguments or run under a mask, as ispc refuses a call to "
-           "an external function with varying arguments. Call it from code "
-           "the schedule does not vectorize, or with arguments that are "
-           "uniform across the gang.";
+    if (original == funcs.end()) {
+        return specialize_foreign(funcs, key, name);
+    }
 
     auto variant = clone_function(*original->second);
     variant->specialized_from = key.callee;
@@ -1923,6 +2248,34 @@ shared_ptr<Function> specialize(FuncMap &funcs, const VariantKey &key,
     // to blocks that are.
     remove_unreachable_blocks(*variant);
     Block &entry_block = *variant->blocks.front();
+
+    // The constants the call hands this clone (VariantKey::constant_values):
+    // every use of such a parameter, in every block it was threaded to under
+    // its name, becomes the constant, and the simplifier folds what the
+    // constant decides -- the branch on a specialized flag, with the arm no
+    // caller of this clone can take unreachable and gone -- before the
+    // linearizer would have masked that arm and the gang widened it. The
+    // parameter itself stays, the caller still passes it, and reads nothing.
+    bool folded = false;
+    for (size_t i = 0;
+         i < key.constant_values.size() && i < entry_block.args.size(); i++) {
+        const shared_ptr<Value> &constant = key.constant_values[i];
+        if (constant == nullptr) {
+            continue;
+        }
+        const string param = entry_block.args[i].name;
+        for_each_value(*variant, [&](shared_ptr<Value> &v) {
+            const auto *a = v ? std::get_if<Argument>(&v->data) : nullptr;
+            if (a != nullptr && a->name == param) {
+                v = constant;
+            }
+        });
+        folded = true;
+    }
+    if (folded) {
+        simplify(*variant);
+        remove_unreachable_blocks(*variant);
+    }
 
     // The entry block carries the function's name (see FunctionBuilder in
     // SSA/Convert.cpp), and that is the name the generated code is emitted

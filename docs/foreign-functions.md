@@ -123,14 +123,22 @@ ways to supply it; if PTX was given, ptxas is the one to say.
 ## What a foreign call is to the compiler
 
 A black box with the shape of its signature. The scheduler cannot defer it,
-stage it, or see through it, and the vectorizer cannot widen it: a call in a
-vectorized region with a lane's arguments is refused
-(tests/bonsai/error/foreign-vectorized.bonsai), as ispc refuses a call to an
-external function with varying arguments. A call whose arguments are uniform
-across the gang is made once, as any uniform call is. The compiler treats a
-foreign call as it treats a call to any function it cannot inline; it does
-not assume it is pure, and it does not assume it writes anything the program
-can see, since it can be handed nothing the program writes.
+stage it, or see through it, and the vectorizer cannot widen it. A call in a
+vectorized region whose arguments are uniform across the gang is made once,
+as any uniform call is. A call with a lane's arguments is made once per lane
+that is on, in lane order: the gang's variant of the function is a wrapper
+the vectorizer builds (`specialize_foreign` in SSA/Vectorize.cpp) that picks
+each lane's arguments out of the gang's vectors, makes the scalar call, puts
+the result into that lane of the result vector, and skips the lanes the mask
+has off, whose arguments nothing computed -- ispc's `foreach_active`, written
+by the compiler rather than the programmer (until 11-01 such a call was
+refused, as ispc refuses a call to an external function with varying
+arguments). The cost is the gang's width in scalar calls where every lane is
+on, so a foreign call in gang code is worth keeping out of the innermost
+loop. The compiler treats a foreign call as it treats a call to any function
+it cannot inline; it does not assume it is pure, and it does not assume it
+writes anything the program can see, since it can be handed nothing the
+program writes.
 
 For the GPU in particular, a foreign call inside a kernel is a real call
 until ptxas inlines it, and the device-side implementation is the shim's
@@ -160,9 +168,12 @@ media use. See apps/pbrt/PLAN.md, "NanoVDB".
 
 - tests/bonsai/parsing/foreign.bonsai: the two declarations and a call,
   printed back.
-- tests/bonsai/error/foreign-field, foreign-array, foreign-param,
-  foreign-vectorized: the placements and signatures that are refused, and
-  the vectorized call.
+- tests/bonsai/error/foreign-field, foreign-array, foreign-param: the
+  placements and signatures that are refused.
+- tests/bonsai/ssa/vectorize-foreign-call.bonsai: the per-lane wrapper a
+  gang calls a foreign function through, under a mask;
+  tests/bonsai/correctness/cpp/foreign_gang.bonsai runs it against a driver
+  that counts the calls (the lanes that are on, in order, and no other).
 - tests/bonsai/backends/llvm/foreign.bonsai and foreign-linked.bonsai: the
   declared call, and the same program with foreign-impl.ll linked and
   inlined.

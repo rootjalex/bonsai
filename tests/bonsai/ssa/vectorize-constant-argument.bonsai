@@ -1,0 +1,38 @@
+//! flags: -p ssa
+
+// A callee that branches on a flag its caller was specialized on, in a gang.
+//
+// `render.specialize(lit)` copies the pixel loop once per value of the flag,
+// and each copy calls `shade` with a constant. The vectorizer used to make
+// ONE gang variant of `shade` for both copies, keyed only by which arguments
+// vary, so the flag stayed a parameter inside it: its branch was linearized
+// and both arms ran under a mask in every copy, and a call the flag guarded
+// -- a foreign function the gang cannot widen -- was reached from the copy
+// that could never make it. Now a constant that the callee's control depends
+// on is part of the variant's key (SSA/Vectorize.cpp, parameter_steers_
+// control): each copy gets a clone of its own with the constant folded in
+// before the clone is vectorized, and the arm no caller of that clone can
+// reach is gone. Folded, each clone is one straight line, which the gang
+// inlines (inline_pure_variants). What to read for in the golden: no
+// variant of `shade` and no call to it; the `lit` copy's loop body a
+// multiply by a broadcast 2, the other copy's a load and a store, neither
+// with a select or a mask.
+func shade(x : f32, lit : bool) -> f32 {
+    if lit {
+        return x * 2.0;
+    }
+    return x;
+}
+
+func [[export]] render(inp : array[f32, 8], out : mut array[f32, 8],
+                       lit : bool) -> void {
+    parfor i in 0:8 {
+        out[i] = shade(inp[i], lit);
+    }
+    return;
+}
+
+schedule {
+    render.specialize(lit);
+    render.vectorize(i);
+}

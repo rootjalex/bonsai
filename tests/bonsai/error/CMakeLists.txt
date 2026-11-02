@@ -5,7 +5,6 @@ add_bonsai_tests(
     foreign-array.bonsai
     foreign-field.bonsai
     foreign-param.bonsai
-    foreign-vectorized.bonsai
     packed-not-a-vector.bonsai
     reducer-argument.bonsai
     reducer-assign.bonsai

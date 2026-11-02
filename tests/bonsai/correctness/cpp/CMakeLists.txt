@@ -65,6 +65,8 @@ add_bonsai_tests(
     vectorize_add_one.bonsai
     vectorize_arm_local.bonsai
     vectorize_call_guard.bonsai
+    vectorize_constant_argument.bonsai
+    foreign_gang.bonsai
     vectorize_calls.bonsai
     vectorize_pure_call.bonsai
     thread_dispatch.bonsai

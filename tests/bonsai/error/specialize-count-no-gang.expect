@@ -1,5 +1,5 @@
 ---CODE---
 1
 ---STDERR---
-[internal] Error: src/SSA/Specialize.cpp:1229
+[internal] Error: src/SSA/Specialize.cpp:1774
 occluded.specialize(count(i) ...): no copy of occluded or of its recursion was made by vectorizing i. The condition counts the lanes of a gang, so `vectorize(i)` comes first, on the loop that calls occluded. No gang copy of anything it stands for exists.

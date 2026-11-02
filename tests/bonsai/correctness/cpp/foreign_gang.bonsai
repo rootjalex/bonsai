@@ -1,0 +1,33 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/foreign_gang
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_foreign_gang.cpp -I. -o tests/bonsai/correctness/cpp/main_foreign_gang.o, clang++ tests/bonsai/correctness/cpp/main_foreign_gang.o tests/bonsai/correctness/cpp/foreign_gang.o -o tests/bonsai/correctness/cpp/foreign_gang, ./tests/bonsai/correctness/cpp/foreign_gang, rm tests/bonsai/correctness/cpp/foreign_gang, rm tests/bonsai/correctness/cpp/main_foreign_gang.o, rm tests/bonsai/correctness/cpp/foreign_gang.h, rm tests/bonsai/correctness/cpp/foreign_gang.o
+
+// A foreign function called from a gang with a lane's arguments, run: the
+// driver (main_foreign_gang.cpp) defines the two functions and counts the
+// calls. `grid_of` takes uniform arguments and is called once by the gang;
+// `grid_value` takes each lane's `i` and is called once per lane that is on
+// -- the gang's variant is the per-lane wrapper of SSA/Vectorize.cpp's
+// specialize_foreign (tests/bonsai/ssa/vectorize-foreign-call.bonsai shows
+// its shape) -- so of eight lanes the four even ones call it, in lane order,
+// and the odd ones never hand it an `i` they did not take. What the driver
+// prints: the eight results, then how many calls `grid_value` saw and which
+// indices, in order. See docs/foreign-functions.md.
+extern element Grid;
+extern func grid_of(bytes : array[f32], at : u32) -> Grid;
+extern func grid_value(g : Grid, i : i32) -> f32;
+
+func [[export]] sample(vals : array[f32], at : u32,
+                       out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        g = grid_of(vals, at);
+        if i % 2 == 0 {
+            out[i] = grid_value(g, i);
+        } else {
+            out[i] = -1.0;
+        }
+    }
+    return;
+}
+
+schedule {
+    sample.vectorize(i);
+}

@@ -1,0 +1,71 @@
+extern element Grid;
+
+extern func grid_of(bytes : f32[], at : u32) -> Grid;
+extern func grid_value(g : Grid, i : i32) -> f32;
+
+func grid_value$gang4_v1$masked(a0 : Grid, a1 : i32x4, !mask : boolx4) -> f32x4 {
+  acc : mut f32x4
+  acc = undef
+  let @0 = !mask[0u] in
+  if (@0) {
+    let @1 = a1[0u] in
+    let r = grid_value(a0, @1) in
+    let @2 = f32x4(r) in
+    let @3 = shuffle({(*acc), @2}, {4, 1, 2, 3}) in
+    acc = @3
+  }
+  let @4 = !mask[1u] in
+  if (@4) {
+    let @5 = a1[1u] in
+    let r = grid_value(a0, @5) in
+    let @6 = f32x4(r) in
+    let @7 = shuffle({(*acc), @6}, {0, 4, 2, 3}) in
+    acc = @7
+  }
+  let @8 = !mask[2u] in
+  if (@8) {
+    let @9 = a1[2u] in
+    let r = grid_value(a0, @9) in
+    let @10 = f32x4(r) in
+    let @11 = shuffle({(*acc), @10}, {0, 1, 4, 3}) in
+    acc = @11
+  }
+  let @12 = !mask[3u] in
+  if (@12) {
+    let @13 = a1[3u] in
+    let r = grid_value(a0, @13) in
+    let @14 = f32x4(r) in
+    let @15 = shuffle({(*acc), @14}, {0, 1, 2, 4}) in
+    acc = @15
+  }
+  return (*acc)
+}
+
+func [[export]] sample(vals : f32[], at : u32, out : mut f32[4]) -> void {
+  let @0 = grid_of(vals, at) in
+  let g = @0 in
+  let @12 = i32x4(2) in
+  let @6 = ramp(0, 1, 4) < @12 in
+  let @7 = ramp(0, 1, 4) - @12 in
+  let @1 = select(@6, ramp(0, 1, 4), @7) in
+  let @14 = i32x4(0) in
+  let @2 = @1 == @14 in
+  let @18 = !@2 in
+  let @10 = reduce<any>(@2) in
+  if (@10) {
+    let @3 = grid_value$gang4_v1$masked(g, ramp(0, 1, 4), @2) in
+    masked_store(out[ramp(0, 1, 4)], @3, @2)
+  }
+  let @9 = reduce<any>(@18) in
+  if (@9) {
+    let @17 = f32x4(-1f) in
+    masked_store(out[ramp(0, 1, 4)], @17, @18)
+  }
+  return
+}
+
+
+schedule {
+    sample.vectorize(i)
+
+}

@@ -185,6 +185,155 @@ func _recloop_func0(tris_ref : u32, _holds0 : mut (bool*), r : Ray, tris : _tree
   return
 }
 
+func _recloop_func0$gang8_c00_p1_v2$masked(tris_ref : u32, _holds0 : mut (boolx8*), r : Ray$v8, tris : _tree_layout0, !mask : boolx8) -> void {
+  @136 : mut u32
+  let @0 = (*_holds0) in
+  let @1 = !@0 in
+  let @210 = boolx8(false) in
+  let @141 = !mask && @1 in
+  let @151 = reduce<any>(@141) in
+  if (@151) {
+    _mask0 : mut boolx8[4]
+    @136 = 0u
+    while ((*@136) < 4u) {
+      let @4 = f32x3(1f) in
+      let @5 = r.d in
+      let @161 = @4[0u] in
+      let @162 = @5.!0 in
+      let @212 = f32x8(@161) in
+      let @163 = @212 / @162 in
+      let @164 = @4[1u] in
+      let @165 = @5.!1 in
+      let @213 = f32x8(@164) in
+      let @166 = @213 / @165 in
+      let @167 = @4[2u] in
+      let @168 = @5.!2 in
+      let @214 = f32x8(@167) in
+      let @169 = @214 / @168 in
+      let @7 = f32x3(0f) in
+      let @170 = @7[0u] in
+      let @215 = f32x8(@170) in
+      let @171 = @163 < @215 in
+      let @172 = @7[1u] in
+      let @216 = f32x8(@172) in
+      let @173 = @166 < @216 in
+      let @174 = @7[2u] in
+      let @217 = f32x8(@174) in
+      let @175 = @169 < @217 in
+      let @9 = tris.group0_row in
+      let @117 = reinterpret_cast<const f32[12]>((&@9[0u].hi)) in
+      let @119 = @117[(*@136)] in
+      let @120 = (*@136) + 4u in
+      let @122 = @117[@120] in
+      let @123 = (*@136) + 8u in
+      let @125 = @117[@123] in
+      let @128 = reinterpret_cast<const f32[12]>((&@9[0u].lo)) in
+      let @130 = @128[(*@136)] in
+      let @132 = @128[@120] in
+      let @134 = @128[@123] in
+      let @218 = f32x8(@119) in
+      let @219 = f32x8(@130) in
+      let @178 = select(@171, @218, @219) in
+      let @220 = f32x8(@122) in
+      let @221 = f32x8(@132) in
+      let @181 = select(@173, @220, @221) in
+      let @222 = f32x8(@125) in
+      let @223 = f32x8(@134) in
+      let @184 = select(@175, @222, @223) in
+      let _t143$i65 = r.o in
+      let @185 = _t143$i65.!0 in
+      let @186 = @178 - @185 in
+      let @187 = _t143$i65.!1 in
+      let @188 = @181 - @187 in
+      let @189 = _t143$i65.!2 in
+      let @190 = @184 - @189 in
+      let @191 = @186 * @163 in
+      let @192 = @188 * @166 in
+      let @193 = @190 * @169 in
+      let @194 = select(@171, @219, @218) in
+      let @195 = select(@173, @221, @220) in
+      let @196 = select(@175, @223, @222) in
+      let @197 = @194 - @185 in
+      let @198 = @195 - @187 in
+      let @199 = @196 - @189 in
+      let @200 = @197 * @163 in
+      let @201 = @198 * @166 in
+      let @202 = @199 * @169 in
+      let @28 = (f32)eps in
+      let @29 = 0.5f * @28 in
+      let _t118$i50$i65 = 3f * @29 in
+      let @31 = 1f - _t118$i50$i65 in
+      let @32 = _t118$i50$i65 / @31 in
+      let @34 = 2f * @32 in
+      let @35 = 1f + @34 in
+      let @230 = f32x8(@35) in
+      let @203 = @200 * @230 in
+      let @204 = @201 * @230 in
+      let @205 = @202 * @230 in
+      let @40 = @204 < @191 in
+      let @45 = @203 < @192 in
+      let @46 = @40 || @45 in
+      let @260 = !@46 in
+      let @52 = max(@191, @192) in
+      let @57 = min(@203, @204) in
+      let @61 = @205 < @52 in
+      let @65 = @57 < @193 in
+      let @66 = @61 || @65 in
+      let @261 = !@66 in
+      let @71 = max(@52, @193) in
+      let @75 = min(@57, @205) in
+      let @240 = f32x8(0f) in
+      let @273 = select(@260, @261, @210) in
+      let @274 = !@273 in
+      let @287 = select(@261, @71, @240) in
+      let @85 = r.tmax in
+      let @289 = select(@261, @75, @240) in
+      let @298 = select(@260, @287, @240) in
+      let @299 = @298 < @85 in
+      let @300 = select(@260, @289, @240) in
+      let @301 = @240 < @300 in
+      let @302 = @299 & @301 in
+      let @303 = select(@274, @210, @302) in
+      masked_store(_mask0[(*@136)], @303, @141)
+      let @138 = (*@136) + 1u in
+      @136 = @138
+    }
+    let @92 = tris.group0_row in
+    let @94 = @92[0u] in
+    let @95 = @94.children in
+    let _t40 = cast<u32x4>(@95) in
+    let @97 = _t40[0u] in
+    let @98 = _t40[1u] in
+    let @99 = _t40[2u] in
+    let @100 = _t40[3u] in
+    let @101 = _mask0[0u] in
+    let @102 = _mask0[1u] in
+    let @103 = _mask0[2u] in
+    let @104 = _mask0[3u] in
+    let @157 = @141 && @101 in
+    let @158 = @141 && @102 in
+    let @159 = @141 && @103 in
+    let @160 = @141 && @104 in
+    let @206 = reduce<any>(@157) in
+    let @207 = reduce<any>(@158) in
+    let @208 = reduce<any>(@159) in
+    let @209 = reduce<any>(@160) in
+    if (@206) {
+      _recloop_func0$gang8_p1_v2$masked(@97, _holds0, r, tris, @157)
+    }
+    if (@207) {
+      _recloop_func0$gang8_p1_v2$masked(@98, _holds0, r, tris, @158)
+    }
+    if (@208) {
+      _recloop_func0$gang8_p1_v2$masked(@99, _holds0, r, tris, @159)
+    }
+    if (@209) {
+      _recloop_func0$gang8_p1_v2$masked(@100, _holds0, r, tris, @160)
+    }
+  }
+  return
+}
+
 func _recloop_func0$gang8_p1_v2$masked(tris_ref : u32, _holds0 : mut (boolx8*), r : Ray$v8, tris : _tree_layout0, !mask : boolx8) -> void {
   let @303 = reduce<+>(cast<u32x8>(!mask)) in
   let @304 = 4u < @303 in
@@ -672,7 +821,7 @@ func [[export]] occluded_all(rs : Ray[8], out : mut i32[8], tris : (_tree_layout
   let r$i176 = rs[ramp(0, 1, 8)] in
   let @1 = (*tris) in
   let @8 = boolx8(true) in
-  _recloop_func0$gang8_p1_v2$masked(0u, _holds0$i176, r$i176, @1, @8)
+  _recloop_func0$gang8_c00_p1_v2$masked(0u, _holds0$i176, r$i176, @1, @8)
   let i = ramp(0, 1, 8) in
   let @2 = (*_holds0$i176) in
   let @4 = cast<i32x8>(@2) in

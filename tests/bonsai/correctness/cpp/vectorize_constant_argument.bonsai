@@ -1,0 +1,32 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_constant_argument
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_constant_argument.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_constant_argument.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_constant_argument.o tests/bonsai/correctness/cpp/vectorize_constant_argument.o -o tests/bonsai/correctness/cpp/vectorize_constant_argument, ./tests/bonsai/correctness/cpp/vectorize_constant_argument, rm tests/bonsai/correctness/cpp/vectorize_constant_argument, rm tests/bonsai/correctness/cpp/main_vectorize_constant_argument.o, rm tests/bonsai/correctness/cpp/vectorize_constant_argument.h, rm tests/bonsai/correctness/cpp/vectorize_constant_argument.o
+
+// A callee that branches on a flag its caller was specialized on, in a gang,
+// run: the gang's clone of `shade` is made per value of the flag with the
+// constant folded in (tests/bonsai/ssa/vectorize-constant-argument.bonsai
+// shows the two clones), and both clones have to compute what the one
+// function did. The flag also guards a foreign call here, which the clone
+// for `lit = false` never reaches and the one for `lit = true` makes per
+// lane: the driver (main_vectorize_constant_argument.cpp) defines it and
+// counts its calls -- eight when lit, none when not.
+extern func bias(i : i32) -> f32;
+
+func shade(x : f32, i : i32, lit : bool) -> f32 {
+    if lit {
+        return x * 2.0 + bias(i);
+    }
+    return x;
+}
+
+func [[export]] render(inp : array[f32, 8], out : mut array[f32, 8],
+                       lit : bool) -> void {
+    parfor i in 0:8 {
+        out[i] = shade(inp[i], i, lit);
+    }
+    return;
+}
+
+schedule {
+    render.specialize(lit);
+    render.vectorize(i);
+}
