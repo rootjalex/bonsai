@@ -3108,6 +3108,47 @@ SSA and LLVM under e08e0195's build. The wosx driver reads no capacity
 from the header; no wosx schedule puts a queue in extern storage, the one
 place the new line is printed. The tables stand.
 
+The compiler commit of 18:2x on 11-01 (6488f426: the vectorizer clones a
+callee for each constant argument its control depends on, and makes a
+foreign call with varying arguments once per active lane) does reach the
+wosx packet schedules, and the same check (63 files, three outputs, compile
+only, 18:32-18:34) shows how far. Forty-nine are byte-identical: every GPU
+schedule, the four-wide tree's, the scalar CPU walks and the stars. The
+fourteen `fcpwb-packet-*` files differ, five of them the fcpwb CPU figure's
+bars (packet16, packet8, defer16, defer-sort16, persistent-defer-sort16).
+The change is the entry into the packet traversal. Before, one visit
+function served every node, the entry call passing the root's index as its
+argument:
+
+    visit(node = 0, sphere, best):        -- node is a parameter
+        box   = boxes[node]
+        left  = node + 1
+        right = node + offsets[node]
+        ... recurse into left and right ...
+
+After, the entry call gets its own clone with the constant folded in, and
+the inner recursion, where the node varies, is the function it was:
+
+    visit_root(sphere, best):             -- the clone for the entry call
+        box   = boxes[0]
+        left  = 1
+        right = offsets[0]
+        ... recurse as before ...
+
+So the final SSA differs by thirty to forty-six lines (the clone's name,
+`extract_idx(_, 0)` for `extract_idx(_, triangles_index)`, two adds gone),
+and the LLVM modules by 1200-1826 lines -- but after normalizing value names
+and numbering, by four to six: one temporary renamed and one select moved,
+because LLVM had already folded the root's constant at the call. Lowered to
+object code with the compiler's own LLVM (llc -O3 for the host CPU, as the
+compiler emits it) and disassembled, the eight plain packet schedules are
+byte-identical in their text, among them packet16, packet8 and defer16; the
+six sorted drains, among them defer-sort16 and persistent-defer-sort16,
+have the same text size and the same instructions, with one block of some
+fifteen instructions in the root visit allocated to other registers (r8 for
+rdi, k1 for k2, a zeroing moved). That is one visit per query, in register
+names; nothing a least-of-three measurement resolves. The tables stand.
+
 ### Next
 
 - The refill for the compacting block, as the user's plan (above): a
