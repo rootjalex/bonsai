@@ -8183,6 +8183,17 @@ and the rest of the diff renumbering -- and its LLVM module is
 byte-identical, LLVM having folded those pairs before. So the table stands
 for the tree's head after 1ab9281e too; nothing to measure.
 
+**And against 1f5c68b1 (2026-11-02, 10:21).** f9's next compiler commit
+(SSA/Linearize.cpp: a BOSCC bypass landing on a join that keeps its
+arguments hands the join its arguments; SSA/SplitAggregates.cpp: the
+strided per-lane vector store covers accumulates) reaches two shapes that
+did not compile before, so nothing that compiled can contain them. The
+same recheck (scratch/ssa-check-1f5c68b1/run.sh, under build/compiler
+linked 07:06, this commit's build, during f9's hold on its word that the
+binary stays still, 10:21:18-10:21:25): every LLVM module byte-identical to
+the 10-31 dumps; the final SSA identical to 10-31 for five schedules and,
+for fcpw4w16, identical to the 1ab9281e dump. Nothing of rtq's changed.
+
 ### Where the 5% goes: the two Embree cells under the hardware counters (2026-11-01)
 
 The user, 00:10: "please do profile to see where that 5% goes. Don't try
