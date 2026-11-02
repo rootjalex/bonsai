@@ -235,8 +235,13 @@ void bonsai_optix_ray_types(const char *const *names, int64_t count);
 // payload use of any trace in the module -- two for a context by address,
 // a promoted context's own word count otherwise (Lower/Trees.cpp) -- which
 // the pipeline is compiled against; every call for one module passes the
-// same number, the compiler's.
-void bonsai_optix_load(const char *ptx, int64_t payload_values);
+// same number, the compiler's. `trace_depth` is how deep the module's
+// traces nest -- one when only the raygen program traces, two when a hit
+// or miss program traces in turn (a fused schedule's shadow ray from the
+// hit's continuation) -- which the pipeline is linked with and its
+// continuation stack sized for (CodeGen_OptiX::trace_depth_used).
+void bonsai_optix_load(const char *ptx, int64_t payload_values,
+                       int64_t trace_depth);
 
 // Runs the raygen program `raygen` of `ptx` over `count` threads, with
 // `param_bytes` of `params` as the module's launch parameters, against the
@@ -448,6 +453,9 @@ struct Module {
     // What the module was compiled against (pipeline_options): every load
     // and launch of it must say the same.
     int64_t payload_values = 2;
+    // How deep its traces nest (bonsai_optix_load): what every pipeline of
+    // the module is linked with and sized for.
+    int64_t trace_depth = 1;
 };
 
 struct Pipeline {
@@ -808,8 +816,14 @@ inline Pipeline &pipeline_of(Api &a, State &s, const char *ptx,
     const OptixPipelineCompileOptions compile =
         pipeline_options(int(m.payload_values));
     OptixPipelineLinkOptions link = {};
-    // A raygen program traces; the hit programs it runs do not.
-    link.maxTraceDepth = 1;
+    // How deep the traces nest, the compiler's count (bonsai_optix_load):
+    // one where only the raygen program traces, two where a hit or miss
+    // program traces in turn. Until 11-01 this was one for every module,
+    // and a fused schedule whose hit continuation cast a shadow ray -- a
+    // trace the pipeline was never told of -- ran on the stack's slack and
+    // overflowed it on the scene with the largest continuation
+    // (apps/pbrt/schedules/gpu-optix-fused-shadow.bonsai on the plume).
+    link.maxTraceDepth = unsigned(m.trace_depth);
     log_size = sizeof(log);
     const OptixResult linked = a.table.optixPipelineCreate(
         a.context, &compile, &link, groups.data(), unsigned(groups.size()), log,
@@ -819,9 +833,10 @@ inline Pipeline &pipeline_of(Api &a, State &s, const char *ptx,
              a.table.optixGetErrorName(linked) + "\n" +
              std::string(log, log_size));
     }
-    // The stack, as optix_stack_size.h computes it for a trace depth of
-    // one and no callables: the raygen's continuation stack plus the larger
-    // of the closest-hit/miss programs' and the intersection plus any-hit
+    // The stack, as optix_stack_size.h computes it for the module's trace
+    // depth and no callables: the raygen's continuation stack, plus the
+    // closest-hit/miss programs' once for every level of nesting past the
+    // first, plus the larger of theirs and the intersection plus any-hit
     // programs'.
     unsigned css_rg = 0, css_ms = 0, css_ch = 0, css_ah = 0, css_is = 0;
     for (size_t i = 0; i < groups.size(); i++) {
@@ -834,8 +849,10 @@ inline Pipeline &pipeline_of(Api &a, State &s, const char *ptx,
         css_ah = std::max(css_ah, sizes.cssAH);
         css_is = std::max(css_is, sizes.cssIS);
     }
+    const unsigned css_ch_or_ms = std::max(css_ch, css_ms);
     const unsigned continuation =
-        css_rg + std::max(std::max(css_ch, css_ms), css_is + css_ah);
+        css_rg + unsigned(m.trace_depth - 1) * css_ch_or_ms +
+        std::max(css_ch_or_ms, css_is + css_ah);
     // Under BONSAI_OPTIX_STATS: what the stack costs a thread, since stack
     // memory bounds resident warps below the register ceiling and no
     // profiler section reports it (found 2026-10-05: same 128 registers as
@@ -845,9 +862,10 @@ inline Pipeline &pipeline_of(Api &a, State &s, const char *ptx,
         if (stats) {
             std::fprintf(stderr,
                          "bonsai_optix: pipeline `%s` continuation stack %u "
-                         "bytes/thread (cssRG %u, CH %u, MS %u, IS %u, AH %u)\n",
+                         "bytes/thread (cssRG %u, CH %u, MS %u, IS %u, AH %u; "
+                         "trace depth %lld)\n",
                          raygen.c_str(), continuation, css_rg, css_ch, css_ms,
-                         css_is, css_ah);
+                         css_is, css_ah, (long long)m.trace_depth);
         }
     }
     // Two levels: the instances, and the geometry under each.
@@ -1159,17 +1177,19 @@ bonsai_optix_ray_types(const char *const *names, int64_t count) {
 }
 
 __attribute__((used)) inline void bonsai_optix_load(const char *ptx,
-                                                    int64_t payload_values) {
+                                                    int64_t payload_values,
+                                                    int64_t trace_depth) {
     using namespace bonsai_optix_detail;
     Api &a = ready("compile the OptiX module");
     State &s = state();
     std::lock_guard<std::mutex> lock(s.mutex);
     Module &m = module_of(a, s, ptx, payload_values);
+    // Before the pipelines, which are linked for it.
+    m.trace_depth = std::max<int64_t>(1, trace_depth);
     // And every raygen's pipeline, so that a first launch compiles nothing.
     for (const std::string &raygen : entries_with_prefix(ptx, "__raygen__")) {
         pipeline_of(a, s, ptx, raygen, payload_values);
     }
-    (void)m;
 }
 
 __attribute__((used)) inline void
@@ -1328,7 +1348,8 @@ __attribute__((used)) inline void bonsai_optix_ray_types(const char *const *,
                                                          int64_t) {
     bonsai_optix_detail::missing("declare the program's ray types");
 }
-__attribute__((used)) inline void bonsai_optix_load(const char *, int64_t) {
+__attribute__((used)) inline void bonsai_optix_load(const char *, int64_t,
+                                                    int64_t) {
     bonsai_optix_detail::missing("compile an OptiX module");
 }
 __attribute__((used)) inline void

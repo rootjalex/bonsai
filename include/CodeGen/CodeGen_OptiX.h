@@ -72,6 +72,18 @@ struct CodeGen_OptiX : public CodeGen_PTX {
     // Kernel::payload_values), for the module's `bonsai_optix_load` call;
     // meaningful once add_raygen has run.
     uint64_t payload_values_used() const { return payload_values; }
+    // How deep the module's traces nest: one when only the raygen program
+    // traces, two when a hit or miss program traces in turn -- the launched
+    // body's own continuation (SSA/HitContinuations.h) holding, in a fused
+    // schedule, the material stage and the shadow ray it casts. What the
+    // pipeline is linked with (OptixPipelineLinkOptions::maxTraceDepth) and
+    // its continuation stack is sized for (runtime/bonsai_optix.h): a
+    // nested trace a pipeline linked for depth one was not told of ran on
+    // the stack's slack and overflowed it where the continuation was
+    // largest (apps/pbrt's gpu-optix-fused-shadow on the plume, 11-01).
+    // For the module's `bonsai_optix_load` call; meaningful once add_raygen
+    // has run.
+    uint64_t trace_depth_used() const { return trace_depth; }
 
   protected:
     // The `rt_*` intrinsics, as the inline PTX calls above.
@@ -96,6 +108,10 @@ struct CodeGen_OptiX : public CodeGen_PTX {
     std::vector<std::string>
     queries_traced(const ir::ssa::Function &host,
                    const ir::ssa::Terminator::ParFor &loop);
+    // Whether `ssa`, or any function it calls, traces (an `rt_trace`): asked
+    // of each hit and miss program the module gets, for trace_depth_used.
+    bool traces(const ir::ssa::Function &ssa) const;
+    uint64_t trace_depth = 1;
     // Compiles the program `func` (its SSA `ssa`) as an entry point whose
     // parameters the prologue supplies.
     void add_program(const ir::Function &func, const ir::ssa::Function &ssa);

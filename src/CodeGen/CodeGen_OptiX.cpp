@@ -622,8 +622,49 @@ CodeGen_PTX::Kernel CodeGen_OptiX::add_raygen(const ir::ssa::Function &host,
     return kernel;
 }
 
+bool CodeGen_OptiX::traces(const ir::ssa::Function &ssa) const {
+    std::set<std::string> seen;
+    std::vector<std::string> work;
+    const auto scan = [&](const std::vector<std::shared_ptr<Block>> &blocks) {
+        for (const auto &block : blocks) {
+            for (const auto &instr : block->instrs) {
+                if (instr->op == Instruction::Op::Intrinsic &&
+                    instr->intrinsic == Intrinsic::rt_trace) {
+                    return true;
+                }
+            }
+        }
+        for (const std::string &callee : callees(blocks)) {
+            work.push_back(callee);
+        }
+        return false;
+    };
+    if (scan(ssa.blocks)) {
+        return true;
+    }
+    while (!work.empty()) {
+        const std::string name = work.back();
+        work.pop_back();
+        if (!seen.insert(name).second || program->foreign_funcs.contains(name)) {
+            continue;
+        }
+        const auto f = program->ssa_funcs.find(name);
+        if (f != program->ssa_funcs.end() && scan(f->second->blocks)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void CodeGen_OptiX::add_program(const ir::Function &func,
                                 const ir::ssa::Function &ssa) {
+    // A hit or miss program that traces -- the launched body's continuation
+    // casting the shadow ray the material stage inside it sampled -- nests a
+    // trace in the raygen's: the pipeline has to be linked for two levels
+    // and its stack sized for them (trace_depth_used).
+    if (traces(ssa)) {
+        trace_depth = std::max<uint64_t>(trace_depth, 2);
+    }
     compile_reachable(callees(ssa.blocks));
     const std::string &symbol = func.optix_program->symbol.empty()
                                     ? func.name

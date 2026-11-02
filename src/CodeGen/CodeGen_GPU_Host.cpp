@@ -1058,11 +1058,14 @@ void CodeGen_GPU_Host<CodeGen_CPU>::end_functions() {
     for (size_t k = 0; k < optix_texts.size(); k++) {
         llvm::FunctionCallee load = module->getOrInsertFunction(
             "bonsai_optix_load",
-            llvm::FunctionType::get(void_t, {ptr_t, i64_t}, /*isVarArg=*/false));
+            llvm::FunctionType::get(void_t, {ptr_t, i64_t, i64_t},
+                                    /*isVarArg=*/false));
         builder->CreateCall(
             load, {optix_texts[k],
                    llvm::ConstantInt::get(
-                       i64_t, optix_modules[k].first->payload_values_used())});
+                       i64_t, optix_modules[k].first->payload_values_used()),
+                   llvm::ConstantInt::get(
+                       i64_t, optix_modules[k].first->trace_depth_used())});
     }
     builder->CreateRetVoid();
     builder->restoreIP(here);
