@@ -3165,6 +3165,38 @@ and the stack expression for depth one is, term for term, the one it was.
 The OptiX bars of both GPU figures (10-28) were measured on this pipeline.
 The tables stand.
 
+The compiler commit of 06:59 on 11-02 (1ab9281e: a gang's short vectors in
+memory, and a scalar accumulated into a vector), checked the same way at
+07:01-07:08 -- compile only, under a peer's hold, the compiler binary's
+checksum the same before and after. Forty-three of the sixty-three schedule
+files are byte-identical in final SSA, LLVM module and header: every GPU
+schedule and every scalar CPU one. The commit's correctness fix -- a vector
+scaled by a scalar through an accumulate (`tMax *= 1 + 2 * gamma(3)` in
+stdlib/intersects) had scaled one component of the three -- does not reach
+wosx: the walk's tree is fcpw's own (apps/rtq/metrics/fcpw_scalar.bonsai,
+with its own box and triangle tests), and no file wosx compiles accumulates
+a scalar into a vector or stores a per-lane vector into an array of vectors
+(wosx, wost, walk_common, rng, apps/rtq's elements, queries and both
+metrics, stdlib/numerics, apps/pbrt/rng). The twenty CPU gang schedules --
+the fifteen fcpwb-packet-* and the five fcpw4w16 CPU ones -- differ in
+final SSA by one pattern alone, a vector constant read apart component by
+component before each component is spread over the gang's lanes:
+
+    before:  z = (0, 0, 0)                     after:  z16 = broadcast(0)
+             x = z.x;  x16 = broadcast(x)
+             y = z.y;  y16 = broadcast(y)
+             w = z.z;  w16 = broadcast(w)
+
+at three sites a schedule (the zero vector the gang's box test and
+closest-point test clamp against) and a fourth in the sorted drains (a
+constant 31.0 in the walk's gang code). Thirteen of the twenty have
+byte-identical LLVM: LLVM had folded the read of a broadcast's component
+already. The seven sorted drains' LLVM differs in value names alone (the
+numbering shifts by three), and their object code, lowered by the
+compiler's own LLVM 23 and disassembled, is identical instruction for
+instruction (equal text sizes; 3,478 instructions either way in
+fcpwb-packet-defer-sort-threads). The tables stand; no remeasure.
+
 ### Next
 
 - The refill for the compacting block, as the user's plan (above): a
