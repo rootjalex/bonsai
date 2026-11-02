@@ -1,0 +1,35 @@
+//! flags: -p ssa
+
+// A lane's own short vector stored into an array of vectors, and read back
+// out of one: the two sides of ispc's array-of-structures access (section
+// 5.2), through a gang.
+//
+// `out[i] = v` with `v` a `vec3f` per lane is three stores, one per
+// component, into the array viewed as `f32[]` -- the element's components
+// sit `sizeof(vec3f) / sizeof(f32)` apart, asked of the backend rather than
+// assumed, since a three-float vector is twelve bytes of data in sixteen of
+// storage -- each at the lane's own index times that width plus the
+// component's offset. `a[i].x + a[i].y + a[i].z` is the same three reads.
+// Without the split the gang's value, a struct of one gang vector per
+// component, was stored whole: its three planes laid end to end over the
+// first three elements' worth of the array, every lane's x first.
+import stdlib/numerics;
+
+func [[export]] scatter(a : array[f32, 8], out : mut array[vec3f, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = vec3f{a[i], 2.0 * a[i], 3.0 * a[i]};
+    }
+    return;
+}
+
+func [[export]] gather(a : array[vec3f, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = a[i].x + a[i].y + a[i].z;
+    }
+    return;
+}
+
+schedule {
+    scatter.vectorize(i);
+    gather.vectorize(i);
+}

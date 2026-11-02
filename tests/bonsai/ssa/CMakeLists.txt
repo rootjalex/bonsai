@@ -186,6 +186,7 @@ add_bonsai_tests(
     vectorize-bounded-division.bonsai
     vectorize-bounded-multiplier.bonsai
     vectorize-constant-argument.bonsai
+    vectorize-constant-forwarded.bonsai
     vectorize-foreign-call.bonsai
     vectorize-loop.bonsai
     vectorize-loop-mutual.bonsai
@@ -198,6 +199,8 @@ add_bonsai_tests(
     vectorize-short-vectors.bonsai
     vectorize-skip-address.bonsai
     vectorize-skip-arms.bonsai
+    vectorize-vector-accumulate.bonsai
+    vectorize-vector-store.bonsai
     vectorize-split-local.bonsai
     vectorize-skip-cursor.bonsai
     vectorize-soa.bonsai

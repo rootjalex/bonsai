@@ -1,0 +1,37 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_vector_store
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_vector_store.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_vector_store.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_vector_store.o tests/bonsai/correctness/cpp/vectorize_vector_store.o -o tests/bonsai/correctness/cpp/vectorize_vector_store, ./tests/bonsai/correctness/cpp/vectorize_vector_store, rm tests/bonsai/correctness/cpp/vectorize_vector_store, rm tests/bonsai/correctness/cpp/main_vectorize_vector_store.o, rm tests/bonsai/correctness/cpp/vectorize_vector_store.h, rm tests/bonsai/correctness/cpp/vectorize_vector_store.o
+
+// A lane's own short vector stored into an array of vectors, run: each
+// lane's (a, 2a, 3a) lands in its own element, in the layout the scalar
+// loop writes -- which the driver checks element by element, and by reading
+// the array back through the gang's own gather (the strided read that
+// mirrors the store, ssa/vectorize-vector-store.bonsai). The gang's struct
+// of planes stored whole put every lane's x in the first elements, and left
+// the last elements untouched.
+import stdlib/numerics;
+
+func [[export]] scatter(a : array[f32, 8], out : mut array[vec3f, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = vec3f{a[i], 2.0 * a[i], 3.0 * a[i]};
+    }
+    return;
+}
+
+func [[export]] scatter_one(a : array[f32, 8], out : mut array[vec3f, 8]) -> void {
+    for i in 0:8 {
+        out[i] = vec3f{a[i], 2.0 * a[i], 3.0 * a[i]};
+    }
+    return;
+}
+
+func [[export]] gather(a : array[vec3f, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = a[i].x + a[i].y + a[i].z;
+    }
+    return;
+}
+
+schedule {
+    scatter.vectorize(i);
+    gather.vectorize(i);
+}

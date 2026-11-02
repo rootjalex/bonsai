@@ -1406,10 +1406,10 @@ i_gang4_pf_exit:                                  ; preds = %"!par_body_0_yield_
   br label %"!for__idx1_17!loop.i"
 
 "!for__idx1_17!loop.i":                           ; preds = %"!for__idx1_17!loop.i.lr.ph", %"!latch.i"
-  %"@243.i27" = phi <8 x i1> [ undef, %"!for__idx1_17!loop.i.lr.ph" ], [ %"@24320.i", %"!latch.i" ]
-  %"@241.i26" = phi i32 [ undef, %"!for__idx1_17!loop.i.lr.ph" ], [ %"@24119.i", %"!latch.i" ]
-  %"!live.i23" = phi <8 x i1> [ %22, %"!for__idx1_17!loop.i.lr.ph" ], [ %"@24320.i", %"!latch.i" ]
-  %"_idx1!loop.i22" = phi i32 [ 0, %"!for__idx1_17!loop.i.lr.ph" ], [ %"@24119.i", %"!latch.i" ]
+  %"@244.i27" = phi <8 x i1> [ undef, %"!for__idx1_17!loop.i.lr.ph" ], [ %"@24420.i", %"!latch.i" ]
+  %"@242.i26" = phi i32 [ undef, %"!for__idx1_17!loop.i.lr.ph" ], [ %"@24219.i", %"!latch.i" ]
+  %"!live.i23" = phi <8 x i1> [ %22, %"!for__idx1_17!loop.i.lr.ph" ], [ %"@24420.i", %"!latch.i" ]
+  %"_idx1!loop.i22" = phi i32 [ 0, %"!for__idx1_17!loop.i.lr.ph" ], [ %"@24219.i", %"!latch.i" ]
   %"_holds0$i185.321" = phi <8 x i1> [ %"_holds0$i185.2", %"!for__idx1_17!loop.i.lr.ph" ], [ %"_holds0$i185.4", %"!latch.i" ]
   %67 = icmp ult i32 %"_idx1!loop.i22", %64
   br i1 %67, label %"!par_body_20_for_data.i.preheader", label %"!break.i"
@@ -1553,21 +1553,21 @@ i_gang4_pf_exit:                                  ; preds = %"!par_body_0_yield_
   %122 = and <8 x i1> %"!live.i23", %121
   %123 = and <8 x i1> %"!live.i23", %120
   %not..i = xor <8 x i1> %123, splat (i1 true)
-  %124 = and <8 x i1> %"@243.i27", %not..i
+  %124 = and <8 x i1> %"@244.i27", %not..i
   %125 = add nuw nsw i32 %"_idx1!loop.i22", 1
   %126 = select <8 x i1> %122, <8 x i1> splat (i1 true), <8 x i1> %124
   br label %"!latch.i"
 
 "!break.i":                                       ; preds = %"!for__idx1_17!loop.i"
   %"not.!live.i" = xor <8 x i1> %"!live.i23", splat (i1 true)
-  %127 = and <8 x i1> %"@243.i27", %"not.!live.i"
+  %127 = and <8 x i1> %"@244.i27", %"not.!live.i"
   br label %"!latch.i"
 
 "!latch.i":                                       ; preds = %"!break.i", %"!par_body_20_for_data.i.preheader"
   %"_holds0$i185.4" = phi <8 x i1> [ %120, %"!par_body_20_for_data.i.preheader" ], [ %"_holds0$i185.321", %"!break.i" ]
-  %"@24119.i" = phi i32 [ %125, %"!par_body_20_for_data.i.preheader" ], [ %"@241.i26", %"!break.i" ]
-  %"@24320.i" = phi <8 x i1> [ %126, %"!par_body_20_for_data.i.preheader" ], [ %127, %"!break.i" ]
-  %128 = bitcast <8 x i1> %"@24320.i" to i8
+  %"@24219.i" = phi i32 [ %125, %"!par_body_20_for_data.i.preheader" ], [ %"@242.i26", %"!break.i" ]
+  %"@24420.i" = phi <8 x i1> [ %126, %"!par_body_20_for_data.i.preheader" ], [ %127, %"!break.i" ]
+  %128 = bitcast <8 x i1> %"@24420.i" to i8
   %.not117.i = icmp eq i8 %128, 0
   br i1 %.not117.i, label %"!visit_pop.i", label %"!for__idx1_17!loop.i"
 
@@ -1611,8 +1611,8 @@ i_gang4_pf_exit:                                  ; preds = %"!par_body_0_yield_
 define void @trace(ptr nofree noundef nonnull writeonly captures(none) %_ret0, ptr noundef nonnull readonly captures(none) %r, ptr noundef nonnull readonly captures(none) %tris_buffer) local_unnamed_addr #1 {
 trace:
   %_ret.i = alloca %struct._option2, align 8
-  %"@338363.i" = alloca [4 x i32], align 16
-  %"@337364.i" = alloca [4 x i32], align 16
+  %"@339363.i" = alloca [4 x i32], align 16
+  %"@338364.i" = alloca [4 x i32], align 16
   %"!stack0365.i" = alloca [64 x float], align 4
   %"!stack366.i" = alloca [64 x i64], align 8
   %root = load i64, ptr %tris_buffer, align 1
@@ -1621,8 +1621,8 @@ trace:
   %group0_arena1 = tail call ptr @bonsai_buffer_require(ptr %group0_arena, i32 1)
   %deref_temp7 = load %struct.Ray, ptr %r, align 16
   call void @llvm.lifetime.start.p0(ptr nonnull %_ret.i)
-  call void @llvm.lifetime.start.p0(ptr nonnull %"@338363.i")
-  call void @llvm.lifetime.start.p0(ptr nonnull %"@337364.i")
+  call void @llvm.lifetime.start.p0(ptr nonnull %"@339363.i")
+  call void @llvm.lifetime.start.p0(ptr nonnull %"@338364.i")
   call void @llvm.lifetime.start.p0(ptr nonnull %"!stack0365.i")
   call void @llvm.lifetime.start.p0(ptr nonnull %"!stack366.i")
   %1 = extractvalue %struct.Ray %deref_temp7, 0
@@ -1713,25 +1713,25 @@ children3_pf_head.i.preheader:                    ; preds = %"!then_0.i"
   %34 = bitcast i4 %294 to <4 x i1>
   %35 = tail call range(i32 1, 33) i32 @llvm.cttz.i32(i32 %33, i1 true)
   %36 = select <4 x i1> %34, <4 x i32> %_keys097361.i.sroa.0.12.vec.insert.le, <4 x i32> zeroinitializer
-  store <4 x i32> %36, ptr %"@337364.i", align 16
+  store <4 x i32> %36, ptr %"@338364.i", align 16
   %37 = select <4 x i1> %34, <4 x i32> %_carry096362.i.sroa.0.7, <4 x i32> zeroinitializer
-  store <4 x i32> %37, ptr %"@338363.i", align 16
-  %extract_ptr298.i = getelementptr inbounds nuw [4 x i8], ptr %"@337364.i", i64 %_wide293.i
+  store <4 x i32> %37, ptr %"@339363.i", align 16
+  %extract_ptr298.i = getelementptr inbounds nuw [4 x i8], ptr %"@338364.i", i64 %_wide293.i
   %extract299.i = load i32, ptr %extract_ptr298.i, align 4
   %isneg.i = icmp slt i32 %extract299.i, 0
   %38 = select i1 %isneg.i, i32 2147483647, i32 0
   %39 = xor i32 %38, %extract299.i
-  %extract_ptr301.i = getelementptr inbounds nuw [4 x i8], ptr %"@338363.i", i64 %_wide293.i
+  %extract_ptr301.i = getelementptr inbounds nuw [4 x i8], ptr %"@339363.i", i64 %_wide293.i
   %extract302.i = load i32, ptr %extract_ptr301.i, align 4
   %_wide303.i = zext nneg i32 %35 to i64
-  %extract_ptr304.i = getelementptr inbounds nuw [4 x i8], ptr %"@337364.i", i64 %_wide303.i
+  %extract_ptr304.i = getelementptr inbounds nuw [4 x i8], ptr %"@338364.i", i64 %_wide303.i
   %extract305.i = load i32, ptr %extract_ptr304.i, align 4
   %isneg371.i = icmp slt i32 %extract305.i, 0
   %40 = select i1 %isneg371.i, i32 2147483647, i32 0
   %41 = xor i32 %40, %extract305.i
   %extract_ptr307.i = getelementptr inbounds nuw [8 x i8], ptr %9, i64 %_wide303.i
   %extract308.i = load i64, ptr %extract_ptr307.i, align 8, !invariant.load !0
-  %extract_ptr310.i = getelementptr inbounds nuw [4 x i8], ptr %"@338363.i", i64 %_wide303.i
+  %extract_ptr310.i = getelementptr inbounds nuw [4 x i8], ptr %"@339363.i", i64 %_wide303.i
   %extract311.i = load i32, ptr %extract_ptr310.i, align 4
   %42 = icmp slt i32 %39, %41
   %43 = select i1 %42, i64 %extract295.i, i64 %extract308.i
@@ -1748,14 +1748,14 @@ children3_pf_head.i.preheader:                    ; preds = %"!then_0.i"
   %50 = tail call i32 @llvm.smin.i32(i32 %39, i32 %41)
   %51 = tail call range(i32 1, 33) i32 @llvm.cttz.i32(i32 %47, i1 true)
   %_wide312.i = zext nneg i32 %51 to i64
-  %extract_ptr313.i = getelementptr inbounds nuw [4 x i8], ptr %"@337364.i", i64 %_wide312.i
+  %extract_ptr313.i = getelementptr inbounds nuw [4 x i8], ptr %"@338364.i", i64 %_wide312.i
   %extract314.i = load i32, ptr %extract_ptr313.i, align 4
   %isneg373.i = icmp slt i32 %extract314.i, 0
   %52 = select i1 %isneg373.i, i32 2147483647, i32 0
   %53 = xor i32 %52, %extract314.i
   %extract_ptr316.i = getelementptr inbounds nuw [8 x i8], ptr %9, i64 %_wide312.i
   %extract317.i = load i64, ptr %extract_ptr316.i, align 8, !invariant.load !0
-  %extract_ptr319.i = getelementptr inbounds nuw [4 x i8], ptr %"@338363.i", i64 %_wide312.i
+  %extract_ptr319.i = getelementptr inbounds nuw [4 x i8], ptr %"@339363.i", i64 %_wide312.i
   %extract320.i = load i32, ptr %extract_ptr319.i, align 4
   %54 = icmp slt i32 %50, %53
   %55 = select i1 %54, i64 %43, i64 %extract317.i
@@ -1779,14 +1779,14 @@ children3_pf_head.i.preheader:                    ; preds = %"!then_0.i"
   %69 = tail call i32 @llvm.smin.i32(i32 %50, i32 %53)
   %70 = tail call range(i32 1, 33) i32 @llvm.cttz.i32(i32 %64, i1 true)
   %_wide321.i = zext nneg i32 %70 to i64
-  %extract_ptr322.i = getelementptr inbounds nuw [4 x i8], ptr %"@337364.i", i64 %_wide321.i
+  %extract_ptr322.i = getelementptr inbounds nuw [4 x i8], ptr %"@338364.i", i64 %_wide321.i
   %extract323.i = load i32, ptr %extract_ptr322.i, align 4
   %isneg375.i = icmp slt i32 %extract323.i, 0
   %71 = select i1 %isneg375.i, i32 2147483647, i32 0
   %72 = xor i32 %71, %extract323.i
   %extract_ptr325.i = getelementptr inbounds nuw [8 x i8], ptr %9, i64 %_wide321.i
   %extract326.i = load i64, ptr %extract_ptr325.i, align 8, !invariant.load !0
-  %extract_ptr328.i = getelementptr inbounds nuw [4 x i8], ptr %"@338363.i", i64 %_wide321.i
+  %extract_ptr328.i = getelementptr inbounds nuw [4 x i8], ptr %"@339363.i", i64 %_wide321.i
   %extract329.i = load i32, ptr %extract_ptr328.i, align 4
   %73 = icmp slt i32 %69, %72
   %74 = tail call i32 @llvm.smax.i32(i32 %69, i32 %72)
@@ -2372,8 +2372,8 @@ entry.exit69.3:                                   ; preds = %"!else_8.i.3", %"!m
 
 _recloop_func1.exit:                              ; preds = %"!visit_pop.i"
   call void @llvm.lifetime.end.p0(ptr nonnull %_ret.i)
-  call void @llvm.lifetime.end.p0(ptr nonnull %"@338363.i")
-  call void @llvm.lifetime.end.p0(ptr nonnull %"@337364.i")
+  call void @llvm.lifetime.end.p0(ptr nonnull %"@339363.i")
+  call void @llvm.lifetime.end.p0(ptr nonnull %"@338364.i")
   call void @llvm.lifetime.end.p0(ptr nonnull %"!stack0365.i")
   call void @llvm.lifetime.end.p0(ptr nonnull %"!stack366.i")
   %295 = fcmp une float %"_best0$i676.sroa.0.1", +inf
@@ -3074,8 +3074,8 @@ i_gang5_pf_exit:                                  ; preds = %"!par_body_0_yield_
 
 "!then_31.i":                                     ; preds = %"!par_body_28.i"
   %.fca.0.3.load.i = load <8 x float>, ptr %.fca.0.3.gep.i, align 32
-  %"@258._field0.i" = load <8 x float>, ptr %"_best0$i67$i186", align 64
-  %250 = fcmp olt <8 x float> %.fca.0.3.load.i, %"@258._field0.i"
+  %"@259._field0.i" = load <8 x float>, ptr %"_best0$i67$i186", align 64
+  %250 = fcmp olt <8 x float> %.fca.0.3.load.i, %"@259._field0.i"
   %251 = and <8 x i1> %248, %250
   %252 = bitcast <8 x i1> %251 to i8
   %.not166.i = icmp eq i8 %252, 0
@@ -3650,8 +3650,8 @@ i_gang5_pf_exit:                                  ; preds = %"!par_body_0_yield_
 
 "!then_31.i697.i":                                ; preds = %"!par_body_28.i668.i"
   %.fca.0.3.load.i699.i = load <8 x float>, ptr %.fca.0.3.gep.i698.i, align 32
-  %"@258._field0.i700.i" = load <8 x float>, ptr %"_best0$i67$i186", align 64
-  %496 = fcmp olt <8 x float> %.fca.0.3.load.i699.i, %"@258._field0.i700.i"
+  %"@259._field0.i700.i" = load <8 x float>, ptr %"_best0$i67$i186", align 64
+  %496 = fcmp olt <8 x float> %.fca.0.3.load.i699.i, %"@259._field0.i700.i"
   %497 = and <8 x i1> %494, %496
   %498 = bitcast <8 x i1> %497 to i8
   %.not189.i701.i = icmp eq i8 %498, 0
@@ -4259,8 +4259,8 @@ i_gang5_pf_exit:                                  ; preds = %"!par_body_0_yield_
 
 "!then_31.i498.i":                                ; preds = %"!par_body_28.i469.i"
   %.fca.0.3.load.i500.i = load <8 x float>, ptr %.fca.0.3.gep.i499.i, align 32
-  %"@258._field0.i501.i" = load <8 x float>, ptr %"_best0$i67$i186", align 64
-  %740 = fcmp olt <8 x float> %.fca.0.3.load.i500.i, %"@258._field0.i501.i"
+  %"@259._field0.i501.i" = load <8 x float>, ptr %"_best0$i67$i186", align 64
+  %740 = fcmp olt <8 x float> %.fca.0.3.load.i500.i, %"@259._field0.i501.i"
   %741 = and <8 x i1> %738, %740
   %742 = bitcast <8 x i1> %741 to i8
   %.not189.i502.i = icmp eq i8 %742, 0
@@ -4868,8 +4868,8 @@ i_gang5_pf_exit:                                  ; preds = %"!par_body_0_yield_
 
 "!then_31.i299.i":                                ; preds = %"!par_body_28.i270.i"
   %.fca.0.3.load.i301.i = load <8 x float>, ptr %.fca.0.3.gep.i300.i, align 32
-  %"@258._field0.i302.i" = load <8 x float>, ptr %"_best0$i67$i186", align 64
-  %984 = fcmp olt <8 x float> %.fca.0.3.load.i301.i, %"@258._field0.i302.i"
+  %"@259._field0.i302.i" = load <8 x float>, ptr %"_best0$i67$i186", align 64
+  %984 = fcmp olt <8 x float> %.fca.0.3.load.i301.i, %"@259._field0.i302.i"
   %985 = and <8 x i1> %982, %984
   %986 = bitcast <8 x i1> %985 to i8
   %.not189.i303.i = icmp eq i8 %986, 0
@@ -5477,8 +5477,8 @@ i_gang5_pf_exit:                                  ; preds = %"!par_body_0_yield_
 
 "!then_31.i.i":                                   ; preds = %"!par_body_28.i.i"
   %.fca.0.3.load.i.i = load <8 x float>, ptr %.fca.0.3.gep.i.i, align 32
-  %"@258._field0.i.i" = load <8 x float>, ptr %"_best0$i67$i186", align 64
-  %1228 = fcmp olt <8 x float> %.fca.0.3.load.i.i, %"@258._field0.i.i"
+  %"@259._field0.i.i" = load <8 x float>, ptr %"_best0$i67$i186", align 64
+  %1228 = fcmp olt <8 x float> %.fca.0.3.load.i.i, %"@259._field0.i.i"
   %1229 = and <8 x i1> %1226, %1228
   %1230 = bitcast <8 x i1> %1229 to i8
   %.not189.i.i = icmp eq i8 %1230, 0

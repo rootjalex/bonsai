@@ -1,0 +1,83 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+%"struct.f32x3$v8" = type { <8 x float>, <8 x float>, <8 x float> }
+
+; Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: readwrite)
+define internal fastcc void @"add_scaled$gang8_v0_p2$masked"(<8 x float> noundef %"v!0", <8 x float> noundef %"v!1", <8 x float> noundef %"v!2", ptr nofree noundef nonnull captures(none) %acc, <8 x i1> noundef %"!mask") unnamed_addr #0 {
+"add_scaled$gang8_v0_p2$masked":
+  %deref_temp.unpack = load <8 x float>, ptr %acc, align 32
+  %0 = fadd <8 x float> %"v!0", %deref_temp.unpack
+  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %0, ptr nonnull align 32 %acc, <8 x i1> %"!mask")
+  %deref_temp1.elt23 = getelementptr inbounds nuw i8, ptr %acc, i64 32
+  %deref_temp1.unpack24 = load <8 x float>, ptr %deref_temp1.elt23, align 32
+  %1 = fadd <8 x float> %"v!1", %deref_temp1.unpack24
+  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %1, ptr nonnull align 32 %deref_temp1.elt23, <8 x i1> %"!mask")
+  %deref_temp2.elt30 = getelementptr inbounds nuw i8, ptr %acc, i64 64
+  %deref_temp2.unpack31 = load <8 x float>, ptr %deref_temp2.elt30, align 32
+  %2 = fadd <8 x float> %"v!2", %deref_temp2.unpack31
+  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %2, ptr nonnull align 32 %deref_temp2.elt30, <8 x i1> %"!mask")
+  %deref_temp9.unpack = load <8 x float>, ptr %acc, align 32
+  %3 = fmul <8 x float> %deref_temp9.unpack, splat (float 5.000000e-01)
+  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %3, ptr nonnull align 32 %acc, <8 x i1> %"!mask")
+  %deref_temp12.unpack39 = load <8 x float>, ptr %deref_temp1.elt23, align 32
+  %4 = fmul <8 x float> %deref_temp12.unpack39, splat (float 5.000000e-01)
+  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %4, ptr nonnull align 32 %deref_temp1.elt23, <8 x i1> %"!mask")
+  %deref_temp15.unpack46 = load <8 x float>, ptr %deref_temp2.elt30, align 32
+  %5 = fmul <8 x float> %deref_temp15.unpack46, splat (float 5.000000e-01)
+  tail call void @llvm.masked.store.v8f32.p0(<8 x float> %5, ptr nonnull align 32 %deref_temp2.elt30, <8 x i1> %"!mask")
+  ret void
+}
+
+; Function Attrs: mustprogress
+define void @run(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr #1 {
+run:
+  %acc = alloca %"struct.f32x3$v8", align 32
+  %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  store <8 x float> splat (float 1.000000e+00), ptr %acc, align 32
+  %.fca.1.gep = getelementptr inbounds nuw i8, ptr %acc, i64 32
+  store <8 x float> splat (float 1.000000e+00), ptr %.fca.1.gep, align 32
+  %.fca.2.gep = getelementptr inbounds nuw i8, ptr %acc, i64 64
+  store <8 x float> splat (float 1.000000e+00), ptr %.fca.2.gep, align 32
+  %extract = load <8 x float>, ptr %a, align 4
+  %0 = fcmp ogt <8 x float> %extract, zeroinitializer
+  %1 = bitcast <8 x i1> %0 to i8
+  %.not = icmp eq i8 %1, 0
+  br i1 %.not, label %"!merge_3", label %"!then_2"
+
+"!then_2":                                        ; preds = %run
+  %2 = fmul <8 x float> %extract, splat (float 2.000000e+00)
+  %3 = fmul <8 x float> %extract, splat (float 3.000000e+00)
+  call fastcc void @"add_scaled$gang8_v0_p2$masked"(<8 x float> %extract, <8 x float> %2, <8 x float> %3, ptr %acc, <8 x i1> %0)
+  %deref_temp.fca.0.load.pre = load <8 x float>, ptr %acc, align 32
+  %deref_temp.fca.1.load.pre = load <8 x float>, ptr %.fca.1.gep, align 32
+  %deref_temp.fca.2.load.pre = load <8 x float>, ptr %.fca.2.gep, align 32
+  br label %"!merge_3"
+
+"!merge_3":                                       ; preds = %"!then_2", %run
+  %deref_temp.fca.2.load = phi <8 x float> [ %deref_temp.fca.2.load.pre, %"!then_2" ], [ splat (float 1.000000e+00), %run ]
+  %deref_temp.fca.1.load = phi <8 x float> [ %deref_temp.fca.1.load.pre, %"!then_2" ], [ splat (float 1.000000e+00), %run ]
+  %deref_temp.fca.0.load = phi <8 x float> [ %deref_temp.fca.0.load.pre, %"!then_2" ], [ splat (float 1.000000e+00), %run ]
+  %store_ptrs_up = getelementptr i8, ptr %out, i64 8589934592
+  %store_ptrs = getelementptr [4 x i8], ptr %store_ptrs_up, <8 x i64> <i64 -2147483648, i64 -2147483644, i64 -2147483640, i64 -2147483636, i64 -2147483632, i64 -2147483628, i64 -2147483624, i64 -2147483620>
+  tail call void @llvm.masked.scatter.v8f32.v8p0(<8 x float> %deref_temp.fca.0.load, <8 x ptr> align 4 %store_ptrs, <8 x i1> splat (i1 true))
+  %store_ptrs4 = getelementptr [4 x i8], ptr %store_ptrs_up, <8 x i64> <i64 -2147483647, i64 -2147483643, i64 -2147483639, i64 -2147483635, i64 -2147483631, i64 -2147483627, i64 -2147483623, i64 -2147483619>
+  tail call void @llvm.masked.scatter.v8f32.v8p0(<8 x float> %deref_temp.fca.1.load, <8 x ptr> align 4 %store_ptrs4, <8 x i1> splat (i1 true))
+  %store_ptrs6 = getelementptr [4 x i8], ptr %store_ptrs_up, <8 x i64> <i64 -2147483646, i64 -2147483642, i64 -2147483638, i64 -2147483634, i64 -2147483630, i64 -2147483626, i64 -2147483622, i64 -2147483618>
+  tail call void @llvm.masked.scatter.v8f32.v8p0(<8 x float> %deref_temp.fca.2.load, <8 x ptr> align 4 %store_ptrs6, <8 x i1> splat (i1 true))
+  ret void
+}
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write)
+declare void @llvm.masked.store.v8f32.p0(<8 x float>, ptr captures(none), <8 x i1>) #2
+
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(write)
+declare void @llvm.masked.scatter.v8f32.v8p0(<8 x float>, <8 x ptr>, <8 x i1>) #3
+
+attributes #0 = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(argmem: readwrite) }
+attributes #1 = { mustprogress }
+attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: write) }
+attributes #3 = { mustprogress nocallback nofree nosync nounwind willreturn memory(write) }

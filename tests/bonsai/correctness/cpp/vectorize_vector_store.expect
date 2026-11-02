@@ -1,0 +1,13 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_vector_store.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_vector_store.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_vector_store.o tests/bonsai/correctness/cpp/vectorize_vector_store.o -o tests/bonsai/correctness/cpp/vectorize_vector_store
+[test] ./tests/bonsai/correctness/cpp/vectorize_vector_store
+1 2 3
+2 4 6
+3 6 9
+4 8 12
+5 10 15
+6 12 18
+7 14 21
+8 16 24
+same as scalar
+6 12 18 24 30 36 42 48

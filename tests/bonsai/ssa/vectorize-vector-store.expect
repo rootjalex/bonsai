@@ -1,0 +1,59 @@
+type Float = f32
+type Half = f16
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func [[export]] gather(a : f32x3[8], out : mut f32[8]) -> void {
+  let @8 = reinterpret_cast<f32[]>(a) in
+  let @9 = sizeof(f32x3) in
+  let @10 = sizeof(f32) in
+  let @11 = @9 / @10 in
+  let @19 = i32x8(@11) in
+  let @12 = ramp(0, 1, 8) * @19 in
+  let @20 = i32x8(0) in
+  let @13 = @12 + @20 in
+  let @14 = @8[@13] in
+  let @21 = i32x8(1) in
+  let @15 = @12 + @21 in
+  let @16 = @8[@15] in
+  let @22 = i32x8(2) in
+  let @17 = @12 + @22 in
+  let @18 = @8[@17] in
+  let @3 = @14 + @16 in
+  let @5 = @3 + @18 in
+  out[ramp(0, 1, 8)] = @5
+  return
+}
+
+func [[export]] scatter(a : f32[8], out : mut f32x3[8]) -> void {
+  let _t25 = a[ramp(0, 1, 8)] in
+  let @17 = f32x8(2f) in
+  let @1 = @17 * _t25 in
+  let @18 = f32x8(3f) in
+  let @2 = @18 * _t25 in
+  let @6 = reinterpret_cast<f32[]>(out) in
+  let @7 = sizeof(f32x3) in
+  let @8 = sizeof(f32) in
+  let @9 = @7 / @8 in
+  let @19 = i32x8(@9) in
+  let @10 = ramp(0, 1, 8) * @19 in
+  let @20 = i32x8(0) in
+  let @11 = @10 + @20 in
+  @6[@11] = _t25
+  let @21 = i32x8(1) in
+  let @13 = @10 + @21 in
+  @6[@13] = @1
+  let @22 = i32x8(2) in
+  let @15 = @10 + @22 in
+  @6[@15] = @2
+  return
+}
+
+
+schedule {
+    gather.vectorize(i)
+    scatter.vectorize(i)
+
+}

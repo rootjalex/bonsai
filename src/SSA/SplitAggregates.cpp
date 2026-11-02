@@ -125,6 +125,17 @@ struct Splitter {
         if (!type.is_vector()) {
             return value; // a scalar: the same for every component
         }
+        // A splat of a scalar -- the scalar a program scales a vector by,
+        // broadcast over its components (`tMax *= 1 + 2 * gamma(3)`, made
+        // explicit by the SSA builder) -- is that scalar in every component,
+        // with nothing to read apart.
+        if (const auto *instr =
+                std::get_if<shared_ptr<Instruction>>(&value->data);
+            instr != nullptr && (*instr)->op == Instruction::Op::Bc &&
+            (*instr)->operands.size() == 2 &&
+            !(*instr)->operands[0]->get_type().is_vector()) {
+            return (*instr)->operands[0];
+        }
 
         // A whole vector -- uniform, or a per-lane one that is carried whole
         // (see whole()) -- read apart once per block and reused.
@@ -484,6 +495,78 @@ SplitResult split_aggregates(Function &func, const string &entry,
                 }
                 splitter.folded[instr.get()] = acc;
                 continue;
+            }
+
+            // Storing a per-lane vector into an element of an array of
+            // vectors, at each lane's own index: the mirror of the strided
+            // read below. The array is shared memory laid out one whole
+            // vector per element, so each component goes to its own place in
+            // the array viewed as its element type, the elements `width`
+            // components apart -- the array-of-structures store of ispc's
+            // section 5.2. A store of one through a pointer -- into a lane's
+            // own slot, or a `mut` parameter's -- is left whole: widening
+            // lays that memory out in the shape the whole value has (see
+            // widen() in SSA/Vectorize.cpp). The store's execution mask, if
+            // it has one, covers every component stored in its stead.
+            if (instr->op == Instruction::Op::Store &&
+                splitter.per_lane_vector(*instr->operands[1])) {
+                const auto *place =
+                    std::get_if<shared_ptr<Instruction>>(&instr->operands[0]->data);
+                if (place != nullptr && (*place)->op == Instruction::Op::GEP &&
+                    (*place)->operands.size() == 2 &&
+                    (*place)->operands[0]->get_type().is_reference() &&
+                    splitter.is_varying(*(*place)->operands[1])) {
+                    const auto &array = (*place)->operands[0];
+                    const auto &index = (*place)->operands[1];
+                    const auto &value = instr->operands[1];
+                    const Type vec_type = value->get_type();
+                    const Type element = vec_type.element_of();
+                    const uint32_t n = vec_type.lanes();
+
+                    const Type flat = Array_t::make(element, /*size=*/Expr());
+                    auto flat_array =
+                        splitter.emit(flat, Instruction::Op::Reinterpret, {array});
+                    const Type index_type = index->get_type();
+                    const Type scalar_index = index_type.is_vector()
+                                                  ? index_type.element_of()
+                                                  : index_type;
+                    // How far apart consecutive elements sit, in components:
+                    // asked of the backend, as the read below asks.
+                    auto element_size =
+                        splitter.emit(scalar_index, Instruction::Op::SizeOf, {});
+                    std::get<shared_ptr<Instruction>>(element_size->data)
+                        ->queried_type = vec_type;
+                    auto component_size =
+                        splitter.emit(scalar_index, Instruction::Op::SizeOf, {});
+                    std::get<shared_ptr<Instruction>>(component_size->data)
+                        ->queried_type = element;
+                    auto width = splitter.emit(scalar_index, Instruction::Op::Div,
+                                               {element_size, component_size});
+                    auto base = splitter.emit(index_type, Instruction::Op::Mul,
+                                              {index, width});
+                    const Type component_ptr =
+                        Ptr_t::make(element, array->get_type().is_readonly());
+                    for (uint32_t k = 0; k < n; k++) {
+                        auto at = splitter.emit(
+                            index_type, Instruction::Op::Add,
+                            {base, constant_of(scalar_index, k)});
+                        auto where = splitter.emit(component_ptr,
+                                                   Instruction::Op::GEP,
+                                                   {flat_array, std::move(at)});
+                        vector<shared_ptr<Value>> operands{
+                            std::move(where), splitter.component(value, k)};
+                        if (instr->operands.size() == 3) {
+                            operands.push_back(instr->operands[2]);
+                        }
+                        auto store = std::make_shared<Instruction>(
+                            Instruction::Op::Store, std::move(operands),
+                            splitter.block);
+                        store->compact = instr->compact;
+                        store->slack = instr->slack;
+                        splitter.emitted.push_back(store);
+                    }
+                    continue;
+                }
             }
 
             if (!varying || !produces_vector) {

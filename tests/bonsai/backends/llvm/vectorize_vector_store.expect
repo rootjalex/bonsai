@@ -1,0 +1,53 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress
+define void @gather(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
+gather:
+  %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
+  %extract_up = getelementptr i8, ptr %a, i64 8589934592
+  %extract_ptrs = getelementptr [4 x i8], ptr %extract_up, <8 x i64> <i64 -2147483648, i64 -2147483644, i64 -2147483640, i64 -2147483636, i64 -2147483632, i64 -2147483628, i64 -2147483624, i64 -2147483620>
+  %extract = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> align 4 %extract_ptrs, <8 x i1> splat (i1 true), <8 x float> poison)
+  %extract_ptrs4 = getelementptr [4 x i8], ptr %extract_up, <8 x i64> <i64 -2147483647, i64 -2147483643, i64 -2147483639, i64 -2147483635, i64 -2147483631, i64 -2147483627, i64 -2147483623, i64 -2147483619>
+  %extract5 = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> align 4 %extract_ptrs4, <8 x i1> splat (i1 true), <8 x float> poison)
+  %extract_ptrs7 = getelementptr [4 x i8], ptr %extract_up, <8 x i64> <i64 -2147483646, i64 -2147483642, i64 -2147483638, i64 -2147483634, i64 -2147483630, i64 -2147483626, i64 -2147483622, i64 -2147483618>
+  %extract8 = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> align 4 %extract_ptrs7, <8 x i1> splat (i1 true), <8 x float> poison)
+  %0 = fadd <8 x float> %extract, %extract5
+  %1 = fadd <8 x float> %0, %extract8
+  store <8 x float> %1, ptr %out, align 4
+  ret void
+}
+
+; Function Attrs: mustprogress
+define void @scatter(ptr noundef %a_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
+scatter:
+  %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  %extract = load <8 x float>, ptr %a, align 4
+  %0 = fmul <8 x float> %extract, splat (float 2.000000e+00)
+  %1 = fmul <8 x float> %extract, splat (float 3.000000e+00)
+  %store_ptrs_up = getelementptr i8, ptr %out, i64 8589934592
+  %store_ptrs = getelementptr [4 x i8], ptr %store_ptrs_up, <8 x i64> <i64 -2147483648, i64 -2147483644, i64 -2147483640, i64 -2147483636, i64 -2147483632, i64 -2147483628, i64 -2147483624, i64 -2147483620>
+  tail call void @llvm.masked.scatter.v8f32.v8p0(<8 x float> %extract, <8 x ptr> align 4 %store_ptrs, <8 x i1> splat (i1 true))
+  %store_ptrs4 = getelementptr [4 x i8], ptr %store_ptrs_up, <8 x i64> <i64 -2147483647, i64 -2147483643, i64 -2147483639, i64 -2147483635, i64 -2147483631, i64 -2147483627, i64 -2147483623, i64 -2147483619>
+  tail call void @llvm.masked.scatter.v8f32.v8p0(<8 x float> %0, <8 x ptr> align 4 %store_ptrs4, <8 x i1> splat (i1 true))
+  %store_ptrs6 = getelementptr [4 x i8], ptr %store_ptrs_up, <8 x i64> <i64 -2147483646, i64 -2147483642, i64 -2147483638, i64 -2147483634, i64 -2147483630, i64 -2147483626, i64 -2147483622, i64 -2147483618>
+  tail call void @llvm.masked.scatter.v8f32.v8p0(<8 x float> %1, <8 x ptr> align 4 %store_ptrs6, <8 x i1> splat (i1 true))
+  ret void
+}
+
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
+declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, <8 x i1>, <8 x float>) #1
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(write)
+declare void @llvm.masked.scatter.v8f32.v8p0(<8 x float>, <8 x ptr>, <8 x i1>) #2
+
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }
+attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(write) }

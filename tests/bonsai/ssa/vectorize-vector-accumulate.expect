@@ -1,0 +1,74 @@
+type Float = f32
+type Half = f16
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func [[noinline]] add_scaled(v : f32x3, s : f32, acc : mut (f32x3*)) -> void {
+  acc += v
+  let @0 = f32x3(s) in
+  acc *= @0
+  return
+}
+
+func [[noinline]] add_scaled$gang8_v0_p2$masked(v!0 : f32x8, v!1 : f32x8, v!2 : f32x8, s : f32, acc : mut (f32x3$v8*), !mask : boolx8) -> void {
+  masked_store(acc.!0, (*acc).!0 + v!0, !mask)
+  masked_store(acc.!1, (*acc).!1 + v!1, !mask)
+  masked_store(acc.!2, (*acc).!2 + v!2, !mask)
+  let @0 = f32x3(s) in
+  let @8 = @0[0u] in
+  let @9 = f32x8(@8) in
+  let @10 = @0[1u] in
+  let @11 = f32x8(@10) in
+  let @12 = @0[2u] in
+  let @13 = f32x8(@12) in
+  masked_store(acc.!0, (*acc).!0 * @9, !mask)
+  masked_store(acc.!1, (*acc).!1 * @11, !mask)
+  masked_store(acc.!2, (*acc).!2 * @13, !mask)
+  return
+}
+
+func [[export]] run(a : f32[8], out : mut f32x3[8]) -> void {
+  acc : mut f32x3$v8
+  let @26 = f32x8(1f) in
+  let @31 = build<f32x3$v8>(@26, @26, @26) in
+  acc = @31
+  let _t25 = a[ramp(0, 1, 8)] in
+  let @32 = f32x8(0f) in
+  let @2 = @32 < _t25 in
+  let @9 = reduce<any>(@2) in
+  if (@9) {
+    let @35 = f32x8(2f) in
+    let @3 = @35 * _t25 in
+    let @36 = f32x8(3f) in
+    let @4 = @36 * _t25 in
+    add_scaled$gang8_v0_p2$masked(_t25, @3, @4, 0.5f, acc, @2)
+  }
+  let @6 = (*acc) in
+  let @11 = reinterpret_cast<f32[]>(out) in
+  let @12 = sizeof(f32x3) in
+  let @13 = sizeof(f32) in
+  let @14 = @12 / @13 in
+  let @37 = i32x8(@14) in
+  let @15 = ramp(0, 1, 8) * @37 in
+  let @38 = i32x8(0) in
+  let @16 = @15 + @38 in
+  let @18 = @6.!0 in
+  @11[@16] = @18
+  let @39 = i32x8(1) in
+  let @19 = @15 + @39 in
+  let @21 = @6.!1 in
+  @11[@19] = @21
+  let @40 = i32x8(2) in
+  let @22 = @15 + @40 in
+  let @24 = @6.!2 in
+  @11[@22] = @24
+  return
+}
+
+
+schedule {
+    run.vectorize(i)
+
+}

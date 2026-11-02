@@ -1,0 +1,43 @@
+//! flags: -p ssa
+
+// A short vector accumulated into a lane's own slot, by a callee the gang
+// calls under a mask: the program of
+// correctness/cpp/vectorize_vector_accumulate.bonsai.
+//
+// `acc` is a `mut` local of the body whose address goes to `add_scaled`, so
+// it stays in memory, and in the gang it is per-lane memory behind one
+// pointer -- a `vec3f` per lane, held as a struct of one gang vector per
+// component (widen() in SSA/Vectorize.cpp). The callee's variant takes that
+// pointer (`p2`) and accumulates through it twice: `acc += v`, a per-lane
+// vector into the lane's slot, and `acc *= s`, a scalar into the slot's
+// three components -- the broadcast over the components the program leaves
+// implicit, the way `tMax *= 1 + 2 * gamma(3)` does in stdlib/intersects.
+//
+// What this pins is that each becomes one accumulate per component: the
+// component's field of the place (`field_ptr`), and the component of the
+// value (`load_field`) or, for the scalar, the one gang vector every
+// component takes, all under the call's mask. A backend lowers each as it
+// does any masked accumulate of a gang vector into per-lane memory; there is
+// no accumulate of a struct for it to meet.
+import stdlib/numerics;
+
+func [[noinline]] add_scaled(v : vec3f, s : f32, acc : mut vec3f) -> void {
+    acc += v;
+    acc *= s;
+    return;
+}
+
+func [[export]] run(a : array[f32, 8], out : mut array[vec3f, 8]) -> void {
+    parfor i in 0:8 {
+        acc : mut vec3f = vec3f{1.0, 1.0, 1.0};
+        if a[i] > 0.0 {
+            add_scaled(vec3f{a[i], 2.0 * a[i], 3.0 * a[i]}, 0.5, acc);
+        }
+        out[i] = acc;
+    }
+    return;
+}
+
+schedule {
+    run.vectorize(i);
+}

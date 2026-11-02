@@ -1,0 +1,32 @@
+//! flags: -p ssa -b llvm
+
+// A lane's own short vector stored into an array of vectors, at the LLVM
+// level: the program of ssa/vectorize-vector-store.bonsai.
+//
+// What to read for: `scatter` writes each component of every lane to its
+// own element -- the stores go through a stride of four floats (the
+// sixteen-byte `float3`), whether LLVM spells that as scatters, as shuffles
+// into whole-element stores, or as scalar stores -- and never as three
+// `<8 x float>` stores laid end to end from the array's start, which is what
+// storing the struct of planes whole did. `gather` is the read that mirrors
+// it, the same stride.
+import stdlib/numerics;
+
+func [[export]] scatter(a : array[f32, 8], out : mut array[vec3f, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = vec3f{a[i], 2.0 * a[i], 3.0 * a[i]};
+    }
+    return;
+}
+
+func [[export]] gather(a : array[vec3f, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = a[i].x + a[i].y + a[i].z;
+    }
+    return;
+}
+
+schedule {
+    scatter.vectorize(i);
+    gather.vectorize(i);
+}

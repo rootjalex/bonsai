@@ -644,10 +644,10 @@ define void @occluded_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr n
   %"_holds0$i1767.1" = phi <8 x i1> [ %"_holds0$i1767.0", %"!for_data_17!loop.i389.lr.ph.i" ], [ %"_holds0$i1767.2", %"!latch.i392.i" ]
   %_holds0.promoted546611.i = phi <8 x i1> [ %_holds0.promoted546613.i, %"!for_data_17!loop.i389.lr.ph.i" ], [ %_holds0.promoted546610.i, %"!latch.i392.i" ]
   %deref_temp20.i413530.i = phi <8 x i1> [ %deref_temp20.i413531.i, %"!for_data_17!loop.i389.lr.ph.i" ], [ %deref_temp20.i413534.i, %"!latch.i392.i" ]
-  %"@166.i385525.i" = phi <8 x i1> [ undef, %"!for_data_17!loop.i389.lr.ph.i" ], [ %"@1667.i394.i", %"!latch.i392.i" ]
-  %"@164.i384524.i" = phi i32 [ undef, %"!for_data_17!loop.i389.lr.ph.i" ], [ %"@1646.i393.i", %"!latch.i392.i" ]
-  %"!live.i381521.i" = phi <8 x i1> [ %54, %"!for_data_17!loop.i389.lr.ph.i" ], [ %"@1667.i394.i", %"!latch.i392.i" ]
-  %"data!loop.i380520.i" = phi i32 [ 0, %"!for_data_17!loop.i389.lr.ph.i" ], [ %"@1646.i393.i", %"!latch.i392.i" ]
+  %"@167.i385525.i" = phi <8 x i1> [ undef, %"!for_data_17!loop.i389.lr.ph.i" ], [ %"@1677.i394.i", %"!latch.i392.i" ]
+  %"@165.i384524.i" = phi i32 [ undef, %"!for_data_17!loop.i389.lr.ph.i" ], [ %"@1656.i393.i", %"!latch.i392.i" ]
+  %"!live.i381521.i" = phi <8 x i1> [ %54, %"!for_data_17!loop.i389.lr.ph.i" ], [ %"@1677.i394.i", %"!latch.i392.i" ]
+  %"data!loop.i380520.i" = phi i32 [ 0, %"!for_data_17!loop.i389.lr.ph.i" ], [ %"@1656.i393.i", %"!latch.i392.i" ]
   %99 = icmp ult i32 %"data!loop.i380520.i", %97
   br i1 %99, label %"!for_data_body_18.i397.i", label %"!break.i390.i"
 
@@ -671,23 +671,23 @@ define void @occluded_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr n
   %106 = and <8 x i1> %"!live.i381521.i", %105
   %107 = and <8 x i1> %"!live.i381521.i", %104
   %not..i410.i = xor <8 x i1> %107, splat (i1 true)
-  %108 = and <8 x i1> %"@166.i385525.i", %not..i410.i
+  %108 = and <8 x i1> %"@167.i385525.i", %not..i410.i
   %109 = add nuw i32 %"data!loop.i380520.i", 1
   %110 = select <8 x i1> %106, <8 x i1> splat (i1 true), <8 x i1> %108
   br label %"!latch.i392.i"
 
 "!break.i390.i":                                  ; preds = %"!for_data_17!loop.i389.i"
   %"not.!live.i391.i" = xor <8 x i1> %"!live.i381521.i", splat (i1 true)
-  %111 = and <8 x i1> %"@166.i385525.i", %"not.!live.i391.i"
+  %111 = and <8 x i1> %"@167.i385525.i", %"not.!live.i391.i"
   br label %"!latch.i392.i"
 
 "!latch.i392.i":                                  ; preds = %"!break.i390.i", %"!for_data_body_18.i397.i"
   %"_holds0$i1767.2" = phi <8 x i1> [ %104, %"!for_data_body_18.i397.i" ], [ %"_holds0$i1767.1", %"!break.i390.i" ]
   %_holds0.promoted546610.i = phi <8 x i1> [ %104, %"!for_data_body_18.i397.i" ], [ %_holds0.promoted546611.i, %"!break.i390.i" ]
   %deref_temp20.i413534.i = phi <8 x i1> [ %104, %"!for_data_body_18.i397.i" ], [ %deref_temp20.i413530.i, %"!break.i390.i" ]
-  %"@1646.i393.i" = phi i32 [ %109, %"!for_data_body_18.i397.i" ], [ %"@164.i384524.i", %"!break.i390.i" ]
-  %"@1667.i394.i" = phi <8 x i1> [ %110, %"!for_data_body_18.i397.i" ], [ %111, %"!break.i390.i" ]
-  %112 = bitcast <8 x i1> %"@1667.i394.i" to i8
+  %"@1656.i393.i" = phi i32 [ %109, %"!for_data_body_18.i397.i" ], [ %"@165.i384524.i", %"!break.i390.i" ]
+  %"@1677.i394.i" = phi <8 x i1> [ %110, %"!for_data_body_18.i397.i" ], [ %111, %"!break.i390.i" ]
+  %112 = bitcast <8 x i1> %"@1677.i394.i" to i8
   %.not75.i388.i = icmp eq i8 %112, 0
   br i1 %.not75.i388.i, label %"!visit_pop.i411.i.loopexit19", label %"!for_data_17!loop.i389.i"
 
@@ -856,10 +856,10 @@ define void @occluded_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr n
   %"_holds0$i1767.6" = phi <8 x i1> [ %"_holds0$i1767.5", %"!for_data_17!loop.i273.lr.ph.i" ], [ %"_holds0$i1767.7", %"!latch.i276.i" ]
   %_holds0.promoted563616.i = phi <8 x i1> [ %_holds0.promoted563618.i, %"!for_data_17!loop.i273.lr.ph.i" ], [ %_holds0.promoted563615.i, %"!latch.i276.i" ]
   %deref_temp20.i297547.i = phi <8 x i1> [ %deref_temp20.i297548.i, %"!for_data_17!loop.i273.lr.ph.i" ], [ %deref_temp20.i297551.i, %"!latch.i276.i" ]
-  %"@166.i269541.i" = phi <8 x i1> [ undef, %"!for_data_17!loop.i273.lr.ph.i" ], [ %"@1667.i278.i", %"!latch.i276.i" ]
-  %"@164.i268540.i" = phi i32 [ undef, %"!for_data_17!loop.i273.lr.ph.i" ], [ %"@1646.i277.i", %"!latch.i276.i" ]
-  %"!live.i265537.i" = phi <8 x i1> [ %119, %"!for_data_17!loop.i273.lr.ph.i" ], [ %"@1667.i278.i", %"!latch.i276.i" ]
-  %"data!loop.i264536.i" = phi i32 [ 0, %"!for_data_17!loop.i273.lr.ph.i" ], [ %"@1646.i277.i", %"!latch.i276.i" ]
+  %"@167.i269541.i" = phi <8 x i1> [ undef, %"!for_data_17!loop.i273.lr.ph.i" ], [ %"@1677.i278.i", %"!latch.i276.i" ]
+  %"@165.i268540.i" = phi i32 [ undef, %"!for_data_17!loop.i273.lr.ph.i" ], [ %"@1656.i277.i", %"!latch.i276.i" ]
+  %"!live.i265537.i" = phi <8 x i1> [ %119, %"!for_data_17!loop.i273.lr.ph.i" ], [ %"@1677.i278.i", %"!latch.i276.i" ]
+  %"data!loop.i264536.i" = phi i32 [ 0, %"!for_data_17!loop.i273.lr.ph.i" ], [ %"@1656.i277.i", %"!latch.i276.i" ]
   %164 = icmp ult i32 %"data!loop.i264536.i", %162
   br i1 %164, label %"!for_data_body_18.i281.i", label %"!break.i274.i"
 
@@ -883,23 +883,23 @@ define void @occluded_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr n
   %171 = and <8 x i1> %"!live.i265537.i", %170
   %172 = and <8 x i1> %"!live.i265537.i", %169
   %not..i294.i = xor <8 x i1> %172, splat (i1 true)
-  %173 = and <8 x i1> %"@166.i269541.i", %not..i294.i
+  %173 = and <8 x i1> %"@167.i269541.i", %not..i294.i
   %174 = add nuw i32 %"data!loop.i264536.i", 1
   %175 = select <8 x i1> %171, <8 x i1> splat (i1 true), <8 x i1> %173
   br label %"!latch.i276.i"
 
 "!break.i274.i":                                  ; preds = %"!for_data_17!loop.i273.i"
   %"not.!live.i275.i" = xor <8 x i1> %"!live.i265537.i", splat (i1 true)
-  %176 = and <8 x i1> %"@166.i269541.i", %"not.!live.i275.i"
+  %176 = and <8 x i1> %"@167.i269541.i", %"not.!live.i275.i"
   br label %"!latch.i276.i"
 
 "!latch.i276.i":                                  ; preds = %"!break.i274.i", %"!for_data_body_18.i281.i"
   %"_holds0$i1767.7" = phi <8 x i1> [ %169, %"!for_data_body_18.i281.i" ], [ %"_holds0$i1767.6", %"!break.i274.i" ]
   %_holds0.promoted563615.i = phi <8 x i1> [ %169, %"!for_data_body_18.i281.i" ], [ %_holds0.promoted563616.i, %"!break.i274.i" ]
   %deref_temp20.i297551.i = phi <8 x i1> [ %169, %"!for_data_body_18.i281.i" ], [ %deref_temp20.i297547.i, %"!break.i274.i" ]
-  %"@1646.i277.i" = phi i32 [ %174, %"!for_data_body_18.i281.i" ], [ %"@164.i268540.i", %"!break.i274.i" ]
-  %"@1667.i278.i" = phi <8 x i1> [ %175, %"!for_data_body_18.i281.i" ], [ %176, %"!break.i274.i" ]
-  %177 = bitcast <8 x i1> %"@1667.i278.i" to i8
+  %"@1656.i277.i" = phi i32 [ %174, %"!for_data_body_18.i281.i" ], [ %"@165.i268540.i", %"!break.i274.i" ]
+  %"@1677.i278.i" = phi <8 x i1> [ %175, %"!for_data_body_18.i281.i" ], [ %176, %"!break.i274.i" ]
+  %177 = bitcast <8 x i1> %"@1677.i278.i" to i8
   %.not75.i272.i = icmp eq i8 %177, 0
   br i1 %.not75.i272.i, label %"!visit_pop.i295.i.loopexit18", label %"!for_data_17!loop.i273.i"
 
@@ -1068,10 +1068,10 @@ define void @occluded_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr n
   %"_holds0$i1767.11" = phi <8 x i1> [ %"_holds0$i1767.10", %"!for_data_17!loop.i157.lr.ph.i" ], [ %"_holds0$i1767.12", %"!latch.i160.i" ]
   %_holds0.promoted580621.i = phi <8 x i1> [ %_holds0.promoted580623.i, %"!for_data_17!loop.i157.lr.ph.i" ], [ %_holds0.promoted580620.i, %"!latch.i160.i" ]
   %deref_temp20.i181564.i = phi <8 x i1> [ %deref_temp20.i181565.i, %"!for_data_17!loop.i157.lr.ph.i" ], [ %deref_temp20.i181568.i, %"!latch.i160.i" ]
-  %"@166.i153558.i" = phi <8 x i1> [ undef, %"!for_data_17!loop.i157.lr.ph.i" ], [ %"@1667.i162.i", %"!latch.i160.i" ]
-  %"@164.i152557.i" = phi i32 [ undef, %"!for_data_17!loop.i157.lr.ph.i" ], [ %"@1646.i161.i", %"!latch.i160.i" ]
-  %"!live.i149554.i" = phi <8 x i1> [ %184, %"!for_data_17!loop.i157.lr.ph.i" ], [ %"@1667.i162.i", %"!latch.i160.i" ]
-  %"data!loop.i148553.i" = phi i32 [ 0, %"!for_data_17!loop.i157.lr.ph.i" ], [ %"@1646.i161.i", %"!latch.i160.i" ]
+  %"@167.i153558.i" = phi <8 x i1> [ undef, %"!for_data_17!loop.i157.lr.ph.i" ], [ %"@1677.i162.i", %"!latch.i160.i" ]
+  %"@165.i152557.i" = phi i32 [ undef, %"!for_data_17!loop.i157.lr.ph.i" ], [ %"@1656.i161.i", %"!latch.i160.i" ]
+  %"!live.i149554.i" = phi <8 x i1> [ %184, %"!for_data_17!loop.i157.lr.ph.i" ], [ %"@1677.i162.i", %"!latch.i160.i" ]
+  %"data!loop.i148553.i" = phi i32 [ 0, %"!for_data_17!loop.i157.lr.ph.i" ], [ %"@1656.i161.i", %"!latch.i160.i" ]
   %229 = icmp ult i32 %"data!loop.i148553.i", %227
   br i1 %229, label %"!for_data_body_18.i165.i", label %"!break.i158.i"
 
@@ -1095,23 +1095,23 @@ define void @occluded_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr n
   %236 = and <8 x i1> %"!live.i149554.i", %235
   %237 = and <8 x i1> %"!live.i149554.i", %234
   %not..i178.i = xor <8 x i1> %237, splat (i1 true)
-  %238 = and <8 x i1> %"@166.i153558.i", %not..i178.i
+  %238 = and <8 x i1> %"@167.i153558.i", %not..i178.i
   %239 = add nuw i32 %"data!loop.i148553.i", 1
   %240 = select <8 x i1> %236, <8 x i1> splat (i1 true), <8 x i1> %238
   br label %"!latch.i160.i"
 
 "!break.i158.i":                                  ; preds = %"!for_data_17!loop.i157.i"
   %"not.!live.i159.i" = xor <8 x i1> %"!live.i149554.i", splat (i1 true)
-  %241 = and <8 x i1> %"@166.i153558.i", %"not.!live.i159.i"
+  %241 = and <8 x i1> %"@167.i153558.i", %"not.!live.i159.i"
   br label %"!latch.i160.i"
 
 "!latch.i160.i":                                  ; preds = %"!break.i158.i", %"!for_data_body_18.i165.i"
   %"_holds0$i1767.12" = phi <8 x i1> [ %234, %"!for_data_body_18.i165.i" ], [ %"_holds0$i1767.11", %"!break.i158.i" ]
   %_holds0.promoted580620.i = phi <8 x i1> [ %234, %"!for_data_body_18.i165.i" ], [ %_holds0.promoted580621.i, %"!break.i158.i" ]
   %deref_temp20.i181568.i = phi <8 x i1> [ %234, %"!for_data_body_18.i165.i" ], [ %deref_temp20.i181564.i, %"!break.i158.i" ]
-  %"@1646.i161.i" = phi i32 [ %239, %"!for_data_body_18.i165.i" ], [ %"@164.i152557.i", %"!break.i158.i" ]
-  %"@1667.i162.i" = phi <8 x i1> [ %240, %"!for_data_body_18.i165.i" ], [ %241, %"!break.i158.i" ]
-  %242 = bitcast <8 x i1> %"@1667.i162.i" to i8
+  %"@1656.i161.i" = phi i32 [ %239, %"!for_data_body_18.i165.i" ], [ %"@165.i152557.i", %"!break.i158.i" ]
+  %"@1677.i162.i" = phi <8 x i1> [ %240, %"!for_data_body_18.i165.i" ], [ %241, %"!break.i158.i" ]
+  %242 = bitcast <8 x i1> %"@1677.i162.i" to i8
   %.not75.i156.i = icmp eq i8 %242, 0
   br i1 %.not75.i156.i, label %"!visit_pop.i179.i.loopexit17", label %"!for_data_17!loop.i157.i"
 
@@ -1278,10 +1278,10 @@ define void @occluded_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr n
 "!for_data_17!loop.i.i":                          ; preds = %"!latch.i.i", %"!for_data_17!loop.i.lr.ph.i"
   %"_holds0$i1767.16" = phi <8 x i1> [ %"_holds0$i1767.15", %"!for_data_17!loop.i.lr.ph.i" ], [ %"_holds0$i1767.17", %"!latch.i.i" ]
   %deref_temp20.i581.i = phi <8 x i1> [ %deref_temp20.i582.i, %"!for_data_17!loop.i.lr.ph.i" ], [ %deref_temp20.i585.i, %"!latch.i.i" ]
-  %"@166.i575.i" = phi <8 x i1> [ undef, %"!for_data_17!loop.i.lr.ph.i" ], [ %"@1667.i.i", %"!latch.i.i" ]
-  %"@164.i574.i" = phi i32 [ undef, %"!for_data_17!loop.i.lr.ph.i" ], [ %"@1646.i.i", %"!latch.i.i" ]
-  %"!live.i571.i" = phi <8 x i1> [ %249, %"!for_data_17!loop.i.lr.ph.i" ], [ %"@1667.i.i", %"!latch.i.i" ]
-  %"data!loop.i570.i" = phi i32 [ 0, %"!for_data_17!loop.i.lr.ph.i" ], [ %"@1646.i.i", %"!latch.i.i" ]
+  %"@167.i575.i" = phi <8 x i1> [ undef, %"!for_data_17!loop.i.lr.ph.i" ], [ %"@1677.i.i", %"!latch.i.i" ]
+  %"@165.i574.i" = phi i32 [ undef, %"!for_data_17!loop.i.lr.ph.i" ], [ %"@1656.i.i", %"!latch.i.i" ]
+  %"!live.i571.i" = phi <8 x i1> [ %249, %"!for_data_17!loop.i.lr.ph.i" ], [ %"@1677.i.i", %"!latch.i.i" ]
+  %"data!loop.i570.i" = phi i32 [ 0, %"!for_data_17!loop.i.lr.ph.i" ], [ %"@1656.i.i", %"!latch.i.i" ]
   %294 = icmp ult i32 %"data!loop.i570.i", %292
   br i1 %294, label %"!for_data_body_18.i.i", label %"!break.i.i"
 
@@ -1305,22 +1305,22 @@ define void @occluded_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr n
   %301 = and <8 x i1> %"!live.i571.i", %300
   %302 = and <8 x i1> %"!live.i571.i", %299
   %not..i.i = xor <8 x i1> %302, splat (i1 true)
-  %303 = and <8 x i1> %"@166.i575.i", %not..i.i
+  %303 = and <8 x i1> %"@167.i575.i", %not..i.i
   %304 = add nuw i32 %"data!loop.i570.i", 1
   %305 = select <8 x i1> %301, <8 x i1> splat (i1 true), <8 x i1> %303
   br label %"!latch.i.i"
 
 "!break.i.i":                                     ; preds = %"!for_data_17!loop.i.i"
   %"not.!live.i.i" = xor <8 x i1> %"!live.i571.i", splat (i1 true)
-  %306 = and <8 x i1> %"@166.i575.i", %"not.!live.i.i"
+  %306 = and <8 x i1> %"@167.i575.i", %"not.!live.i.i"
   br label %"!latch.i.i"
 
 "!latch.i.i":                                     ; preds = %"!break.i.i", %"!for_data_body_18.i.i"
   %"_holds0$i1767.17" = phi <8 x i1> [ %299, %"!for_data_body_18.i.i" ], [ %"_holds0$i1767.16", %"!break.i.i" ]
   %deref_temp20.i585.i = phi <8 x i1> [ %299, %"!for_data_body_18.i.i" ], [ %deref_temp20.i581.i, %"!break.i.i" ]
-  %"@1646.i.i" = phi i32 [ %304, %"!for_data_body_18.i.i" ], [ %"@164.i574.i", %"!break.i.i" ]
-  %"@1667.i.i" = phi <8 x i1> [ %305, %"!for_data_body_18.i.i" ], [ %306, %"!break.i.i" ]
-  %307 = bitcast <8 x i1> %"@1667.i.i" to i8
+  %"@1656.i.i" = phi i32 [ %304, %"!for_data_body_18.i.i" ], [ %"@165.i574.i", %"!break.i.i" ]
+  %"@1677.i.i" = phi <8 x i1> [ %305, %"!for_data_body_18.i.i" ], [ %306, %"!break.i.i" ]
+  %307 = bitcast <8 x i1> %"@1677.i.i" to i8
   %.not75.i.i = icmp eq i8 %307, 0
   br i1 %.not75.i.i, label %"!visit_pop.i.i.loopexit16", label %"!for_data_17!loop.i.i"
 

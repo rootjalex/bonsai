@@ -1,0 +1,45 @@
+//! flags: -p ssa
+
+// A flag the caller was specialized on, handed through a callee that only
+// passes it along to the one that branches on it, in a gang.
+//
+// ssa/vectorize-constant-argument.bonsai has `render` call `shade` directly:
+// the constant `lit` of each copy reaches `shade`'s branch because the
+// vectorizer clones a callee per constant argument its control depends on.
+// Here `render` calls `step`, which computes nothing from `lit` and hands it
+// to `shade`. `step`'s own control does not depend on `lit`, so a rule that
+// looked at `step` alone made one variant of it with `lit` a parameter, and
+// `shade`, called from that variant with a parameter where the program had a
+// constant, kept both arms under a mask in both copies -- which is how the
+// media code of apps/pbrt's path step, reached through `li_vol_path` with
+// pbrt's `haveMedia` false, stayed in the gang that could never run it. The
+// rule now follows the argument: a parameter handed on, as it is, to a call
+// whose callee branches on it steers control too (SSA/Vectorize.cpp,
+// parameter_steers_control). What to read for in the golden: as in the
+// direct case, no variant of `step` or `shade` and no call -- the clones
+// fold and are inlined -- the `lit` copy's loop body a multiply by a
+// broadcast 2 of the incremented value, the other copy's the increment
+// alone, neither with a select or a mask.
+func shade(x : f32, lit : bool) -> f32 {
+    if lit {
+        return x * 2.0;
+    }
+    return x;
+}
+
+func step(x : f32, lit : bool) -> f32 {
+    return shade(x + 1.0, lit);
+}
+
+func [[export]] render(inp : array[f32, 8], out : mut array[f32, 8],
+                       lit : bool) -> void {
+    parfor i in 0:8 {
+        out[i] = step(inp[i], lit);
+    }
+    return;
+}
+
+schedule {
+    render.specialize(lit);
+    render.vectorize(i);
+}

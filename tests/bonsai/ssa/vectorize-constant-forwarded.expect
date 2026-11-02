@@ -1,0 +1,46 @@
+func [[export]] render(inp : f32[8], out : mut f32[8], lit : bool) -> void {
+  if (lit) {
+    let @14 = inp[ramp(0, 1, 8)] in
+    let @20 = f32x8(1f) in
+    let @15 = @14 + @20 in
+    let i!True = ramp(0, 1, 8) in
+    let @21 = f32x8(2f) in
+    let @16 = @15 * @21 in
+    out[ramp(0, 1, 8)] = @16
+  } else {
+    let @8 = inp[ramp(0, 1, 8)] in
+    let @18 = f32x8(1f) in
+    let @9 = @8 + @18 in
+    let i!False = ramp(0, 1, 8) in
+    out[ramp(0, 1, 8)] = @9
+  }
+  return
+}
+
+func shade(x : f32, lit : bool) -> f32 {
+  if (lit) {
+    let @0 = x * 2f in
+    return @0
+  } else {
+    return x
+  }
+}
+
+func step(x : f32, lit : bool) -> f32 {
+  shade$r0 : mut f32
+  let x$i0 = x + 1f in
+  if (lit) {
+    let @1 = x$i0 * 2f in
+    shade$r0 = @1
+  } else {
+    shade$r0 = x$i0
+  }
+  return (*shade$r0)
+}
+
+
+schedule {
+    render.specialize(lit)
+          .vectorize(i)
+
+}

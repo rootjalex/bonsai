@@ -52,67 +52,61 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), q 
           let @140 = @138[ramp(0u, 1u, 4)] in
           let _t276$i0 = q.p in
           let @324 = _t276$i0[0u] in
-          let @345 = f32x4(@324) in
-          let @325 = @132 - @345 in
+          let @342 = f32x4(@324) in
+          let @325 = @132 - @342 in
           let @326 = _t276$i0[1u] in
-          let @346 = f32x4(@326) in
-          let @327 = @136 - @346 in
+          let @343 = f32x4(@326) in
+          let @327 = @136 - @343 in
           let @328 = _t276$i0[2u] in
-          let @347 = f32x4(@328) in
-          let @329 = @140 - @347 in
+          let @344 = f32x4(@328) in
+          let @329 = @140 - @344 in
           let @143 = reinterpret_cast<const f32[4]>((&@5[@6].upper_x)) in
           let @145 = @143[ramp(0u, 1u, 4)] in
           let @147 = reinterpret_cast<const f32[4]>((&@5[@6].upper_y)) in
           let @149 = @147[ramp(0u, 1u, 4)] in
           let @151 = reinterpret_cast<const f32[4]>((&@5[@6].upper_z)) in
           let @153 = @151[ramp(0u, 1u, 4)] in
-          let @330 = @345 - @145 in
-          let @331 = @346 - @149 in
-          let @332 = @347 - @153 in
+          let @330 = @342 - @145 in
+          let @331 = @343 - @149 in
+          let @332 = @344 - @153 in
           let @333 = max(@325, @330) in
           let @334 = max(@327, @331) in
           let @335 = max(@329, @332) in
-          let @43 = f32x3(0f) in
-          let @336 = @43[0u] in
-          let @351 = f32x4(@336) in
-          let @337 = max(@333, @351) in
-          let @338 = @43[1u] in
-          let @352 = f32x4(@338) in
-          let @339 = max(@334, @352) in
-          let @340 = @43[2u] in
-          let @353 = f32x4(@340) in
-          let @341 = max(@335, @353) in
-          let @47 = @337 * @337 in
-          let @50 = @339 * @339 in
+          let @348 = f32x4(0f) in
+          let @336 = max(@333, @348) in
+          let @337 = max(@334, @348) in
+          let @338 = max(@335, @348) in
+          let @47 = @336 * @336 in
+          let @50 = @337 * @337 in
           let @51 = @47 + @50 in
-          let @54 = @341 * @341 in
+          let @54 = @338 * @338 in
           let @55 = @51 + @54 in
           let @57 = (*_best0) in
           let @58 = @57._field0 in
-          let @354 = f32x4(@58) in
-          let @59 = @55 < @354 in
-          let @417 = reinterpret_cast<u4>(@59) in
-          let @418 = cast<u32>(@417) in
+          let @351 = f32x4(@58) in
+          let @59 = @55 < @351 in
+          let @414 = reinterpret_cast<u4>(@59) in
+          let @415 = cast<u32>(@414) in
           _carry0[ramp(0u, 1u, 4)] = @55
-          let @342 = min(@325, @330) in
-          let @343 = min(@327, @331) in
-          let @344 = min(@329, @332) in
-          let @66 = @342 * @342 in
-          let @69 = @343 * @343 in
+          let @339 = min(@325, @330) in
+          let @340 = min(@327, @331) in
+          let @341 = min(@329, @332) in
+          let @66 = @339 * @339 in
+          let @69 = @340 * @340 in
           let @70 = @66 + @69 in
-          let @73 = @344 * @344 in
+          let @73 = @341 * @341 in
           let @74 = @70 + @73 in
-          let @355 = reduce<min>(@74) in
-          _best0._field0 min= @355
+          let @352 = reduce<min>(@74) in
+          _best0._field0 min= @352
           _keys0[ramp(0u, 1u, 4)] = @55
           let @79 = tris.group1_row in
-          let @420 = cast<u4>(@418) in
-          let @421 = reinterpret_cast<boolx4>(@420) in
+          let @417 = cast<u4>(@415) in
+          let @418 = reinterpret_cast<boolx4>(@417) in
           let @194 = _carry0[ramp(0u, 1u, 4)] in
           let @195 = reinterpret_cast<i32x4>(@55) in
-          let @203 = reduce<any>(@421) in
+          let @203 = reduce<any>(@418) in
           if (@203) {
-            let @205 = cast<u32>(@420) in
+            let @205 = cast<u32>(@417) in
             let @206 = ctz(@205) in
             let @314 = reinterpret_cast<const u32[4]>((&@79[@6].children)) in
             let @316 = @314[@206] in
@@ -123,10 +117,10 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), q 
             if (@211) {
               let @212 = ctz(@210) in
               let @215 = i32x4(0) in
-              let @216 = select(@421, @195, @215) in
+              let @216 = select(@418, @195, @215) in
               @201[ramp(0u, 1u, 4)] = @216
               let @218 = reinterpret_cast<i32x4>(@194) in
-              let @220 = select(@421, @218, @215) in
+              let @220 = select(@418, @218, @215) in
               @202[ramp(0u, 1u, 4)] = @220
               let @223 = @201[@206] in
               let @224 = @223 >> 31 in
@@ -205,16 +199,16 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), q 
                   let @311 = reinterpret_cast<f32>(@307) in
                   !stack[(*!count)] = @305
                   !stack0[(*!count)] = @311
-                  let @405 = (*!count) + 1u in
-                  !stack[@405] = @304
-                  !stack0[@405] = @310
-                  let @409 = @405 + 1u in
-                  !stack[@409] = @297
-                  !stack0[@409] = @309
-                  let @413 = @409 + 1u in
+                  let @402 = (*!count) + 1u in
+                  !stack[@402] = @304
+                  !stack0[@402] = @310
+                  let @406 = @402 + 1u in
+                  !stack[@406] = @297
+                  !stack0[@406] = @309
+                  let @410 = @406 + 1u in
                   tris_ref!top = @290
                   _bound0!top = @308
-                  !count = @413
+                  !count = @410
                   continue
                 } else {
                   let @272 = reinterpret_cast<f32>(@263) in
@@ -222,13 +216,13 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), q 
                   let @274 = reinterpret_cast<f32>(@271) in
                   !stack[(*!count)] = @269
                   !stack0[(*!count)] = @274
-                  let @397 = (*!count) + 1u in
-                  !stack[@397] = @268
-                  !stack0[@397] = @273
-                  let @401 = @397 + 1u in
+                  let @394 = (*!count) + 1u in
+                  !stack[@394] = @268
+                  !stack0[@394] = @273
+                  let @398 = @394 + 1u in
                   tris_ref!top = @261
                   _bound0!top = @272
-                  !count = @401
+                  !count = @398
                   continue
                 }
               } else {
@@ -236,10 +230,10 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), q 
                 let @245 = reinterpret_cast<f32>(@243) in
                 !stack[(*!count)] = @241
                 !stack0[(*!count)] = @245
-                let @393 = (*!count) + 1u in
+                let @390 = (*!count) + 1u in
                 tris_ref!top = @240
                 _bound0!top = @244
-                !count = @393
+                !count = @390
                 continue
               }
             } else {
@@ -269,33 +263,33 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), q 
             let @183 = @177[ramp(8u, 1u, 4)] in
             let @186 = reinterpret_cast<const u32[4]>((&@104[_t197].primID)) in
             let @188 = @186[ramp(0u, 1u, 4)] in
-            let @359 = build<f32x3$v4>(@159, @162, @165) in
-            let @360 = build<f32x3$v4>(@170, @172, @174) in
-            let @361 = build<f32x3$v4>(@179, @181, @183) in
-            let @118 = build<Triangle$v4>(@359, @360, @361, @188) in
+            let @356 = build<f32x3$v4>(@159, @162, @165) in
+            let @357 = build<f32x3$v4>(@170, @172, @174) in
+            let @358 = build<f32x3$v4>(@179, @181, @183) in
+            let @118 = build<Triangle$v4>(@356, @357, @358, @188) in
             let @119 = distmin_Point_Triangle$gang4_v1(q, @118) in
             let _t224 = @119 in
             let @120 = (*_best0) in
             let @121 = @120._field0 in
-            let @364 = f32x4(@121) in
-            let @122 = _t224 < @364 in
-            let @357 = reduce<any>(@122) in
-            if (@357) {
+            let @361 = f32x4(@121) in
+            let @122 = _t224 < @361 in
+            let @354 = reduce<any>(@122) in
+            if (@354) {
               let @123 = _t197 << 2u in
-              let @369 = (f32)inf in
-              let @370 = f32x4(@369) in
-              let @371 = select(@122, _t224, @370) in
-              let @372 = reduce<min>(@371) in
-              let @374 = f32x4(@372) in
-              let @375 = @371 == @374 in
-              let @376 = u32x4(4u) in
-              let @377 = select(@375, ramp(0u, 1u, 4), @376) in
-              let @378 = reduce<min>(@377) in
-              let @381 = ramp(@123, 1u, 4)[@378] in
-              let @382 = build<__tuple_0>(@381) in
-              let @383 = build<__tuple_1>(@372, @382) in
-              if (@357) {
-                _best0 argmin= @383
+              let @366 = (f32)inf in
+              let @367 = f32x4(@366) in
+              let @368 = select(@122, _t224, @367) in
+              let @369 = reduce<min>(@368) in
+              let @371 = f32x4(@369) in
+              let @372 = @368 == @371 in
+              let @373 = u32x4(4u) in
+              let @374 = select(@372, ramp(0u, 1u, 4), @373) in
+              let @375 = reduce<min>(@374) in
+              let @378 = ramp(@123, 1u, 4)[@375] in
+              let @379 = build<__tuple_0>(@378) in
+              let @380 = build<__tuple_1>(@369, @379) in
+              if (@354) {
+                _best0 argmin= @380
               }
             }
             let @127 = (*_idx1) + 1u in
@@ -305,14 +299,14 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), q 
         break
       } while (true)
     }
-    let @386 = (*!count) != 0u in
-    if (@386) {
-      let @387 = (*!count) - 1u in
-      let @388 = !stack[@387] in
-      let @389 = !stack0[@387] in
-      tris_ref!top = @388
-      _bound0!top = @389
-      !count = @387
+    let @383 = (*!count) != 0u in
+    if (@383) {
+      let @384 = (*!count) - 1u in
+      let @385 = !stack[@384] in
+      let @386 = !stack0[@384] in
+      tris_ref!top = @385
+      _bound0!top = @386
+      !count = @384
       continue
     } else {
       return
@@ -529,62 +523,56 @@ func distmin_Point_Triangle$gang4_v1(q : Point, tri : Triangle$v4) -> f32x4 {
   !ret!skip1 : mut f32x4
   let ac = tri.e2 in
   let @1 = tri.e1 in
-  let @2 = f32x3(-0f) in
-  let @112 = @2[0u] in
-  let @113 = @1.!0 in
-  let @139 = f32x4(@112) in
-  let @114 = @139 - @113 in
-  let @115 = @2[1u] in
-  let @116 = @1.!1 in
-  let @140 = f32x4(@115) in
-  let @117 = @140 - @116 in
-  let @118 = @2[2u] in
-  let @119 = @1.!2 in
-  let @141 = f32x4(@118) in
-  let @120 = @141 - @119 in
+  let @112 = @1.!0 in
+  let @136 = f32x4(-0f) in
+  let @113 = @136 - @112 in
+  let @114 = @1.!1 in
+  let @115 = @136 - @114 in
+  let @116 = @1.!2 in
+  let @117 = @136 - @116 in
   let @4 = q.p in
   let @5 = tri.v0 in
-  let @121 = @4[0u] in
-  let @122 = @5.!0 in
-  let @142 = f32x4(@121) in
-  let @123 = @142 - @122 in
-  let @124 = @4[1u] in
-  let @125 = @5.!1 in
-  let @143 = f32x4(@124) in
-  let @126 = @143 - @125 in
-  let @127 = @4[2u] in
-  let @128 = @5.!2 in
-  let @144 = f32x4(@127) in
-  let @129 = @144 - @128 in
-  let @9 = @114 * @123 in
-  let @12 = @117 * @126 in
+  let @118 = @4[0u] in
+  let @119 = @5.!0 in
+  let @139 = f32x4(@118) in
+  let @120 = @139 - @119 in
+  let @121 = @4[1u] in
+  let @122 = @5.!1 in
+  let @140 = f32x4(@121) in
+  let @123 = @140 - @122 in
+  let @124 = @4[2u] in
+  let @125 = @5.!2 in
+  let @141 = f32x4(@124) in
+  let @126 = @141 - @125 in
+  let @9 = @113 * @120 in
+  let @12 = @115 * @123 in
   let @13 = @9 + @12 in
-  let @16 = @120 * @129 in
+  let @16 = @117 * @126 in
   let d1 = @13 + @16 in
-  let @145 = f32x4(0f) in
-  let @18 = d1 <= @145 in
-  let @146 = boolx4(false) in
-  let @158 = !@18 in
+  let @142 = f32x4(0f) in
+  let @18 = d1 <= @142 in
+  let @143 = boolx4(false) in
+  let @155 = !@18 in
   let @106 = reduce<any>(@18) in
   if (@106) {
     let @19 = ac.!0 in
-    let @21 = @19 * @123 in
+    let @21 = @19 * @120 in
     let @22 = ac.!1 in
-    let @24 = @22 * @126 in
+    let @24 = @22 * @123 in
     let @25 = @21 + @24 in
     let @26 = ac.!2 in
-    let @28 = @26 * @129 in
+    let @28 = @26 * @126 in
     let d2 = @25 + @28 in
-    let @30 = d2 <= @145 in
-    let @159 = !@30 in
-    let @96 = @18 && @159 in
+    let @30 = d2 <= @142 in
+    let @156 = !@30 in
+    let @96 = @18 && @156 in
     let @97 = @18 && @30 in
     let @107 = reduce<any>(@97) in
     if (@107) {
-      let @33 = @123 * @123 in
-      let @36 = @126 * @126 in
+      let @33 = @120 * @120 in
+      let @36 = @123 * @123 in
       let @37 = @33 + @36 in
-      let @40 = @129 * @129 in
+      let @40 = @126 * @126 in
       let @41 = @37 + @40 in
       !ret!skip = @41
     } else {
@@ -593,42 +581,42 @@ func distmin_Point_Triangle$gang4_v1(q : Point, tri : Triangle$v4) -> f32x4 {
     @96!join = @96
     !ret!skip0 = (*!ret!skip)
   } else {
-    @96!join = @146
+    @96!join = @143
     !ret!skip0 = undef
   }
-  let @98 = (*@96!join) || @158 in
-  let @130 = @123 - @114 in
-  let @131 = @126 - @117 in
-  let @132 = @129 - @120 in
-  let @45 = @114 * @130 in
-  let @48 = @117 * @131 in
+  let @98 = (*@96!join) || @155 in
+  let @127 = @120 - @113 in
+  let @128 = @123 - @115 in
+  let @129 = @126 - @117 in
+  let @45 = @113 * @127 in
+  let @48 = @115 * @128 in
   let @49 = @45 + @48 in
-  let @52 = @120 * @132 in
+  let @52 = @117 * @129 in
   let d3 = @49 + @52 in
-  let @54 = @145 <= d3 in
-  let @160 = !@54 in
-  let @100 = @98 && @160 in
+  let @54 = @142 <= d3 in
+  let @157 = !@54 in
+  let @100 = @98 && @157 in
   let @101 = @98 && @54 in
   let @108 = reduce<any>(@101) in
   if (@108) {
     let @55 = ac.!0 in
-    let @57 = @55 * @130 in
+    let @57 = @55 * @127 in
     let @58 = ac.!1 in
-    let @60 = @58 * @131 in
+    let @60 = @58 * @128 in
     let @61 = @57 + @60 in
     let @62 = ac.!2 in
-    let @64 = @62 * @132 in
+    let @64 = @62 * @129 in
     let d4 = @61 + @64 in
     let @66 = d4 <= d3 in
-    let @161 = !@66 in
-    let @103 = @101 && @161 in
+    let @158 = !@66 in
+    let @103 = @101 && @158 in
     let @104 = @101 && @66 in
     let @109 = reduce<any>(@104) in
     if (@109) {
-      let @69 = @130 * @130 in
-      let @72 = @131 * @131 in
+      let @69 = @127 * @127 in
+      let @72 = @128 * @128 in
       let @73 = @69 + @72 in
-      let @76 = @132 * @132 in
+      let @76 = @129 * @129 in
       let @77 = @73 + @76 in
       let @110 = select(@104, @77, (*!ret!skip0)) in
       !ret!skip1 = @110
@@ -638,22 +626,22 @@ func distmin_Point_Triangle$gang4_v1(q : Point, tri : Triangle$v4) -> f32x4 {
     @103!join = @103
     !ret!skip2 = (*!ret!skip1)
   } else {
-    @103!join = @146
+    @103!join = @143
     !ret!skip2 = (*!ret!skip0)
   }
   let @105 = @100 || (*@103!join) in
   let @78 = d1 - d3 in
   let v = d1 / @78 in
-  let @133 = @114 * v in
-  let @134 = @117 * v in
-  let @135 = @120 * v in
-  let @136 = @123 - @133 in
-  let @137 = @126 - @134 in
-  let @138 = @129 - @135 in
-  let @85 = @136 * @136 in
-  let @88 = @137 * @137 in
+  let @130 = @113 * v in
+  let @131 = @115 * v in
+  let @132 = @117 * v in
+  let @133 = @120 - @130 in
+  let @134 = @123 - @131 in
+  let @135 = @126 - @132 in
+  let @85 = @133 * @133 in
+  let @88 = @134 * @134 in
   let @89 = @85 + @88 in
-  let @92 = @138 * @138 in
+  let @92 = @135 * @135 in
   let @93 = @89 + @92 in
   let @111 = select(@105, @93, (*!ret!skip2)) in
   return @111

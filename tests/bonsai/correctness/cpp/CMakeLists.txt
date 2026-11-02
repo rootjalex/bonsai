@@ -90,6 +90,8 @@ add_bonsai_tests(
     vectorize_skip_arms.bonsai
     vectorize_skip_cursor.bonsai
     vectorize_tree_traversal.bonsai
+    vectorize_vector_accumulate.bonsai
+    vectorize_vector_store.bonsai
     vectorize_tree_traversal_mixed.bonsai
     vectorize_tree_traversal_mixed_packet.bonsai
     vectorize_tree_traversal_packet.bonsai

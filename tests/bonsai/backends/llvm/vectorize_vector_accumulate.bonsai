@@ -1,0 +1,36 @@
+//! flags: -p ssa -b llvm
+
+// A short vector accumulated into a lane's own slot by a callee the gang
+// calls under a mask, at the LLVM level: the program of
+// ssa/vectorize-vector-accumulate.bonsai.
+//
+// What to read for: `add_scaled`'s gang variant takes one pointer to the
+// lane's slots (the callee is `[[noinline]]`, so it stays a function), and
+// its body is three masked read-modify-writes of <8 x float>, one per
+// component -- `acc += v` adds the component's gang vector, `acc *= s`
+// multiplies by the splat of the one scalar -- each a masked load and a
+// masked store at the component's offset in the slot, with no struct-typed
+// arithmetic anywhere. The caller's `acc` is a stack slot of the gang's
+// shape, three <8 x float> wide, read back whole for the store to `out`.
+import stdlib/numerics;
+
+func [[noinline]] add_scaled(v : vec3f, s : f32, acc : mut vec3f) -> void {
+    acc += v;
+    acc *= s;
+    return;
+}
+
+func [[export]] run(a : array[f32, 8], out : mut array[vec3f, 8]) -> void {
+    parfor i in 0:8 {
+        acc : mut vec3f = vec3f{1.0, 1.0, 1.0};
+        if a[i] > 0.0 {
+            add_scaled(vec3f{a[i], 2.0 * a[i], 3.0 * a[i]}, 0.5, acc);
+        }
+        out[i] = acc;
+    }
+    return;
+}
+
+schedule {
+    run.vectorize(i);
+}

@@ -401,6 +401,14 @@ bool is_side_effecty(const Instruction &instr) {
 }
 
 Stmt codegen_instruction(const Instruction &instr) {
+    // `BONSAI_TRACE_CODEGEN=1` names each instruction as it is turned into a
+    // statement, for finding the one an assertion below is about (the
+    // LLVM SSA backend's BONSAI_TRACE_EMIT does the same there).
+    if (std::getenv("BONSAI_TRACE_CODEGEN") != nullptr) {
+        std::cerr << "codegen: ";
+        instr.dump(std::cerr);
+        std::cerr << "\n";
+    }
     if (is_side_effecty(instr)) {
         switch (instr.op) {
         case Instruction::Op::AccAdd:

@@ -1,0 +1,50 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_vector_accumulate
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_vector_accumulate.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_vector_accumulate.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_vector_accumulate.o tests/bonsai/correctness/cpp/vectorize_vector_accumulate.o -o tests/bonsai/correctness/cpp/vectorize_vector_accumulate, ./tests/bonsai/correctness/cpp/vectorize_vector_accumulate, rm tests/bonsai/correctness/cpp/vectorize_vector_accumulate, rm tests/bonsai/correctness/cpp/main_vectorize_vector_accumulate.o, rm tests/bonsai/correctness/cpp/vectorize_vector_accumulate.h, rm tests/bonsai/correctness/cpp/vectorize_vector_accumulate.o
+
+// A short vector accumulated into a lane's own slot by a callee the gang
+// calls under a mask, run.
+//
+// `acc` is a `mut` local of the body whose address goes to `add_scaled`, so
+// it stays in memory -- per-lane memory behind one pointer, in the gang --
+// and the callee accumulates through the pointer twice: a per-lane `vec3f`
+// into the lane's slot, then a scalar into the slot's three components (the
+// broadcast over the components the program leaves implicit, as
+// `tMax *= 1 + 2 * gamma(3)` does in stdlib/intersects). Each becomes one
+// masked accumulate per component into the component's field of the slot
+// (ssa/vectorize-vector-accumulate.bonsai shows the shape). The lanes that
+// are off keep the slot's starting value; the lanes that are on get
+// (1 + a, 1 + 2a, 1 + 3a) / 2. Checked against the same program one lane at
+// a time.
+import stdlib/numerics;
+
+func [[noinline]] add_scaled(v : vec3f, s : f32, acc : mut vec3f) -> void {
+    acc += v;
+    acc *= s;
+    return;
+}
+
+func [[export]] run(a : array[f32, 8], out : mut array[vec3f, 8]) -> void {
+    parfor i in 0:8 {
+        acc : mut vec3f = vec3f{1.0, 1.0, 1.0};
+        if a[i] > 0.0 {
+            add_scaled(vec3f{a[i], 2.0 * a[i], 3.0 * a[i]}, 0.5, acc);
+        }
+        out[i] = acc;
+    }
+    return;
+}
+
+func [[export]] run_one(a : array[f32, 8], out : mut array[vec3f, 8]) -> void {
+    for i in 0:8 {
+        acc : mut vec3f = vec3f{1.0, 1.0, 1.0};
+        if a[i] > 0.0 {
+            add_scaled(vec3f{a[i], 2.0 * a[i], 3.0 * a[i]}, 0.5, acc);
+        }
+        out[i] = acc;
+    }
+    return;
+}
+
+schedule {
+    run.vectorize(i);
+}

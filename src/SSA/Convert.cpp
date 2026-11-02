@@ -786,6 +786,26 @@ struct FunctionBuilder : Visitor {
             ptr = walk_accesses(std::move(ptr), node->loc);
         }
 
+        // A scalar accumulated into a short vector -- `tMax *= 1 + 2 *
+        // gamma(3)` on a `vec3f`, stdlib/intersects.bonsai -- is the scalar
+        // over every component, as it is in `tMax * s`, where BinOp::make
+        // broadcasts it (IR/Expr.cpp). An accumulate's place is only known
+        // here, so the broadcast is made here: a backend loads the place in
+        // the value's shape, and a scalar value had it read and write one
+        // component. An argmin's or argmax's value is a pair, never a scalar
+        // to broadcast.
+        if (op != Instruction::Op::AccArgmin && op != Instruction::Op::AccArgmax) {
+            const Ptr_t *place = ptr->get_type().as<Ptr_t>();
+            if (place != nullptr && place->etype.is_vector() &&
+                v->get_type().is_scalar()) {
+                static const Type u32 = UInt_t::make(32);
+                v = block->make_instruction(
+                    place->etype, Instruction::Op::Bc,
+                    {std::move(v),
+                     make_constant(u32, (uint64_t)place->etype.lanes())});
+            }
+        }
+
         std::vector<std::shared_ptr<Value>> args = {std::move(ptr),
                                                     std::move(v)};
         // The places written alongside the pair, each with its value, after

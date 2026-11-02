@@ -1072,6 +1072,69 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
             const bool by_key = instr->op == Instruction::Op::AccArgmin ||
                                 instr->op == Instruction::Op::AccArgmax;
 
+            // An accumulate into per-lane memory that holds a short vector --
+            // a lane's `vec3f` slot, a struct of one gang vector per component
+            // once widened (see widen()) -- is made one accumulate per
+            // component: into the component's field of the place, of the
+            // component of the value -- or of the value itself, when the
+            // program accumulated a scalar into the vector: `tMax *= 1 + 2 *
+            // gamma(3)` in stdlib/intersects.bonsai broadcasts over the
+            // components implicitly, as the IR's elementwise operations do,
+            // and after widening the scalar is one gang vector every
+            // component takes. A backend then meets masked accumulates of
+            // gang vectors into per-lane memory, which it lowers already,
+            // and never one of a struct (the radiance a path's lanes add into
+            // their own `vec4f` slots, apps/pbrt). An argmin or argmax
+            // carries a pair, not a vector, and is left as it is.
+            if (folds && !by_key && per_lane_write) {
+                const Ptr_t *place_ptr =
+                    instr->operands[0]->get_type().as<Ptr_t>();
+                if (place_ptr != nullptr && is_widened_vector(place_ptr->etype)) {
+                    const Struct_t *s = place_ptr->etype.as<Struct_t>();
+                    const auto &place = instr->operands[0];
+                    const auto &value = instr->operands[1];
+                    const Type value_type = value->get_type();
+                    const bool per_component = is_widened_vector(value_type);
+                    internal_assert(
+                        per_component
+                            ? value_type.as<Struct_t>()->fields.size() ==
+                                  s->fields.size()
+                            : value_type.is_vector())
+                        << "An accumulate into a per-lane " << place_ptr->etype
+                        << " of a " << value_type;
+                    const auto here = block.shared_from_this();
+                    for (uint32_t k = 0; k < uint32_t(s->fields.size()); k++) {
+                        auto index = std::make_shared<Value>(
+                            Constant{UInt_t::make(32), uint64_t(k)});
+                        auto field = std::make_shared<Instruction>(
+                            func.get_unique_name(),
+                            Ptr_t::make(s->fields[k].type, place_ptr->readonly),
+                            Instruction::Op::FieldPtr,
+                            vector<shared_ptr<Value>>{place, index}, here);
+                        widened.push_back(field);
+                        shared_ptr<Value> component = value;
+                        if (per_component) {
+                            auto read = std::make_shared<Instruction>(
+                                func.get_unique_name(), s->fields[k].type,
+                                Instruction::Op::LoadField,
+                                vector<shared_ptr<Value>>{value, index}, here);
+                            widened.push_back(read);
+                            component = std::make_shared<Value>(read);
+                        }
+                        vector<shared_ptr<Value>> operands{
+                            std::make_shared<Value>(field), component};
+                        if (instr->has_mask()) {
+                            operands.push_back(instr->operands[2]);
+                        }
+                        auto acc = std::make_shared<Instruction>(
+                            instr->op, std::move(operands), here);
+                        acc->atomic = instr->atomic;
+                        widened.push_back(acc);
+                    }
+                    continue;
+                }
+            }
+
             // An accumulate whose place stays uniform but whose value now
             // varies is a cross-lane reduction: every lane folds into the one
             // place, so the gang's values are reduced to a scalar before the
@@ -1634,15 +1697,28 @@ std::optional<string> common_constant_token(const vector<const Value *> &values)
 // Whether the callee's control depends on its `i`th parameter: the
 // parameter, under its name in whichever block it was threaded to, is a
 // dispatch's condition or an operand of what computes one, within a few
-// steps. What makes a constant argument worth a clone of its own
+// steps -- or is handed on, as it is, to a call whose callee's control
+// depends on it, by this same rule: pbrt's `haveMedia` flag reaches the
+// path step's branch on it through `li_vol_path`, which only passes it
+// along, and a clone that stopped there would hand the step a parameter
+// where the caller had a constant, and the step's media arms would stay.
+// What makes a constant argument worth a clone of its own
 // (specialize_calls): a flag or a tag the callee branches on folds its
 // branches, and the arms no caller of this clone can reach go with them,
 // before the linearizer would have masked them and the gang widened them;
 // a literal the callee only computes with would multiply the clones for
 // nothing a branch reads. LLVM's function specialization weighs a constant
-// argument the same way, by the branches and switches it decides.
-bool parameter_steers_control(const Function &callee, size_t i) {
+// argument the same way, by the branches and switches it decides. `seen`
+// holds the (function, parameter) pairs under consideration, so that a
+// recursion -- the step handing its flag to its own next bounce -- is
+// decided by the branches it makes and not asked about itself.
+bool parameter_steers_control(const FuncMap &funcs, const Function &callee,
+                              size_t i,
+                              set<std::pair<const Function *, size_t>> &seen) {
     if (callee.blocks.empty() || i >= callee.blocks.front()->args.size()) {
+        return false;
+    }
+    if (!seen.insert({&callee, i}).second) {
         return false;
     }
     const string &param = callee.blocks.front()->args[i].name;
@@ -1668,7 +1744,32 @@ bool parameter_steers_control(const Function &callee, size_t i) {
             return true;
         }
     }
+    // Forwarded: the parameter itself (depth 0: not a value computed from
+    // it, which is no longer the constant) as an argument of a call, to a
+    // callee whose control depends on that argument.
+    for (const auto &block : callee.blocks) {
+        const Terminator::Jump *call = block->terminator.callee();
+        if (call == nullptr) {
+            continue;
+        }
+        const auto target = funcs.find(call->name);
+        if (target == funcs.end() || !target->second) {
+            continue;
+        }
+        for (size_t j = 0; j < call->args.size(); j++) {
+            if (call->args[j] && reaches(*call->args[j], 0) &&
+                parameter_steers_control(funcs, *target->second, j, seen)) {
+                return true;
+            }
+        }
+    }
     return false;
+}
+
+bool parameter_steers_control(const FuncMap &funcs, const Function &callee,
+                              size_t i) {
+    set<std::pair<const Function *, size_t>> seen;
+    return parameter_steers_control(funcs, callee, i, seen);
 }
 
 // Every variant generated so far, so that a callee reached twice in the same
@@ -1921,7 +2022,7 @@ void specialize_calls(FuncMap &funcs, Function &func, Cfg &region,
                 if (components[i] == 1 && key.shapes[i] == Shape::Uniform) {
                     const auto token = common_constant_token(values_at(position));
                     if (token.has_value() &&
-                        parameter_steers_control(*callee->second, i)) {
+                        parameter_steers_control(funcs, *callee->second, i)) {
                         key.constants[i] = *token;
                         key.constant_values[i] =
                             std::make_shared<Value>(*values_at(position).front());
@@ -2080,6 +2181,17 @@ shared_ptr<Function> specialize_foreign(FuncMap &funcs, const VariantKey &key,
     }
     const uint32_t lanes = key.lanes;
     const bool returns = key.foreign_result.defined();
+    // A foreign value is one pointer-sized handle the program only passes on
+    // (ir::Foreign_t), never one per lane: the wrapper would have to build a
+    // gang of them for the result, and no backend has a vector of handles.
+    internal_assert(!returns || !key.foreign_result.is<Foreign_t>())
+        << "Cannot vectorize the call to the foreign function " << key.callee
+        << ": it returns a foreign type, " << key.foreign_result
+        << ", and is called by the gang with a lane's arguments or under a "
+           "mask, so each lane would hold a foreign value of its own, which "
+           "a gang cannot (docs/foreign-functions.md). Call it on uniform "
+           "arguments outside any divergent branch, or keep the loop that "
+           "reaches it scalar.";
     const Type acc_type = returns ? widen(key.foreign_result, lanes) : Type();
 
     auto wrapper = std::make_shared<Function>();

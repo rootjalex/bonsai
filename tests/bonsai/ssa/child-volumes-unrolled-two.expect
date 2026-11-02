@@ -31,16 +31,16 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
   _bound0!top : mut f32
   !count : mut u32
   data : mut u32
-  @199 : mut _option1
-  @257 : mut f32
-  @262 : mut f32
+  @200 : mut _option1
+  @259 : mut f32
+  @264 : mut f32
   !and_0 : mut bool
   _mask0 : mut u32
-  @198 : mut bool
-  @323 : mut _option1
-  @381 : mut f32
-  @386 : mut f32
-  @322 : mut bool
+  @199 : mut bool
+  @325 : mut _option1
+  @384 : mut f32
+  @389 : mut f32
+  @324 : mut bool
   !stack : mut u32[64]
   !stack0 : mut f32[64]
   tris_ref!top = tris_ref
@@ -57,301 +57,302 @@ func _recloop_func0(tris_ref : u32, _bound0 : f32, _best0 : mut (__tuple_1*), r 
         if (@4) {
           _carry0 : mut f32[2]
           _keys0 : mut f32[2]
-          let @200 = f32x3(1f) in
-          let @201 = r.d in
-          let @202 = @200 / @201 in
-          let @203 = f32x3(0f) in
-          let @204 = @202 < @203 in
-          let @205 = tris.group0_row in
-          let @206 = (*tris_ref!top) >> 4u in
-          let @209 = reinterpret_cast<const f32[6]>((&@205[@206].lo)) in
-          let @211 = @209[0u] in
-          let @214 = @209[2u] in
-          let @217 = @209[4u] in
-          let @218 = build<f32x3>(@211, @214, @217) in
-          let @220 = reinterpret_cast<const f32[6]>((&@205[@206].hi)) in
-          let @222 = @220[0u] in
-          let @224 = @220[2u] in
-          let @226 = @220[4u] in
-          let @227 = build<f32x3>(@222, @224, @226) in
-          let @228 = build<AABB>(@218, @227) in
-          let @229 = select(@204, @227, @218) in
-          let @230 = r.o in
-          let @232 = @229 - @230 in
-          let @233 = @232 * @202 in
-          let @234 = select(@204, @218, @227) in
-          let @236 = @234 - @230 in
-          let @237 = @236 * @202 in
-          let @239 = (f32)eps in
-          let @240 = 0.5f * @239 in
-          let @241 = 3f * @240 in
-          let @242 = 1f - @241 in
-          let @243 = @241 / @242 in
-          let @245 = 2f * @243 in
-          let @246 = 1f + @245 in
-          let @498 = @237 * f32x3(@246) in
-          let @248 = @498[1u] in
-          let @250 = @233[0u] in
-          let @251 = @248 < @250 in
-          let @252 = @498[0u] in
-          let @253 = @233[1u] in
-          let @254 = @252 < @253 in
-          let @255 = @251 || @254 in
-          if (@255) {
-            let @256 = build<_option1>() in
-            @199 = @256
+          let @201 = f32x3(1f) in
+          let @202 = r.d in
+          let @203 = @201 / @202 in
+          let @204 = f32x3(0f) in
+          let @205 = @203 < @204 in
+          let @206 = tris.group0_row in
+          let @207 = (*tris_ref!top) >> 4u in
+          let @210 = reinterpret_cast<const f32[6]>((&@206[@207].lo)) in
+          let @212 = @210[0u] in
+          let @215 = @210[2u] in
+          let @218 = @210[4u] in
+          let @219 = build<f32x3>(@212, @215, @218) in
+          let @221 = reinterpret_cast<const f32[6]>((&@206[@207].hi)) in
+          let @223 = @221[0u] in
+          let @225 = @221[2u] in
+          let @227 = @221[4u] in
+          let @228 = build<f32x3>(@223, @225, @227) in
+          let @229 = build<AABB>(@219, @228) in
+          let @230 = select(@205, @228, @219) in
+          let @231 = r.o in
+          let @233 = @230 - @231 in
+          let @234 = @233 * @203 in
+          let @235 = select(@205, @219, @228) in
+          let @237 = @235 - @231 in
+          let @238 = @237 * @203 in
+          let @240 = (f32)eps in
+          let @241 = 0.5f * @240 in
+          let @242 = 3f * @241 in
+          let @243 = 1f - @242 in
+          let @244 = @242 / @243 in
+          let @246 = 2f * @244 in
+          let @247 = 1f + @246 in
+          let @248 = f32x3(@247) in
+          let @501 = @238 * @248 in
+          let @250 = @501[1u] in
+          let @252 = @234[0u] in
+          let @253 = @250 < @252 in
+          let @254 = @501[0u] in
+          let @255 = @234[1u] in
+          let @256 = @254 < @255 in
+          let @257 = @253 || @256 in
+          if (@257) {
+            let @258 = build<_option1>() in
+            @200 = @258
           } else {
-            let @261 = max(@250, @253) in
-            let @266 = min(@252, @248) in
-            let @268 = @498[2u] in
-            let @270 = @268 < @261 in
-            let @273 = @233[2u] in
-            let @274 = @266 < @273 in
-            let @275 = @270 || @274 in
-            if (@275) {
-              let @276 = build<_option1>() in
-              @199 = @276
-              @257 = @261
-              @262 = @266
+            let @263 = max(@252, @255) in
+            let @268 = min(@254, @250) in
+            let @270 = @501[2u] in
+            let @272 = @270 < @263 in
+            let @275 = @234[2u] in
+            let @276 = @268 < @275 in
+            let @277 = @272 || @276 in
+            if (@277) {
+              let @278 = build<_option1>() in
+              @200 = @278
+              @259 = @263
+              @264 = @268
             } else {
-              let @280 = max(@261, @273) in
-              let @284 = min(@266, @268) in
-              let @287 = build<FInterval>(@280, @284) in
-              let @288 = build<_option1>(@287, true) in
-              @199 = @288
-              @257 = @280
-              @262 = @284
+              let @282 = max(@263, @275) in
+              let @286 = min(@268, @270) in
+              let @289 = build<FInterval>(@282, @286) in
+              let @290 = build<_option1>(@289, true) in
+              @200 = @290
+              @259 = @282
+              @264 = @286
             }
           }
-          let @290 = (*@199).set in
-          if (@290) {
-            let @292 = (*@199).value in
-            let @293 = @292.low in
-            let @294 = r.tmax in
-            let @295 = @293 < @294 in
-            let @296 = @292.high in
-            let @297 = 0f < @296 in
-            let @298 = @295 & @297 in
-            if (@298) {
-              let @108 = distmin_Ray_AABB(r, @228) in
-              let @300 = (*_best0) in
-              let @301 = @300._field0 in
-              let @302 = @108 < @301 in
-              !and_0 = @302
-            } else {
-              !and_0 = false
-            }
-            let @466 = cast<u32>((*!and_0)) in
-            let @467 = @466 << 0u in
-            let @468 = 0u | @467 in
-            _carry0[0u] = @293
-            let @118 = entry(r, @228) in
-            _keys0[0u] = @118
-            _mask0 = @468
-            @198 = @298
-          } else {
-            let !and_1 = false in
-            let @473 = cast<u32>(false) in
-            let @474 = @473 << 0u in
-            let @475 = 0u | @474 in
-            let @317 = (f32)inf in
-            let @318 = -0f - @317 in
-            _carry0[0u] = @318
-            let @143 = entry(r, @228) in
-            _keys0[0u] = @143
-            _mask0 = @475
-            @198 = false
-          }
-          let @335 = @209[1u] in
-          let @336 = 1u + 2u in
-          let @338 = @209[@336] in
-          let @339 = 1u + 4u in
-          let @341 = @209[@339] in
-          let @342 = build<f32x3>(@335, @338, @341) in
-          let @346 = @220[1u] in
-          let @348 = @220[@336] in
-          let @350 = @220[@339] in
-          let @351 = build<f32x3>(@346, @348, @350) in
-          let @352 = build<AABB>(@342, @351) in
-          let @353 = select(@204, @351, @342) in
-          let @356 = @353 - @230 in
-          let @357 = @356 * @202 in
-          let @358 = select(@204, @342, @351) in
-          let @360 = @358 - @230 in
-          let @361 = @360 * @202 in
-          let @499 = @361 * f32x3(@246) in
-          let @372 = @499[1u] in
-          let @374 = @357[0u] in
-          let @375 = @372 < @374 in
-          let @376 = @499[0u] in
-          let @377 = @357[1u] in
-          let @378 = @376 < @377 in
-          let @379 = @375 || @378 in
-          if (@379) {
-            let @380 = build<_option1>() in
-            @323 = @380
-          } else {
-            let @385 = max(@374, @377) in
-            let @390 = min(@376, @372) in
-            let @392 = @499[2u] in
-            let @394 = @392 < @385 in
-            let @397 = @357[2u] in
-            let @398 = @390 < @397 in
-            let @399 = @394 || @398 in
-            if (@399) {
-              let @400 = build<_option1>() in
-              @323 = @400
-              @381 = @385
-              @386 = @390
-            } else {
-              let @404 = max(@385, @397) in
-              let @408 = min(@390, @392) in
-              let @411 = build<FInterval>(@404, @408) in
-              let @412 = build<_option1>(@411, true) in
-              @323 = @412
-              @381 = @404
-              @386 = @408
-            }
-          }
-          let @414 = (*@323).set in
-          if (@414) {
-            let @416 = (*@323).value in
-            let @417 = @416.low in
-            let @418 = r.tmax in
-            let @419 = @417 < @418 in
-            let @420 = @416.high in
-            let @421 = 0f < @420 in
-            let @422 = @419 & @421 in
-            if (@422) {
-              let @108 = distmin_Ray_AABB(r, @352) in
-              let @424 = (*_best0) in
-              let @425 = @424._field0 in
-              let @426 = @108 < @425 in
-              !and_0 = @426
+          let @292 = (*@200).set in
+          if (@292) {
+            let @294 = (*@200).value in
+            let @295 = @294.low in
+            let @296 = r.tmax in
+            let @297 = @295 < @296 in
+            let @298 = @294.high in
+            let @299 = 0f < @298 in
+            let @300 = @297 & @299 in
+            if (@300) {
+              let @109 = distmin_Ray_AABB(r, @229) in
+              let @302 = (*_best0) in
+              let @303 = @302._field0 in
+              let @304 = @109 < @303 in
+              !and_0 = @304
             } else {
               !and_0 = false
             }
-            let @478 = ~2u in
-            let @479 = (*_mask0) & @478 in
-            let @480 = cast<u32>((*!and_0)) in
-            let @481 = @480 << 1u in
-            let @482 = @479 | @481 in
-            _carry0[1u] = @417
-            let @118 = entry(r, @352) in
-            _keys0[1u] = @118
-            _mask0 = @482
-            @322 = @422
+            let @469 = cast<u32>((*!and_0)) in
+            let @470 = @469 << 0u in
+            let @471 = 0u | @470 in
+            _carry0[0u] = @295
+            let @119 = entry(r, @229) in
+            _keys0[0u] = @119
+            _mask0 = @471
+            @199 = @300
           } else {
             let !and_1 = false in
-            let @485 = ~2u in
-            let @486 = (*_mask0) & @485 in
-            let @487 = cast<u32>(false) in
-            let @488 = @487 << 1u in
-            let @489 = @486 | @488 in
-            let @441 = (f32)inf in
-            let @442 = -0f - @441 in
-            _carry0[1u] = @442
-            let @143 = entry(r, @352) in
-            _keys0[1u] = @143
-            _mask0 = @489
-            @322 = false
+            let @476 = cast<u32>(false) in
+            let @477 = @476 << 0u in
+            let @478 = 0u | @477 in
+            let @319 = (f32)inf in
+            let @320 = -0f - @319 in
+            _carry0[0u] = @320
+            let @144 = entry(r, @229) in
+            _keys0[0u] = @144
+            _mask0 = @478
+            @199 = false
           }
-          let @145 = tris.group0_row in
-          let @146 = (*tris_ref!top) >> 4u in
-          let @147 = @145[@146] in
-          let @148 = @147.children in
-          let _t41 = cast<u32x2>(@148) in
-          let @150 = _t41[0u] in
-          let @151 = _carry0[0u] in
-          let @152 = _t41[1u] in
-          let @153 = _carry0[1u] in
-          let @154 = _keys0[0u] in
-          let @155 = _keys0[1u] in
-          let @491 = (*_mask0) >> 0u in
-          let @492 = @491 & 1u in
-          let @493 = @492 != 0u in
-          let @495 = (*_mask0) >> 1u in
-          let @496 = @495 & 1u in
-          let @497 = @496 != 0u in
-          let @197 = @155 < @154 in
-          let @197!vote = @197 in
-          if (@197!vote) {
-            if (@493) {
-              !stack[(*!count)] = @150
-              !stack0[(*!count)] = @151
-              let @458 = (*!count) + 1u in
-              !count = @458
+          let @337 = @210[1u] in
+          let @338 = 1u + 2u in
+          let @340 = @210[@338] in
+          let @341 = 1u + 4u in
+          let @343 = @210[@341] in
+          let @344 = build<f32x3>(@337, @340, @343) in
+          let @348 = @221[1u] in
+          let @350 = @221[@338] in
+          let @352 = @221[@341] in
+          let @353 = build<f32x3>(@348, @350, @352) in
+          let @354 = build<AABB>(@344, @353) in
+          let @355 = select(@205, @353, @344) in
+          let @358 = @355 - @231 in
+          let @359 = @358 * @203 in
+          let @360 = select(@205, @344, @353) in
+          let @362 = @360 - @231 in
+          let @363 = @362 * @203 in
+          let @502 = @363 * @248 in
+          let @375 = @502[1u] in
+          let @377 = @359[0u] in
+          let @378 = @375 < @377 in
+          let @379 = @502[0u] in
+          let @380 = @359[1u] in
+          let @381 = @379 < @380 in
+          let @382 = @378 || @381 in
+          if (@382) {
+            let @383 = build<_option1>() in
+            @325 = @383
+          } else {
+            let @388 = max(@377, @380) in
+            let @393 = min(@379, @375) in
+            let @395 = @502[2u] in
+            let @397 = @395 < @388 in
+            let @400 = @359[2u] in
+            let @401 = @393 < @400 in
+            let @402 = @397 || @401 in
+            if (@402) {
+              let @403 = build<_option1>() in
+              @325 = @403
+              @384 = @388
+              @389 = @393
+            } else {
+              let @407 = max(@388, @400) in
+              let @411 = min(@393, @395) in
+              let @414 = build<FInterval>(@407, @411) in
+              let @415 = build<_option1>(@414, true) in
+              @325 = @415
+              @384 = @407
+              @389 = @411
             }
-            if (@497) {
-              tris_ref!top = @152
-              _bound0!top = @153
+          }
+          let @417 = (*@325).set in
+          if (@417) {
+            let @419 = (*@325).value in
+            let @420 = @419.low in
+            let @421 = r.tmax in
+            let @422 = @420 < @421 in
+            let @423 = @419.high in
+            let @424 = 0f < @423 in
+            let @425 = @422 & @424 in
+            if (@425) {
+              let @109 = distmin_Ray_AABB(r, @354) in
+              let @427 = (*_best0) in
+              let @428 = @427._field0 in
+              let @429 = @109 < @428 in
+              !and_0 = @429
+            } else {
+              !and_0 = false
+            }
+            let @481 = ~2u in
+            let @482 = (*_mask0) & @481 in
+            let @483 = cast<u32>((*!and_0)) in
+            let @484 = @483 << 1u in
+            let @485 = @482 | @484 in
+            _carry0[1u] = @420
+            let @119 = entry(r, @354) in
+            _keys0[1u] = @119
+            _mask0 = @485
+            @324 = @425
+          } else {
+            let !and_1 = false in
+            let @488 = ~2u in
+            let @489 = (*_mask0) & @488 in
+            let @490 = cast<u32>(false) in
+            let @491 = @490 << 1u in
+            let @492 = @489 | @491 in
+            let @444 = (f32)inf in
+            let @445 = -0f - @444 in
+            _carry0[1u] = @445
+            let @144 = entry(r, @354) in
+            _keys0[1u] = @144
+            _mask0 = @492
+            @324 = false
+          }
+          let @146 = tris.group0_row in
+          let @147 = (*tris_ref!top) >> 4u in
+          let @148 = @146[@147] in
+          let @149 = @148.children in
+          let _t41 = cast<u32x2>(@149) in
+          let @151 = _t41[0u] in
+          let @152 = _carry0[0u] in
+          let @153 = _t41[1u] in
+          let @154 = _carry0[1u] in
+          let @155 = _keys0[0u] in
+          let @156 = _keys0[1u] in
+          let @494 = (*_mask0) >> 0u in
+          let @495 = @494 & 1u in
+          let @496 = @495 != 0u in
+          let @498 = (*_mask0) >> 1u in
+          let @499 = @498 & 1u in
+          let @500 = @499 != 0u in
+          let @198 = @156 < @155 in
+          let @198!vote = @198 in
+          if (@198!vote) {
+            if (@496) {
+              !stack[(*!count)] = @151
+              !stack0[(*!count)] = @152
+              let @461 = (*!count) + 1u in
+              !count = @461
+            }
+            if (@500) {
+              tris_ref!top = @153
+              _bound0!top = @154
               continue
             }
           } else {
-            if (@497) {
-              !stack[(*!count)] = @152
-              !stack0[(*!count)] = @153
-              let @454 = (*!count) + 1u in
-              !count = @454
+            if (@500) {
+              !stack[(*!count)] = @153
+              !stack0[(*!count)] = @154
+              let @457 = (*!count) + 1u in
+              !count = @457
             }
-            if (@493) {
-              tris_ref!top = @150
-              _bound0!top = @151
+            if (@496) {
+              tris_ref!top = @151
+              _bound0!top = @152
               continue
             }
           }
         } else {
-          let @158 = _t64 - 8u in
+          let @159 = _t64 - 8u in
           data = 0u
-          while ((*data) < @158) {
-            let @160 = (*tris_ref!top) >> 4u in
-            let _t61 = @160 + (*data) in
-            let @162 = tris.prims in
-            let @163 = @162[_t61] in
-            let @164 = intersectsp_ray_tri(r, @163) in
-            let _t184 = @164 in
-            let @165 = _t184.set in
-            if (@165) {
+          while ((*data) < @159) {
+            let @161 = (*tris_ref!top) >> 4u in
+            let _t61 = @161 + (*data) in
+            let @163 = tris.prims in
+            let @164 = @163[_t61] in
+            let @165 = intersectsp_ray_tri(r, @164) in
+            let _t184 = @165 in
+            let @166 = _t184.set in
+            if (@166) {
               let isect_$i2 = _t184.value in
-              let @167 = isect_$i2.t in
-              let @169 = (*_best0) in
-              let @170 = @169._field0 in
-              let @459 = reinterpret_cast<i32>(@167) in
-              let @460 = reinterpret_cast<i32>(@170) in
-              let @461 = @459 < @460 in
-              if (@461) {
-                let @173 = build<__tuple_0>(_t61) in
-                let @174 = build<__tuple_1>(@167, @173) in
-                _best0 argmin= @174
+              let @168 = isect_$i2.t in
+              let @170 = (*_best0) in
+              let @171 = @170._field0 in
+              let @462 = reinterpret_cast<i32>(@168) in
+              let @463 = reinterpret_cast<i32>(@171) in
+              let @464 = @462 < @463 in
+              if (@464) {
+                let @174 = build<__tuple_0>(_t61) in
+                let @175 = build<__tuple_1>(@168, @174) in
+                _best0 argmin= @175
               }
             }
-            let @175 = (*data) + 1u in
-            data = @175
+            let @176 = (*data) + 1u in
+            data = @176
           }
         }
         break
       } while (true)
-      let @447 = (*!count) != 0u in
-      if (@447) {
-        let @448 = (*!count) - 1u in
-        let @449 = !stack[@448] in
-        let @450 = !stack0[@448] in
-        tris_ref!top = @449
-        _bound0!top = @450
-        !count = @448
+      let @450 = (*!count) != 0u in
+      if (@450) {
+        let @451 = (*!count) - 1u in
+        let @452 = !stack[@451] in
+        let @453 = !stack0[@451] in
+        tris_ref!top = @452
+        _bound0!top = @453
+        !count = @451
         continue
       } else {
         return
       }
     }
-    let @447 = (*!count) != 0u in
-    if (@447) {
-      let @448 = (*!count) - 1u in
-      let @449 = !stack[@448] in
-      let @450 = !stack0[@448] in
-      tris_ref!top = @449
-      _bound0!top = @450
-      !count = @448
+    let @450 = (*!count) != 0u in
+    if (@450) {
+      let @451 = (*!count) - 1u in
+      let @452 = !stack[@451] in
+      let @453 = !stack0[@451] in
+      tris_ref!top = @452
+      _bound0!top = @453
+      !count = @451
       continue
     } else {
       return
@@ -412,56 +413,57 @@ func entry(r : Ray, b : AABB) -> f32 {
   let @18 = _t102$i31 / @17 in
   let @20 = 2f * @18 in
   let @21 = 1f + @20 in
-  let @76 = @13 * f32x3(@21) in
-  let @23 = @76[1u] in
-  let @25 = @10[0u] in
-  let @26 = @23 < @25 in
-  let @28 = @76[0u] in
-  let @30 = @10[1u] in
-  let @31 = @28 < @30 in
-  let @32 = @26 || @31 in
-  if (@32) {
-    let @33 = build<_option1>() in
-    intersectsp_ray_aabb$r12 = @33
+  let @22 = f32x3(@21) in
+  let @77 = @13 * @22 in
+  let @24 = @77[1u] in
+  let @26 = @10[0u] in
+  let @27 = @24 < @26 in
+  let @29 = @77[0u] in
+  let @31 = @10[1u] in
+  let @32 = @29 < @31 in
+  let @33 = @27 || @32 in
+  if (@33) {
+    let @34 = build<_option1>() in
+    intersectsp_ray_aabb$r12 = @34
   } else {
-    let @38 = max(@25, @30) in
-    let @43 = min(@28, @23) in
-    let @45 = @76[2u] in
-    let @47 = @45 < @38 in
-    let @50 = @10[2u] in
-    let @51 = @43 < @50 in
-    let @52 = @47 || @51 in
-    if (@52) {
-      let @53 = build<_option1>() in
-      intersectsp_ray_aabb$r12 = @53
-      tmin$i12 = @38
-      tmax$i12 = @43
+    let @39 = max(@26, @31) in
+    let @44 = min(@29, @24) in
+    let @46 = @77[2u] in
+    let @48 = @46 < @39 in
+    let @51 = @10[2u] in
+    let @52 = @44 < @51 in
+    let @53 = @48 || @52 in
+    if (@53) {
+      let @54 = build<_option1>() in
+      intersectsp_ray_aabb$r12 = @54
+      tmin$i12 = @39
+      tmax$i12 = @44
     } else {
-      let @57 = max(@38, @50) in
-      let @61 = min(@43, @45) in
-      let @64 = build<FInterval>(@57, @61) in
-      let @65 = build<_option1>(@64, true) in
-      intersectsp_ray_aabb$r12 = @65
-      tmin$i12 = @57
-      tmax$i12 = @61
+      let @58 = max(@39, @51) in
+      let @62 = min(@44, @46) in
+      let @65 = build<FInterval>(@58, @62) in
+      let @66 = build<_option1>(@65, true) in
+      intersectsp_ray_aabb$r12 = @66
+      tmin$i12 = @58
+      tmax$i12 = @62
     }
   }
-  let @67 = (*intersectsp_ray_aabb$r12).set in
-  if (@67) {
+  let @68 = (*intersectsp_ray_aabb$r12).set in
+  if (@68) {
     let extract = (*intersectsp_ray_aabb$r12).value in
     let _t99 = extract.low in
-    let @71 = r.tmax in
-    let @72 = _t99 < @71 in
-    if (@72) {
-      let @73 = extract.high in
-      let @74 = 0f < @73 in
-      if (@74) {
+    let @72 = r.tmax in
+    let @73 = _t99 < @72 in
+    if (@73) {
+      let @74 = extract.high in
+      let @75 = 0f < @74 in
+      if (@75) {
         return _t99
       }
     }
   }
-  let @75 = (f32)inf in
-  return @75
+  let @76 = (f32)inf in
+  return @76
 }
 
 func [[export]] trace(_ret0 : mut (_option0*), r : (Ray*), tris : (_tree_layout0*)) -> void {

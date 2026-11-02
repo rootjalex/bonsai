@@ -135,7 +135,14 @@ by the compiler rather than the programmer (until 11-01 such a call was
 refused, as ispc refuses a call to an external function with varying
 arguments). The cost is the gang's width in scalar calls where every lane is
 on, so a foreign call in gang code is worth keeping out of the innermost
-loop. The compiler treats a foreign call as it treats a call to any function
+loop. One thing the wrapper cannot do is return a foreign type: a foreign
+value is one handle the program passes on, never one per lane (`ir::Foreign_t`),
+so a foreign function that returns one -- `nanovdb_grid` -- must be called
+by the gang on uniform arguments outside any divergent branch, or from a
+loop the schedule leaves scalar; a call that would need the wrapper is
+refused with a message that says so (apps/pbrt's media walk reaches it with
+each lane's own medium, which is why the vectorized schedules there keep the
+copy with media scalar). The compiler treats a foreign call as it treats a call to any function
 it cannot inline; it does not assume it is pure, and it does not assume it
 writes anything the program can see, since it can be handed nothing the
 program writes.
