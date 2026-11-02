@@ -8139,6 +8139,28 @@ dumps and the compared modules are in scratch/ssa-check-b72c215b/
 my own, nothing timed on the machine. bonsai-ac ran the same check over
 apps/wosx's fourteen deferral schedules with the same result.
 
+**The table against the compiler since, again (2026-11-01, 22:10).** The
+tree took two compiler commits on 11-01: 6488f426 (src/SSA/Vectorize.cpp:
+a call whose argument is a constant is cloned for it, and a call to a
+foreign function in gang code is made per lane) and 4e3f074c (the OptiX
+pipeline linked for the depth of the traces its programs make; CodeGen_OptiX,
+CodeGen_GPU_Host, runtime/bonsai_optix.h). bonsai-f9, which wrote them,
+noted that rtq's gang code might take a cloned traversal root the way
+apps/wosx's packet schedules do. The same compile as on 10-31
+(scratch/ssa-check-6488f426/run.sh: the six plotted schedules as compare.sh
+compiles them, `--dump-ssa-final -b llvm`, from the repository root, where
+the compiler finds stdlib/) under build/compiler linked 19:21, whose
+objects carry both commits' sources (Vectorize.cpp.o 17:56, the two CodeGen
+objects 19:16), against the 10-31 dumps: the final SSA and the LLVM module
+are byte-identical for all six, so neither commit changes rtq's code and
+the table stands for the tree's head (8eb1ec47). No rtq schedule calls a
+foreign function from vectorized code, and no traversal is called with a
+constant argument the clone would specialize. Seven seconds of one core
+under a lock of my own, 22:10:41-22:10:48, nothing timed on the machine;
+the user's ask of 19:05, "run the rtq compile check after f9's done",
+taken after twenty minutes with no lock and nothing running. bonsai-ac ran
+its wosx check against 4e3f074c at 21:47 with the same result.
+
 ### Where the 5% goes: the two Embree cells under the hardware counters (2026-11-01)
 
 The user, 00:10: "please do profile to see where that 5% goes. Don't try
