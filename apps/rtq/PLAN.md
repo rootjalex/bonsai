@@ -8161,6 +8161,28 @@ the user's ask of 19:05, "run the rtq compile check after f9's done",
 taken after twenty minutes with no lock and nothing running. bonsai-ac ran
 its wosx check against 4e3f074c at 21:47 with the same result.
 
+**And against 1ab9281e (2026-11-02, 07:01).** bonsai-f9's overnight
+compiler commit (src/SSA/Vectorize.cpp, SplitAggregates.cpp, Convert.cpp,
+CodeGen_Stmt.cpp): a scalar accumulated into a vector (`v *= s`) is
+broadcast over the components where every backend had scaled one float --
+so every traversal built on stdlib/intersects applied pbrt's robust slab
+factor to tMax.x alone until now -- the splitter reads a component of a
+uniform splat as the scalar itself, a gang's per-lane short vectors are
+stored per component, and a forwarded constant argument gets the callee's
+clone. rtq is outside the first: its inputs import stdlib/numerics only,
+the box and triangle tests are metrics/{embree,fcpw,fcpw_scalar}.bonsai's
+transcriptions, and no rtq source has an accumulate operator, so the table
+was measured with the arithmetic it describes. The compile recheck
+(scratch/ssa-check-1ab9281e/run.sh, the same six against the 10-31 dumps,
+under build/compiler linked 06:55 = 1ab9281e's build, during f9's hold on
+its 'clear', 07:01:30-07:01:36): five schedules byte-identical in final SSA
+and LLVM; fcpw4w16, the vectorized one, has 24 fewer SSA lines -- twelve
+`bc` (broadcast) and twelve `extract_idx` pairs gone, the splat-extract
+sequences the splitter no longer writes, every other opcode's count equal
+and the rest of the diff renumbering -- and its LLVM module is
+byte-identical, LLVM having folded those pairs before. So the table stands
+for the tree's head after 1ab9281e too; nothing to measure.
+
 ### Where the 5% goes: the two Embree cells under the hardware counters (2026-11-01)
 
 The user, 00:10: "please do profile to see where that 5% goes. Don't try
