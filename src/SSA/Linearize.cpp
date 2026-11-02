@@ -1655,6 +1655,130 @@ BlockMasks linearize(Function &func, const string &entry_name,
             into));
     };
 
+    // Points every read of the argument `name` in `in` at `with`: the
+    // operands of its instructions, the values its terminator carries, and
+    // its masks -- a divergent branch on the argument itself (`if hit`, where
+    // `hit` is what the arms of a match handed the join) has the argument
+    // for the mask of its true edge, and of every block that edge alone
+    // reaches; those are read when the blocks are predicated, long after
+    // the argument is gone. Instructions in `skip`, when given, are left
+    // alone: the blends of the join itself, whose operands are the incoming
+    // values, one of which may well be an argument of the join with the
+    // same name, and rewriting them would make a blend select between
+    // itself.
+    auto rewrite_reads = [&](Block &in, const string &name,
+                             const shared_ptr<Value> &with,
+                             const set<const Instruction *> *skip) {
+        auto replace = [&](shared_ptr<Value> &v) {
+            if (v && std::holds_alternative<Argument>(v->data) &&
+                std::get<Argument>(v->data).name == name) {
+                v = with;
+            }
+        };
+        for (const auto &instr : in.instrs) {
+            if (skip != nullptr && skip->count(instr.get())) {
+                continue;
+            }
+            for (auto &operand : instr->operands) {
+                replace(operand);
+            }
+        }
+        if (const BlockId id = cfg.find(in.name); id != NO_BLOCK) {
+            if (id < masks.block.size()) {
+                replace(masks.block[id]);
+            }
+            for (auto &[edge, mask] : masks.edge) {
+                if (edge.first == id) {
+                    replace(mask);
+                }
+            }
+        }
+        std::visit(
+            overloads{
+                [&](std::monostate &) {},
+                [&](Terminator::Jump &t) {
+                    for (auto &a : t.args) {
+                        replace(a);
+                    }
+                },
+                [&](Terminator::Dispatch &t) {
+                    replace(t.cond);
+                    for (auto &target : t.targets) {
+                        for (auto &a : target.args) {
+                            replace(a);
+                        }
+                    }
+                },
+                [&](Terminator::Return &t) { replace(t.value); },
+                [&](Terminator::ParFor &) {},
+                [&](Terminator::Yield &) {},
+                [&](Terminator::Call &t) {
+                    for (auto &a : t.call.args) {
+                        replace(a);
+                    }
+                    for (auto &a : t.cont.args) {
+                        replace(a);
+                    }
+                },
+                [&](Terminator::Spawn &t) {
+                    for (auto &a : t.call.args) {
+                        replace(a);
+                    }
+                    for (auto &a : t.cont.args) {
+                        replace(a);
+                    }
+                },
+                [&](Terminator::Defer &t) {
+                    replace(t.queue);
+                    replace(t.entry);
+                    if (t.answer) {
+                        replace(t.answer);
+                    }
+                },
+                [&](Terminator::Join &t) {
+                    for (auto &a : t.next.args) {
+                        replace(a);
+                    }
+                },
+                [&](Terminator::MultiCall &t) {
+                    for (auto &a : t.call.args) {
+                        replace(a);
+                    }
+                    for (auto &vs : t.varying) {
+                        for (auto &a : vs) {
+                            replace(a);
+                        }
+                    }
+                    for (auto &k : t.keys) {
+                        replace(k);
+                    }
+                    for (auto &k : t.conds) {
+                        replace(k);
+                    }
+                    for (auto &a : t.cont.args) {
+                        replace(a);
+                    }
+                },
+            },
+            in.terminator.data);
+    };
+
+    // Whether a block between `other` and its dominator `b` -- `other`
+    // included, `b` not -- declares `name` for itself, and so means
+    // something else by it than `b` does.
+    auto shadowed_below = [&](BlockId other, BlockId b, const string &name) {
+        for (BlockId at = other; at != b;) {
+            if (declares(cfg[at], name)) {
+                return true;
+            }
+            if (!dom.contains(at) || dom.idom[at] == at) {
+                break;
+            }
+            at = dom.idom[at];
+        }
+        return false;
+    };
+
     for (const BlockId b : by_index) {
         const shared_ptr<Block> &block = cfg.block(b);
         if (block->args.empty() || b == entry) {
@@ -1753,6 +1877,55 @@ BlockMasks linearize(Function &func, const string &entry_name,
                 threaded = declared_above;
             }
             if (threaded) {
+                // Below this join the name goes on meaning what it means
+                // here. When a dominator's argument of the name has been
+                // blended already, that is the blend, not the name: the
+                // dominator's rewrite left this join's subtree alone while
+                // the join still declared the name (shadowed_below), and
+                // nothing would reach it now that the declaration goes --
+                // the leaf loop of apps/pbrt's traversal read the ray by the
+                // name the loop body defined it under, where only the exit's
+                // tracker is in scope. A dominator still declaring the name
+                // has not been processed; its turn rewrites this subtree,
+                // which no longer declares the name. No dominator at all
+                // declares it: a parameter or an instruction, in scope by
+                // dominance as it is.
+                for (size_t j = leading; j < n_args; j++) {
+                    const string &name = block->args[j].name;
+                    shared_ptr<Value> meaning;
+                    for (BlockId at = b;;) {
+                        if (!dom.contains(at) || dom.idom[at] == at) {
+                            break;
+                        }
+                        at = dom.idom[at];
+                        if (const auto it = replaced[at].find(name);
+                            it != replaced[at].end()) {
+                            meaning = it->second;
+                            break;
+                        }
+                        if (declares(cfg[at], name)) {
+                            break;
+                        }
+                    }
+                    if (!meaning) {
+                        continue;
+                    }
+                    for (BlockId other : dom.subtree(b)) {
+                        if (other == b || shadowed_below(other, b, name)) {
+                            continue;
+                        }
+                        rewrite_reads(cfg[other], name, meaning, nullptr);
+                        for (const Gadget &g : gadgets) {
+                            if (g.arm == other) {
+                                rewrite_reads(cfg[g.guard], name, meaning,
+                                              nullptr);
+                            }
+                        }
+                    }
+                    rewrite_reads(*block, name, meaning, nullptr);
+                    block->lookups[name] = meaning;
+                    replaced[b][name] = meaning;
+                }
                 block->args.erase(block->args.begin() + long(leading),
                                   block->args.begin() + long(n_args));
                 continue;
@@ -2148,129 +2321,16 @@ BlockMasks linearize(Function &func, const string &entry_name,
         // does, means something else by it and is left alone.
         for (size_t j = leading; j < n_args; j++) {
             const string name = block->args[j].name;
-            auto replace = [&](shared_ptr<Value> &v) {
-                if (v && std::holds_alternative<Argument>(v->data) &&
-                    std::get<Argument>(v->data).name == name) {
-                    v = blended[j];
-                }
-            };
             auto replace_in = [&](Block &in, bool skip_blends) {
-                for (const auto &instr : in.instrs) {
-                    // Not inside a blend: its operands are the incoming
-                    // values, one of which may well be an argument of this
-                    // block with the same name, and rewriting them would make
-                    // the blend select between itself.
-                    if (skip_blends && blends.count(instr.get())) {
-                        continue;
-                    }
-                    for (auto &operand : instr->operands) {
-                        replace(operand);
-                    }
-                }
-                // The masks are values too. A divergent branch on the
-                // argument itself -- `if hit`, where `hit` is what the arms
-                // of a match handed the join -- has the argument for the mask
-                // of its true edge, and of every block that edge alone
-                // reaches; those are read when the blocks are predicated,
-                // long after the argument is gone.
-                if (const BlockId id = cfg.find(in.name); id != NO_BLOCK) {
-                    if (id < masks.block.size()) {
-                        replace(masks.block[id]);
-                    }
-                    for (auto &[edge, mask] : masks.edge) {
-                        if (edge.first == id) {
-                            replace(mask);
-                        }
-                    }
-                }
-                std::visit(
-                    overloads{
-                        [&](std::monostate &) {},
-                        [&](Terminator::Jump &t) {
-                            for (auto &a : t.args) {
-                                replace(a);
-                            }
-                        },
-                        [&](Terminator::Dispatch &t) {
-                            replace(t.cond);
-                            for (auto &target : t.targets) {
-                                for (auto &a : target.args) {
-                                    replace(a);
-                                }
-                            }
-                        },
-                        [&](Terminator::Return &t) { replace(t.value); },
-                        [&](Terminator::ParFor &) {},
-                        [&](Terminator::Yield &) {},
-                        [&](Terminator::Call &t) {
-                            for (auto &a : t.call.args) {
-                                replace(a);
-                            }
-                            for (auto &a : t.cont.args) {
-                                replace(a);
-                            }
-                        },
-                        [&](Terminator::Spawn &t) {
-                            for (auto &a : t.call.args) {
-                                replace(a);
-                            }
-                            for (auto &a : t.cont.args) {
-                                replace(a);
-                            }
-                        },
-                        [&](Terminator::Defer &t) {
-                            replace(t.queue);
-                            replace(t.entry);
-                            if (t.answer) {
-                                replace(t.answer);
-                            }
-                        },
-                        [&](Terminator::Join &t) {
-                            for (auto &a : t.next.args) {
-                                replace(a);
-                            }
-                        },
-                        [&](Terminator::MultiCall &t) {
-                            for (auto &a : t.call.args) {
-                                replace(a);
-                            }
-                            for (auto &vs : t.varying) {
-                                for (auto &a : vs) {
-                                    replace(a);
-                                }
-                            }
-                            for (auto &k : t.keys) {
-                                replace(k);
-                            }
-                            for (auto &k : t.conds) {
-                                replace(k);
-                            }
-                            for (auto &a : t.cont.args) {
-                                replace(a);
-                            }
-                        },
-                    },
-                    in.terminator.data);
+                rewrite_reads(in, name, blended[j],
+                              skip_blends ? &blends : nullptr);
             };
 
             for (BlockId other : dom.subtree(b)) {
                 if (other == b) {
                     continue;
                 }
-                // Does a block between here and `b` -- this one included --
-                // declare the name for itself?
-                bool shadowed = false;
-                for (BlockId at = other; at != b;) {
-                    if (declares(cfg[at], name)) {
-                        shadowed = true;
-                        break;
-                    }
-                    if (!dom.contains(at) || dom.idom[at] == at) {
-                        break;
-                    }
-                    at = dom.idom[at];
-                }
-                if (!shadowed) {
+                if (!shadowed_below(other, b, name)) {
                     replace_in(cfg[other], /*skip_blends=*/false);
                     // And in the guard standing in front of it, if one does:
                     // added after the dominator tree was built, so not in

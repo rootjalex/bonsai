@@ -11,12 +11,14 @@
 // under the local's name -- so a lookup by name there handed the read its
 // own result, `@16 = xor(hash, @16)`, which widening then broadcast as a
 // value already gang-wide. The value from above is now threaded in as the
-// arm's argument of that name, the block's redefinition kept for its
-// successors.
+// arm's argument, under a name of its own (`v!loop!out`, 11-02: the copy
+// a loop's value leaves the loop as is per lane where the value may be
+// uniform, and under the loop's own name the two were one variable of the
+// backend's), the block's redefinition kept for its successors.
 //
 // What to look for: in `sample`'s variant the arms of `mode == 1` and
-// `mode == 2` take `v!loop` as an argument and read it; no `bc` of a
-// gang-wide value; the scalar `sample` untouched.
+// `mode == 2` read `v!loop!out`, bound to the loop's tracker for `v`; no
+// `bc` of a gang-wide value; the scalar `sample` untouched.
 import stdlib/numerics;
 
 func scr(v : u32, h : u32) -> u32 =

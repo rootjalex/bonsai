@@ -440,15 +440,41 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
         // per-lane capture on the way out of the loop -- and an array handle
         // had better not get one, since a blend of aggregates is not
         // expressible.
+        // The names of the instructions the loop's blocks hold: what a value
+        // is known to be defined by inside the loop whatever its owner says
+        // -- a copy's owner may be a block of the function it was cloned
+        // from, or none (the lens walk's constant normal, apps/pbrt, left
+        // the loop as an invariant and was read past it where nothing of
+        // the body is in scope).
+        set<string> loop_instrs;
+        for (const string &name : in_loop) {
+            for (const auto &instr : blocks.at(name)->instrs) {
+                if (!instr->name.empty()) {
+                    loop_instrs.insert(instr->name);
+                }
+            }
+        }
         auto loop_invariant = [&](const Value &v) {
             if (std::holds_alternative<Constant>(v.data)) {
                 return true;
             }
             if (const auto *i = std::get_if<shared_ptr<Instruction>>(&v.data)) {
                 const auto owner = (*i)->owner.lock();
-                return owner == nullptr || in_loop.count(owner->name) == 0;
+                const bool inside =
+                    (owner != nullptr && in_loop.count(owner->name) > 0) ||
+                    loop_instrs.count((*i)->name) > 0;
+                return !inside;
             }
-            return defined_in_loop.count(std::get<Argument>(v.data).name) == 0;
+            // A copy threaded out of the loop under a name of its own (see
+            // `fresh` below, `x!out`) is the loop's value whenever `x` is:
+            // the copy was made after these sets were, so it is read under
+            // the name it copies.
+            string name = std::get<Argument>(v.data).name;
+            while (name.size() > 4 && name.compare(name.size() - 4, 4, "!out") == 0 &&
+                   defined_in_loop.count(name) == 0 && loop_instrs.count(name) == 0) {
+                name.resize(name.size() - 4);
+            }
+            return defined_in_loop.count(name) == 0 && loop_instrs.count(name) == 0;
         };
 
         // What the code after the loop reads of what the loop defines, made
@@ -465,18 +491,15 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
         // predecessors to where the value is defined, which makes it an
         // argument of the exit edge that the slots below then see.
         {
-            set<string> loop_defined;
-            for (const string &name : in_loop) {
-                const Block &block = *blocks.at(name);
-                for (const Argument &arg : block.args) {
-                    loop_defined.insert(arg.name);
-                }
-                for (const auto &instr : block.instrs) {
-                    if (!instr->name.empty()) {
-                        loop_defined.insert(instr->name);
-                    }
-                }
-            }
+            // The loop's instructions, and the parameters the loop gives a
+            // value to (defined_in_loop) -- not every argument a loop block
+            // declares: a value from above threaded into the loop by name
+            // is an argument of its blocks and is not the loop's, and a
+            // read of it past the loop needs nothing (curve_hit's curve
+            // width, apps/pbrt, threaded in as `_t4281` and read after the
+            // depth loop).
+            set<string> loop_defined = loop_instrs;
+            loop_defined.insert(defined_in_loop.begin(), defined_in_loop.end());
             refresh_preds(func);
             const Cfg now(func);
             set<string> after;
@@ -486,6 +509,33 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
                     if (!in_loop.count(r) && r != preheader && r != header) {
                         after.insert(r);
                     }
+                }
+            }
+            // A block's table may still say that a name means the loop's
+            // own value -- the instruction the body defines it by, or an
+            // argument of a block of the loop -- from the time the body
+            // dominated the code after it. Threaded through such an entry a
+            // read would be handed that value again, and get_value asks the
+            // predecessors only for a name the table lacks, so the entries
+            // go first, and every read is threaded back to the loop.
+            for (const string &name : after) {
+                Block &block = *blocks.at(name);
+                for (auto it = block.lookups.begin(); it != block.lookups.end();) {
+                    bool stale = false;
+                    if (const auto *i = std::get_if<shared_ptr<Instruction>>(
+                            &it->second->data)) {
+                        const auto owner = (*i)->owner.lock();
+                        stale = (owner != nullptr && in_loop.count(owner->name) > 0) ||
+                                loop_instrs.count((*i)->name) > 0;
+                    } else if (const auto *a =
+                                   std::get_if<Argument>(&it->second->data)) {
+                        stale = loop_defined.count(a->name) > 0 &&
+                                std::none_of(block.args.begin(), block.args.end(),
+                                             [&](const Argument &own) {
+                                                 return own.name == a->name;
+                                             });
+                    }
+                    it = stale ? block.lookups.erase(it) : std::next(it);
                 }
             }
             for (const string &name : after) {
@@ -510,11 +560,34 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
                     const string wanted = *n;
                     // The block's own argument of that name is the value
                     // already; the jumps that feed it are threaded where
-                    // they stand.
+                    // they stand. A use that still points at the loop's
+                    // instruction itself -- the SSA builder resolved it so
+                    // while the body dominated this block, the alpha test's
+                    // ray in apps/pbrt's leaf loop -- is pointed at the
+                    // argument, or it would read the instruction past the
+                    // loop, where nothing of the body is in scope.
+                    // A value threaded out below gets a name of its own
+                    // (`fresh`): the tracked copy is per lane where the
+                    // loop's value may be uniform -- gamma(3), computed
+                    // from eps in the body -- and under one name the two
+                    // became one variable of the backend's, of one type.
+                    const string fresh = wanted + "!out";
                     for (const Argument &arg : block.args) {
-                        if (arg.name == wanted) {
-                            return;
+                        if (arg.name != wanted && arg.name != fresh) {
+                            continue;
                         }
+                        const bool is_arg =
+                            std::holds_alternative<Argument>(v->data) &&
+                            std::get<Argument>(v->data).name == arg.name;
+                        if (!is_arg) {
+                            const auto own = block.lookups.find(arg.name);
+                            v = own != block.lookups.end() &&
+                                        std::holds_alternative<Argument>(
+                                            own->second->data)
+                                    ? own->second
+                                    : std::make_shared<Value>(arg);
+                        }
+                        return;
                     }
                     // What the block's table says the name means here is
                     // the answer -- the promotion's alias of a load to the
@@ -543,13 +616,25 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
                             v = found->second;
                             return;
                         }
-                        const shared_ptr<Value> later = found->second;
-                        block.lookups.erase(found);
-                        v = block.get_value(wanted, type);
-                        block.lookups[wanted] = later;
-                        return;
                     }
-                    v = block.get_value(wanted, type);
+                    // Threaded back under the fresh name, through the
+                    // blocks after the loop to the blocks it is left from.
+                    // Every block of the loop that knows the value knows it
+                    // under the fresh name too, so the threading stops at
+                    // the first such block it reaches -- the exit's source,
+                    // on any path a lane leaves by after the value is made
+                    // -- and the exit edge carries the value out, where the
+                    // slots below track it. A block the value never reaches
+                    // (the loop's test, leaving before the body) is left
+                    // alone: no read past the loop lies on that path.
+                    for (const string &inside : in_loop) {
+                        Block &b = *blocks.at(inside);
+                        const auto known = b.lookups.find(wanted);
+                        if (known != b.lookups.end() && !b.lookups.count(fresh)) {
+                            b.lookups[fresh] = known->second;
+                        }
+                    }
+                    v = block.get_value(fresh, type);
                 };
                 for (const auto &instr : block.instrs) {
                     for (auto &operand : instr->operands) {

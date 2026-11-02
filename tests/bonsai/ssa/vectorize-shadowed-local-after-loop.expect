@@ -107,10 +107,11 @@ func [[noinline]] sample$gang16_v0_v2$masked(a : u32x16, mode : i32, hash : u32x
   } else {
     v!loop = (*!track.while_end_2.2)
   }
+  let v!loop!out = (*!track.while_end_2.2) in
   let @15 = mode == 2 in
   if (@15) {
     let @46 = u32x16(255u) in
-    let @17 = (*v!loop) ^ @46 in
+    let @17 = v!loop!out ^ @46 in
     let @47 = u32x16(2654435761u) in
     let @18 = hash * @47 in
     let @19 = @17 ^ @18 in
