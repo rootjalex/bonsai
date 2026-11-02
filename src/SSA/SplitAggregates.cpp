@@ -498,17 +498,29 @@ SplitResult split_aggregates(Function &func, const string &entry,
             }
 
             // Storing a per-lane vector into an element of an array of
-            // vectors, at each lane's own index: the mirror of the strided
-            // read below. The array is shared memory laid out one whole
-            // vector per element, so each component goes to its own place in
-            // the array viewed as its element type, the elements `width`
+            // vectors, at each lane's own index -- or accumulating one into
+            // it, a film's normal buffer taking each lane's weighted normal
+            // at the lane's pixel -- is the mirror of the strided read
+            // below. The array is shared memory laid out one whole vector
+            // per element, so each component goes to its own place in the
+            // array viewed as its element type, the elements `width`
             // components apart -- the array-of-structures store of ispc's
-            // section 5.2. A store of one through a pointer -- into a lane's
-            // own slot, or a `mut` parameter's -- is left whole: widening
-            // lays that memory out in the shape the whole value has (see
-            // widen() in SSA/Vectorize.cpp). The store's execution mask, if
-            // it has one, covers every component stored in its stead.
-            if (instr->op == Instruction::Op::Store &&
+            // section 5.2. A store or accumulate through a pointer -- into a
+            // lane's own slot, or a `mut` parameter's -- is left whole:
+            // widening lays that memory out in the shape the whole value
+            // has, and makes an accumulate into it one per component itself
+            // (see widen() and widen_region() in SSA/Vectorize.cpp). The
+            // execution mask, if there is one, covers every component
+            // written in the one write's stead. An argmin or argmax carries
+            // a pair, not a vector.
+            const bool componentwise_write =
+                instr->op == Instruction::Op::Store ||
+                instr->op == Instruction::Op::AccAdd ||
+                instr->op == Instruction::Op::AccMul ||
+                instr->op == Instruction::Op::AccSub ||
+                instr->op == Instruction::Op::AccMin ||
+                instr->op == Instruction::Op::AccMax;
+            if (componentwise_write && instr->operands.size() >= 2 &&
                 splitter.per_lane_vector(*instr->operands[1])) {
                 const auto *place =
                     std::get_if<shared_ptr<Instruction>>(&instr->operands[0]->data);
@@ -558,12 +570,12 @@ SplitResult split_aggregates(Function &func, const string &entry,
                         if (instr->operands.size() == 3) {
                             operands.push_back(instr->operands[2]);
                         }
-                        auto store = std::make_shared<Instruction>(
-                            Instruction::Op::Store, std::move(operands),
-                            splitter.block);
-                        store->compact = instr->compact;
-                        store->slack = instr->slack;
-                        splitter.emitted.push_back(store);
+                        auto write = std::make_shared<Instruction>(
+                            instr->op, std::move(operands), splitter.block);
+                        write->compact = instr->compact;
+                        write->slack = instr->slack;
+                        write->atomic = instr->atomic;
+                        splitter.emitted.push_back(write);
                     }
                     continue;
                 }

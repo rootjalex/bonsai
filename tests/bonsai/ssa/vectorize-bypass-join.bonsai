@@ -1,0 +1,52 @@
+//! flags: -p ssa
+
+// A bypass that lands on a join which keeps its arguments, in a gang.
+//
+// `if flags[k] == 0u` is a uniform branch (the flags are the gang's, the
+// loop counter is uniform), so the linearizer keeps it as control flow, and
+// its join still merges `t` from the two arms through an argument. The else
+// arm holds a divergent early return and then a store, so the rest of the
+// arm is a region the gang skips when no lane is on it (the BOSCC gadget of
+// SSA/Linearize.cpp), and that region's one exit is the join: the bypass
+// lands on a block that binds arguments on every way in. The guard's jump
+// used to hand it nothing of its own -- only what the landing had gained
+// from the threading -- and the next pass found a jump of too few values
+// (pbrt's lens walk, `if is_stop` with the quadratic's early return in its
+// else arm, is where it was met). What to read for in the golden: the
+// guard's `dispatch` into the join passes, for each of the join's arguments,
+// the one definition both arms thread under the argument's own name (the
+// counter, the gang's live mask and exit flags) or an undefined value where
+// the arms merge different values (`t`): no lane is active on a bypass, so
+// no lane reads what the skipped arm would have merged.
+import stdlib/numerics;
+
+func walk(x : f32, slot : u32, n : u32, flags : array[u32, 4],
+          trace : mut array[f32, 8]) -> f32 {
+    acc : mut f32 = x;
+    for k in 0u:n {
+        t : mut f32 = 0.0;
+        if flags[k] == 0u {
+            t = acc * 0.5;
+        } else {
+            if acc > 10.0 {
+                return -1.0;
+            }
+            trace[slot] = acc;
+            t = acc + 1.0;
+        }
+        acc = t * 2.0;
+    }
+    return acc;
+}
+
+func [[export]] run(a : array[f32, 8], n : u32, flags : array[u32, 4],
+                    trace : mut array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = walk(a[i], cast[[u32]](i), n, flags, trace);
+    }
+    return;
+}
+
+schedule {
+    run.vectorize(i);
+}

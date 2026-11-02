@@ -1755,8 +1755,63 @@ BlockMasks linearize(Function &func, const string &entry_name,
             if (threaded) {
                 block->args.erase(block->args.begin() + long(leading),
                                   block->args.begin() + long(n_args));
-            } else {
-                keeps_args.insert(b);
+                continue;
+            }
+            keeps_args.insert(b);
+            // A bypass that lands here is one more way in, and the join
+            // still binds its arguments on every way in: the guard's jump
+            // hands it, for each argument, the one definition every edge
+            // threads under the argument's own name where there is one --
+            // the loop's counter, the flags a uniformized loop carries, all
+            // in scope at the guard since a dominator of the join declares
+            // them -- and otherwise an undefined value: no lane is active
+            // on a bypass (that is what the guard tested), so no lane reads
+            // what the skipped arm would have merged. pbrt's lens walk is
+            // where this was met: a uniform `if is_stop` whose else arm
+            // holds a divergent early return, its join merging the hit
+            // point from both arms.
+            for (const Gadget &g : gadgets) {
+                if (g.landing != b) {
+                    continue;
+                }
+                auto &bypass = std::get<Terminator::Dispatch>(
+                                   cfg[g.guard].terminator.data)
+                                   .targets[0];
+                internal_assert(bypass.name == cfg.name(b) && bypass.args.empty())
+                    << "The bypass of " << cfg.name(g.arm) << " lands on "
+                    << bypass.name << " with " << bypass.args.size()
+                    << " arguments already";
+                for (size_t j = leading; j < n_args; j++) {
+                    const Argument &arg = block->args[j];
+                    bool same_name = true;
+                    for (const Incoming &source : sources) {
+                        const size_t offset = n_args - source.values.size();
+                        if (j < offset) {
+                            continue;
+                        }
+                        const Value &v = *source.values[j - offset];
+                        if (!std::holds_alternative<Argument>(v.data) ||
+                            std::get<Argument>(v.data).name != arg.name) {
+                            same_name = false;
+                            break;
+                        }
+                    }
+                    bool declared_above = false;
+                    for (BlockId at = b; same_name;) {
+                        if (!dom.contains(at) || dom.idom[at] == at) {
+                            break;
+                        }
+                        at = dom.idom[at];
+                        if (declares(cfg[at], arg.name)) {
+                            declared_above = true;
+                            break;
+                        }
+                    }
+                    bypass.args.push_back(
+                        same_name && declared_above
+                            ? std::make_shared<Value>(Argument{arg.type, arg.name})
+                            : undef_value(arg.type));
+                }
             }
             continue;
         }

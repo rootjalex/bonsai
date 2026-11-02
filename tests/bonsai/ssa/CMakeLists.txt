@@ -184,6 +184,7 @@ add_bonsai_tests(
     vectorize-ir.bonsai
     vectorize-arm-local.bonsai
     vectorize-bounded-division.bonsai
+    vectorize-bypass-join.bonsai
     vectorize-bounded-multiplier.bonsai
     vectorize-constant-argument.bonsai
     vectorize-constant-forwarded.bonsai

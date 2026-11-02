@@ -1,0 +1,165 @@
+type Float = f32
+type Half = f16
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func [[export]] run(a : f32[8], n : u32, flags : u32[4], trace : mut f32[8], out : mut f32[8]) -> void {
+  let @0 = a[ramp(0, 1, 8)] in
+  let @1 = cast<u32x8>(ramp(0, 1, 8)) in
+  let @2 = walk$gang8_v0_v1(@0, @1, n, flags, trace) in
+  let i = ramp(0, 1, 8) in
+  out[ramp(0, 1, 8)] = @2
+  return
+}
+
+func walk(x : f32, slot : u32, n : u32, flags : u32[4], trace : mut f32[8]) -> f32 {
+  k : mut u32
+  acc : mut f32
+  t : mut f32
+  k = 0u
+  acc = x
+  while ((*k) < n) {
+    let @1 = flags[(*k)] in
+    let @2 = @1 == 0u in
+    if (@2) {
+      let @4 = (*acc) * 0.5f in
+      t = @4
+    } else {
+      let @6 = 10f < (*acc) in
+      if (@6) {
+        return -1f
+      } else {
+        trace[slot] = (*acc)
+        let @10 = (*acc) + 1f in
+        t = @10
+      }
+    }
+    let @12 = (*t) * 2f in
+    let @13 = (*k) + 1u in
+    k = @13
+    acc = @12
+  }
+  return (*acc)
+}
+
+func walk$gang8_v0_v1(x : f32x8, slot : u32x8, n : u32, flags : u32[4], trace : mut f32[8]) -> f32x8 {
+  k!loop : mut u32
+  acc!loop : mut f32x8
+  !live : mut boolx8
+  !exit.then_6 : mut boolx8
+  !exit.for_k_end_2 : mut boolx8
+  !track.for_k_end_2.0 : mut f32x8
+  @23 : mut u32
+  @25 : mut f32x8
+  @33 : mut boolx8
+  @41 : mut boolx8
+  @49 : mut boolx8
+  @57 : mut f32x8
+  t : mut f32x8
+  @17!join : mut boolx8
+  let @80 = boolx8(true) in
+  let @81 = boolx8(false) in
+  k!loop = 0u
+  acc!loop = x
+  !live = @80
+  !exit.then_6 = @81
+  !exit.for_k_end_2 = @81
+  !track.for_k_end_2.0 = undef
+  @23 = undef
+  @25 = undef
+  @33 = undef
+  @41 = undef
+  @49 = undef
+  @57 = undef
+  while (reduce<any>((*!live))) {
+    let @0 = (*k!loop) < n in
+    if (@0) {
+      let @1 = flags[(*k!loop)] in
+      let @2 = @1 == 0u in
+      let @66 = boolx8(@2) in
+      let @19 = (*!live) && @66 in
+      if (@2) {
+        let @67 = f32x8(0.5f) in
+        let @4 = (*acc!loop) * @67 in
+        t = @4
+        @17!join = @81
+      } else {
+        let @68 = f32x8(10f) in
+        let @6 = @68 < (*acc!loop) in
+        let @84 = !@6 in
+        let @17 = (*!live) && @84 in
+        let @18 = (*!live) && @6 in
+        let @27 = select(@18, (*acc!loop), (*@25)) in
+        let @35 = select(@18, @81, (*@33)) in
+        let @43 = select(@18, @80, (*@41)) in
+        let @51 = select(@18, (*!exit.for_k_end_2), (*@49)) in
+        let @59 = select(@18, (*!track.for_k_end_2.0), (*@57)) in
+        let @22 = reduce<any>(@17) in
+        if (@22) {
+          masked_store(trace[slot], (*acc!loop), @17)
+          let @73 = f32x8(1f) in
+          let @10 = (*acc!loop) + @73 in
+          t = @10
+          @17!join = @17
+          @25 = @27
+          @33 = @35
+          @41 = @43
+          @49 = @51
+          @57 = @59
+        } else {
+          t = undef
+          @17!join = @17
+          @25 = @27
+          @33 = @35
+          @41 = @43
+          @49 = @51
+          @57 = @59
+        }
+      }
+      let @20 = (*@17!join) || @19 in
+      let @74 = f32x8(2f) in
+      let @12 = (*t) * @74 in
+      let @13 = (*k!loop) + 1u in
+      let @31 = select(@20, @12, (*@25)) in
+      let @39 = select(@20, (*!live), (*@33)) in
+      let @47 = select(@20, (*!exit.then_6), (*@41)) in
+      let @55 = select(@20, (*!exit.for_k_end_2), (*@49)) in
+      let @63 = select(@20, (*!track.for_k_end_2.0), (*@57)) in
+      @23 = @13
+      @25 = @31
+      @33 = @39
+      @41 = @47
+      @49 = @55
+      @57 = @63
+    } else {
+      let @29 = select((*!live), (*acc!loop), (*@25)) in
+      let @37 = select((*!live), @81, (*@33)) in
+      let @45 = select((*!live), (*!exit.then_6), (*@41)) in
+      let @53 = select((*!live), @80, (*@49)) in
+      let @61 = select((*!live), (*acc!loop), (*@57)) in
+      @25 = @29
+      @33 = @37
+      @41 = @45
+      @49 = @53
+      @57 = @61
+    }
+    k!loop = (*@23)
+    acc!loop = (*@25)
+    !live = (*@33)
+    !exit.then_6 = (*@41)
+    !exit.for_k_end_2 = (*@49)
+    !track.for_k_end_2.0 = (*@57)
+  }
+  let @85 = !(*!exit.then_6) in
+  let @79 = f32x8(-1f) in
+  let @65 = select(@85, (*!track.for_k_end_2.0), @79) in
+  return @65
+}
+
+
+schedule {
+    run.vectorize(i)
+
+}

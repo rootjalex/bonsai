@@ -1,0 +1,51 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_bypass_join
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_bypass_join.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_bypass_join.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_bypass_join.o tests/bonsai/correctness/cpp/vectorize_bypass_join.o -o tests/bonsai/correctness/cpp/vectorize_bypass_join, ./tests/bonsai/correctness/cpp/vectorize_bypass_join, rm tests/bonsai/correctness/cpp/vectorize_bypass_join, rm tests/bonsai/correctness/cpp/main_vectorize_bypass_join.o, rm tests/bonsai/correctness/cpp/vectorize_bypass_join.h, rm tests/bonsai/correctness/cpp/vectorize_bypass_join.o
+
+// A bypass that lands on a join which keeps its arguments, run: the
+// program of ssa/vectorize-bypass-join.bonsai against the same walk one
+// lane at a time. The lanes whose value passes 10 leave the loop early
+// with -1 on an else iteration; the rest alternate halving and the
+// store-then-increment, and the trace holds each lane's last value on an
+// else iteration. The gang must agree with the scalar loop on both arrays,
+// including on the iterations where every lane that is still in the loop
+// has left on the early return and the rest of the arm is skipped.
+import stdlib/numerics;
+
+func walk(x : f32, slot : u32, n : u32, flags : array[u32, 4],
+          trace : mut array[f32, 8]) -> f32 {
+    acc : mut f32 = x;
+    for k in 0u:n {
+        t : mut f32 = 0.0;
+        if flags[k] == 0u {
+            t = acc * 0.5;
+        } else {
+            if acc > 10.0 {
+                return -1.0;
+            }
+            trace[slot] = acc;
+            t = acc + 1.0;
+        }
+        acc = t * 2.0;
+    }
+    return acc;
+}
+
+func [[export]] run(a : array[f32, 8], n : u32, flags : array[u32, 4],
+                    trace : mut array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = walk(a[i], cast[[u32]](i), n, flags, trace);
+    }
+    return;
+}
+
+func [[export]] run_one(a : array[f32, 8], n : u32, flags : array[u32, 4],
+                        trace : mut array[f32, 8], out : mut array[f32, 8]) -> void {
+    for i in 0:8 {
+        out[i] = walk(a[i], cast[[u32]](i), n, flags, trace);
+    }
+    return;
+}
+
+schedule {
+    run.vectorize(i);
+}

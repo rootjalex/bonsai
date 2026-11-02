@@ -78,6 +78,7 @@ add_bonsai_tests(
     vectorize_locals.bonsai
     vectorize_loop.bonsai
     loopify_exits.bonsai
+    vectorize_bypass_join.bonsai
     vectorize_loop_carried.bonsai
     vectorize_division.bonsai
     vectorize_loop_early_return.bonsai
