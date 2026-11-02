@@ -20519,3 +20519,131 @@ wf-t-v-ps 5.25x, wf-t256-v-ps 5.56x, wf-t-v-ps-fuse 5.59x, wf-t-v-ps-sort
 megakernel (the .txt's second set of sections) the tiled match is 0.87x
 (plume) to 1.40x (book), geomean 1.11x, and the fused wavefront 0.94x
 (frame542) to 1.89x (book), geomean 1.34x.
+
+## 11-02, the vectorized CPU megakernels debugged: ten compiler faults, eight fixed, two open
+
+The user, 11-01 22:40: "first debug the vectorized CPU megakernels, then
+investigate wf-fused-shadow as you need to." The three schedules --
+packet-media-scalar, perlane-media-scalar, perlane-pixels (schedules/) --
+had stopped on two faults of the gang's short-vector handling. Each fix
+uncovered the next; the chain so far, each fault stated as the program
+shape that trips it, with what the compiler did before and does now.
+Three compiler commits: 1ab9281e (faults 1-4), 1f5c68b1 (5-6), and the
+third of this morning (7-8); faults 9 and 10 are open at the time of
+writing. Every fix has a test at the IR level and, where it runs, at the
+LLVM and execution levels, the execution tests checking the gang against
+the same program one lane at a time.
+
+**1. A gang's lane adding a short vector into its own slot.** The path's
+radiance is a `vec4f` reduced into a per-sample slot through a `reduce(+)`
+parameter; in the gang the slot is per-lane memory behind one pointer,
+and the value a struct of four gang vectors (one per component). Before:
+widening kept the accumulate whole, `acc.add slot value$v16`, and no
+backend can add a struct to a struct. After: one masked accumulate per
+component, `acc.add slot.k value.k mask` for k in 0..3. The same for a
+scalar accumulated into a vector slot (`tMax *= 1 + 2 gamma(3)` in the
+box test): the scalar's one gang vector is what every component takes.
+
+**2. A gang storing a lane's short vector into an array of vectors.** Found
+by the new test, not by pbrt: `out[i] = v` with `v` a per-lane `vec3f`
+stored the struct of planes whole -- every lane's x over the first
+elements of the array, the last elements untouched. After: the mirror of
+the strided read the splitter already had, one store per component into
+the array viewed as floats, the element's width asked of the backend
+(twelve bytes of data in sixteen of storage). Fault 5 is the same for an
+accumulate (`normal_out[p] += w * n`, the film's normal buffer at each
+lane's pixel).
+
+**3. Not a vectorizer fault: a vector scaled by a scalar through an
+accumulate.** `tMax *= 1 + 2 * gamma(3)` (stdlib/intersects.bonsai) is a
+`vec3f` place accumulated with an `f32` value. Every backend loaded and
+stored the place in the value's shape, one float: every scalar and GPU
+traversal compiled until 11-02 applied pbrt's robust slab factor to
+`tMax.x` alone. The factor is 1 + 3.6e-7, a few ulps on `y` and `z`; every
+image check passed before and after, and no timing moves. The SSA builder
+now broadcasts the scalar over the place's components, as `tMax * s`
+always was. The user decides whether anything is remeasured for this;
+rtq's and wosx's traversals are their own transcriptions of Embree's and
+FCPW's box tests, not stdlib's, and both peers confirmed their LLVM
+unchanged.
+
+**4. A constant lost at a callee that only passes it on.**
+`render[VolPath][False]` calls `li_vol_path` with `have_media = false`;
+`li_vol_path` hands it to `vol_path_step`, which branches on it. Before: a
+callee was cloned for a constant argument only when its own control
+depended on it, so `li_vol_path` got no clone, `vol_path_step` received a
+parameter, and the gang kept the whole media walk -- down to the NanoVDB
+grid handle, a foreign value no gang can hold one of per lane. After: an
+argument handed on as it is to a callee whose control depends on it
+counts as steering control; the clone chain folds the media arms away,
+and a foreign-typed result per lane is a clear error.
+
+**6. A bypass landing on a join that keeps its arguments.** The lens walk
+(`trace_lenses_from_film`, camera.bonsai) has a uniform `if is_stop` whose
+join merges the hit point from both arms, so the fold keeps the join and
+its arguments; the else arm holds the quadratic's divergent early return
+and work worth skipping, so the rest of the arm gets a BOSCC gadget (a
+test of the arm's mask, skipping the arm when no lane is on) whose one
+exit is that join. Before: the guard's bypass jump into the join carried
+nothing of the join's own, and the next pass met a jump of 14 values into
+a block of 31. After: the bypass hands the join, per argument, the one
+definition every edge threads under the argument's name where there is
+one (the counter, the live mask, the exit flags) and an undefined value
+where the arms merge different values -- no lane is active on a bypass,
+so no lane reads what the skipped arm would have merged.
+
+**7. What the code after a divergent loop reads of the loop.** Uniformizing
+a loop the lanes leave at different iterations moves every exit to the
+header's test and carries each value read after the loop out through a
+tracker, one per argument of the exit edge. Three reads were not
+arguments and were missed, each a stale resolution from the time the
+body dominated the code after it: a read pointing at the loop's
+instruction itself (the alpha test's ray, `q.ray`, computed in the body of
+the per-lane traversal's node loop and read in the leaf loop after it,
+where the body is out of scope), a block's name table saying the name
+meant that instruction (which the threading took at its word), and a
+cloned instruction whose owner block was another function's, which the
+invariance test took for a value from outside the loop (the lens walk's
+constant normal). The threaded copy also has a name of its own now,
+`x!out`: under the loop's own name the per-lane tracked copy of a uniform
+value -- gamma(3), computed from eps inside the body -- and the scalar
+itself became one variable of the backend's, of one type, and a
+broadcast met a vector.
+
+**8. A join every edge threads the same name through.** Such a join loses
+its argument and the blocks below keep naming the value, on the promise
+that a dominator declares the name. When that dominator's argument had
+already been blended (a select over the lanes' sources), its rewrite had
+skipped this join's subtree because the join still declared the name;
+once the join dropped it, nothing reached the subtree. The join now
+applies the name's current meaning, found up the dominator chain, as it
+drops the argument.
+
+**9. Open: a guard's bypass handing a landing a scalar for a per-lane
+argument.** In `render`'s gang body, the guard of the arm that makes the
+path's call (`!then_28!any`) bypasses to `!merge_29(have_media!False!skip
+: boolx16)` with `(bool)0`. Widening's last pass broadcasts a uniform value
+handed to a per-lane block argument and did not here; why is not yet
+found (the jump is a dispatch target, which that pass walks).
+
+**10. Open: a landing argument passed by a block that does not have it.**
+In the path step's `have_media = false` clone, `!merge_171!inl2` hands
+`!merge_173!inl2` the landing argument `!live.upd!skip1`, which no block
+on the way declares; the LLVM lowering finds it unbound. The linearizer's
+threading of a value through nested landings is where to look.
+
+**Found and left for the user:** the promotion pass (SSA/PromoteAllocas)
+leaves a `mut` local declared in a loop header block in memory -- the
+header is in its own dominance frontier and the entry edge "never
+assigned" it -- so the loopified traversal's `tMax`, `tMin`, `gamma` and
+`aabb_span` slots are memory in every scalar traversal; LLVM's own
+promotion cleans it up in the backend, and no measurement should move,
+but the SSA shows accumulates into memory where values would do. A wide
+change (every traversal's code) and the tables' provenance, so not made.
+apps/benchmarks.txt (the schedule index the user asked for, 11-01) is
+written but `*.txt` is ignored by .gitignore; not force-added.
+
+**Next:** faults 9 and 10, then compile the three, check an image on a
+scene, measure them into cpu-compare-out-six/-two (a cpu_explore run),
+update the schedule headers (they still say "not measured"), then the
+fused-shadow plume fault with compute-sanitizer (the user's grant).
