@@ -76,7 +76,17 @@ OUT="$PREFIX/plots"
 # seventh and eighth scenes; its two plume scalar rows were measured again
 # at 02:29 under the spread rule (cpu_compare.sh's header), the rest of
 # the table as the sweep left it.
-CPU_CSVS="${CPU_CSVS:-$PREFIX/cpu-compare-out-six/cpu-results.csv $PREFIX/cpu-compare-out-two/cpu-results.csv}"
+# cpu-compare-out-six-v2/ and -two-v2/ (11-01 evening, 18:52-) hold the
+# three drawn vectorized wavefronts (wavefront-thread-packet, -chunk256,
+# -sort) measured again under the compiler at 6488f426, whose vectorizer
+# clones a callee per constant argument and so changes their code (the
+# afternoon's sweep had built two of its eight renderers under that
+# compiler and six under the one before, PLAN "11-01 evening"); their pbrt
+# caches are the six's and the two's copied, so every cell is timed
+# against the figure's own reference. A later file's row replaces an
+# earlier one's for the same (scene, spp, side): these three sides draw
+# from the -v2 tables, everything else from the first two.
+CPU_CSVS="${CPU_CSVS:-$PREFIX/cpu-compare-out-six/cpu-results.csv $PREFIX/cpu-compare-out-two/cpu-results.csv $PREFIX/cpu-compare-out-six-v2/cpu-results.csv $PREFIX/cpu-compare-out-two-v2/cpu-results.csv}"
 # The GPU sweep of 10-30 morning (09:37-11:13, scratch/run_six_scenes.sh):
 # the paper figure's eight sides on the six scenes at 16 and 128 spp (the
 # user's set of 10-30: killeroo-gold, book, sanmiguel-courtyard, ganesha,
@@ -181,6 +191,20 @@ HEATMAP_TABLE="${HEATMAP_TABLE:-$PREFIX/compare-out-heatmap12/table.tsv}"
 # comparisons. The 10-30 choice (five wavefronts, three megakernels) is in
 # plots.sh's history. A side with no timed rows is left out.
 GPU_SIDES="${GPU_SIDES:-gpu-optix,gpu-optix-fused-route,gpu-optix-bounce,gpu-optix-mega-flat-samples,gpu-optix-mega-ser-flat-samples,gpu-optix-mega-ser-ray-flat-samples,gpu-optix-mega-ser-ray-flat}"
+# The CPU sweep's sides, in drawing order (plot_cpu_wavefront.py's SIDES
+# names them; the user's rules of 11-01: every schedule best on at least
+# one cell, both of pbrt's integrators matched, the megakernel match the
+# LAST Bonsai bar with PBRT mk right after it "so these two are easily
+# visually comparable", at most eight). The wavefront match first, the
+# per-thread vectorized wavefront and its two winning variants of 11-01
+# (256 pixels a thread; the material stage in the trace drain's gang),
+# the sorted one, then the untiled megakernel and the tiled match, then
+# pbrt's megakernel. Set when the CPU sweep of 11-01 finished; the
+# never-winning sides (the band wavefronts' vectorized and sorted forms,
+# the per-thread scalar one, the samples-outer order, the 4,096-pixel
+# chunk, the megakernel's sample-outer, waves, chunk and collapsed
+# variants) stay in the CSVs and the .txt's comparisons.
+CPU_SIDES="${CPU_SIDES:-wavefront-frame,wavefront-thread-packet,wavefront-thread-packet-chunk256,wavefront-thread-packet-fused,wavefront-thread-packet-sort,scalar,scalar-tiled,pbrt-volpath}"
 # The profile figure's launches (the user, 10-28): profile_kernels.sh's
 # reports under profile-out-e (02:22-02:28 the same night, on the sweep's
 # renderers) -- the wavefront's trace kernel and the two flat megakernels
@@ -217,7 +241,7 @@ python3 "$PREFIX/scene_statistics.py" $HEATMAP_TABLE --sweep $GPU_TABLES -o "$OU
 formats=(pdf)
 (( png )) && formats+=(png)
 for ext in "${formats[@]}"; do
-  python3 "$PREFIX/plot_cpu_wavefront.py" $CPU_CSVS --scenes "$SWEEP_SCENES" --ymax "$CPU_YMAX" $CUT_FLAGS -o "$OUT/pbrt-cpu-sweep.$ext"
+  python3 "$PREFIX/plot_cpu_wavefront.py" $CPU_CSVS --sides "$CPU_SIDES" --scenes "$SWEEP_SCENES" --ymax "$CPU_YMAX" $CUT_FLAGS -o "$OUT/pbrt-cpu-sweep.$ext"
   # The paper's four GPU sides (10-24) and the three megakernel shapes of
   # 10-27 (the user: the GPU figures other than the heatmap gain them):
   # seven, within the ramp's nine; the exploration sides the tables also

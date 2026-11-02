@@ -4205,6 +4205,15 @@ func [[export]] render(camera : Camera, width : u32, height : u32,
     n_passes = (height + scanlines_at_most - 1u) / scanlines_at_most;
     scanlines_per_pass = (height + n_passes - 1u) / n_passes;
     pass_pixels = width * scanlines_per_pass;
+    // pbrt: the CPU integrator's tiles. ParallelFor2D (util/parallel.cpp)
+    // hands the threads square tiles of `clamp(sqrt(pixels / (8 *
+    // threads)), 1, 32)` pixels a side, 32 on this machine's 32 threads for
+    // any frame of 262,144 pixels or more. Named for the schedule that
+    // tiles the pixel loop as pbrt does (schedules/scalar-tiled.bonsai): a
+    // band of 32 rows of the frame, from which the schedule splits off the
+    // row within the band and the column, then the 32-pixel tile along the
+    // row. The algorithm does not read it either.
+    tile_band_pixels = width * 32u;
     parfor p in 0u:(width * height) {
         // pbrt: the pixel's coordinates in the full frame -- `pixelBounds.pMin
         // + (pixelIndex % xResolution, pixelIndex / xResolution)`, the

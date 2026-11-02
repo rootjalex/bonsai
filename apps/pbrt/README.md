@@ -193,10 +193,27 @@ before it.
   exactly these and is not committed:
   - `pbrt-cpu-sweep.pdf`: the CPU schedules over pbrt's CPU wavefront on
     the paper's scenes x 16/128 spp (plot_cpu_wavefront.py from
-    cpu-compare-out-six, the afternoon of 10-30's run under caa9eb9b;
-    plots.sh's SWEEP_SCENES names the scenes and their order, and a scene
-    whose CPU sweep has not run is left out with a note -- frame542's is
-    pending);
+    cpu-compare-out-six, 10-30's run under caa9eb9b for the six, and
+    cpu-compare-out-two, 10-31's, for plume and frame542; the schedules of
+    11-01's exploration were measured into the same two directories
+    against the pbrt times cached in each cell). plots.sh's SWEEP_SCENES
+    names the scenes and their order, and CPU_SIDES the eight sides drawn,
+    in legend order (the user, 11-01): the schedule that matches pbrt's
+    wavefront (`wf-b-s-sp`, wavefront-frame), the per-thread vectorized
+    wavefront (`wf-t-v-ps`) and its variants that win cells -- 256 pixels
+    a thread (`wf-t256-v-ps`, wavefront-thread-packet-chunk256), the
+    material stage in the trace drain's gang (`wf-t-v-ps-fuse`,
+    wavefront-thread-packet-fused), the sorted one (`wf-t-v-ps-sort`) --
+    then the megakernels: the untiled scalar (`mk-b-s-ps`), the schedule
+    that matches pbrt's megakernel (`mk-b-s-ps-tiled`, scalar-tiled: pbrt's
+    32x32 tiles) LAST among ours, and pbrt's own megakernel (`PBRT mk`,
+    black) right after it, so the two stand side by side in every group.
+    The axis ends at 10x (CPU_YMAX); a bar less than one unit past it is
+    drawn whole over the axis's end with no mark and no label (the
+    plotter's --overshoot, default 1.0; the user, 11-01), so killeroo-gold's
+    10.09x simply rises past the frame. The .txt gives every side's range
+    and geomean over pbrt's wavefront and, in a second set of sections,
+    over pbrt's megakernel;
   - `pbrt-gpu-sweep.pdf`: every measured OptiX schedule over `pbrt --gpu`
     on the same scenes x 16/128 spp (plot_gpu_wavefront.py from
     gpu-compare-out-six, the morning of 10-30's run under caa9eb9b, and

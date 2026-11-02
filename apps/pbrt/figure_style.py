@@ -320,15 +320,29 @@ SCHEDULE_COLOURS = {
     "mk-pass": RAMP8[4],
     "mk-blk": RAMP8[5],
     "mk-ser": RAMP8[6],
-    # The CPU sweep's legend, top to bottom (after PBRT mk).
+    # The CPU sweep's legend, top to bottom: the wavefront that matches
+    # pbrt's first, the wavefronts that win cells, then the megakernels,
+    # the one that matches pbrt's megakernel last among them and PBRT mk
+    # (black) after it, so the two sit side by side (the user, 11-01). The
+    # ramp skips one shade between the families, as the GPU sweep's does.
     "wf-b-s-sp": RAMP8[0],          # wavefront-frame, pbrt's wavefront matched
+    "wf-t-v-ps": RAMP8[1],          # wavefront-thread-packet: per-thread queues, vectorized drains
+    "wf-t256-v-ps": RAMP8[2],       # wavefront-thread-packet-chunk256: 256 pixels a thread
+    "wf-t-v-ps-fuse": RAMP8[3],     # wavefront-thread-packet-fused: the material stage in the trace drain's gang
+    "wf-t-v-ps-sort": RAMP8[4],     # wavefront-thread-packet-sort
+    "mk-b-s-ps": RAMP8[6],          # scalar: a pixel's samples in turn, the pixels in the runtime's chunks
+    "mk-b-s-ps-tiled": RAMP8[7],    # scalar-tiled: pbrt's megakernel matched, its 32x32 tiles
+    # CPU sides out of the figure (11-01: never best on a cell), drawn only
+    # when --sides asks; they borrow shades.
     "wf-b-v-sp": RAMP8[1],
     "wf-b-v-sp-sort": RAMP8[2],
     "wf-t-s-ps": RAMP8[3],
-    "wf-t-v-ps": RAMP8[4],
+    "wf-t4096-v-ps": RAMP8[2],      # wavefront-thread-packet-chunk4096
     "wf-t-v-sp": RAMP8[5],
-    "wf-t-v-ps-sort": RAMP8[6],
-    "mk-b-s-ps": RAMP8[7],          # scalar: this renderer's megakernel
+    "mk-b-s-sp": RAMP8[5],          # scalar-sample-outer
+    "mk-b-s-w16": RAMP8[5],         # scalar-waves16
+    "mk-b-s-ps-c1k": RAMP8[6],      # scalar-chunk1024
+    "mk-b-s-flat": RAMP8[6],        # scalar-collapsed
     # The GPU exploration's sides of 10-24, drawn only when asked for
     # (--sides): they borrow shades, so a figure naming them should name
     # a set without a repeat (wf, wf-b128, wf-b512, wf-fused, wf-fused-ser,

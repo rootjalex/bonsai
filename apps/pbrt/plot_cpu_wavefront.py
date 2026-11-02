@@ -97,22 +97,48 @@ EDGE = "#333333"             # every bar's thin edge
 # `-sort` when the rays queue is sorted by the two-point Morton key before
 # each trace pass. The code is read from the schedule file's directives.
 SIDES = [(side, label, SCHEDULE_COLOURS[label]) for side, label in [
-    # pbrt's own megakernel first, then the schedule that matches pbrt's
-    # wavefront, its modifications by increasing departure (the band's
-    # drains vectorized, then sorted; the per-thread queues, then their
-    # drains vectorized, the samples-outer order, the sort), and this
-    # renderer's megakernel last (the user, 10-30 evening).
-    ("pbrt-volpath", "PBRT mk"),            # black (figure_style.PBRT_COLOUR)
+    # The schedule that matches pbrt's wavefront first, its modifications
+    # by increasing departure (the band's drains vectorized, then sorted;
+    # the per-thread queues, then their drains vectorized, the chunk sizes,
+    # the material stage fused, the samples-outer order, the sort), then
+    # this renderer's megakernels, the one that matches pbrt's megakernel
+    # LAST among them, and pbrt's own megakernel after it (the user, 11-01:
+    # "make sure that the matching mk schedule is the last Bonsai bar and
+    # the bar following it is PBRT's mk bar (so these two are easily
+    # visually comparable)"; the 10-30 order had PBRT mk first). plots.sh
+    # names the figure's sides (CPU_SIDES) in this order.
     ("wavefront-frame", "wf-b-s-sp"),
     ("wavefront-frame-packet", "wf-b-v-sp"),
     ("wavefront-frame-packet-reorder", "wf-b-v-sp-sort"),
     ("wavefront-thread", "wf-t-s-ps"),
     ("wavefront-thread-packet", "wf-t-v-ps"),
+    # The exploration of 11-01 (the user: "what sometimes-optimal schedules
+    # can you find", from the directives the language has): the per-thread
+    # vectorized wavefront with 256 or 4,096 pixels a thread instead of
+    # 1,024 (the chunk in the code's thread letter), and with the material
+    # stage in the trace drain's gang, no hit queue (-fuse).
+    ("wavefront-thread-packet-chunk256", "wf-t256-v-ps"),
+    ("wavefront-thread-packet-chunk4096", "wf-t4096-v-ps"),
+    ("wavefront-thread-packet-fused", "wf-t-v-ps-fuse"),
     ("wavefront-thread-packet-reorder", "wf-t-v-sp"),
     ("wavefront-thread-packet-sort", "wf-t-v-ps-sort"),
+    # The megakernels. scalar.bonsai takes a pixel's samples in turn, the
+    # pixels in frame order in the runtime's chunks; the 11-01 variants:
+    # the sample loop outside (-sp), waves of sixteen samples over the
+    # frame (-w16), 1,024 pixels a task (-c1k), the pixel and sample loops
+    # collapsed into one over the threads (-flat); and the match of pbrt's
+    # megakernel, scalar-tiled.bonsai: pbrt's 32x32 tiles, a tile's pixels
+    # row by row, a pixel's samples in turn, without pbrt's waves of
+    # samples (the user, 11-01: match the tiling, leave the waves).
+    ("scalar-sample-outer", "mk-b-s-sp"),
+    ("scalar-waves16", "mk-b-s-w16"),
+    ("scalar-chunk1024", "mk-b-s-ps-c1k"),
+    ("scalar-collapsed", "mk-b-s-flat"),
     ("scalar", "mk-b-s-ps"),
+    ("scalar-tiled", "mk-b-s-ps-tiled"),
+    ("pbrt-volpath", "PBRT mk"),            # black (figure_style.PBRT_COLOUR)
 ]]
-assert SIDES[0][2] == PBRT_COLOUR
+assert SIDES[-1][2] == PBRT_COLOUR
 
 
 def load(paths, reference=REFERENCE):
@@ -165,7 +191,16 @@ def ordered(values):
 # the summary reports what each bought, bar by bar (the user, 10-24: the
 # statistics should explain the speedups where they can).
 COMPARISONS = [
-    ("mk-b-s-ps", "PBRT mk", "our megakernel against pbrt's (same algorithm, our codegen)"),
+    ("mk-b-s-ps-tiled", "PBRT mk", "pbrt's megakernel schedule, matched (its 32x32 tiles), against pbrt's own"),
+    ("mk-b-s-ps", "PBRT mk", "our untiled megakernel against pbrt's (same algorithm, our codegen)"),
+    ("mk-b-s-ps", "mk-b-s-ps-tiled", "the pixels in frame order in the runtime's chunks instead of pbrt's tiles"),
+    ("mk-b-s-sp", "mk-b-s-ps", "the sample loop outside: every pixel visited once per sample"),
+    ("mk-b-s-w16", "mk-b-s-ps", "waves of sixteen samples over the frame, pbrt's wave count at 128 spp"),
+    ("mk-b-s-ps-c1k", "mk-b-s-ps", "1,024 pixels a task instead of the runtime's chunk of about 8,100"),
+    ("mk-b-s-flat", "mk-b-s-ps", "the pixel and sample loops collapsed into one over the threads"),
+    ("wf-t256-v-ps", "wf-t-v-ps", "256 pixels a thread instead of 1,024: a quarter of the queue footprint"),
+    ("wf-t4096-v-ps", "wf-t-v-ps", "4,096 pixels a thread instead of 1,024"),
+    ("wf-t-v-ps-fuse", "wf-t-v-ps", "the material stage in the trace drain's gang, the hit queue gone"),
     ("wf-b-s-sp", "PBRT mk", "pbrt's wavefront schedule, matched, against its megakernel"),
     ("wf-b-v-sp", "wf-b-s-sp", "vectorizing the drains of the shared-band wavefront"),
     ("wf-b-v-sp-sort", "wf-b-v-sp", "sorting the rays before each trace (shared bands)"),
@@ -206,7 +241,8 @@ WHY = [
     "  second material evaluation are two more queue passes for the wavefront and straight-line code",
     "  for the megakernel (a reading; not profiled). The GPU's reading of dragon_10 (its megakernels",
     "  0.3-0.9x pbrt: lanes diverging under the subsurface sample) has no counterpart with one path a",
-    "  thread. A smaller chunk at high spp stays the untested remedy for the wavefront (10-23).",
+    "  thread. A smaller chunk was the untested remedy for the wavefront (10-23); tested on 11-01",
+    "  (below), it is the remedy at 16 spp and worth little at 128.",
     "with more samples the speedups barely move (the wavefronts 0.97-1.01x from 16 to 128 spp, the",
     "  per-thread sort's 0.95x the most; the megakernels 0.99-1.00x), where every GPU speedup falls",
     "  to 0.75-0.80x (pbrt-gpu-sweep.txt).",
@@ -229,19 +265,32 @@ READINGS = {
         "here (0.87x at 128 spp); pbrt's wavefront loses most to its megakernel (6.5-6.7x) and the",
         "per-thread queues buy most (4.6-4.8x over the bands); our megakernel is best at both counts",
         "(1.14-1.19x pbrt's megakernel) -- the one scene of the six where the shading never hides the",
-        "wavefront's queue traffic.",
+        "wavefront's queue traffic (10-30). Measured on 11-01, the wavefront takes both cells once its",
+        "queue traffic is cut: 256 pixels a thread (wf-t256-v-ps) is 10.07x at 16 spp, 1.42x over the",
+        "1,024-pixel chunk and 1.55x pbrt's megakernel, a round's queues fitting the core's cache; the",
+        "material stage in the trace drain's gang (wf-t-v-ps-fuse) is 9.12x at 128 spp, 1.37x over the",
+        "unfused and 1.36x pbrt's megakernel, the hit record's write and reload saved. The tiled match",
+        "(mk-b-s-ps-tiled, 7.71x and 7.76x) reads as the untiled scalar (7.72x, 7.63x); waves of sixteen",
+        "samples are 5% ahead at 16 spp and level at 128.",
     ],
     "book": [
         "textured CoatedDiffuse pages over 21k triangles: heavy shading per hit, so vectorizing the",
         "per-thread drains pays 13-18% and the per-thread wavefront takes both cells (the sorted one at",
         "16 spp by 2%; the sort costs 10% at 128); pbrt's own megakernel is weakest here (3.7-3.8x over",
-        "its wavefront) and ours beats it by 1.38-1.39x, the most of the six.",
+        "its wavefront) and ours beats it by 1.38-1.39x, the most of the six (10-30). On 11-01 the",
+        "256-pixel chunk takes 16 spp (8.01x, 1.15x over wf-t-v-ps, 2.12x pbrt's megakernel) and the",
+        "fused material stage 128 spp (6.74x, 1.02x over wf-t-v-ps); the tiled match (5.21x at both",
+        "counts) reads as the untiled scalar (5.26x, 5.13x), 1.38-1.40x pbrt's megakernel.",
     ],
     "ganesha": [
         "one statue of 4.3M triangles in 6 meshes, CoatedDiffuse and Diffuse, 5 lights: the per-thread",
         "vectorized drains pay 8-13% and win both cells; the band's vectorized drains lose 9% here, the",
         "one scene (on the list for perf stat, not done); the samples-outer order is 9-11% behind (cause",
-        "not measured) and the per-thread sort costs 4-12%.",
+        "not measured) and the per-thread sort costs 4-12% (10-30). On 11-01 the 256-pixel chunk takes",
+        "16 spp (6.56x, 1.18x over wf-t-v-ps, 1.39x pbrt's megakernel) and the fused material stage",
+        "128 spp (6.34x, 1.11x over wf-t-v-ps, 1.33x pbrt's megakernel); the tiled match is level with",
+        "the untiled scalar at 16 spp (5.32x against 5.33x) and 4% ahead at 128 (5.58x against 5.38x),",
+        "the first scene where the tiles show; the sample-outer megakernel is at parity with pbrt's.",
     ],
     "sanmiguel": [
         "four material kinds (CoatedDiffuse, Dielectric, Diffuse, DiffuseTransmission; 2.5M triangles",
@@ -253,6 +302,12 @@ READINGS = {
         "makes the sorted per-thread wavefront the best at both counts (10-24, with the fixed key).",
         "The scalar schedule's 16 spp cell is the known check failure against pbrt's volpath (853,108",
         "lit pixels to its 856,648, where pbrt's own two integrators differ by more; fine, 10-23).",
+        "On 11-01 the sorted wavefront keeps both cells (3.80x, 4.00x; 1.42-1.49x pbrt's megakernel):",
+        "the 256-pixel chunk, the fused material stage and the unsorted wavefront are within 3% of",
+        "each other behind it (3.75-3.86x), the four material kinds making the gang's material switch",
+        "divergent with or without the hit queue. The tiled match is 1.03-1.07x pbrt's megakernel,",
+        "2% behind the untiled scalar at 16 spp and 2% ahead at 128; the sample-outer order is the one",
+        "megakernel below pbrt's (0.95-0.96x).",
     ],
     "dragon_10": [
         "7.2M triangles in two meshes, CoatedDiffuse, Diffuse and the one Subsurface material of the",
@@ -264,7 +319,13 @@ READINGS = {
         "straight-line code for the megakernel (a reading; not profiled). On the GPU the same scene's",
         "megakernels are 0.3-0.9x pbrt (pbrt-gpu-sweep.txt); that reading, lanes diverging under the",
         "subsurface sample, has no counterpart with one path a thread. The sort costs 3-6% and the",
-        "samples-outer order 7-9%.",
+        "samples-outer order 7-9% (10-30). On 11-01 the 256-pixel chunk reads first at 16 spp (3.36x)",
+        "and the fused material stage at 128 (3.33x; both 1.24-1.26x pbrt's megakernel), each over a",
+        "pack within 1% of it -- the other of the two, the collapsed and the plain megakernel, the tiled",
+        "match (3.28x, 3.29x) -- which is",
+        "this scene's noise band, so the cells are a tie between the chunked wavefront and the",
+        "megakernels: the subsurface bounce costs every schedule the same probe trace and second",
+        "material evaluation. The 4,096-pixel chunk and the sample-outer order are 7-9% behind.",
     ],
     "bistro": [
         "2.9M triangles in 1,693 meshes, 133 materials of four kinds (CoatedConductor, CoatedDiffuse,",
@@ -275,6 +336,13 @@ READINGS = {
         "thread) and the ray sort most (per-thread 1.11-1.18x, band 1.13x), so the sorted per-thread",
         "wavefront is best at both counts, 11-18% over the unsorted. Its texture pool is past 2 GB:",
         "the packet schedules crashed on it before caa9eb9b (10-30); every cell matches pbrt now.",
+        "On 11-01 the sorted wavefront keeps both cells (3.54x, 3.76x; 1.66-1.81x pbrt's megakernel):",
+        "neither the 256-pixel chunk (3.16x, 3.20x) nor the fused material stage (3.13x, 3.09x) moves",
+        "the unsorted wavefront by more than 1%, where the sort buys 11-17% -- with 133 materials and",
+        "409 textures a round's working set is the texture pool, not the queues, and the gang's",
+        "material switch is divergent either way. The tiled match (2.25x, 2.34x) is 3% behind the",
+        "untiled scalar at 16 spp and 2% ahead at 128, a wash; the sample-outer order falls to parity",
+        "with pbrt's megakernel (1.01-1.04x).",
     ],
     "plume": [
         "a smoke plume: a uniform-grid medium under an interface material, a scaled sphere, one light,",
@@ -287,7 +355,14 @@ READINGS = {
         "(0.92x and 0.95x of pbrt's VolPath): the medium march, which the GPU megakernels lose on",
         "too (0.3-0.7x there). Its image is 0.9335x pbrt's VolPath and 0.9999x pbrt's wavefront --",
         "pbrt's two integrators differ on media by design and the program follows the wavefront, so",
-        "the cell is checked against the wavefront's render (cpu_compare.sh, 10-31).",
+        "the cell is checked against the wavefront's render (cpu_compare.sh, 10-31). On 11-01 the",
+        "256-pixel chunk takes 16 spp (8.07x, 1.24x pbrt's megakernel, 3% over the 1,024-pixel chunk)",
+        "and the fused material stage 128 spp (7.32x, 1.18x pbrt's megakernel), where the chunk (7.26x)",
+        "and the two older per-thread wavefronts (7.27-7.29x) are level with it -- a tie at 128. Every",
+        "megakernel variant stays below pbrt's megakernel, the",
+        "tiled match the slowest of them (5.68x, 5.57x: 0.87-0.90x of pbrt's), 5% behind the untiled",
+        "scalar at both counts -- the one scene where the tiles cost; the plume's columns of smoke",
+        "cut into 32x32 tiles against runs along a row is a reading, not a measurement.",
     ],
     "frame542": [
         "1.3M triangles, Dielectric and Diffuse, paths of up to 256 bounces (0.06% of camera paths",
@@ -298,7 +373,15 @@ READINGS = {
         "that, the samples-outer order costs 11-12%; the plain per-thread wavefront is the best",
         "wavefront at both counts (8.3x, 7.9x). Our megakernel beats it, 9.2x and 8.9x, 1.12x and",
         "1.11x of pbrt's own megakernel -- the CPU's version of the GPU reading (pbrt-gpu-depth): a",
-        "thread following its path to its end pays nothing for the bounces nobody reaches.",
+        "thread following its path to its end pays nothing for the bounces nobody reaches (10-31).",
+        "On 11-01 the megakernels keep both cells, the collapsed loop (9.21x, 8.94x) and the untiled",
+        "scalar within 1% of each other; the tiled match is 14% behind them (7.87x, 7.88x) and 2-3%",
+        "below pbrt's own megakernel -- with depth 256 and short dielectric paths a thread's run of",
+        "8,100 consecutive pixels keeps more of the machines in cache than a 32x32 tile does, a",
+        "reading. Neither the 256-pixel chunk (8.18x, 7.56x) nor the fused material stage (8.17x,",
+        "7.59x) lifts the vectorized wavefront above the scalar per-thread one (8.26x, 7.94x), whose",
+        "lanes the splitting paths do not mask; the 4,096-pixel chunk is the worst wavefront here",
+        "(7.37x, 6.40x).",
     ],
 }
 # Where the measured causes are written up.
@@ -332,6 +415,10 @@ def add_figure_arguments(ap):
                     help="cut the speedup axis at this value: a bar past it is drawn to the "
                          "cutoff with a break mark and its value written above (the user, "
                          "10-30: no log axis for speedups; frame542's 20x bars)")
+    ap.add_argument("--overshoot", type=float, default=1.0,
+                    help="a bar past --ymax by less than this is drawn whole over the axis's "
+                         "end, with no break mark and no value (the user, 11-01: a 10.1x bar "
+                         "on a 10x axis needs no cutoff; 1.0 = less than a digit)")
     ap.add_argument("--leaders", action="store_true",
                     help="a thin line from each cut bar's value to its bar")
     ap.add_argument("--rotate-cut-labels", action="store_true",
@@ -487,6 +574,11 @@ def draw(rows, sides, reference, reference_label, y_label, args, comparisons=(),
     x = 0.0
     scene_centres, spp_centres, spp_labels = [], [], []
     points = {label: [] for _, label, _ in sides}      # the bars, for the summary
+    # The same bars over pbrt's megakernel (the CPU table's pbrt-volpath
+    # row of the cell), for the summary's second set of sections: the user
+    # (11-01) reports the speedup over each of pbrt's integrators. Empty
+    # where a table has no such row (the GPU's).
+    points_mk = {label: [] for _, label, _ in sides}
     cut_labels = []                                    # (x, text) of bars past --ymax
     label_top, label_headroom_pt = None, 0.0           # where the cut values sit
     checked, unverified = 0, []                        # the drawn bars' image checks
@@ -501,6 +593,10 @@ def draw(rows, sides, reference, reference_label, y_label, args, comparisons=(),
                 if c is not None and ref is not None:
                     speedup = ref / c["seconds"]
                     points[label].append((f"{labels[scene]} {spp} spp", speedup))
+                    mk = cell(scene, spp, "pbrt-volpath") if side != "pbrt-volpath" else None
+                    if mk is not None:
+                        points_mk[label].append((f"{labels[scene]} {spp} spp",
+                                                 mk["seconds"] / c["seconds"]))
                     # Every drawn bar's image check, for the .txt (the user,
                     # 10-30: "make sure all results are being verified").
                     # pbrt's own sides (PBRT mk, pbrt's volpath on the CPU)
@@ -512,15 +608,21 @@ def draw(rows, sides, reference, reference_label, y_label, args, comparisons=(),
                             unverified.append(f"{labels[scene]} {spp} spp {label}: "
                                               f"{verdict[:90] or 'no verdict'}")
                     past = args.ymax is not None and speedup > args.ymax
-                    cut = past and not broken
+                    # A bar just past the cutoff -- by less than --overshoot
+                    # -- is drawn whole over the axis's end, no break mark
+                    # and no value (the user, 11-01: "let the bar go a little
+                    # bit above the 10 cutoff and remove the label, anything
+                    # within less than a digit doesn't need the cutoff").
+                    near = past and not broken and speedup - args.ymax < args.overshoot
+                    cut = past and not broken and not near
                     for a in axes_all:
                         a.bar(x, args.ymax if cut else speedup, bar * 0.9, color=colour,
-                              edgecolor=EDGE, linewidth=0.3, zorder=2)
+                              edgecolor=EDGE, linewidth=0.3, zorder=2, clip_on=not near)
                     if cut:
                         cut_mark(ax, x, args.ymax, bar * 0.45)
                         cut_labels.append((x, f"{speedup:.1f}x"))
                         cuts += 1
-                    elif past:
+                    elif past and broken:
                         # Broken axis: the bar is broken where the axis is.
                         cut_mark(ax, x, args.ymax, bar * 0.45)
                     if args.values and not cut:
@@ -652,6 +754,17 @@ def draw(rows, sides, reference, reference_label, y_label, args, comparisons=(),
         sections.append((f"{spp} spp",
                          [(label, [p for p in points[label] if p[0].endswith(f" {spp} spp")])
                           for _, label, _ in sides]))
+    # Then the same over pbrt's megakernel, where the table has one: the
+    # best side of a cell is the same under either reference (one cell's
+    # bars divide by one time), the ranges and geomeans are not.
+    if any(points_mk.values()):
+        mk_series = [(label, points_mk[label]) for _, label, _ in sides if points_mk[label]]
+        sections.append(("every scene and sample count, over PBRT mk (pbrt's CPU volpath "
+                         "integrator, the black bar) instead of over PBRT wf", mk_series))
+        for spp in spps:
+            sections.append((f"{spp} spp, over PBRT mk",
+                             [(label, [p for p in pts if p[0].endswith(f" {spp} spp")])
+                              for label, pts in mk_series]))
     notes = []
     if unverified:
         notes.append(f"image checks: {checked - len(unverified)} of {checked} drawn bars match pbrt's "

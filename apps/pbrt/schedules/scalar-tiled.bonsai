@@ -1,0 +1,74 @@
+// pbrt's CPU megakernel, matched: the frame cut into square tiles of 32 x 32
+// pixels, the threads taking tiles, and each tile's pixels rendered row by
+// row with every sample of a pixel in turn. pbrt's ImageTileIntegrator
+// (cpu/integrators.cpp, Render) hands the threads tiles of
+// `clamp(sqrt(pixels / (8 * threads)), 1, 32)` pixels a side (util/
+// parallel.cpp, ParallelFor2D: at least eight tiles a thread), which on
+// 32 threads is 32 for every scene of the sweep (the smallest, killeroo-
+// gold at 700 x 700, gives 43 before the clamp), iterates a tile's pixels
+// with x fastest (`for (Point2i pPixel : tileBounds)`), and takes the
+// pixel's samples in order; the film is written by the thread that owns
+// the tile, no atomics. What pbrt also does and this schedule does not:
+// it renders in waves of samples over the whole frame (1, 1, 2, 4, ... 64
+// samples a wave, every tile per wave), which the language has no split
+// for; the user (11-01): match the tiling and leave the waves. The one
+// other difference is the runtime's: pbrt's threads claim one tile at a
+// time, ours take the runtime's chunk of the tile loop (a few tiles),
+// which is the one scheduling decision the runtime keeps (Halide's rule).
+//
+// The tiles from the program's one-dimensional pixel loop: `split` by a
+// band of 32 rows (`tile_band_pixels`, a program value as the pass split's
+// `pass_pixels` is: render.bonsai computes both as pbrt does) gives the
+// tile row; a split of the band by the frame's width gives the row within
+// the band and the column; a split of the column by 32 gives the tile
+// column and the column within the tile; `reorder` puts the tile column
+// outside the row within the band, and `collapse` makes the two tile loops
+// one loop to hand to the threads. (Splitting the frame into rows first and
+// the rows into bands of 32 is refused: the row loop's stride is the
+// frame's width, not a constant, and a split needs its chunks to line up
+// with the steps of the loop it splits.) scalar.bonsai -- a pixel's samples
+// in turn, the pixels in frame order in the runtime's chunks of about
+// 8,100 -- is the same program without the tiles, and stays in the sweep
+// as the variant it is. See packet.bonsai for what the shared directives
+// do.
+import apps/pbrt/schedules/trees/bvh;
+
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_probe_step.loopify();
+    vol_shadow_track.loopify();
+    trace.sort(primitives.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .sort(Inst.blas.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+    trace_any.sort(primitives.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .sort(Inst.blas.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .loopify(64);
+    // Bands of 32 rows, then the row in the band and the column, then the
+    // 32-pixel tile along the row: (tile row, row in tile, tile column,
+    // column in tile) after the splits, the tile column moved outside the
+    // row, and the two tile loops one loop over the frame's tiles.
+    render.split(p, p_ty, p_in_band, tile_band_pixels, true);
+    render.split(p_in_band, p_iy, p_x, width, true);
+    render.split(p_x, p_tx, p_ix, 32, true);
+    render.reorder(p_iy, p_tx);
+    render.collapse(p_ty, p_tx, p_tile);
+    render.bind(p_tile, CPUThread);
+    render.bind(q, CPUThread);
+}

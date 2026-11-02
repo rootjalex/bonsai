@@ -1,0 +1,57 @@
+// scalar.bonsai with the pixel and sample loops collapsed into one loop
+// over (pixel, sample) pairs, the pairs spread across the cores: the CPU's
+// version of gpu-optix-mega-flat's one launch over every path of the
+// frame. A thread's task is a run of consecutive pairs, so it still takes
+// a pixel's samples in turn, but the runtime's chunks are 256 of the pairs'
+// loop rather than of the pixels' (64 pixels' worth of pairs at 128 spp
+// where scalar.bonsai's task is 8,100 pixels), and the pixel's sum is the
+// atomic accumulate the program wrote, in whatever order the threads add
+// -- the trade render.bonsai's pixel loop says a schedule may make, which
+// costs the bit-exact agreement with pbrt that scalar.bonsai keeps. The
+// collapse in the program's order is refused on the loops as written (the
+// pixel loop zeroes the film before its samples), so the sample loop is
+// moved outside and back, which leaves that prologue in a pixel loop of its
+// own and the nest perfect (gpu-optix-mega-flat-samples.bonsai does the
+// same).
+//
+// The exploration of 11-01 (the user: "what sometimes-optimal schedules can
+// you find across these sweep scenes", from the directives the language
+// has and their compositions, nothing new and no layout change). See
+// packet.bonsai for what each of the shared directives is doing.
+import apps/pbrt/schedules/trees/bvh;
+
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_probe_step.loopify();
+    vol_shadow_track.loopify();
+    render.specialize(integrator);
+    render[VolPath].reorder(p, s);
+    render[VolPath].reorder(s, p);
+    render[VolPath].collapse(p, s, ps);
+    trace.sort(primitives.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .sort(Inst.blas.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+    trace_any.sort(primitives.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .sort(Inst.blas.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .loopify(64);
+    render.bind(p, CPUThread);
+    render[VolPath].bind(ps, CPUThread);
+    render.bind(q, CPUThread);
+}

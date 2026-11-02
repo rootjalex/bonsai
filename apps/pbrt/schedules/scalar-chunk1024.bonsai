@@ -1,0 +1,51 @@
+// scalar.bonsai with the pixels handed to the threads in chunks of 1,024:
+// the pixel loop split so that a thread takes 1,024 consecutive pixels of
+// the frame at a time (a row's worth on a 1080p frame, half a row on the
+// wider ones), where scalar.bonsai leaves the chunking to the runtime,
+// which cuts a loop into about 256 chunks (runtime/bonsai_parallel.h:
+// 8,100 pixels a chunk on a 2M-pixel frame, four scanlines) and lets the
+// threads steal them. pbrt's CPU integrator hands out square tiles of up
+// to 32 x 32 pixels, about eight per thread (ParallelFor2D in
+// util/parallel.cpp), so this is the nearest the pixel loop's one
+// dimension comes to pbrt's grain: 1,024 pixels a task, but a row segment
+// rather than a square. The trade is the task's granularity -- more
+// stealing and better balance at the frame's end against more tasks to
+// hand out -- and what a thread's consecutive pixels share in the caches.
+//
+// The exploration of 11-01 (the user: "what sometimes-optimal schedules can
+// you find across these sweep scenes", from the directives the language
+// has and their compositions, nothing new and no layout change). See
+// packet.bonsai for what each of the shared directives is doing.
+import apps/pbrt/schedules/trees/bvh;
+
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_probe_step.loopify();
+    vol_shadow_track.loopify();
+    trace.sort(primitives.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .sort(Inst.blas.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+    trace_any.sort(primitives.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .sort(Inst.blas.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .loopify(64);
+    render.split(p, p_chunk, p_in, 1024, true);
+    render.bind(p_chunk, CPUThread);
+    render.bind(q, CPUThread);
+}

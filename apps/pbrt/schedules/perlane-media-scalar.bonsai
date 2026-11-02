@@ -1,0 +1,53 @@
+// perlane.bonsai for volpath: the gang of sixteen samples of a pixel, every
+// lane walking the tree at its own pace over a stack of its own, on the copy
+// of the integrator without media; the copy with media runs scalar, for the
+// reason packet-media-scalar.bonsai gives (the NanoVDB grid is a foreign
+// function, one scalar call the vectorizer cannot give a lane's arguments,
+// and the program reaches it only under `have_media`). The directives are
+// perlane.bonsai's otherwise: the traversals are put on their stacks before
+// the gang is made, which is the whole of what a per-lane traversal is (see
+// packet.bonsai for what each directive does).
+//
+// The exploration of 11-01 (the user: "what sometimes-optimal schedules can
+// you find across these sweep scenes", from the directives the language
+// has and their compositions, nothing new and no layout change). Not
+// measured: with the foreign call lowered per lane (6488f426) the compiler
+// gets past it and stops on an older fault of the gang's short-vector
+// handling (`Implicit casting of types: f32x3$v16 versus f32x16`,
+// IR/Expr.cpp) -- PLAN.md, "11-01 evening". Kept for the day it compiles.
+import apps/pbrt/schedules/trees/bvh;
+
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_probe_step.loopify();
+    vol_shadow_track.loopify();
+    render.specialize(integrator);
+    render[VolPath].specialize(have_media);
+    trace.sort(primitives.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .sort(Inst.blas.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+    trace_any.sort(primitives.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .sort(Inst.blas.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .loopify(64);
+    render[VolPath][False].split(s, s_gang, s_lane, 16, true)
+                          .vectorize(s_lane);
+    render.bind(p, CPUThread);
+    render.bind(q, CPUThread);
+}

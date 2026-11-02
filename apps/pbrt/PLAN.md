@@ -20345,9 +20345,177 @@ vectorize_constant_argument and foreign_gang (run against drivers that
 count the foreign calls: eight when the flag is on and none when off; the
 four even lanes in order and no other).
 
-**Open.** gpu-optix-fused-shadow's launch failure on plume (the user:
-"afterwards, it would be good to debug why"); the bare error says only
-that the first kernel failed -- the shadow trace with the medium
-transmittance walk inside the raygen is the one thing this schedule adds
-on a media scene. To be looked at on the card when the CPU sweep is done,
-without compute-sanitizer unless the user says so.
+**gpu-optix-fused-shadow's launch failure on plume: found by reading, fix
+built, verification pending (11-01 evening).** The user: "afterwards, it
+would be good to debug why". The bare error (`cuMemcpyDtoH failed:
+CUDA_ERROR_LAUNCH_FAILED`, the first kernel) says nothing; the cause is in
+runtime/bonsai_optix.h's pipeline creation: `link.maxTraceDepth = 1` for
+every module -- "a raygen program traces; the hit programs it runs do not"
+-- and the continuation stack sized by optix_stack_size.h's formula for
+depth one. That was true of every schedule until the fused ones: in
+gpu-optix-fused the material stage runs inside the closest-hit program
+(the launched body's own continuation, SSA/HitContinuations.h; 10-24
+found the same when the reordering hint landed in `__closesthit__trace`),
+and gpu-optix-fused-shadow casts the shadow ray from there -- a trace
+nested in the raygen's, depth two, which the pipeline was never linked
+for. Undefined behaviour that ran on the stack's slack on the seven
+surface scenes and overflowed on the plume, whose shadow walk through the
+medium (vol_shadow_track: the ratio-tracking steps and a trace_any past
+each interface) is the heaviest hit continuation of the eight. The fix at
+the root: the compiler states the depth. CodeGen_OptiX counts it -- two
+when any hit or miss program it adds to a module traces, itself or through
+what it calls (`traces`, the walk `queries_traced` makes), one otherwise
+-- and the generated prologue passes it to `bonsai_optix_load(ptx,
+payload_values, trace_depth)`, where the runtime links the pipeline with
+it and sizes the stack for it (the formula with the depth: the raygen's
+continuation plus the hit/miss programs' once per level past the first,
+plus the larger of theirs and the intersection plus any-hit programs').
+Every schedule that traces from the raygen alone keeps depth one and the
+stack it had. **Verified in part (21:00).** Under the fix the trace
+raygen's pipeline links at depth two with a 2,176-byte continuation stack
+(BONSAI_OPTIX_STATS: cssRG 192 + CH 992 + 992; every other pipeline of the
+renderer at depth one as before), the build and the suite pass (1962),
+and the plume render still fails: at 1 spp, with the renderer rebuilt,
+the first round's trace raygen (`__raygen__rays$False`, 720k threads) is
+launched twice and the next device-to-host copy reports an unspecified
+launch failure, under OptiX's validation mode (BONSAI_OPTIX_VALIDATION,
+every exception on) without a word from OptiX -- so a device fault in the
+hit program's continuation rather than a stack or depth exception. What
+that continuation does on this scene and no other is walk the medium for
+the shadow ray (shadow_radiance under have_media: vol_shadow_track's
+ratio-tracking steps over the uniform grid and a trace_any past each
+interface) inside the closest-hit program. The depth fix stands on its
+own -- a pipeline has to be linked for the traces it makes -- and the
+plume failure is open; the next step is the fault's address, which wants
+compute-sanitizer or cuda-gdb on the renderer, neither run without the
+user's say-so (10-20). The schedule is not in the figure (a loss on every
+scene but frame542 where it runs).
+
+## 11-01 evening, the CPU exploration measured: smaller per-thread queues, the fused material stage, and pbrt's tiles
+
+The sweep (scratch/explore-1101/cpu_explore.sh, 13:52-17:47; eight new
+schedules on the eight scenes at 16 and 128 spp, the least of three,
+resumed into cpu-compare-out-six and -two against the pbrt times cached
+in each cell on 10-30 and 10-31): 128 cells, all matching pbrt's image.
+The user followed it scene by scene; the readings below are the
+figure's .txt's (plot_cpu_wavefront.py, READINGS), and
+scratch/explore-1101/scene_report.sh prints any scene's cells against
+both of pbrt's integrators.
+
+**What won.** Two of the per-thread wavefront's variants take cells from
+the schedules the figure had, and the megakernels keep theirs:
+
+- 256 pixels a thread (wavefront-thread-packet-chunk256, wf-t256-v-ps):
+  the best side at 16 spp on killeroo-gold (10.09x over pbrt's wavefront
+  against wf-t-v-ps's 7.05x; 1.56x pbrt's megakernel), book (8.11x against
+  6.91x), ganesha (6.54x against 5.51x) and plume (8.20x against 7.83x),
+  and at both counts on dragon_10 (3.38x, 3.34x) and plume (7.33x at 128).
+  A thread's queues hold chunk x spp entries; at 16 spp 256 pixels make 4k
+  entries where 1,024 make 16k, and a round's working set -- the records
+  written by one drain and read by the next -- fits the core's own L2 at
+  the smaller size and not at the larger (a reading from the gains; not
+  profiled). At 128 spp both sizes overflow and the chunk is worth 1-4%
+  (killeroo-gold, book, ganesha, plume) or nothing (bistro, frame542);
+  4,096 pixels a thread (-chunk4096) loses at every cell, 0.80-0.97x of
+  the 1,024-pixel chunk.
+- the material stage in the trace drain's gang (wavefront-thread-packet-
+  fused, wf-t-v-ps-fuse: the hit queue gone, the CPU's gpu-optix-fused):
+  the best side at 128 spp on killeroo-gold (9.12x against 6.67x; 1.36x
+  pbrt's megakernel), book (6.74x against 6.47x) and ganesha (6.34x against
+  5.72x), and level with the chunk at 16 spp on killeroo-gold (9.63x) and
+  ganesha (6.22x). It saves the hit record's write and reload where the
+  trace is cheap and the materials few; on sanmiguel (four material kinds)
+  and bistro (133 materials) it is within 2% of the unfused wavefront, the
+  gang's material switch divergent with or without the queue.
+- the sorted per-thread wavefront (wf-t-v-ps-sort) keeps sanmiguel (3.81x,
+  3.94x) and bistro (3.53x, 3.72x) at both counts, 1-18% over every other
+  wavefront: the two scenes where the sort's coherence for the packet
+  traversal is worth more than a smaller footprint or a saved queue.
+- the megakernels keep frame542 (9.21x and 8.94x, the collapsed loop
+  scalar-collapsed by 0.1-0.6% over the untiled scalar -- noise) and tie
+  dragon_10 (a pack of five within 1%), where the dielectric paths split
+  the gangs and the subsurface bounce costs every schedule the same.
+
+**pbrt's megakernel, matched** (scalar-tiled, mk-b-s-ps-tiled; the
+section above says how it is written): 1.03-1.40x pbrt's own megakernel on
+seven scenes (killeroo-gold 1.19x/1.16x, book 1.38x/1.40x, sanmiguel
+1.03x/1.07x, ganesha 1.13x/1.17x, dragon_10 1.21x/1.24x, bistro 1.06x/
+1.13x, frame542 0.97x/0.98x) and 0.87x/0.90x on plume, the medium march
+the untiled scalar lost on too (0.92x/0.95x). Against the untiled scalar
+(mk-b-s-ps) the tiles are a wash on six scenes (within 4%, ahead at 128
+spp on ganesha and bistro) and a loss on plume (0.95x) and frame542 (0.86x
+at 16 spp, 0.88x at 128): with depth 256 and short dielectric paths, a
+thread's run of 8,100 consecutive pixels keeps more of the machines in
+cache than a 32x32 tile does (a reading). The megakernel's other shapes:
+waves of sixteen samples (scalar-waves16) and the collapsed loop
+(scalar-collapsed) are 1-5% ahead of the untiled scalar on the cheap
+scenes and level elsewhere; 1,024 pixels a task (scalar-chunk1024) is
+level; the sample loop outside (scalar-sample-outer, every pixel once per
+sample) is 4-8% behind everywhere, the frame streamed once per sample,
+and the one megakernel at parity with or below pbrt's on ganesha,
+sanmiguel and bistro.
+
+**The CPU figure** (plots.sh CPU_SIDES, in legend order; the user, 11-01:
+every schedule best on at least one cell, both of pbrt's integrators
+matched, "make sure that the matching mk schedule is the last Bonsai bar
+and the bar following it is PBRT's mk bar (so these two are easily
+visually comparable)", at most eight): wf-b-s-sp (the wavefront match),
+wf-t-v-ps, wf-t256-v-ps, wf-t-v-ps-fuse, wf-t-v-ps-sort, mk-b-s-ps,
+mk-b-s-ps-tiled (the megakernel match), PBRT mk. Out: the band wavefronts'
+vectorized and sorted forms, the per-thread scalar one, the samples-outer
+order, the 4,096-pixel chunk, and the megakernel's four variants, none
+best on a cell (scalar-collapsed's frame542 cells excepted, by less than
+the noise; the untiled scalar stays as the figure's megakernel since
+10-30, the user to say if the collapsed one should take its place). The
+labels follow the figure's code (type-parallelism-SIMD-order): the chunk
+rides on the thread letter (t256), the fused stage is -fuse, pbrt's tiles
+-tiled. The axis stays at 10x; a bar less than one unit past it is drawn
+whole over the axis's end with no mark and no label (the plotter's
+--overshoot; the user: "anything within less than a digit doesn't need
+the cutoff"), which is killeroo-gold's 10.09x. The .txt gives every side's
+range and geomean over pbrt's wavefront and, in a second set of sections,
+over pbrt's megakernel (the user: "I want to report the speedup over
+each").
+
+**The compiler relinked itself halfway through the sweep.** compare.sh
+runs `cmake --build` before each renderer it builds, and the vectorizer
+change of this afternoon (next entry) was in the tree, its one object
+compiled at 14:10 as a syntax check: the harness relinked build/compiler
+at 14:12:20, between the chunk256 renderer's build (14:12:19, the old
+compiler) and the chunk4096 and fused renderers' (14:17, 14:20, the new).
+So those two of the eight were measured as the new vectorizer compiles
+them and the other six, and every older side of the figure, as the old
+one did. The new vectorizer changes the vectorized wavefronts' code (nine
+constant-argument clones in wavefront-thread-packet's final SSA under
+build/compiler against build-rtq's of 10-29, scratch/explore-1101/
+compile/ssa/; the object code 3% larger, 2.99 MB of text against 2.90),
+so the three drawn vectorized sides built by the old compiler --
+wavefront-thread-packet, -chunk256 and -sort -- were measured again under
+it (scratch/explore-1101/cpu_remeasure.sh, 19:11-20:37, into
+cpu-compare-out-six-v2 and -two-v2 with the six's and two's pbrt caches
+copied in, so that every cell keeps the figure's reference time; 48
+cells, all matching). The new vectorizer's code runs at the old's speed:
+old over new 0.965-1.033x across the 48 cells, geomeans 1.002x, 0.996x
+and 1.003x for the three -- what bonsai-ac found for the wosx packet
+schedules the same evening, whose object code the change left byte-
+identical: the clone of the entry call folds what LLVM had already folded
+at that call site. The figure draws these three from the -v2 tables
+(plots.sh CPU_CSVS; a later table's row replaces an earlier one's) and
+nothing visible moved. The scalar sides are untouched by the change (no
+gang, no clone). The vectorized megakernels the change was to unblock --
+packet-media-scalar, perlane-media-scalar, perlane-pixels -- compile past
+the foreign call now and stop on two older faults of the gang's
+short-vector handling (`element_of() on bad type: f32x4$v16`, IR/Type.cpp;
+`Implicit casting of types: f32x3$v16 versus f32x16`, IR/Expr.cpp): a
+widened `vec3f`/`vec4f` met where a plain vector is expected, in the
+megakernel's gang over a pixel's samples. Not pursued tonight; the
+vectorized CPU megakernel stays unmeasured, and the figure says which
+megakernel variants it has.
+
+**The CPU figure drawn, 20:45** (plots/pbrt-cpu-sweep.pdf, 128 bars all
+matching): over pbrt's wavefront the geomeans read wf-b-s-sp 1.50x,
+wf-t-v-ps 5.25x, wf-t256-v-ps 5.56x, wf-t-v-ps-fuse 5.59x, wf-t-v-ps-sort
+5.17x, mk-b-s-ps 4.72x, mk-b-s-ps-tiled 4.62x, PBRT mk 4.17x; over pbrt's
+megakernel (the .txt's second set of sections) the tiled match is 0.87x
+(plume) to 1.40x (book), geomean 1.11x, and the fused wavefront 0.94x
+(frame542) to 1.89x (book), geomean 1.34x.

@@ -1,0 +1,52 @@
+// scalar.bonsai with the sample loop outside the pixel loop: for each sample
+// index, every pixel of the frame, the pixels spread across the cores --
+// pbrt's own order taken to its limit. pbrt's CPU integrator renders in
+// waves of samples over the whole frame (ImageTileIntegrator::Render:
+// waves of 1, 1, 2, 4, ... 64 samples, every tile of the frame per wave,
+// so eight visits to every pixel at 128 spp and five at 16), where
+// scalar.bonsai takes a pixel's samples in turn and visits it once. This
+// schedule is waves of one sample: every pixel visited spp times, the
+// frame's working set streamed through the caches once per sample, each
+// visit's camera ray a neighbour of the last visit's in the pixel but a
+// frame apart in time. scalar-waves16.bonsai is the middle point. The
+// program's film prologue (the pixel's slots zeroed) is left in a pixel
+// loop of its own by the interchange.
+//
+// The exploration of 11-01 (the user: "what sometimes-optimal schedules can
+// you find across these sweep scenes", from the directives the language
+// has and their compositions, nothing new and no layout change). See
+// packet.bonsai for what each of the shared directives is doing.
+import apps/pbrt/schedules/trees/bvh;
+
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_probe_step.loopify();
+    vol_shadow_track.loopify();
+    render.specialize(integrator);
+    render[VolPath].reorder(p, s);
+    trace.sort(primitives.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .sort(Inst.blas.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+    trace_any.sort(primitives.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .sort(Inst.blas.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .loopify(64);
+    render.bind(p, CPUThread);
+    render.bind(q, CPUThread);
+}

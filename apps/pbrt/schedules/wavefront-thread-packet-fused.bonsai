@@ -1,0 +1,87 @@
+// wavefront-thread-packet.bonsai with the material stage inside the trace
+// drain: the hit queue is gone, and `vol_surface` -- the material
+// evaluation, the light sample and the next ray's push -- runs in the gang
+// that traced the ray, right after the hit is routed, so a gang of sixteen
+// rays arrives at the material switch with whatever mix of materials its
+// hits have, each arm run under the lanes' mask. The hit's material
+// specialization (`hits.specialize(material)`) goes with the queue: there
+// is no per-material drain to specialize. The CPU counterpart of
+// gpu-optix-fused.bonsai, which on the GPU is the best side on sanmiguel
+// and bistro (10-31): there the queue's round trip was the larger cost
+// where the trace is heavy; here the queue is a thread's own and the
+// question is whether the write and reload of the hit record cost more than
+// the gang's divergence over materials. Everything else is
+// wavefront-thread-packet's (see that file for what each directive does).
+//
+// The exploration of 11-01 (the user: "what sometimes-optimal schedules can
+// you find across these sweep scenes", from the directives the language
+// has and their compositions, nothing new and no layout change).
+import apps/pbrt/schedules/trees/bvh;
+
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_probe_step.loopify();
+    vol_shadow_track.loopify();
+    render.specialize(integrator);
+    render[VolPath].split(p, p_thread, p_in, 1024, true);
+    rays = render[VolPath].queue(p_thread);
+    li_vol_path.defer(vol_path_step, rays);
+    vol_medium_scatter.defer(vol_path_step, rays);
+    vol_surface.defer(vol_path_step, rays);
+    vol_route.defer(vol_path_step, rays);
+    vol_exit.defer(vol_path_step, rays);
+    medium_samples = render[VolPath].queue(p_thread);
+    vol_path_step.defer(vol_medium_sample, medium_samples);
+    medium_scatters = render[VolPath].queue(p_thread);
+    vol_medium_sample.defer(vol_medium_scatter, medium_scatters);
+    escaped = render[VolPath].queue(p_thread);
+    vol_route.defer(escaped_contribution, escaped);
+    emissive = render[VolPath].queue(p_thread);
+    vol_route.defer(emissive_contribution, emissive);
+    // No hit queue: vol_route calls vol_surface where the program writes the
+    // call, inside the rays drain's gang.
+    shadow = render[VolPath].queue(p_thread);
+    vol_sample_ld.defer(shadow_contribution, shadow);
+    probes = render[VolPath].queue(p_thread);
+    vol_subsurface.defer(vol_probe, probes);
+    exits = render[VolPath].queue(p_thread);
+    vol_probe.defer(vol_exit, exits);
+    exit_shadow = render[VolPath].queue(p_thread);
+    vol_exit.defer(exit_shadow_contribution, exit_shadow);
+    render.split(rays, rays_gang, rays_lane, 16, true)
+          .vectorize(rays_lane);
+    render.split(escaped, escaped_gang, escaped_lane, 16, true)
+          .vectorize(escaped_lane);
+    render.split(emissive, emissive_gang, emissive_lane, 16, true)
+          .vectorize(emissive_lane);
+    render.split(medium_scatters, medium_scatters_gang, medium_scatters_lane, 16, true)
+          .vectorize(medium_scatters_lane);
+    render.split(probes, probes_gang, probes_lane, 16, true)
+          .vectorize(probes_lane);
+    render.split(exits, exits_gang, exits_lane, 16, true)
+          .vectorize(exits_lane);
+    trace.sort(primitives.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .sort(Inst.blas.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+    trace_any.sort(primitives.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .sort(Inst.blas.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .loopify(64);
+    render.bind(p_thread, CPUThread);
+    render.bind(q, CPUThread);
+}

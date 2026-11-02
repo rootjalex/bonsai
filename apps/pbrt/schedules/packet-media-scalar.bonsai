@@ -1,0 +1,62 @@
+// packet.bonsai for volpath: the gang of sixteen samples of a pixel with the
+// packet traversal, on the copy of the integrator without media; the copy
+// with media runs scalar. The medium march calls the NanoVDB grid through a
+// foreign function (media.bonsai, `extern func nanovdb_grid`), which is one
+// scalar call with the C calling convention and cannot take a lane's
+// arguments, so the vectorizer refuses a gang that reaches it (as ispc
+// refuses a call to an external function with varying arguments), and
+// packet.bonsai as written is refused for volpath. The program tests
+// `have_media` before any medium is sampled (render.bonsai, vol_path_step
+// and shadow_radiance; pbrt's `haveMedia`), so once the integrator's loops
+// are copied by that flag the copy for scenes without media has no medium
+// code left to reach the call, and it is that copy the gang is made on:
+// `render[VolPath][False]`, the False of `specialize(have_media)`. A scene
+// with media (the sweep's plume) runs this schedule as scalar.bonsai runs
+// it, the way the vectorized wavefronts leave their medium drains scalar.
+// The directives are packet.bonsai's otherwise (see that file for what each
+// does): the gang is made before the traversals are put on their stacks, so
+// the traversal is the packet's.
+//
+// The exploration of 11-01 (the user: "what sometimes-optimal schedules can
+// you find across these sweep scenes", from the directives the language
+// has and their compositions, nothing new and no layout change). Not
+// measured: with the foreign call lowered per lane (6488f426) the compiler
+// gets past it and stops on an older fault of the gang's short-vector
+// handling (`element_of() on bad type: f32x4$v16`, IR/Type.cpp) -- PLAN.md,
+// "11-01 evening". Kept for the day it compiles.
+import apps/pbrt/schedules/trees/bvh;
+
+schedule {
+    walk_step.loopify();
+    path_step.loopify();
+    full_path_step.loopify();
+    vol_path_step.loopify();
+    vol_medium_step.loopify();
+    vol_shadow_step.loopify();
+    vol_probe_step.loopify();
+    vol_shadow_track.loopify();
+    render.specialize(integrator);
+    render[VolPath].specialize(have_media);
+    render[VolPath][False].split(s, s_gang, s_lane, 16, true)
+                          .vectorize(s_lane);
+    trace.sort(primitives.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .sort(Inst.blas.Interior,
+               |i : u8, q : RaySegment, axis : u8|
+               select((1.0 / q.ray.d)[axis] < 0.0,
+                      1.0 - cast[[Float]](i), cast[[Float]](i)))
+         .loopify(64);
+    trace_any.sort(primitives.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .sort(Inst.blas.Interior,
+                   |i : u8, q : RaySegment, axis : u8|
+                   select((1.0 / q.ray.d)[axis] < 0.0,
+                          1.0 - cast[[Float]](i), cast[[Float]](i)))
+             .loopify(64);
+    render.bind(p, CPUThread);
+    render.bind(q, CPUThread);
+}
