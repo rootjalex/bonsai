@@ -20720,3 +20720,91 @@ commit; then compile the three megakernels, check an image on a scene,
 measure them, update the schedule headers (they still say "not
 measured"), then the fused-shadow plume fault with compute-sanitizer (the
 user's grant).
+
+## 11-02 evening: fault 11's root is the linearizer's reading of names, not the loop pass's naming
+
+The user, 18:25, after the context reset: resume the one-script
+reproducer and the vectorized CPU megakernel compile, "clean, precise,
+efficient" code generation, every figure remade by compiling and running
+under the current compiler. The reproducer (apps/benchmark.sh, 57d9c42a)
+was read against that ask and covers every figure named -- the three
+pbrt figures, rtq-queries-cpu and rtq-fcpwb-gpu (one rtq invocation
+makes rtq-fcpwb-cpu too), the walk on spheres and the walk on stars on
+the GPU -- from a compiler it builds out of the checkout and refuses to
+run with uncommitted sources. The pbrt rerun it is running went from the
+GPU sweep (done 18:55, every image matching pbrt's) into the CPU sweep,
+which wants the machine idle until about 03:00; the heatmap follows.
+
+**Fault 11, diagnosed properly.** The 18:20 note blamed the loop pass's
+renaming of every block parameter in a loop to the header's name. That
+was not it: the same loss happens with no loop at all --
+
+```
+y = x;
+if flag1 { y = x * 3; }       // uniform; its join merges two values, so it stays a join
+if flag2 {                    // uniform
+    if y > 10 { y = work(y); } // per lane
+}
+return y + 1;
+```
+
+-- where the second `if`'s join is handed `y` by both ways in: the first
+join's `y` around the arm, the inner arm's merge of `y` through it. Two
+declarations, one name. The linearizer's rule for a join every edge
+hands "the same name" was that the join only threads one value through
+and can drop its parameter, the blocks below naming the value from a
+dominator (fault 8's territory). The rule compared names. It held up
+only when the dominating declaration happened to be blended first, which
+rewrites the edge to the blend and makes the names differ; in the loop
+the header is never blended, and in the flat shape the kept join above
+is not either. Before: the join's parameter dropped, `y + 1` reading the
+value from before the `if`, the arm's `work(y)` computed into a select
+nothing reads. After: the join keeps its parameter; the arm hands it the
+select over its mask.
+
+The fix resolves names to definitions. A name at a block means the
+nearest declaration dominating it; a join threads a value through only
+when every edge hands it one and the same definition under that name.
+Two attempts at resolving on demand (recursively, walking the dominator
+chain and asking each declaration whether it threads) failed the suite:
+the same-named copies form cycles through a loop -- header, body, the
+call continuations, a landing, the latch -- and a resolver entered from
+inside the body cuts the cycle at the wrong block and takes it for a
+definition, which showed as selects of a value with itself
+(`select(c, @81, @81)`), parameters kept where none were, and a leaf
+loop whose count became per-lane ("still divergent" after
+linearization) in the packet-traversal tests. The third form resolves
+every declared argument of the function once, over the program as the
+pass found it, as a fixed point in the way the loop pass settles the
+names a loop carries: each declaration is unresolved, then read from the
+definitions its edges hand it -- an unresolved one and its own value set
+aside; one definition makes it a copy, two a definition of its own --
+until nothing changes. The join's threaded check, the bypass's hand-off
+and the blends' "same definition" tests all read that table. Written
+19:10; it compiles and runs the suite when the CPU sweep ends.
+
+Also in the worktree: the loop pass's rule for a call's result restated
+directly (a continuation's leading parameters are the loop's), the
+unused helper the compiler warned about removed; fault 9's scoped
+widening (its ptr-rows-packet dump is byte-identical to the main
+compiler's); fault 10's slot route. Tests at the IR and execution levels
+for the call's result after an early exit and for the one-name-two-values
+join, the latter in both shapes under every flag setting, all agreeing
+with the scalar walk.
+
+**Seen, not fixed:** the landing mechanism hands the call-result walk
+four extra loop-carried values mirroring the loop's own (`@30` beside
+`y!loop`, and the live mask, exit flag and tracker), seeded undefined
+where the originals are seeded from the entry; LLVM at -O3 keeps two of
+them as separate phis and three selects an iteration. A new header
+parameter where a masked update of the existing one would do: a
+constant-factor cost on every early exit inside an arm inside a loop,
+to be measured on the megakernels before it is worth a redesign.
+
+**Next:** at the CPU sweep's end, build the worktree compiler and run
+the suite (the two GPU tests needing libbonsai_cuda_sort fail there for
+the lack of CUDA in that build, nothing else should); re-bless the
+call-result IR golden (its first blessing carried the second attempt's
+bypass defect); commit in the worktree, one commit per fix, and bring
+them onto ajr/ssa once the rerun is over and the checkout's sources may
+move; then the three megakernels.
