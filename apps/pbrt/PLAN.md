@@ -20870,3 +20870,87 @@ stand from 10-30 under that day's compiler, which the user noticed; a
 then the vectorized megakernels: the fixed compiler on the three
 schedules, an image against pbrt on a scene, every remaining fault
 root-caused with tests at every level.
+
+## 11-03 06:00: the reproducer's full run measured, every figure fresh under 014d544c, three defects of the scripts on the way
+
+**The pbrt run** (`apps/benchmark.sh --stages pbrt` from 17:26:22 on 11-02;
+log results/launch-1102.log, the same as results/benchmark-1102-1726.log)
+ended 02:57:23, rc 0 at every stage: the GPU sweep 1 h 29 min (112 cells),
+the CPU sweep 6 h 23 min (112 cells), the heatmap 1 h 39 min (90 cells,
+the renderer and the sweep's cells reused, far under its 5 h cutoff), the
+plots 12 s; 9 h 31 min in all, against the header's guess of about 15 h.
+Every cell's image matches pbrt. Twelve GPU sweep cells were redone once
+or twice (my worktree builds ran beside the sweep's first hour), five
+heatmap cells once, no CPU cell. The six pbrt figures and
+scene_statistics are in apps/pbrt/plots, written 02:57; the run's
+provenance is kept as results/provenance-1102-pbrt.txt.
+
+**The `--stages "rtq wosx"` chain** (03:02:51 to 03:29:25). The rtq stage,
+26 min 32 s, is complete: 418 rows, every one dated 11-03, the six rtq
+plots redrawn. Its log says "(exit 2: the driver's disagreements or a
+failure; see ...)" for the fcpw and gpu sections of most meshes: that is
+compare.sh's verdict on the known handful of rays that differ from FCPW
+(bmw, primary rays: "1048565 same, 5 ties, 6 differ", the figures of the
+10-28 log to the ray), which the runner passes on and goes past; every
+section has its rates. rtq-c0 read the table against the paper's captions:
+every geomean within 0.01 except Embree's closest hit on primary rays,
+1.066 against the table's 1.02, and that from two disturbed cells --
+Embree's own rate on crown fell from 87.0 to 58.4 Mrays/s and on bmw from
+40.5 to 37.6 in the minutes 03:06-03:08, while every other cell of those
+meshes, the FCPW sections of the same minutes among them, sits at its
+usual rate, and our compiled code is byte-identical to the 10-31 dumps.
+Nothing of mine was on the CPU then (the session's own process at one or
+two percent, a waiter sleeping). Under the user's rule that rtq is not
+rerun, rtq-c0 keeps the 10-30 table as the paper's; whether those two
+cells are remeasured is the user's call.
+
+The wosx stage took two seconds and measured nothing: **the first defect
+of apps/benchmark.sh**. It called the wosx runner without `--fresh`, and
+that runner takes a cell's log that exists for a finished run ("have ..."
+for every cell), so it folded the 10-28 and 10-30 logs into new tables and
+figures -- and apps/wosx/tocsv.sh (its line 287) stamps every row with
+`git rev-parse HEAD` at folding time, so rows measured under 368fd4d8+
+came out labelled b4cb62bc (bonsai-ac's defect, told to them: a row's
+commit belongs with its measurement). **The second**: the script writes
+results/provenance.txt afresh at every start, so this subset run would
+have left no record of the pbrt run; the block goes into the run's log as
+well now. Both fixed in 2beb6810, the old wosx GPU tables kept as
+results/wosx-{,stars-}gpu-results.before-2026-11-03-rerun.csv, and the
+wosx stage rerun 03:34:03 to 05:50:27: the spheres' 171 cells in 42 min,
+the stars' 190 in 1 h 34 min (its cells run longer).
+
+**The third defect is the wosx runner's own** (rtq-c0 found it, I
+verified it): its `--gpu` default schedule list, set by ede076fe on 10-28
+with nine schedules, lacks fcpwb-gpu-defer-block, which plot.py's
+GPU_DEFAULT_SCHEDULES draws as the WoS figure's eighth bar and the paper
+cites ("defer-block is 0.85x as fast as persistent"); the stars list does
+carry its wost- counterpart. Under `--fresh` the bar's nineteen old logs
+went and were not remeasured, and the figure came out with seven bars.
+Fixed in 1325b4b3 (one name in the list; bonsai-ac notified first), then
+the gap-fill `apps/wosx/benchmark.sh --gpu --schedules fcpwb-gpu-defer-block`
+without `--fresh` (the runner's documented way of adding a schedule; with
+`--fresh` it would have removed the 171 fresh logs too), 05:52 to 05:57.
+
+**The fresh wosx tables against the 10-28/10-30 ones** (rtq-c0's
+comparison, landscape left out as the figures do). Spheres: persistent
+1.39 (was 1.38), reorder-256k 1.64 (1.64; up to 2.00 on dragon, the best
+on 14 of 18), optix-ser 0.97, defer-block 1.17 and 0.84x of persistent
+against the paper's 0.85x. Stars: persistent 1.54 (1.54), reorder 1.65
+(1.64; up to 1.97), reorder-256k 1.65 (1.66), parallel 0.69x and
+defer-block 0.64x of persistent as the paper has them; five of the eight
+drawn schedules best on at least one mesh. The cells that moved more than
+5% are on comb, crown, beast, octopus and whale only, on both sides'
+rates -- the small or under-filled meshes, the noise the tables always
+had there. The captions' numbers move at the second decimal (WoS 1.39 /
+1.64 up to 2.00; WoSt 1.54 / 1.65 up to 1.97); rtq-c0 is telling the user.
+
+**The full run's time**, the user's question: 12 h 14 min measured in the
+pieces above (the gap-fill's five minutes are part of the wosx stage from
+now on), about 12 h 20 min; the header of apps/benchmark.sh carries the
+measured durations in place of the estimates (5bf63af7).
+
+**The compiler.** The three worktree commits are on ajr/ssa as 0a72252a
+(the loop pass's rule), 80c9b18a (fault 9) and 163646a8 (faults 11 and
+10, the four tests, the two goldens); the main checkout built from them
+and its suite passes 1998 of 1998, the two CUDA tests included. The
+megakernel compiles under this compiler are the next entry.
