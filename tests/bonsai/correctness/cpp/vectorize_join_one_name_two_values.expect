@@ -1,0 +1,22 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_join_one_name_two_values.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_join_one_name_two_values.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_join_one_name_two_values.o tests/bonsai/correctness/cpp/vectorize_join_one_name_two_values.o -o tests/bonsai/correctness/cpp/vectorize_join_one_name_two_values
+[test] ./tests/bonsai/correctness/cpp/vectorize_join_one_name_two_values
+walk, flag 0
+100 100 100 100 100 100 100.5 100
+100 100 100 100 100 100 100.5 100
+walk, flag 1
+102 102 102 126 100 122 201 102
+102 102 102 126 100 122 201 102
+walk_flat, flags 0 0
+2 6 12 31 50 61 100.5 -2
+2 6 12 31 50 61 100.5 -2
+walk_flat, flags 0 1
+2 6 24 62 100 122 201 -2
+2 6 24 62 100 122 201 -2
+walk_flat, flags 1 0
+4 16 34 91 148 181 299.5 -8
+4 16 34 91 148 181 299.5 -8
+walk_flat, flags 1 1
+4 32 68 182 296 362 599 -8
+4 32 68 182 296 362 599 -8
+same as scalar

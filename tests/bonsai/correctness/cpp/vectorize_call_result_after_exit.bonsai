@@ -1,0 +1,47 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_call_result_after_exit
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_call_result_after_exit.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_call_result_after_exit.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_call_result_after_exit.o tests/bonsai/correctness/cpp/vectorize_call_result_after_exit.o -o tests/bonsai/correctness/cpp/vectorize_call_result_after_exit, ./tests/bonsai/correctness/cpp/vectorize_call_result_after_exit, rm tests/bonsai/correctness/cpp/vectorize_call_result_after_exit, rm tests/bonsai/correctness/cpp/main_vectorize_call_result_after_exit.o, rm tests/bonsai/correctness/cpp/vectorize_call_result_after_exit.h, rm tests/bonsai/correctness/cpp/vectorize_call_result_after_exit.o
+
+// ssa/vectorize-call-result-after-exit's walk, run: the gang against the
+// same walk one lane at a time, with the flag on (the arm runs; lanes that
+// pass 10 double and leave early once past 50) and off (every lane counts
+// up to 100). The value the early return carries out is the call's result
+// of the iteration the lane left on.
+import stdlib/numerics;
+
+func [[noinline]] work(x : f32) -> f32 {
+    return x * 2.0 + 1.0;
+}
+
+func walk(x : f32, flag : bool) -> f32 {
+    y : mut f32 = x;
+    while y < 100.0 {
+        if flag {
+            if y > 10.0 {
+                y = work(y);
+                if y > 50.0 {
+                    return y;
+                }
+            }
+        }
+        y = y + 1.0;
+    }
+    return y;
+}
+
+func [[export]] run(a : array[f32, 8], flag : bool, out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = walk(a[i], flag);
+    }
+    return;
+}
+
+func [[export]] run_one(a : array[f32, 8], flag : bool, out : mut array[f32, 8]) -> void {
+    for i in 0:8 {
+        out[i] = walk(a[i], flag);
+    }
+    return;
+}
+
+schedule {
+    run.vectorize(i);
+}

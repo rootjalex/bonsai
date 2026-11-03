@@ -14,6 +14,7 @@
 #include <optional>
 #include <set>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace bonsai {
@@ -1173,11 +1174,15 @@ BlockMasks linearize(Function &func, const string &entry_name,
         }
     }
 
-    // How many arguments each block declared before any landing gained one;
-    // the blending below is of these, and only these.
+    // How many arguments each block declared before any landing gained one,
+    // and their names; the blending below is of these, and only these.
     vector<size_t> original_args(cfg.size());
+    vector<vector<string>> original_names(cfg.size());
     for (BlockId b = 0; b < cfg.size(); b++) {
         original_args[b] = cfg[b].args.size();
+        for (const Argument &arg : cfg[b].args) {
+            original_names[b].push_back(arg.name);
+        }
     }
 
     // Dominance in the graph as it now is: the path the fold made, the
@@ -1215,6 +1220,19 @@ BlockMasks linearize(Function &func, const string &entry_name,
         map<BlockId, shared_ptr<Value>> from;
     };
     vector<vector<LandingArg>> landing_args(cfg.size());
+
+    // Whether any value was put through a slot (below, and in the blends of
+    // the joins), which the promotion pass turns back into values -- the
+    // merges the rewired graph needs -- once the graph is rewired.
+    bool slots_made = false;
+    const shared_ptr<Block> &entry_block = cfg.block(entry);
+    auto append_store = [&](const shared_ptr<Block> &into,
+                            const shared_ptr<Value> &slot,
+                            const shared_ptr<Value> &value) {
+        into->instrs.push_back(std::make_shared<Instruction>(
+            Instruction::Op::Store, vector<shared_ptr<Value>>{slot, value},
+            into));
+    };
 
     // The landings between a definition in `at` and a read in `to`, innermost
     // region first; regions that share a landing are one hop. At each, the
@@ -1303,11 +1321,46 @@ BlockMasks linearize(Function &func, const string &entry_name,
             const shared_ptr<Block> &landing = cfg.block(hop.landing);
             // What each way into the landing would hand the argument. A
             // value threaded past the landing is read beyond it, so its
-            // definition dominates the landing and every block the region
-            // leaves from: each hands `v` itself.
+            // definition dominates the landing; a block the region leaves
+            // from that the definition dominates hands `v` itself. One it
+            // does not -- a join of a uniform branch of the program's inside
+            // the region, reached as well along a side the definition is not
+            // on (pbrt's path step: `if have_subsurface`, whose else edge
+            // skips the arm whose landing defines the running value) --
+            // needs the merge the join would have made: `v` goes through a
+            // slot, stored where `v` is defined and undefined at the entry
+            // (a lane on the other side never reads it), read at the join,
+            // and the promotion pass makes the merge once the graph is
+            // rewired, as it does for the joins' own blended arguments.
+            // Dominance in the linearized graph, where the code runs: a
+            // folded branch's arms lie in sequence there, so the join below
+            // it has the one way in (the sorted traversal's `!else_48` ->
+            // `!merge_49`, a merge of two arms in the program's graph), while
+            // a kept uniform branch still has two. By the program's graph
+            // every such join would send its value through memory, and the
+            // promotion would hand it back as a parameter threaded round the
+            // loop that nothing reads.
             map<BlockId, shared_ptr<Value>> from;
+            shared_ptr<Value> slot;
             for (BlockId inside : hop.insides) {
-                from[inside] = v;
+                if (linear_dom.dominates(at, inside)) {
+                    from[inside] = v;
+                    continue;
+                }
+                if (!slot) {
+                    const Type type = v->get_type();
+                    slot = append(func, entry_block, Ptr_t::make(type),
+                                  Instruction::Op::Alloca, {});
+                    append_store(entry_block, slot, undef_value(type));
+                    append_store(cfg.block(at), slot, v);
+                    slots_made = true;
+                }
+                const shared_ptr<Block> &reader = cfg.block(inside);
+                auto load = std::make_shared<Instruction>(
+                    func.get_unique_name(), v->get_type(), Instruction::Op::Load,
+                    vector<shared_ptr<Value>>{slot}, reader);
+                reader->instrs.push_back(load);
+                from[inside] = std::make_shared<Value>(load);
             }
             for (const Gadget &g : gadgets) {
                 if (g.landing == hop.landing) {
@@ -1351,55 +1404,77 @@ BlockMasks linearize(Function &func, const string &entry_name,
         return v;
     };
 
-    // Does `at` declare `name` only to thread it on -- every edge into it
-    // handing that argument the value of the same name, an argument or an
-    // instruction of a block above? Then the block defines nothing: a value
-    // is threaded by its name, and the same name on the way in is the same
-    // value (SSA/AnalyzeDivergence.cpp value_key; same_value). A block with
-    // an edge this cannot see -- a call's continuation, whose leading
-    // argument is the result -- is taken to define what it declares.
-    auto passed_through = [&](BlockId at, const string &name) {
-        Block &blk = cfg[at];
-        size_t k = 0;
-        while (k < blk.args.size() && blk.args[k].name != name) {
-            k++;
+    // What each blended-away argument was replaced by, per block and argument
+    // name, so that a later block taking that argument as an incoming value
+    // picks up the blend instead of a name that no longer exists. Nested
+    // branches need this: the outer join's incoming value is the inner join's
+    // argument.
+    vector<map<string, shared_ptr<Value>>> replaced(cfg.size());
+
+    // The value `v` stands for as `from` passes it now: an argument whose
+    // declaration has since been blended away means the blend. The
+    // replacement is recorded under the block that declared the argument, so
+    // that block is found the way the name would be resolved: up `from`'s
+    // dominator chain, to the nearest block that declared it. A block on the
+    // way that still declares the name has not been processed, and its
+    // argument is the definition meant.
+    auto current_value = [&](const shared_ptr<Value> &v,
+                             BlockId from) -> shared_ptr<Value> {
+        const auto *arg = std::get_if<Argument>(&v->data);
+        if (arg == nullptr) {
+            return v;
         }
-        if (k == blk.args.size() || cfg.preds[at].empty()) {
-            return false;
-        }
-        for (BlockId p : cfg.preds[at]) {
-            bool seen = false;
-            for (Terminator::Jump *jump : jumps_of(cfg[p])) {
-                if (jump->name != blk.name) {
-                    continue;
-                }
-                seen = true;
-                const size_t offset = blk.args.size() - jump->args.size();
-                if (k < offset) {
-                    return false;
-                }
-                const Value &passed = *jump->args[k - offset];
-                const auto *a = std::get_if<Argument>(&passed.data);
-                const auto *i = std::get_if<shared_ptr<Instruction>>(&passed.data);
-                if (!((a != nullptr && a->name == name) ||
-                      (i != nullptr && (*i)->name == name))) {
-                    return false;
-                }
+        for (BlockId at = from;;) {
+            const auto substituted = replaced[at].find(arg->name);
+            if (substituted != replaced[at].end()) {
+                return substituted->second;
             }
-            if (!seen) {
-                return false;
+            if (declares(cfg[at], arg->name) || !dom.contains(at) ||
+                dom.idom[at] == at) {
+                return v;
             }
+            at = dom.idom[at];
         }
-        return true;
     };
 
-    // Where `v`, as `from` passes it, is defined: the block of an
-    // instruction; for an argument, the landing that declared it, or else
-    // the nearest block up `from`'s dominator chain that gives the name a
-    // value -- declares it as an argument and does not merely thread it
-    // (passed_through), or defines an instruction by it. NO_BLOCK for a
-    // constant, or for a parameter -- something in scope everywhere, which
-    // no bypass can put out of reach.
+    // A name is not a definition. The SSA builder declares a local's name at
+    // every block that merges it, and the blocks of a region repeat the names
+    // of the values they thread, so what a name means at a block is the
+    // nearest declaration dominating it, and the same name at two blocks may
+    // be two values: the join of a uniform `if` inside a divergent loop takes
+    // the loop's running value from the way around the `if` and the inner
+    // arm's merge from the way through it, both under the one name
+    // (apps/pbrt's megakernels, 11-02 -- read as one value threaded through,
+    // the join lost its argument, and the arm's assignment with it). So
+    // names are resolved to definitions, once, over the program as it stands
+    // when the pass begins: for every argument a block declares, whether the
+    // block defines a value of its own by it, or only threads one definition
+    // on under its name -- every edge in handing that argument a value of
+    // that name, an argument or an instruction of a block above, and all of
+    // them one definition. A block with an edge this cannot see -- a call's
+    // continuation, whose leading argument is the result -- defines what it
+    // declares.
+    //
+    // The declarations hand values to one another, round a loop too: a
+    // header's latch hands it what the body carried, which is the header's
+    // own value when the body only passed it on. So the answer is a fixed
+    // point, found as the loop pass finds the names a loop carries
+    // (SSA/UniformizeLoops.cpp): every declaration starts unresolved; each
+    // is read from the definitions its edges hand it, an unresolved one and
+    // its own value left aside -- one definition makes it a copy of that,
+    // two a definition of its own -- and the reading is repeated until
+    // nothing changes. What no definition reaches is unreachable code, taken
+    // to define what it declares. The answers hold for the whole pass: an
+    // argument blended away still means the value it was, under the blend
+    // (`replaced`), and one dropped as a copy means its definition.
+    //
+    // definition_block: where `v`, as `from` passes it, is defined -- the
+    // block of an instruction; for an argument, the landing that declared it,
+    // or else the nearest block up `from`'s dominator chain that gives the
+    // name a value: declared it when the pass began and does not merely
+    // thread it, was given it since by a landing, or defines an instruction
+    // by it. NO_BLOCK for a constant, or for a parameter -- something in
+    // scope everywhere, which no bypass can put out of reach.
     //
     // Threading is why the walk does not stop at the first declaration. A
     // region's blocks carry an address defined before the region -- the
@@ -1409,6 +1484,19 @@ BlockMasks linearize(Function &func, const string &entry_name,
     // the landing blend a per-lane pointer no lane can hold. Its definition
     // is the allocation above the region, in scope along the bypass as it
     // is along the arm.
+    enum class Meaning { Unresolved, Copy, Definition };
+    struct Resolution {
+        Meaning meaning = Meaning::Unresolved;
+        BlockId of = NO_BLOCK; // a copy's definition; NO_BLOCK for a parameter
+    };
+    // Per block, per argument it declared when the pass began.
+    vector<map<string, Resolution>> resolved(cfg.size());
+    for (BlockId b = 0; b < cfg.size(); b++) {
+        for (const string &name : original_names[b]) {
+            resolved[b][name] = Resolution{};
+        }
+    }
+    constexpr BlockId UNRESOLVED_BLOCK = NO_BLOCK - 1;
     auto definition_block = [&](const shared_ptr<Value> &v,
                                 BlockId from) -> BlockId {
         if (std::holds_alternative<shared_ptr<Instruction>>(v->data)) {
@@ -1423,17 +1511,27 @@ BlockMasks linearize(Function &func, const string &entry_name,
             return landing->second;
         }
         for (BlockId at = from;;) {
-            if (declares(cfg[at], arg->name)) {
+            if (const auto declared = resolved[at].find(arg->name);
+                declared != resolved[at].end()) {
                 if (at == entry) {
                     return NO_BLOCK;
                 }
-                if (!passed_through(at, arg->name)) {
+                switch (declared->second.meaning) {
+                case Meaning::Copy:
+                    return declared->second.of;
+                case Meaning::Unresolved:
+                    return UNRESOLVED_BLOCK;
+                case Meaning::Definition:
                     return at;
                 }
-            } else if (std::any_of(cfg[at].instrs.begin(), cfg[at].instrs.end(),
-                                   [&](const shared_ptr<Instruction> &i) {
-                                       return i->name == arg->name;
-                                   })) {
+            }
+            if (declares(cfg[at], arg->name)) {
+                return at; // a landing's, given it by this pass
+            }
+            if (std::any_of(cfg[at].instrs.begin(), cfg[at].instrs.end(),
+                            [&](const shared_ptr<Instruction> &i) {
+                                return i->name == arg->name;
+                            })) {
                 return at;
             }
             if (!dom.contains(at) || dom.idom[at] == at) {
@@ -1441,6 +1539,88 @@ BlockMasks linearize(Function &func, const string &entry_name,
             }
             at = dom.idom[at];
         }
+    };
+    // What the edges into `b`, as the pass began, make of its argument `k`.
+    auto read_argument = [&](BlockId b, size_t k) -> Resolution {
+        const vector<string> &names = original_names[b];
+        const string &name = names[k];
+        if (incoming[b].empty()) {
+            return {Meaning::Definition, NO_BLOCK};
+        }
+        bool found = false;
+        BlockId common = NO_BLOCK;
+        for (const Incoming &source : incoming[b]) {
+            const size_t offset = names.size() - source.values.size();
+            if (k < offset) {
+                return {Meaning::Definition, NO_BLOCK}; // a call's result
+            }
+            const shared_ptr<Value> &passed = source.values[k - offset];
+            const auto *a = std::get_if<Argument>(&passed->data);
+            const auto *i = std::get_if<shared_ptr<Instruction>>(&passed->data);
+            if (!((a != nullptr && a->name == name) ||
+                  (i != nullptr && (*i)->name == name))) {
+                return {Meaning::Definition, NO_BLOCK};
+            }
+            const BlockId d = definition_block(passed, source.from);
+            if (d == b || d == UNRESOLVED_BLOCK) {
+                continue; // its own value, round a loop; or not yet known
+            }
+            if (found && d != common) {
+                return {Meaning::Definition, NO_BLOCK};
+            }
+            common = d;
+            found = true;
+        }
+        if (!found) {
+            return {};
+        }
+        return {Meaning::Copy, common};
+    };
+    for (bool changed = true; changed;) {
+        changed = false;
+        for (const BlockId b : by_index) {
+            if (b == entry) {
+                continue;
+            }
+            const vector<string> &names = original_names[b];
+            for (size_t k = 0; k < names.size(); k++) {
+                Resolution &now = resolved[b][names[k]];
+                if (now.meaning == Meaning::Definition) {
+                    continue;
+                }
+                const Resolution next = read_argument(b, k);
+                if (next.meaning != now.meaning || next.of != now.of) {
+                    now = next;
+                    changed = true;
+                }
+            }
+        }
+    }
+    for (auto &declarations : resolved) {
+        for (auto &[_, resolution] : declarations) {
+            if (resolution.meaning == Meaning::Unresolved) {
+                resolution = {Meaning::Definition, NO_BLOCK};
+            }
+        }
+    }
+    // Does `at` declare `name` only to thread one definition on? That
+    // definition's block (NO_BLOCK for a parameter), or none.
+    auto threaded_from = [&](BlockId at, const string &name) -> optional<BlockId> {
+        const auto declared = resolved[at].find(name);
+        if (declared == resolved[at].end() ||
+            declared->second.meaning != Meaning::Copy) {
+            return std::nullopt;
+        }
+        return declared->second.of;
+    };
+    // Does `b` declare `name` only to thread on a definition a dominator
+    // declares -- a parameter, or an argument of a block every path here
+    // passes through -- so that the name goes on meaning it below `b` once
+    // the argument is gone?
+    auto threads_declared = [&](BlockId b, const string &name) {
+        const optional<BlockId> d = threaded_from(b, name);
+        return d.has_value() &&
+               (*d == NO_BLOCK || resolved[*d].count(name) > 0);
     };
 
     // The masks. A block's mask is the OR of the masks of the edges it is
@@ -1631,29 +1811,10 @@ BlockMasks linearize(Function &func, const string &entry_name,
     // the folded edges -- every value has been computed by the time the block
     // runs, and the mask says which one this lane wanted.
 
-    // What each blended-away argument was replaced by, per block and argument
-    // name, so that a later block taking that argument as an incoming value
-    // picks up the blend instead of a name that no longer exists. Nested
-    // branches need this: the outer join's incoming value is the inner join's
-    // argument.
-    vector<map<string, shared_ptr<Value>>> replaced(cfg.size());
-
     // Blocks that still merge values through their arguments -- a loop header,
     // say. An edge into one of these has to go on carrying what it passes;
     // dropping it would leave the phi with nothing to merge.
     BlockSet keeps_args(cfg.size());
-
-    // Whether any argument was turned into a slot (see below), which the
-    // promotion pass turns back into values once the graph is rewired.
-    bool slots_made = false;
-    const shared_ptr<Block> &entry_block = cfg.block(entry);
-    auto append_store = [&](const shared_ptr<Block> &into,
-                            const shared_ptr<Value> &slot,
-                            const shared_ptr<Value> &value) {
-        into->instrs.push_back(std::make_shared<Instruction>(
-            Instruction::Op::Store, vector<shared_ptr<Value>>{slot, value},
-            into));
-    };
 
     // Points every read of the argument `name` in `in` at `with`: the
     // operands of its instructions, the values its terminator carries, and
@@ -1847,34 +2008,7 @@ BlockMasks linearize(Function &func, const string &entry_name,
             // none.
             bool threaded = true;
             for (size_t j = leading; j < n_args && threaded; j++) {
-                const string &name = block->args[j].name;
-                for (const Incoming &source : sources) {
-                    const size_t offset = n_args - source.values.size();
-                    if (j < offset) {
-                        continue;
-                    }
-                    const Value &v = *source.values[j - offset];
-                    if (!std::holds_alternative<Argument>(v.data) ||
-                        std::get<Argument>(v.data).name != name) {
-                        threaded = false;
-                        break;
-                    }
-                }
-                if (!threaded) {
-                    break;
-                }
-                bool declared_above = false;
-                for (BlockId at = b;;) {
-                    if (!dom.contains(at) || dom.idom[at] == at) {
-                        break;
-                    }
-                    at = dom.idom[at];
-                    if (declares(cfg[at], name)) {
-                        declared_above = true;
-                        break;
-                    }
-                }
-                threaded = declared_above;
+                threaded = threads_declared(b, block->args[j].name);
             }
             if (threaded) {
                 // Below this join the name goes on meaning what it means
@@ -1956,32 +2090,8 @@ BlockMasks linearize(Function &func, const string &entry_name,
                     << " arguments already";
                 for (size_t j = leading; j < n_args; j++) {
                     const Argument &arg = block->args[j];
-                    bool same_name = true;
-                    for (const Incoming &source : sources) {
-                        const size_t offset = n_args - source.values.size();
-                        if (j < offset) {
-                            continue;
-                        }
-                        const Value &v = *source.values[j - offset];
-                        if (!std::holds_alternative<Argument>(v.data) ||
-                            std::get<Argument>(v.data).name != arg.name) {
-                            same_name = false;
-                            break;
-                        }
-                    }
-                    bool declared_above = false;
-                    for (BlockId at = b; same_name;) {
-                        if (!dom.contains(at) || dom.idom[at] == at) {
-                            break;
-                        }
-                        at = dom.idom[at];
-                        if (declares(cfg[at], arg.name)) {
-                            declared_above = true;
-                            break;
-                        }
-                    }
                     bypass.args.push_back(
-                        same_name && declared_above
+                        threads_declared(b, arg.name)
                             ? std::make_shared<Value>(Argument{arg.type, arg.name})
                             : undef_value(arg.type));
                 }
@@ -1993,37 +2103,13 @@ BlockMasks linearize(Function &func, const string &entry_name,
         // The snapshot was taken before any argument was blended away, so an
         // argument it names may since have been replaced -- one of the
         // source's own, or one of a dominator's that the source passed on by
-        // name, as a loop body passes its header's. The replacement is
-        // recorded under the block that declared the argument, so that block
-        // is found the way the name would be resolved: up the source's
-        // dominator chain, to the nearest block that declared it. A block on
-        // the way that still declares the name has not been processed, and
-        // its argument is the definition meant.
+        // name, as a loop body passes its header's (current_value).
         auto value_from = [&](const Incoming &source, size_t j) {
             const size_t offset = n_args - source.values.size();
             internal_assert(j >= offset)
                 << "Jump from " << cfg.name(source.from) << " to "
                 << cfg.name(b) << " passes too few arguments";
-            shared_ptr<Value> incoming_value = source.values[j - offset];
-            if (std::holds_alternative<Argument>(incoming_value->data)) {
-                const string &name =
-                    std::get<Argument>(incoming_value->data).name;
-                for (BlockId at = source.from;;) {
-                    const auto substituted = replaced[at].find(name);
-                    if (substituted != replaced[at].end()) {
-                        incoming_value = substituted->second;
-                        break;
-                    }
-                    if (declares(cfg[at], name)) {
-                        break;
-                    }
-                    if (!dom.contains(at) || dom.idom[at] == at) {
-                        break;
-                    }
-                    at = dom.idom[at];
-                }
-            }
-            return incoming_value;
+            return current_value(source.values[j - offset], source.from);
         };
 
         vector<shared_ptr<Value>> blended(n_args);

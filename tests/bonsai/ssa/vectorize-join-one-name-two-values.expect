@@ -1,0 +1,135 @@
+type Float = f32
+type Half = f16
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func [[export]] run(a : f32[8], flag : bool, out : mut f32[8]) -> void {
+  let @0 = a[ramp(0, 1, 8)] in
+  let @1 = walk$gang8_v0(@0, flag) in
+  let i = ramp(0, 1, 8) in
+  out[ramp(0, 1, 8)] = @1
+  return
+}
+
+func [[export]] run_flat(a : f32[8], flag1 : bool, flag2 : bool, out : mut f32[8]) -> void {
+  y$i6 : mut f32x8
+  let x$i6 = a[ramp(0, 1, 8)] in
+  if (flag1) {
+    let @13 = f32x8(3f) in
+    let @1 = x$i6 * @13 in
+    y$i6 = @1
+  } else {
+    y$i6 = x$i6
+  }
+  let i = ramp(0, 1, 8) in
+  if (flag2) {
+    let @14 = f32x8(10f) in
+    let @3 = @14 < (*y$i6) in
+    let @5 = work$gang8_v0$masked((*y$i6), @3) in
+    let @11 = select(@3, @5, (*y$i6)) in
+    y$i6 = @11
+  }
+  let @17 = f32x8(1f) in
+  let @7 = (*y$i6) + @17 in
+  out[ramp(0, 1, 8)] = @7
+  return
+}
+
+func walk(x : f32, flag : bool) -> f32 {
+  y : mut f32
+  y = x
+  while ((*y) < 100f) {
+    if (flag) {
+      let @3 = 10f < (*y) in
+      if (@3) {
+        let @5 = work((*y)) in
+        y = @5
+      }
+    }
+    let @7 = (*y) + 1f in
+    y = @7
+  }
+  return (*y)
+}
+
+func walk$gang8_v0(x : f32x8, flag : bool) -> f32x8 {
+  y!loop : mut f32x8
+  !live : mut boolx8
+  !exit.while_end_2 : mut boolx8
+  !track.while_end_2.0 : mut f32x8
+  let @31 = boolx8(true) in
+  let @32 = boolx8(false) in
+  y!loop = x
+  !live = @31
+  !exit.while_end_2 = @32
+  !track.while_end_2.0 = undef
+  while (reduce<any>((*!live))) {
+    let @22 = f32x8(100f) in
+    let @1 = (*y!loop) < @22 in
+    let @33 = !@1 in
+    let @11 = (*!live) && @33 in
+    let @12 = (*!live) && @1 in
+    if (flag) {
+      let @25 = f32x8(10f) in
+      let @3 = @25 < (*y!loop) in
+      let @15 = @12 && @3 in
+      let @5 = work$gang8_v0$masked((*y!loop), @15) in
+      let @16 = select(@15, @5, (*y!loop)) in
+      y!loop = @16
+    }
+    let @28 = f32x8(1f) in
+    let @7 = (*y!loop) + @28 in
+    let @17 = select(@12, @7, (*y!loop)) in
+    let @18 = select(@11, (*y!loop), @17) in
+    let @19 = select(@11, @32, (*!live)) in
+    let @20 = select(@11, @31, (*!exit.while_end_2)) in
+    let @21 = select(@11, (*y!loop), (*!track.while_end_2.0)) in
+    y!loop = @18
+    !live = @19
+    !exit.while_end_2 = @20
+    !track.while_end_2.0 = @21
+  }
+  return (*!track.while_end_2.0)
+}
+
+func walk_flat(x : f32, flag1 : bool, flag2 : bool) -> f32 {
+  y : mut f32
+  if (flag1) {
+    let @0 = x * 3f in
+    y = @0
+  } else {
+    y = x
+  }
+  if (flag2) {
+    let @2 = 10f < (*y) in
+    if (@2) {
+      let @4 = work((*y)) in
+      y = @4
+    }
+  }
+  let @6 = (*y) + 1f in
+  return @6
+}
+
+func [[noinline]] work(x : f32) -> f32 {
+  let @0 = x * 2f in
+  let @1 = @0 + 1f in
+  return @1
+}
+
+func [[noinline]] work$gang8_v0$masked(x : f32x8, !mask : boolx8) -> f32x8 {
+  let @2 = f32x8(2f) in
+  let @0 = x * @2 in
+  let @3 = f32x8(1f) in
+  let @1 = @0 + @3 in
+  return @1
+}
+
+
+schedule {
+    run.vectorize(i)
+    run_flat.vectorize(i)
+
+}

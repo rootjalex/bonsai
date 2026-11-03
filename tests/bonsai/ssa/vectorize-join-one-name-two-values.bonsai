@@ -1,0 +1,77 @@
+//! flags: -p ssa
+
+// A uniform join fed one name that means two values.
+//
+// The SSA builder declares a local's name at every block that merges it, so
+// the join of a uniform `if` whose inner, per-lane arm assigns `y` is handed
+// `y` by both ways in: by the way around the `if`, the value `y` had before
+// it, and by the way through, the inner arm's own merge -- two declarations
+// of one name, each the nearest to the edge that passes it. Linearizing the
+// per-lane arm turns the inner merge into a select; the uniform join is kept
+// as a branch, and what it declares has to stay a parameter, since it still
+// merges two values.
+//
+// Until 11-02 the linearizer read the two edges' one name as one value
+// threaded through, dropped the join's parameter, and left the code after
+// the join reading the value from before the `if`: the inner arm's
+// assignment was lost. In `walk` the value before the `if` is the loop's
+// running value (its header's parameter; the uniform `if` around per-lane
+// work inside a divergent loop is the shape of apps/pbrt's vectorized
+// megakernels); in `walk_flat` it is the parameter of a kept uniform join
+// above, and no loop is involved.
+//
+// What to read for: in `walk$gang8_v0` the `if (flag)` arm ends by assigning
+// the loop's variable the select over the inner arm's result, and the step
+// after the `if` adds to that; in `run_flat` (`walk_flat` inlined) the
+// `if (flag2)` arm assigns the variable the select, and the add after the
+// `if` reads it.
+import stdlib/numerics;
+
+func [[noinline]] work(x : f32) -> f32 {
+    return x * 2.0 + 1.0;
+}
+
+func walk(x : f32, flag : bool) -> f32 {
+    y : mut f32 = x;
+    while y < 100.0 {
+        if flag {
+            if y > 10.0 {
+                y = work(y);
+            }
+        }
+        y = y + 1.0;
+    }
+    return y;
+}
+
+func walk_flat(x : f32, flag1 : bool, flag2 : bool) -> f32 {
+    y : mut f32 = x;
+    if flag1 {
+        y = x * 3.0;
+    }
+    if flag2 {
+        if y > 10.0 {
+            y = work(y);
+        }
+    }
+    return y + 1.0;
+}
+
+func [[export]] run(a : array[f32, 8], flag : bool, out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = walk(a[i], flag);
+    }
+    return;
+}
+
+func [[export]] run_flat(a : array[f32, 8], flag1 : bool, flag2 : bool, out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = walk_flat(a[i], flag1, flag2);
+    }
+    return;
+}
+
+schedule {
+    run.vectorize(i);
+    run_flat.vectorize(i);
+}

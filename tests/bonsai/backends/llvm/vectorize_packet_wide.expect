@@ -89,8 +89,8 @@ define void @hit_x_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr noun
   %hi_gep.i = getelementptr inbounds nuw i8, ptr %group0_row2, i64 64
   br label %"!par_body_5.i"
 
-"!par_body_5.i":                                  ; preds = %"!par_body_5_next_children.i", %"!then_2.i"
-  %indvars.iv.i = phi i64 [ 0, %"!then_2.i" ], [ %indvars.iv.next.i, %"!par_body_5_next_children.i" ]
+"!par_body_5.i":                                  ; preds = %"!merge_15.i", %"!then_2.i"
+  %indvars.iv.i = phi i64 [ 0, %"!then_2.i" ], [ %indvars.iv.next.i, %"!merge_15.i" ]
   %extract_ptr.i = getelementptr inbounds nuw [4 x i8], ptr %lo_gep.i, i64 %indvars.iv.i
   %extract.i = load float, ptr %extract_ptr.i, align 4, !invariant.load !0
   %8 = or disjoint i64 %indvars.iv.i, 4
@@ -267,7 +267,7 @@ define void @hit_x_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr noun
 "!else_14!any.i":                                 ; preds = %"!and_merge_17.i", %"!par_body_5.i"
   %80 = bitcast <8 x i1> %42 to i8
   %.not189.i = icmp eq i8 %80, 0
-  br i1 %.not189.i, label %"!par_body_5_next_children.i", label %"!else_14.i"
+  br i1 %.not189.i, label %"!merge_15.i", label %"!else_14.i"
 
 "!else_14.i":                                     ; preds = %"!else_14!any.i"
   %_mask060.i = getelementptr inbounds nuw i8, ptr %_mask026108.i, i64 %indvars.iv.i
@@ -330,14 +330,14 @@ define void @hit_x_all(ptr noundef %rs_buffer, ptr noundef %out_buffer, ptr noun
   %114 = select <8 x i1> %.not14, <8 x float> %110, <8 x float> splat (float +inf)
   %_keys064.i = getelementptr inbounds nuw [32 x i8], ptr %_keys028106.i, i64 %indvars.iv.i
   call void @llvm.masked.store.v8f32.p0(<8 x float> %114, ptr nonnull align 32 %_keys064.i, <8 x i1> %42)
-  br label %"!par_body_5_next_children.i"
+  br label %"!merge_15.i"
 
-"!par_body_5_next_children.i":                    ; preds = %"!else_14.i", %"!else_14!any.i"
+"!merge_15.i":                                    ; preds = %"!else_14.i", %"!else_14!any.i"
   %indvars.iv.next.i = add nuw nsw i64 %indvars.iv.i, 1
   %exitcond.not.i = icmp eq i64 %indvars.iv.next.i, 4
   br i1 %exitcond.not.i, label %"!par_cont_6.i", label %"!par_body_5.i"
 
-"!par_cont_6.i":                                  ; preds = %"!par_body_5_next_children.i"
+"!par_cont_6.i":                                  ; preds = %"!merge_15.i"
   %115 = insertvalue %"struct.f32x3$v8" poison, <8 x float> %extract_o_0, 0
   %116 = insertvalue %"struct.f32x3$v8" %115, <8 x float> %extract_o_1, 1
   %117 = insertvalue %"struct.f32x3$v8" %116, <8 x float> %extract_o_2, 2

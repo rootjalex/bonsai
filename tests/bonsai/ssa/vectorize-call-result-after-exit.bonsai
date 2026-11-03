@@ -1,0 +1,52 @@
+//! flags: -p ssa
+
+// A value a call returns inside a divergent loop, read after an early
+// return out of the loop.
+//
+// The lanes leave `walk`'s loop at different iterations, so uniformizing
+// it folds the exits into the header's test and carries every value the
+// code after the loop reads out through a tracker -- provided the pass
+// knows the value is the loop's. The loop's own values are its
+// instructions and the parameters its jumps feed; a call continuation's
+// result (`y = work(y)`, the arm's call) is a parameter no jump feeds,
+// and the pass took it for a value from outside (a4d805c7, 11-02
+// afternoon, which narrowed "defined in the loop" to what the loop's jumps
+// feed): the early return's `y` after the loop named the call's result
+// where nothing of the body is in scope, and the LLVM lowering found it
+// unbound. A parameter no jump of the loop feeds is the loop's.
+//
+// What to read for: in `walk`'s variant the early return's value comes out
+// of a tracker of the exit (`!track.then_*`), selected per lane, and no
+// `@n` of the call's continuation is read past the loop.
+import stdlib/numerics;
+
+func [[noinline]] work(x : f32) -> f32 {
+    return x * 2.0 + 1.0;
+}
+
+func walk(x : f32, flag : bool) -> f32 {
+    y : mut f32 = x;
+    while y < 100.0 {
+        if flag {
+            if y > 10.0 {
+                y = work(y);
+                if y > 50.0 {
+                    return y;
+                }
+            }
+        }
+        y = y + 1.0;
+    }
+    return y;
+}
+
+func [[export]] run(a : array[f32, 8], flag : bool, out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = walk(a[i], flag);
+    }
+    return;
+}
+
+schedule {
+    run.vectorize(i);
+}

@@ -1,0 +1,8 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_call_result_after_exit.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_call_result_after_exit.o
+[test] clang++ tests/bonsai/correctness/cpp/main_vectorize_call_result_after_exit.o tests/bonsai/correctness/cpp/vectorize_call_result_after_exit.o -o tests/bonsai/correctness/cpp/vectorize_call_result_after_exit
+[test] ./tests/bonsai/correctness/cpp/vectorize_call_result_after_exit
+101 101 101 61 99 121 200 101
+101 101 101 61 99 121 200 101
+100 100 100 100 100 100 100.5 100
+100 100 100 100 100 100 100.5 100
+same as scalar

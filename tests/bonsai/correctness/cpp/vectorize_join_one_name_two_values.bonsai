@@ -1,0 +1,73 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_join_one_name_two_values
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_join_one_name_two_values.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_join_one_name_two_values.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_join_one_name_two_values.o tests/bonsai/correctness/cpp/vectorize_join_one_name_two_values.o -o tests/bonsai/correctness/cpp/vectorize_join_one_name_two_values, ./tests/bonsai/correctness/cpp/vectorize_join_one_name_two_values, rm tests/bonsai/correctness/cpp/vectorize_join_one_name_two_values, rm tests/bonsai/correctness/cpp/main_vectorize_join_one_name_two_values.o, rm tests/bonsai/correctness/cpp/vectorize_join_one_name_two_values.h, rm tests/bonsai/correctness/cpp/vectorize_join_one_name_two_values.o
+
+// ssa/vectorize-join-one-name-two-values' two walks, run: the gang against
+// the same walk one lane at a time, under every setting of the uniform
+// flags. A uniform `if` whose inner, per-lane arm assigns the variable is
+// handed the variable's name by both ways into its join, meaning two values;
+// the gang must keep the arm's assignment, inside a divergent loop (`walk`)
+// and after a kept uniform join (`walk_flat`).
+import stdlib/numerics;
+
+func [[noinline]] work(x : f32) -> f32 {
+    return x * 2.0 + 1.0;
+}
+
+func walk(x : f32, flag : bool) -> f32 {
+    y : mut f32 = x;
+    while y < 100.0 {
+        if flag {
+            if y > 10.0 {
+                y = work(y);
+            }
+        }
+        y = y + 1.0;
+    }
+    return y;
+}
+
+func walk_flat(x : f32, flag1 : bool, flag2 : bool) -> f32 {
+    y : mut f32 = x;
+    if flag1 {
+        y = x * 3.0;
+    }
+    if flag2 {
+        if y > 10.0 {
+            y = work(y);
+        }
+    }
+    return y + 1.0;
+}
+
+func [[export]] run(a : array[f32, 8], flag : bool, out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = walk(a[i], flag);
+    }
+    return;
+}
+
+func [[export]] run_one(a : array[f32, 8], flag : bool, out : mut array[f32, 8]) -> void {
+    for i in 0:8 {
+        out[i] = walk(a[i], flag);
+    }
+    return;
+}
+
+func [[export]] run_flat(a : array[f32, 8], flag1 : bool, flag2 : bool, out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = walk_flat(a[i], flag1, flag2);
+    }
+    return;
+}
+
+func [[export]] run_flat_one(a : array[f32, 8], flag1 : bool, flag2 : bool, out : mut array[f32, 8]) -> void {
+    for i in 0:8 {
+        out[i] = walk_flat(a[i], flag1, flag2);
+    }
+    return;
+}
+
+schedule {
+    run.vectorize(i);
+    run_flat.vectorize(i);
+}
