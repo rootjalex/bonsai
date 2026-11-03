@@ -46,10 +46,12 @@ scene the converter takes, at 16, 64 and 128 spp.
 
 One bar per schedule of the two sweeps above, the CPU sweep's then the GPU
 sweep's, under the sweeps' labels and in their colours: the compiler's
-wall seconds on render.bonsai with that schedule, the least of the
-benchmark's repeats, measured by apps/pbrt/compile_time.sh (the
-`pbrt-compile` stage of apps/benchmark.sh) exactly as a comparison builds
-the renderer. The .txt has every build's seconds and the driver's.
+wall seconds on render.bonsai with that schedule, one build, measured by
+apps/pbrt/compile_time.sh (the `pbrt-compile` stage of apps/benchmark.sh)
+exactly as a comparison builds the renderer. The dashed line is pbrt-v4's
+own build from a clean build directory, a job per core (not an exact
+comparison, as the .txt says). The .txt has every build's seconds, the
+driver's and pbrt's.
 
 ## rtq (`apps/rtq/plots/`; apps/rtq/plot.py, run by apps/rtq/benchmark.sh)
 

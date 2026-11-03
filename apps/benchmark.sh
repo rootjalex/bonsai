@@ -31,8 +31,9 @@
 #                 -> apps/pbrt/results/heatmap/table.tsv (1 h 39 min, under
 #                 its 5 h cutoff)
 #   pbrt-compile  apps/pbrt/compile_time.sh: the compiler's time on every
-#                 schedule of the two sweeps, each built REPEATS times as a
-#                 comparison builds it -> apps/pbrt/results/compile-time/
+#                 schedule of the two sweeps, each built once as a
+#                 comparison builds it, and pbrt-v4's own build from a
+#                 clean build directory -> apps/pbrt/results/compile-time/
 #                 compile-times.csv (the user, 11-03)
 #   pbrt-plots    apps/pbrt/plots.sh --png: pbrt-gpu-sweep, pbrt-cpu-sweep,
 #                 pbrt-gpu-heatmap, pbrt-compile-time (and the profile and
@@ -193,7 +194,7 @@ take_lock() {
 drop_lock() { rm -f "$LOCK"; trap - EXIT; }
 has() { [[ " $STAGES " == *" $1 "* ]]; }
 
-if has pbrt-gpu || has pbrt-cpu || has pbrt-heatmap; then
+if has pbrt-gpu || has pbrt-cpu || has pbrt-heatmap || has pbrt-compile; then
   (( DRY )) || take_lock "the pbrt stages ($(echo "$STAGES" | tr ' ' '\n' | grep pbrt- | grep -v plots | tr '\n' ' '))"
 fi
 if has pbrt-gpu; then
@@ -218,11 +219,11 @@ if has pbrt-heatmap; then
   echo "=== pbrt-heatmap ends $(date +%T) rc=$?"
 fi
 if has pbrt-compile; then
-  # Every schedule of the two sweeps built REPEATS times, the compiler's
-  # seconds of each build kept (compare.sh prints them); the machine is
-  # quiet here, between the heatmap and the plots.
-  echo "=== pbrt-compile $(date +%T): the compiler's time on the sweeps' schedules, into $COMPILE_OUT"
-  run bash apps/pbrt/compile_time.sh --out "$COMPILE_OUT" --repeats "$REPEATS" --resume \
+  # Every schedule of the two sweeps built once, the compiler's seconds of
+  # the build kept (compare.sh prints them), then pbrt-v4's own build; the
+  # machine is quiet here, between the heatmap and the plots.
+  echo "=== pbrt-compile $(date +%T): the compiler's time on the sweeps' schedules and pbrt's build, into $COMPILE_OUT"
+  run bash apps/pbrt/compile_time.sh --out "$COMPILE_OUT" --resume \
       --schedules "$(spaced "$GPU_SIDES") $(cpu_schedules)"
   echo "=== pbrt-compile ends $(date +%T) rc=$?"
 fi

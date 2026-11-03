@@ -7,19 +7,20 @@ schedule, the CPU sweep's then the GPU sweep's (the user, 11-03):
 
 (plots.sh draws it under that name.)
 
-The rows are compile_time.sh's, one per build; a bar is the least of a
-schedule's `compiler_seconds` over its builds, as the sweeps draw the least
-of their renders. The bars stand in the sweep figures' order and colours
+The rows are compile_time.sh's, one per build; a bar is a schedule's
+`compiler_seconds` (the least, when a schedule was built more than once).
+The bars stand in the sweep figures' order and colours
 (plot_cpu_wavefront.py's and plot_gpu_wavefront.py's SIDES, through
 figure_style.SCHEDULE_COLOURS), under the sweep figures' labels, so a bar
 here is the bar of the same colour there. The y axis is the compile time,
-its ticks in minutes.
+its ticks in minutes. A dashed line marks pbrt-v4's own build time, the
+row compile_time.sh adds for it (the user, 11-03: "not an exact
+comparison", and the .txt says what it is).
 
-The .txt beside the figure (figure_style.write_summary) has every drawn
-schedule's file, its compiler seconds over the builds and the driver's,
-which build is drawn, the machine and the compiler's commit, and the
-reading: which schedules compile slowest and what in their compilation
-takes the time.
+The .txt beside the figure has every drawn schedule's file, its compiler
+seconds over the builds and the driver's, the machine and the compiler's
+commit, pbrt's build described, and the reading: which schedules compile
+slowest and what in their compilation takes the time.
 """
 
 import argparse
@@ -33,7 +34,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter, MultipleLocator
 
-from figure_style import TEXT_WIDTH, lean_height, lean_labels, paper_style
+from figure_style import (PBRT_COLOUR, TEXT_WIDTH, TICK_FONT, lean_height, lean_labels,
+                          paper_style)
 from plot_cpu_wavefront import SIDES as CPU_SIDES
 from plot_gpu_wavefront import SIDES as GPU_SIDES
 
@@ -67,12 +69,26 @@ def main(argv):
     driver = defaultdict(list)
     disturbed = defaultdict(int)
     commits, hosts = set(), set()
+    pbrt = []                      # pbrt-v4's own build, wall seconds, if measured
+    pbrt_commit = None
     for row in rows:
+        if row["side"] == "pbrt":
+            pbrt.append(float(row["compiler_seconds"]))
+            pbrt_commit = row["commit"]
+            hosts.add(row["host"])
+            continue
         compiler[row["schedule"]].append(float(row["compiler_seconds"]))
         driver[row["schedule"]].append(float(row["driver_seconds"]))
         disturbed[row["schedule"]] += int(row.get("disturbed", "0") or 0)
         commits.add(row["commit"])
         hosts.add(row["host"])
+    pbrt_note = None
+    if pbrt:
+        for path in args.csv:
+            note = os.path.join(os.path.dirname(path), "pbrt-build.txt")
+            if os.path.exists(note):
+                with open(note) as f:
+                    pbrt_note = [line.rstrip("\n") for line in f]
 
     # The bars: the sweep figures' sides that have rows, in their order.
     groups = []  # (group name, [(schedule, label, colour, least seconds)])
@@ -101,6 +117,15 @@ def main(argv):
         centres.append((name, (start + x - 1.0) / 2.0))
         x += gap
     top = max(seconds for _, bars in groups for _, _, _, seconds in bars)
+    # pbrt-v4's own build, the dashed line (the user, 11-03: not an exact
+    # comparison -- a parallel build of the whole renderer against one
+    # thread of ours on one schedule -- and the .txt says so).
+    if pbrt:
+        reference = min(pbrt)
+        ax.axhline(reference, color=PBRT_COLOUR, linestyle=(0, (4, 3)), linewidth=0.8, zorder=1)
+        ax.text(x - gap - 0.4, reference, " pbrt-v4", ha="right", va="bottom",
+                fontsize=TICK_FONT, color=PBRT_COLOUR)
+        top = max(top, reference)
     step = 60.0 if top > 150 else 30.0
     ax.set_ylim(0, top * 1.08)
     ax.yaxis.set_major_locator(MultipleLocator(step))
@@ -144,16 +169,26 @@ def main(argv):
     builds = sorted({len(v) for v in compiler.values()})
     slowest = max(((s, min(v)) for s, v in compiler.items() if s in drawn), key=lambda p: p[1])
     fastest = min(((s, min(v)) for s, v in compiler.items() if s in drawn), key=lambda p: p[1])
+    how_many = ("one build" if builds == [1]
+                else f"the least of {' or '.join(str(b) for b in builds)} builds")
     notes = [
-        f"a bar is the least of {' or '.join(str(b) for b in builds)} builds of the schedule's renderer, "
-        "exactly as a comparison builds it (compare.sh --build-renderer), on "
-        f"{', '.join(sorted(hosts))}, the compiler at {', '.join(sorted(commits))};",
+        f"a bar is {how_many} of the schedule's renderer, exactly as a comparison builds it "
+        f"(compare.sh --build-renderer), on {', '.join(sorted(hosts))}, the compiler at "
+        f"{', '.join(sorted(commits))}; the compiler runs on one thread;",
         "the compiler's seconds cover parsing, scheduling, the SSA passes, LLVM's optimization and the "
         "object, and for a GPU schedule its PTX and OptiX modules; the driver's clang build is the same "
         "for every schedule and is listed, not drawn;",
         f"slowest {slowest[0]} at {slowest[1]:.0f} s, fastest {fastest[0]} at {fastest[1]:.0f} s "
         f"({slowest[1] / fastest[1]:.1f}x);",
     ]
+    if pbrt:
+        notes.append(f"the dashed line is pbrt-v4's own build, {min(pbrt):.0f} s of wall time"
+                     f"{f' at {pbrt_commit}' if pbrt_commit else ''}: the whole renderer, its CPU integrators, "
+                     "its GPU wavefront and its bundled dependencies, from a clean build directory configured "
+                     "as the reference build is, with a job per core -- not an exact comparison with one "
+                     "thread of our compiler on one schedule, and marked so by the dashing;")
+        if pbrt_note:
+            notes.extend(f"  {line}" for line in pbrt_note)
     noisy = [s for s in drawn if disturbed[s]]
     if noisy:
         notes.append(f"builds delayed past ten minutes by another process and run anyway: {', '.join(sorted(noisy))}.")
