@@ -494,8 +494,22 @@ void substitute(Block &block, const string &name,
 //
 // `pointee` says the argument is a shared pointer to per-lane memory rather
 // than a per-lane value, and so is retyped with widen_pointee.
-void widen_argument(const Cfg &region, BlockId owner, const string &name,
-                    uint32_t lanes, bool pointee = false) {
+// Does `block` declare an argument called `name`?
+bool declares_argument(const Block &block, const string &name) {
+    return std::any_of(block.args.begin(), block.args.end(),
+                       [&](const Argument &arg) { return arg.name == name; });
+}
+
+// Widens the argument `name` of the block `owner` and every read of it: the
+// reads are by name, in the blocks `owner` dominates, up to a block that
+// declares the name for itself -- a copy of its own, which may be another
+// value of another shape: apps/pbrt's `have_media` flag is a uniform
+// argument of one block of the sample loop's body and a per-lane one of
+// the loop's header (a lane's select feeds it round the loop), and a read
+// of the uniform copy retyped as the per-lane one was handed to a
+// per-lane parameter as if already wide, never broadcast (11-02).
+void widen_argument(const Cfg &region, const DomTree &dom, BlockId owner,
+                    const string &name, uint32_t lanes, bool pointee = false) {
     // A copy already widened -- because two blocks call an argument by the
     // same name and both are per lane -- is left alone rather than widened a
     // second time; likewise a pointer whose memory is already laid out per
@@ -526,6 +540,25 @@ void widen_argument(const Cfg &region, BlockId owner, const string &name,
     };
 
     for (BlockId b = 0; b < region.size(); b++) {
+        if (b != owner) {
+            if (!dom.dominates(owner, b)) {
+                continue;
+            }
+            bool shadowed = false;
+            for (BlockId at = b; at != owner;) {
+                if (declares_argument(region[at], name)) {
+                    shadowed = true;
+                    break;
+                }
+                if (!dom.contains(at) || dom.idom[at] == at) {
+                    break;
+                }
+                at = dom.idom[at];
+            }
+            if (shadowed) {
+                continue;
+            }
+        }
         Block &block = region[b];
         for (const auto &instr : block.instrs) {
             for (const auto &operand : instr->operands) {
@@ -767,6 +800,9 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
     }
 
     const Cfg region(func, entry);
+    // For the reads of a block's argument, which are by name in the blocks
+    // the block dominates (widen_argument).
+    const DomTree dom = compute_dominator_tree(region);
 
     const auto is_write = [](const Instruction &instr) {
         return instr.op == Instruction::Op::Store ||
@@ -790,9 +826,9 @@ void widen_region(Function &func, const string &entry, const Divergence &div,
                     << "Argument " << arg.name << " of " << name
                     << " is a per-lane pointer into per-lane memory, which "
                     << "vectorization does not lay out yet";
-                widen_argument(region, b, arg.name, lanes);
+                widen_argument(region, dom, b, arg.name, lanes);
             } else if (pointee) {
-                widen_argument(region, b, arg.name, lanes, /*pointee=*/true);
+                widen_argument(region, dom, b, arg.name, lanes, /*pointee=*/true);
             }
         }
 
