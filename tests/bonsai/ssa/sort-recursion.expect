@@ -28,19 +28,16 @@ extern triangles : [[packed]] struct _tree_layout0{ pCount : u32; prims : struct
 func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray, _best0 : mut (__tuple_1*)) -> void {
   triangles_index!top : mut u32
   !count : mut u32
+  intersectsp_ray_aabb$r26 : mut _option1
   tmin$i26 : mut f32
   tmax$i26 : mut f32
+  intersects_Ray_AABB$r0 : mut bool
   distmin_Ray_AABB$r1 : mut f32
   data : mut u32
   !stack : mut u32[64]
-  tMin$i26 : mut f32x3
-  tMax$i26 : mut f32x3
-  gamma$r14$i26 : mut f32
   triangles_index!top = triangles_index
   !count = 0u
   do {
-    intersects_Ray_AABB$r0 : mut bool
-    intersectsp_ray_aabb$r26 : mut _option1
     let @0 = f32x3(1f) in
     let @1 = ray.d in
     let invDir$i26 = @0 / @1 in
@@ -56,46 +53,34 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
     let _t127$i26 = ray.o in
     let @15 = low_parts$i26 - _t127$i26 in
     let @16 = @15 * invDir$i26 in
-    tMin$i26 = @16
     let high_parts$i26 = select(dirIsNeg$i26, _t124$i26, _t123$i26) in
     let @18 = high_parts$i26 - _t127$i26 in
     let @19 = @18 * invDir$i26 in
-    tMax$i26 = @19
     let @20 = (f32)eps in
     let @21 = 0.5f * @20 in
     let _t118$i14$i26 = 3f * @21 in
     let @23 = 1f - _t118$i14$i26 in
     let @24 = _t118$i14$i26 / @23 in
-    gamma$r14$i26 = @24
-    let @25 = (*gamma$r14$i26) in
-    let @26 = 2f * @25 in
+    let @26 = 2f * @24 in
     let @27 = 1f + @26 in
     let @28 = f32x3(@27) in
-    tMax$i26 *= @28
-    let @29 = (*tMax$i26) in
-    let @30 = @29[1u] in
-    let @31 = (*tMin$i26) in
-    let @32 = @31[0u] in
+    let @144 = @19 * @28 in
+    let @30 = @144[1u] in
+    let @32 = @16[0u] in
     let @33 = @30 < @32 in
-    let @35 = @29[0u] in
-    let @37 = @31[1u] in
+    let @35 = @144[0u] in
+    let @37 = @16[1u] in
     let @38 = @35 < @37 in
     let @39 = @33 || @38 in
     if (@39) {
       let @40 = build<_option1>() in
       intersectsp_ray_aabb$r26 = @40
     } else {
-      let @41 = (*tMin$i26) in
-      let @42 = @41[0u] in
-      let @44 = @41[1u] in
-      let @45 = max(@42, @44) in
-      let @46 = (*tMax$i26) in
-      let @47 = @46[0u] in
-      let @49 = @46[1u] in
-      let @50 = min(@47, @49) in
-      let @52 = @46[2u] in
+      let @45 = max(@32, @37) in
+      let @50 = min(@35, @30) in
+      let @52 = @144[2u] in
       let @54 = @52 < @45 in
-      let @57 = @41[2u] in
+      let @57 = @16[2u] in
       let @58 = @50 < @57 in
       let @59 = @54 || @58 in
       if (@59) {
@@ -104,12 +89,8 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
         tmin$i26 = @45
         tmax$i26 = @50
       } else {
-        let @62 = (*tMin$i26) in
-        let @63 = @62[2u] in
-        let @64 = max(@45, @63) in
-        let @66 = (*tMax$i26) in
-        let @67 = @66[2u] in
-        let @68 = min(@50, @67) in
+        let @64 = max(@45, @57) in
+        let @68 = min(@50, @52) in
         let @71 = build<FInterval>(@64, @68) in
         let @72 = build<_option1>(@71, true) in
         intersectsp_ray_aabb$r26 = @72
@@ -117,11 +98,9 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
         tmax$i26 = @68
       }
     }
-    let @73 = (*intersectsp_ray_aabb$r26) in
-    let _t279 = @73.set in
+    let _t279 = (*intersectsp_ray_aabb$r26).set in
     if (_t279) {
-      let @75 = (*intersectsp_ray_aabb$r26) in
-      let extract$i0 = @75.value in
+      let extract$i0 = (*intersectsp_ray_aabb$r26).value in
       let @77 = extract$i0.low in
       let @78 = ray.tmax in
       let @79 = @77 < @78 in
@@ -132,11 +111,9 @@ func _recloop_func0(triangles_index : u32, triangles : _tree_layout0, ray : Ray,
     } else {
       intersects_Ray_AABB$r0 = false
     }
-    let @83 = (*intersects_Ray_AABB$r0) in
-    if (@83) {
+    if ((*intersects_Ray_AABB$r0)) {
       if (_t279) {
-        let @84 = (*intersectsp_ray_aabb$r26) in
-        let extract$i1 = @84.value in
+        let extract$i1 = (*intersectsp_ray_aabb$r26).value in
         let @86 = extract$i1.low in
         distmin_Ray_AABB$r1 = @86
       } else {

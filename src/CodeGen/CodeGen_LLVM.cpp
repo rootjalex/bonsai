@@ -6338,6 +6338,18 @@ void CodeGen_LLVM::visit(const Accumulate *node) {
     llvm::Value *loc = codegen_write_loc(node->loc);
     llvm::Value *update = codegen_expr(node->value);
 
+    // The place is read and written in the value's shape below, so the two
+    // had better agree: a scalar accumulated into a vector place would read
+    // and write its first component alone (which is what `tMax *= 1 + 2 *
+    // gamma(3)` did in every traversal until 11-02, before Accumulate::make
+    // and the SSA builder broadcast the scalar). Said here, where it would
+    // otherwise be silent.
+    internal_assert(!node->loc.type.defined() || !node->loc.type.is_vector() ||
+                    !node->value.type().is_scalar())
+        << "Accumulate of a scalar " << node->value << " into the vector place "
+        << node->loc.base << " : " << node->loc.type
+        << "; the value should have been broadcast over the components";
+
     if (node->atomic) {
         // One indivisible read-modify-write, rather than the load, combine and
         // store below -- which is three steps another thread can land between.

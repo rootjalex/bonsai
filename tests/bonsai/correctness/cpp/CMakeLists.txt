@@ -93,6 +93,8 @@ add_bonsai_tests(
     vectorize_tree_traversal.bonsai
     vectorize_vector_accumulate.bonsai
     vectorize_vector_store.bonsai
+    accumulate_vector_scalar.bonsai
+    loopify_mut_local.bonsai
     vectorize_tree_traversal_mixed.bonsai
     vectorize_tree_traversal_mixed_packet.bonsai
     vectorize_tree_traversal_packet.bonsai

@@ -1,0 +1,8 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_accumulate_vector_scalar.cpp -I. -o tests/bonsai/correctness/cpp/main_accumulate_vector_scalar.o
+[test] clang++ tests/bonsai/correctness/cpp/main_accumulate_vector_scalar.o tests/bonsai/correctness/cpp/accumulate_vector_scalar.o -o tests/bonsai/correctness/cpp/accumulate_vector_scalar
+[test] ./tests/bonsai/correctness/cpp/accumulate_vector_scalar
+3 5 7
+9 11 13
+-1 1 3
+2 1.5 1.25
+every component scaled

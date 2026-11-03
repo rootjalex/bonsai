@@ -453,9 +453,19 @@ size_t promote_allocas(Function &func, const string &entry) {
                 }
             }
         }
+        // The block that makes the allocation is a join too when it heads a
+        // loop -- the body of a loopified traversal, which declares its box
+        // test's `tMax` and is entered from before the loop and from its
+        // own end -- but no value of the local reaches it from either way
+        // in: the local is declared there, fresh on every visit, and
+        // nothing before the declaration can read it. It needs no merge,
+        // and the ways into it say nothing about whether the local is
+        // assigned before it is read (until 11-02 the entry edge, which
+        // never assigns a local that does not exist yet, kept every such
+        // local in memory).
         const BlockSet joins = iterated_dominance_frontier(defs, frontier);
         for (BlockId join : joins) {
-            if (!dom.dominates(allocated_in, join)) {
+            if (join == allocated_in || !dom.dominates(allocated_in, join)) {
                 continue;
             }
             for (BlockId pred : region.preds[join]) {
@@ -478,7 +488,7 @@ size_t promote_allocas(Function &func, const string &entry) {
         // read one.
         BlockSet phis(region.size());
         for (BlockId join : joins) {
-            if (dom.dominates(allocated_in, join)) {
+            if (join != allocated_in && dom.dominates(allocated_in, join)) {
                 phis.insert(join);
             }
         }

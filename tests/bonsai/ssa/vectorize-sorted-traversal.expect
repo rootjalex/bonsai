@@ -79,6 +79,8 @@ func [[export]] Shape_Tri(_ret1 : mut (Shape*), t : (Triangle*)) -> void {
 func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 : mut (__tuple_1*)) -> void {
   shapes_index!top : mut u16
   !count : mut u32
+  intersectsp_ray_sphere$r34 : mut _option1
+  intersects_Ray_Sphere$r0 : mut bool
   distmax_Ray_Sphere$r1 : mut f32
   distmin_Ray_Sphere$r2 : mut f32
   data : mut u16
@@ -93,8 +95,6 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
   shapes_index!top = shapes_index
   !count = 0u
   do {
-    intersects_Ray_Sphere$r0 : mut bool
-    intersectsp_ray_sphere$r34 : mut _option1
     let _t285$i34 = r.d in
     let @1 = _t285$i34 * _t285$i34 in
     let a$i34 = reduce<+>(@1) in
@@ -139,11 +139,9 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
       let @38 = build<_option1>(interval$i34, true) in
       intersectsp_ray_sphere$r34 = @38
     }
-    let @39 = (*intersectsp_ray_sphere$r34) in
-    let _t503 = @39.set in
+    let _t503 = (*intersectsp_ray_sphere$r34).set in
     if (_t503) {
-      let @41 = (*intersectsp_ray_sphere$r34) in
-      let extract$i0 = @41.value in
+      let extract$i0 = (*intersectsp_ray_sphere$r34).value in
       let @43 = extract$i0.low in
       let @44 = r.tmax in
       let @45 = @43 < @44 in
@@ -154,11 +152,9 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
     } else {
       intersects_Ray_Sphere$r0 = false
     }
-    let @49 = (*intersects_Ray_Sphere$r0) in
-    if (@49) {
+    if ((*intersects_Ray_Sphere$r0)) {
       if (_t503) {
-        let @50 = (*intersectsp_ray_sphere$r34) in
-        let extract$i1 = @50.value in
+        let extract$i1 = (*intersectsp_ray_sphere$r34).value in
         let @52 = extract$i1.high in
         distmax_Ray_Sphere$r1 = @52
       } else {
@@ -168,8 +164,7 @@ func _recloop_func0(shapes_index : u16, shapes : _tree_layout0, r : Ray, _best0 
       let @55 = 0.001f < (*distmax_Ray_Sphere$r1) in
       if (@55) {
         if (_t503) {
-          let @56 = (*intersectsp_ray_sphere$r34) in
-          let extract$i2 = @56.value in
+          let extract$i2 = (*intersectsp_ray_sphere$r34).value in
           let @58 = extract$i2.low in
           distmin_Ray_Sphere$r2 = @58
         } else {

@@ -55,7 +55,7 @@ func _traverse_tree0(ray : Ray, triangles : _tree_layout0) -> _option0 {
     tMin$i21 : mut f32x3 := (low_parts$i21 - _t183$i21) * invDir$i21
     tMax$i21 : mut f32x3 := (high_parts$i21 - _t183$i21) * invDir$i21
     let _t186$i21 = 3f * (0.5f * (f32)eps) in
-    tMax$i21 *= 1f + (2f * (_t186$i21 / (1f - _t186$i21)))
+    tMax$i21 *= f32x3(1f + (2f * (_t186$i21 / (1f - _t186$i21))))
     if (((*tMax$i21)[1u] < (*tMin$i21)[0u]) || ((*tMax$i21)[0u] < (*tMin$i21)[1u])) {
       intersectsp_ray_aabb$r21 = build<_option1>()
     } else {

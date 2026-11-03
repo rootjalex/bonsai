@@ -1,0 +1,5 @@
+[test] clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_loopify_mut_local.cpp -I. -o tests/bonsai/correctness/cpp/main_loopify_mut_local.o
+[test] clang++ tests/bonsai/correctness/cpp/main_loopify_mut_local.o tests/bonsai/correctness/cpp/loopify_mut_local.o -o tests/bonsai/correctness/cpp/loopify_mut_local
+[test] ./tests/bonsai/correctness/cpp/loopify_mut_local
+5.625 5.625
+same as recursion

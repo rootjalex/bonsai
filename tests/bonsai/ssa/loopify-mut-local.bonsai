@@ -1,0 +1,39 @@
+//! flags: -p ssa
+
+// A `mut` local declared in the body of a recursion that loopify() turns
+// into a loop. The body becomes the loop's header block, entered from
+// before the loop and from its own end, and the local is declared inside
+// it, fresh on every visit.
+//
+// The promotion pass (SSA/PromoteAllocas.h) turns a `mut` local into a
+// value unless some way into a join could reach a read of the local
+// without an assignment. The header is such a join, and the way in from
+// before the loop never assigns a local that does not exist there yet --
+// until 11-02 that kept every local declared in a loopified body in
+// memory: `t : mut`, `t *= f32x3(0.5)` as a read-modify-write of the slot,
+// which is what apps/pbrt's box test looked like in every traversal (its
+// `tMax`, `tMin`, `gamma` and the result slot). A local is born at its
+// declaration, so the block declaring it needs no merged value and the
+// ways into that block say nothing about it.
+//
+// What to read for: `walk`'s loop body has no `t : mut` slot and no `*=`;
+// the halving is a `let` of a `f32x3` multiply, read for the sum and
+// passed round the loop.
+import stdlib/numerics;
+
+func walk(n : i32, v : vec3f, acc : f32) -> f32 {
+    if n <= 0 {
+        return acc;
+    }
+    t : mut vec3f = v;
+    t *= 0.5;
+    return walk(n - 1, t, acc + t.x + t.y + t.z);
+}
+
+func [[export]] run(n : i32, v : vec3f) -> f32 {
+    return walk(n, v, 0.0);
+}
+
+schedule {
+    walk.loopify();
+}

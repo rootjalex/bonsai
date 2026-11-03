@@ -1,0 +1,31 @@
+//! flags: -p ssa
+
+// A short vector scaled, offset and shifted in place by a scalar: `t *= s`
+// on a `vec3f` is the scalar over every component, as `t * s` is.
+//
+// Until 11-02 the SSA builder kept such an accumulate with its scalar
+// value, `acc.mul t s`, and every backend loaded and stored the place in
+// the value's shape -- one float, the first component -- so `tMax *= 1 + 2
+// * gamma(3)` in apps/pbrt's box test widened the x slab alone. The
+// builder now broadcasts the scalar over the place's components
+// (SSA/Convert.cpp), as does Accumulate::make for any other producer, and
+// the LLVM backend refuses a scalar value for a vector place outright.
+//
+// What to read for: each of the three accumulates takes `f32x3(s)` (or
+// `f32x3(1f)`), never `s` alone; the scalar `run` loop is untouched.
+import stdlib/numerics;
+
+func [[noinline]] scaled(v : vec3f, s : f32) -> vec3f {
+    t : mut vec3f = v;
+    t *= s;
+    t += s;
+    t += -1.0;
+    return t;
+}
+
+func [[export]] run(a : array[vec3f, 4], s : f32, out : mut array[vec3f, 4]) -> void {
+    for i in 0:4 {
+        out[i] = scaled(a[i], s);
+    }
+    return;
+}

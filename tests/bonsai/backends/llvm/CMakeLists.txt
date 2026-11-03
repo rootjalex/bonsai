@@ -118,6 +118,7 @@ add_bonsai_tests(
     vectorize_scale.bonsai
     vectorize_vector_accumulate.bonsai
     vectorize_vector_store.bonsai
+    accumulate_vector_scalar.bonsai
     vectorize_short_vectors.bonsai
     vectorize_soa.bonsai
     vectorize_skip_arms.bonsai

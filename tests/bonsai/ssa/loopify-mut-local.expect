@@ -1,0 +1,41 @@
+type Float = f32
+type Half = f16
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func [[export]] run(n : i32, v : f32x3) -> f32 {
+  let @0 = walk(n, v, 0f) in
+  return @0
+}
+
+func walk(n : i32, v : f32x3, acc : f32) -> f32 {
+  n!loop : mut i32
+  v!loop : mut f32x3
+  acc!loop : mut f32
+  n!loop = n
+  v!loop = v
+  acc!loop = acc
+  while (!((*n!loop) <= 0)) {
+    let @1 = f32x3(0.5f) in
+    let @14 = (*v!loop) * @1 in
+    let @2 = (*n!loop) - 1 in
+    let @5 = @14[0u] in
+    let @6 = (*acc!loop) + @5 in
+    let @8 = @14[1u] in
+    let @9 = @6 + @8 in
+    let @11 = @14[2u] in
+    let @12 = @9 + @11 in
+    n!loop = @2
+    v!loop = @14
+    acc!loop = @12
+  }
+  return (*acc!loop)
+}
+
+
+schedule {
+    walk.loopify()
+
+}

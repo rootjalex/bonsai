@@ -43,7 +43,7 @@ func _recloop_func0(ts_index : u32, ts_bit : u1, ts : _tree_layout0, ray : Ray, 
   tMin$i22 : mut f32x3 := (low_parts$i22 - _t234$i22) * invDir$i22
   tMax$i22 : mut f32x3 := (high_parts$i22 - _t234$i22) * invDir$i22
   let _t237$i22 = 3f * (0.5f * (f32)eps) in
-  tMax$i22 *= 1f + (2f * (_t237$i22 / (1f - _t237$i22)))
+  tMax$i22 *= f32x3(1f + (2f * (_t237$i22 / (1f - _t237$i22))))
   if (((*tMax$i22)[1u] < (*tMin$i22)[0u]) || ((*tMax$i22)[0u] < (*tMin$i22)[1u])) {
     intersectsp_ray_aabb$r22 = build<_option1>()
   } else {

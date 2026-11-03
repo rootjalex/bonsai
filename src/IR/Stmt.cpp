@@ -346,6 +346,17 @@ Stmt Accumulate::make(WriteLoc loc, OpType op, Expr value, bool atomic,
         internal_assert(place.defined() && written.defined())
             << "Undefined place or value alongside an accumulate";
     }
+    // A scalar accumulated into a vector place is the scalar over every
+    // component, as it is in `v * s` (BinOp::make broadcasts there): made
+    // explicit here, where the place's type is known, so that no backend is
+    // handed a value of one shape for a place of another. Until 11-02 the
+    // SSA form kept `tMax *= 1 + 2 * gamma(3)` with a scalar value, and the
+    // backends loaded and stored the place in the value's shape -- one
+    // component of three. An argmin's or argmax's value is a pair.
+    if (op != Argmin && op != Argmax && loc.type.defined() &&
+        loc.type.is_vector() && value.type().is_scalar()) {
+        value = Broadcast::make(loc.type.lanes(), std::move(value));
+    }
     Accumulate *node = new Accumulate;
     node->loc = std::move(loc);
     node->op = op;

@@ -1,0 +1,38 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/loopify_mut_local
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_loopify_mut_local.cpp -I. -o tests/bonsai/correctness/cpp/main_loopify_mut_local.o, clang++ tests/bonsai/correctness/cpp/main_loopify_mut_local.o tests/bonsai/correctness/cpp/loopify_mut_local.o -o tests/bonsai/correctness/cpp/loopify_mut_local, ./tests/bonsai/correctness/cpp/loopify_mut_local, rm tests/bonsai/correctness/cpp/loopify_mut_local, rm tests/bonsai/correctness/cpp/main_loopify_mut_local.o, rm tests/bonsai/correctness/cpp/loopify_mut_local.h, rm tests/bonsai/correctness/cpp/loopify_mut_local.o
+
+// ssa/loopify-mut-local's recursion, run: the loopified walk against the
+// same recursion left as calls. A `mut` vec3f declared in the body is
+// halved in place on every visit and summed; four visits from (1, 2, 3)
+// give 3 + 1.5 + 0.75 + 0.375 = 5.625, and the two must agree exactly.
+import stdlib/numerics;
+
+func walk(n : i32, v : vec3f, acc : f32) -> f32 {
+    if n <= 0 {
+        return acc;
+    }
+    t : mut vec3f = v;
+    t *= 0.5;
+    return walk(n - 1, t, acc + t.x + t.y + t.z);
+}
+
+func walk_rec(n : i32, v : vec3f, acc : f32) -> f32 {
+    if n <= 0 {
+        return acc;
+    }
+    t : mut vec3f = v;
+    t *= 0.5;
+    return walk_rec(n - 1, t, acc + t.x + t.y + t.z);
+}
+
+func [[export]] run(n : i32, v : vec3f) -> f32 {
+    return walk(n, v, 0.0);
+}
+
+func [[export]] run_rec(n : i32, v : vec3f) -> f32 {
+    return walk_rec(n, v, 0.0);
+}
+
+schedule {
+    walk.loopify();
+}

@@ -1,0 +1,24 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/accumulate_vector_scalar
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_accumulate_vector_scalar.cpp -I. -o tests/bonsai/correctness/cpp/main_accumulate_vector_scalar.o, clang++ tests/bonsai/correctness/cpp/main_accumulate_vector_scalar.o tests/bonsai/correctness/cpp/accumulate_vector_scalar.o -o tests/bonsai/correctness/cpp/accumulate_vector_scalar, ./tests/bonsai/correctness/cpp/accumulate_vector_scalar, rm tests/bonsai/correctness/cpp/accumulate_vector_scalar, rm tests/bonsai/correctness/cpp/main_accumulate_vector_scalar.o, rm tests/bonsai/correctness/cpp/accumulate_vector_scalar.h, rm tests/bonsai/correctness/cpp/accumulate_vector_scalar.o
+
+// A short vector scaled, offset and shifted in place by a scalar, run: every
+// component of `t` must read `v * s + s - 1`. The x-only lowering this pins
+// down (until 11-02: `t *= s` multiplied `t.x` alone, `t += s` added to
+// `t.x` alone) left y and z at their input values. The driver checks each
+// component against the arithmetic done in C++ on the same floats.
+import stdlib/numerics;
+
+func [[noinline]] scaled(v : vec3f, s : f32) -> vec3f {
+    t : mut vec3f = v;
+    t *= s;
+    t += s;
+    t += -1.0;
+    return t;
+}
+
+func [[export]] run(a : array[vec3f, 4], s : f32, out : mut array[vec3f, 4]) -> void {
+    for i in 0:4 {
+        out[i] = scaled(a[i], s);
+    }
+    return;
+}

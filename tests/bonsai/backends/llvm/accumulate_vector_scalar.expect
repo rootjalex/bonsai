@@ -1,0 +1,54 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress
+define void @run(ptr noundef %a_buffer, float noundef %s, ptr noundef %out_buffer) local_unnamed_addr #0 {
+run:
+  %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  %extract = load <3 x float>, ptr %a, align 16
+  %0 = tail call fastcc <3 x float> @scaled(<3 x float> %extract, float %s)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
+  store <3 x float> %0, ptr %out, align 16, !tbaa !0
+  %extract_ptr.1 = getelementptr inbounds nuw i8, ptr %a, i64 16
+  %extract.1 = load <3 x float>, ptr %extract_ptr.1, align 16
+  %1 = tail call fastcc <3 x float> @scaled(<3 x float> %extract.1, float %s)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
+  %out12.1 = getelementptr inbounds nuw i8, ptr %out, i64 16
+  store <3 x float> %1, ptr %out12.1, align 16, !tbaa !0
+  %extract_ptr.2 = getelementptr inbounds nuw i8, ptr %a, i64 32
+  %extract.2 = load <3 x float>, ptr %extract_ptr.2, align 16
+  %2 = tail call fastcc <3 x float> @scaled(<3 x float> %extract.2, float %s)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
+  %out12.2 = getelementptr inbounds nuw i8, ptr %out, i64 32
+  store <3 x float> %2, ptr %out12.2, align 16, !tbaa !0
+  %extract_ptr.3 = getelementptr inbounds nuw i8, ptr %a, i64 48
+  %extract.3 = load <3 x float>, ptr %extract_ptr.3, align 16
+  %3 = tail call fastcc <3 x float> @scaled(<3 x float> %extract.3, float %s)
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
+  %out12.3 = getelementptr inbounds nuw i8, ptr %out, i64 48
+  store <3 x float> %3, ptr %out12.3, align 16, !tbaa !0
+  ret void
+}
+
+; Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(none)
+define internal fastcc noundef <3 x float> @scaled(<3 x float> noundef %v, float noundef %s) unnamed_addr #1 {
+scaled:
+  %.splatinsert = insertelement <3 x float> poison, float %s, i64 0
+  %.splat = shufflevector <3 x float> %.splatinsert, <3 x float> poison, <3 x i32> zeroinitializer
+  %0 = fmul <3 x float> %v, %.splat
+  %1 = fadd <3 x float> %.splat, %0
+  %2 = fadd <3 x float> %1, splat (float -1.000000e+00)
+  ret <3 x float> %2
+}
+
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(none) }
+
+!0 = !{!1, !1, i64 0}
+!1 = !{!"f32", !2, i64 0}
+!2 = !{!"bonsai"}

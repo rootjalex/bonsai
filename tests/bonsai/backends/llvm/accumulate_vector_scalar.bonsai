@@ -1,0 +1,26 @@
+//! flags: -p ssa -b llvm
+
+// A short vector scaled, offset and shifted in place by a scalar, at the
+// LLVM level: the program of ssa/accumulate-vector-scalar.bonsai.
+//
+// What to read for: `scaled` is three operations on `<3 x float>` -- an
+// `fmul` by the splat of `s`, an `fadd` of it, an `fsub` of the splat of
+// one -- or their fused form, and no `extractelement ... 0` feeding a scalar
+// `fmul` whose result is stored back as one float, which is what the x-only
+// lowering looked like before 11-02.
+import stdlib/numerics;
+
+func [[noinline]] scaled(v : vec3f, s : f32) -> vec3f {
+    t : mut vec3f = v;
+    t *= s;
+    t += s;
+    t += -1.0;
+    return t;
+}
+
+func [[export]] run(a : array[vec3f, 4], s : f32, out : mut array[vec3f, 4]) -> void {
+    for i in 0:4 {
+        out[i] = scaled(a[i], s);
+    }
+    return;
+}
