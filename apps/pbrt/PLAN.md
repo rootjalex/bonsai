@@ -20667,9 +20667,56 @@ each bar's schedule. The pbrt rerun under 014d544c is `bash
 apps/benchmark.sh --stages pbrt` into results/{gpu-sweep,cpu-sweep,heatmap}
 (~15 h), started once both peers had checked the compiler.
 
-**Next:** faults 9 and 10 (reproducer tests that fail today, then the
-fixes, in the worktree scratch/wt-faults while the rerun freezes this
-checkout's compiler), then compile the three megakernels, check an image
-on a scene, measure them, update the schedule headers (they still say
-"not measured"), then the fused-shadow plume fault with compute-sanitizer
-(the user's grant).
+**18:20, the state at the context reset.** The rerun is in its GPU sweep
+(three scenes of eight at 16 spp done; my worktree builds made it redo
+cells, so the machine stays quiet from here). In the worktree
+scratch/wt-faults, uncommitted: fault 9 fixed -- a widened block
+parameter's by-name reads are retyped only where that declaration is in
+scope (the blocks it dominates, none where another declaration of the
+name shadows it), not function-wide; fault 10 fixed -- a value the
+linearizer hands a landing from a block that does not reach every way
+into it goes through the pass's slot mechanism, promoted back to a value
+at the pass's end (a block-argument route would be the purer form;
+offered to the user); and the loop pass's rule for which values are the
+loop's, which the afternoon's narrowing had broken for a call's result
+(`y = work(y)` in a loop's arm, read after an early return: "@5 is not
+bound"). My first restatement, "a parameter no jump feeds", misread a
+handle every block carries under its own name as the loop's and tripped
+an assertion on two new shapes; the patch over it is to be replaced by
+the direct statement that a call's result parameters are the loop's.
+Tests written and registered: ssa/vectorize-call-result-after-exit (the
+early return's value tracked out of the loop) and cpp/
+vectorize_call_result_after_exit (gang against one lane at a time; fails
+to compile on this checkout's compiler).
+
+That execution test exposed **fault 11**, present on this checkout's
+compiler too, so not of the worktree's making:
+
+```
+while y < 100 {
+    if flag {                        // uniform
+        if y > 10 { y = work(y); }   // per lane
+    }
+    y = y + 1;
+}
+```
+
+With the flag on and inputs 1 5 11 30 49 60 99.5 -3, one lane at a time
+returns 102 102 102 126 100 122 201 102; the gang returns 100 100 100 100
+100 100 100.5 100: the assignment in the inner arm is lost. The loop pass
+gives the variable's every block parameter inside the loop the header's
+name, so the uniform if's join, fed that name by both ways in -- the
+header's value by one, the inner arm's blend by the other -- is taken for
+a copy of one value and loses its parameter; the blend is computed and
+never read. The fix is the naming (only the header's parameter is the
+loop's carried value), not the join handling. The shape -- a uniform
+test around per-lane work inside a divergent loop -- is everywhere in the
+vectorized megakernels.
+
+**Next:** restate the loop-pass rule directly, fix fault 11's naming,
+rebuild the worktree compiler once, run the new tests by hand, the suite
+in the worktree only once the rerun is over (it needs the machine), then
+commit; then compile the three megakernels, check an image on a scene,
+measure them, update the schedule headers (they still say "not
+measured"), then the fused-shadow plume fault with compute-sanitizer (the
+user's grant).
