@@ -47,11 +47,6 @@ shared_ptr<Value> bool_constant(bool b) {
     return std::make_shared<Value>(Constant{Bool_t::make(), b});
 }
 
-bool is_named_argument(const Value &v, const string &name) {
-    const auto *a = std::get_if<Argument>(&v.data);
-    return a != nullptr && a->name == name;
-}
-
 // A name for a block argument that no block of the function declares yet.
 // The masks and trackers a loop is given are named for what they are, and a
 // loop inside another gets its own: two loops both calling their live mask
@@ -379,10 +374,16 @@ LoopUniformization uniformize_loops(Function &func, const string &entry,
                 if (target == blocks.end() || !in_loop.count(jump->name)) {
                     continue;
                 }
-                // A call continuation's leading argument is the result, which
-                // no jump passes, so the values line up with the last ones.
+                // A call continuation's leading arguments are the results,
+                // which no jump passes, so the values line up with the last
+                // ones. A result is the callee's answer to this iteration's
+                // call (`y = work(y)` in a loop's arm): the loop's, as an
+                // instruction of its blocks is.
                 const size_t offset =
                     target->second->args.size() - jump->args.size();
+                for (size_t j = 0; j < offset; j++) {
+                    defined_in_loop.insert(target->second->args[j].name);
+                }
                 for (size_t j = 0; j < jump->args.size(); j++) {
                     const string &param = target->second->args[j + offset].name;
                     const auto *a = std::get_if<Argument>(&jump->args[j]->data);
