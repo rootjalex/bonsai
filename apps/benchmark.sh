@@ -169,7 +169,7 @@ fi
 #--- the other apps' runners, each taking the lock for itself -------------
 if has rtq; then
   # One invocation for all of rtq's figures (rtq-c0, 11-02): each mesh
-  # measured under its five sections in turn (Embree, FCPW's four-wide
+  # measured under its four sections in turn (Embree, FCPW's four-wide
   # tree, FCPW built scalar, FCPW's GPUScene), one fold, one plot --
   # rtq-queries-cpu, rtq-fcpwb-cpu, rtq-fcpwb-gpu and the mesh table, which
   # takes node counts from the CPU rows. --fresh, since the runner takes a
