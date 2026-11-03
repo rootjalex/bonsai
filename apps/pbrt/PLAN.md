@@ -20643,7 +20643,33 @@ change (every traversal's code) and the tables' provenance, so not made.
 apps/benchmarks.txt (the schedule index the user asked for, 11-01) is
 written but `*.txt` is ignored by .gitignore; not force-added.
 
-**Next:** faults 9 and 10, then compile the three, check an image on a
-scene, measure them into cpu-compare-out-six/-two (a cpu_explore run),
-update the schedule headers (they still say "not measured"), then the
-fused-shadow plume fault with compute-sanitizer (the user's grant).
+**The user's asks of 11-02 afternoon, done the same evening.** "How did
+the `*=` not apply to the whole vector; is it totally fixed?" The whole
+chain: the frontend builds `t *= s` as an accumulate statement of the
+place `t` by the value `s`; `t * s` goes through the binary operation's
+constructor, which broadcasts a scalar against a vector, but the
+accumulate's constructor did not, and the SSA builder passed the scalar
+on; every backend then read and wrote the place in the value's shape --
+one float, the first component. Now closed at every road (014d544c): the
+SSA builder broadcasts (1ab9281e), the statement constructor broadcasts
+wherever an accumulate is built, and the LLVM backend refuses a scalar
+value for a vector place rather than truncating in silence. Tests at the
+IR, LLVM and execution levels (accumulate-vector-scalar). "A variable is
+within a scope; a local declared in a loop body must not carry across
+iterations": the promotion pass now skips the declaring block as a join
+(a local is born at its declaration), so every loopified traversal's
+`tMin`, `tMax` and `gamma` are values; tests loopify-mut-local at the IR
+and execution levels; fourteen goldens re-blessed, reviewed. "PBRT must
+be rerun; we need one script for all the paper's benchmarks":
+apps/benchmark.sh (57d9c42a) with apps/pbrt/figures.sh holding what the
+pbrt figures are made of, shared with plots.sh; apps/benchmarks.md lists
+each bar's schedule. The pbrt rerun under 014d544c is `bash
+apps/benchmark.sh --stages pbrt` into results/{gpu-sweep,cpu-sweep,heatmap}
+(~15 h), started once both peers had checked the compiler.
+
+**Next:** faults 9 and 10 (reproducer tests that fail today, then the
+fixes, in the worktree scratch/wt-faults while the rerun freezes this
+checkout's compiler), then compile the three megakernels, check an image
+on a scene, measure them, update the schedule headers (they still say
+"not measured"), then the fused-shadow plume fault with compute-sanitizer
+(the user's grant).
