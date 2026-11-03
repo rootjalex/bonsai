@@ -4,8 +4,9 @@ Where each schedule of the paper's figures lives (11-01): a bar's label, then
 the schedule file. pbrt's own renderers and the other references are not
 schedules of ours. Each app's `plots/<figure>.txt` says what every bar
 measured, and `apps/benchmark.sh` remakes every figure from the current
-compiler in one go (apps/pbrt/figures.sh holds the pbrt figures' scenes,
-sides, sample counts and repeats).
+compiler in one go and gathers them, with the run's provenance, into
+`apps/plots` (apps/pbrt/figures.sh holds the pbrt figures' scenes, sides,
+sample counts and repeats).
 
 ## pbrt GPU sweep (`apps/pbrt/plots/pbrt-gpu-sweep.pdf`; figures.sh GPU_SIDES)
 

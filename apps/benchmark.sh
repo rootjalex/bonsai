@@ -11,6 +11,7 @@
 #     apps/benchmark.sh --stages pbrt        # the four pbrt stages
 #     apps/benchmark.sh --stages "rtq wosx"  # the other two apps' runners
 #     apps/benchmark.sh --dry-run            # print the commands, run nothing
+#     apps/benchmark.sh --stages gather      # only copy the figures into apps/plots
 #
 # A full run takes about 12 h 20 min on the 32-thread host with one RTX
 # 5090 (measured 11-02/03: the pbrt stages 9 h 31 min, rtq 27 min, wosx
@@ -43,6 +44,12 @@
 #                 cell measured again -> apps/wosx/plots/wosx-gpu-speedup,
 #                 wosx-stars-gpu-speedup (47 min the spheres' ten schedules,
 #                 1 h 34 min the stars' ten)
+#   the end       the paper's figures of the stages above -- each figure's
+#                 .pdf, .png and the .txt that reads it, the tables' .tex --
+#                 and the run's provenance copied from the apps' plots
+#                 directories into apps/plots: one place, the last run's
+#                 (a full run empties it first; `--stages gather` copies
+#                 alone, measuring nothing)
 #
 # What the figures are made of -- scenes, sides, sample counts, repeats --
 # lives in apps/pbrt/figures.sh, which plots.sh reads too. The rtq and wosx
@@ -75,7 +82,8 @@ if [[ -f ~/miniconda3/etc/profile.d/conda.sh ]]; then
 fi
 source apps/pbrt/figures.sh
 
-STAGES="pbrt-gpu pbrt-cpu pbrt-heatmap pbrt-plots rtq wosx"
+DEFAULT_STAGES="pbrt-gpu pbrt-cpu pbrt-heatmap pbrt-plots rtq wosx"
+STAGES="$DEFAULT_STAGES"
 DRY=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -99,6 +107,33 @@ run() {
   echo "+ $*"
   (( DRY )) || "$@"
 }
+
+#--- the paper's figures in one place --------------------------------------
+# Each app's plotting step writes its figures beside its results
+# (apps/pbrt/plots, apps/rtq/plots, apps/wosx/plots). The run ends by
+# copying the paper's -- the figure, its .png, the .txt that reads it, the
+# tables' .tex -- and the run's provenance into apps/plots, so that the last
+# run's figures are in one place (the user, 11-03). No versions: a full run
+# empties the directory first, a run of some stages replaces what it remade
+# and leaves the rest. `--stages gather` does this copy and nothing else.
+PLOTS=apps/plots
+gather_plots() {  # full | part
+  mkdir -p "$PLOTS"
+  [[ "$1" == full ]] && rm -f "$PLOTS"/*
+  local f
+  for f in apps/pbrt/plots/{pbrt-gpu-sweep,pbrt-cpu-sweep,pbrt-gpu-heatmap,pbrt-gpu-profile,pbrt-gpu-depth,scene_statistics}.* \
+           apps/rtq/plots/{rtq-queries-cpu,rtq-fcpwb-cpu,rtq-fcpwb-gpu,rtq-firsthit,rtq-anyhit,rtq-closestpoint,rtq-meshes}.* \
+           apps/wosx/plots/{wosx-gpu-speedup,wosx-stars-gpu-speedup,wosx-meshes,wosx-stars-meshes}.* \
+           "$RESULTS/provenance.txt"; do
+    [[ -f "$f" ]] && cp -f "$f" "$PLOTS/"
+  done
+  echo "=== $PLOTS: $(ls "$PLOTS" | wc -l) files, the last run's figures and its provenance"
+}
+if [[ "$STAGES" == "gather" ]]; then
+  gather_plots part
+  echo "=== apps/benchmark.sh ends $(date '+%F %T'); log $LOG"
+  exit 0
+fi
 
 #--- the machine, the sources, the compiler --------------------------------
 if [[ -f $LOCK ]] && ! grep -q "^$HOLDER " "$LOCK"; then
@@ -199,5 +234,12 @@ if has wosx; then
   run bash apps/wosx/benchmark.sh --fresh --gpu
   run bash apps/wosx/benchmark.sh --fresh --stars --gpu
   echo "=== wosx ends $(date +%T)"
+fi
+if (( DRY )); then
+  echo "+ gather_plots"
+elif [[ "$STAGES" == "$DEFAULT_STAGES" ]]; then
+  gather_plots full
+else
+  gather_plots part
 fi
 echo "=== apps/benchmark.sh ends $(date '+%F %T'); log $LOG"

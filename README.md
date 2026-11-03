@@ -91,7 +91,10 @@ figures (`apps/wosx`). `--stages` picks a subset (`--stages pbrt`, `--stages
 20 min on the paper's machine (measured 11-02/03; the script's header has
 the stages' times). The run is attributed to the
 commit it was built from and refuses uncommitted compiler sources;
-`apps/pbrt/results/provenance.txt` records it. `apps/benchmarks.md` says
+`apps/pbrt/results/provenance.txt` records it. The run ends by gathering
+the figures -- each one's .pdf, .png and the .txt that reads it, the
+tables' .tex -- and that provenance into `apps/plots`, the last run's in
+one place (`--stages gather` only gathers). `apps/benchmarks.md` says
 which schedule file each bar of each figure is.
 
 ### Acknowledgements

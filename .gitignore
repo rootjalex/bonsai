@@ -150,3 +150,6 @@ apps/rtq/plots/
 # the plot.
 apps/wosx/results/
 apps/wosx/plots/
+# The paper's figures of the last apps/benchmark.sh run, gathered from the
+# three directories above, with the run's provenance.
+apps/plots/
