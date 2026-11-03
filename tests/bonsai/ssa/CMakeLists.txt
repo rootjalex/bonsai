@@ -187,6 +187,7 @@ add_bonsai_tests(
     vectorize-bypass-join.bonsai
     vectorize-call-result-after-exit.bonsai
     vectorize-join-one-name-two-values.bonsai
+    vectorize-latch-through-uniform-join.bonsai
     accumulate-vector-scalar.bonsai
     loopify-mut-local.bonsai
     vectorize-bounded-multiplier.bonsai

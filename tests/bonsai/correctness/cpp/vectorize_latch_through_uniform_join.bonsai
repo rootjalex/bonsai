@@ -1,0 +1,58 @@
+//! flags: -p ssa -b cpp -o tests/bonsai/correctness/cpp/vectorize_latch_through_uniform_join
+//! commands: clang++ -std=c++20 -O3 -c tests/bonsai/correctness/cpp/main_vectorize_latch_through_uniform_join.cpp -I. -o tests/bonsai/correctness/cpp/main_vectorize_latch_through_uniform_join.o, clang++ tests/bonsai/correctness/cpp/main_vectorize_latch_through_uniform_join.o tests/bonsai/correctness/cpp/vectorize_latch_through_uniform_join.o -o tests/bonsai/correctness/cpp/vectorize_latch_through_uniform_join, ./tests/bonsai/correctness/cpp/vectorize_latch_through_uniform_join, rm tests/bonsai/correctness/cpp/vectorize_latch_through_uniform_join, rm tests/bonsai/correctness/cpp/main_vectorize_latch_through_uniform_join.o, rm tests/bonsai/correctness/cpp/vectorize_latch_through_uniform_join.h, rm tests/bonsai/correctness/cpp/vectorize_latch_through_uniform_join.o
+
+// ssa/vectorize-latch-through-uniform-join.bonsai run: the gang against the
+// walk one lane at a time, for several round limits and both settings of
+// the uniform flag. With the flag off, the lanes whose work is done in the
+// first round (24.75, 30.25 and 50 below: the escape) must come out as they
+// do one lane at a time while the others recurse; until 11-03 they came
+// out as whatever the registers held, their live flag undefined at the
+// latch from the round another lane recursed in.
+import stdlib/numerics;
+
+func [[noinline]] work(x : f32) -> f32 {
+    return x * 2.0 + 1.0;
+}
+
+func step(x : f32, found : f32, wave : i32, max_wave : i32, flag : bool, tab : array[f32, 8]) -> f32 {
+    if wave == max_wave {
+        return found;
+    }
+    y : f32 = work(x) * 0.25;
+    if y > 20.0 {
+        return found + y;
+    }
+    if y > 0.5 {
+        z : f32 = work(y) + tab[select(y > 10.0, 1u, 0u)];
+        if flag {
+            if z > 13.0 {
+                w : f32 = tab[select(z > 15.0, 2u, 3u)];
+                if z + w > 15.0 {
+                    return step(z * 0.25, found + 2.0, wave + 1, max_wave, flag, tab);
+                }
+                return found - 1.0;
+            }
+        }
+        return step(z - 4.0, found + 1.0, wave + 1, max_wave, flag, tab);
+    }
+    return step(y + 3.0, found + 0.5, wave + 1, max_wave, flag, tab);
+}
+
+func [[export]] run(a : array[f32, 8], max_wave : i32, flag : bool, tab : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(a[i], 0.0, 0, max_wave, flag, tab);
+    }
+    return;
+}
+
+func [[export]] run_one(a : array[f32, 8], max_wave : i32, flag : bool, tab : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(a[i], 0.0, 0, max_wave, flag, tab);
+    }
+    return;
+}
+
+schedule {
+    step.loopify();
+    run.vectorize(i);
+}

@@ -1,0 +1,228 @@
+; ModuleID = 'bonsai_module'
+source_filename = "bonsai_module"
+
+; Function Attrs: mustprogress
+define void @run(ptr noundef %a_buffer, i32 noundef %max_wave, i1 noundef %flag, ptr noundef %tab_buffer, ptr noundef %out_buffer) local_unnamed_addr #0 {
+run:
+  %a = tail call ptr @bonsai_buffer_require(ptr %a_buffer, i32 1)
+  %tab = tail call ptr @bonsai_buffer_require(ptr %tab_buffer, i32 1)
+  %out = tail call ptr @bonsai_buffer_require(ptr %out_buffer, i32 1)
+  %extract = load <8 x float>, ptr %a, align 4
+  %.splatinsert60.i = insertelement <8 x i32> poison, i32 %max_wave, i64 0
+  %.splat61.i = shufflevector <8 x i32> %.splatinsert60.i, <8 x i32> poison, <8 x i32> zeroinitializer
+  %extract_up.i = getelementptr i8, ptr %tab, i64 8589934592
+  %0 = xor i1 %flag, true
+  %.splatinsert62.i = insertelement <8 x i1> poison, i1 %0, i64 0
+  %.splat63.i = shufflevector <8 x i1> %.splatinsert62.i, <8 x i1> poison, <8 x i32> zeroinitializer
+  br label %"step!loop!loop.i"
+
+"step!loop!loop.i":                               ; preds = %"!latch.i", %run
+  %"@11399.i" = phi <8 x i1> [ undef, %run ], [ %"@11352.i", %"!latch.i" ]
+  %"@10198.i" = phi <8 x i1> [ undef, %run ], [ %"@10151.i", %"!latch.i" ]
+  %"@9097.i" = phi <8 x i1> [ undef, %run ], [ %"@9050.i", %"!latch.i" ]
+  %"@7896.i" = phi <8 x i32> [ undef, %run ], [ %"@7849.i", %"!latch.i" ]
+  %"@7095.i" = phi <8 x float> [ undef, %run ], [ %"@7048.i", %"!latch.i" ]
+  %"@6294.i" = phi <8 x float> [ undef, %run ], [ %"@6247.i", %"!latch.i" ]
+  %"!track.then_0.092.i" = phi <8 x float> [ undef, %run ], [ %"@17457.i", %"!latch.i" ]
+  %"!track.then_3.190.i" = phi <8 x float> [ undef, %run ], [ %"@16156.i", %"!latch.i" ]
+  %"!track.then_3.088.i" = phi <8 x float> [ undef, %run ], [ %"@14955.i", %"!latch.i" ]
+  %"!track.merge_13.086.i" = phi <8 x float> [ undef, %run ], [ %"@13754.i", %"!latch.i" ]
+  %"!exit.then_382.i" = phi <8 x i1> [ zeroinitializer, %run ], [ %"@11352.i", %"!latch.i" ]
+  %"!exit.merge_1381.i" = phi <8 x i1> [ zeroinitializer, %run ], [ %"@10151.i", %"!latch.i" ]
+  %"!live80.i" = phi <8 x i1> [ splat (i1 true), %run ], [ %"@9050.i", %"!latch.i" ]
+  %"wave!loop!loop79.i" = phi <8 x i32> [ zeroinitializer, %run ], [ %"wave!loop!loop!skip.i", %"!latch.i" ]
+  %"found!loop!loop78.i" = phi <8 x float> [ zeroinitializer, %run ], [ %"found!loop!loop!skip.i", %"!latch.i" ]
+  %"x!loop!loop77.i" = phi <8 x float> [ %extract, %run ], [ %"x!loop!loop!skip.i", %"!latch.i" ]
+  %1 = icmp eq <8 x i32> %"wave!loop!loop79.i", %.splat61.i
+  %2 = xor <8 x i1> %1, splat (i1 true)
+  %3 = and <8 x i1> %"!live80.i", %2
+  %4 = and <8 x i1> %"!live80.i", %1
+  %not..i = xor <8 x i1> %4, splat (i1 true)
+  %5 = and <8 x i1> %"@9097.i", %not..i
+  %6 = select <8 x i1> %4, <8 x i1> %"!exit.merge_1381.i", <8 x i1> %"@10198.i"
+  %7 = select <8 x i1> %4, <8 x i1> %"!exit.then_382.i", <8 x i1> %"@11399.i"
+  %8 = select <8 x i1> %4, <8 x float> %"found!loop!loop78.i", <8 x float> %"!track.then_0.092.i"
+  %9 = bitcast <8 x i1> %3 to i8
+  %.not70.i = icmp eq i8 %9, 0
+  br i1 %.not70.i, label %"!latch.i", label %"!merge_1.i"
+
+"!merge_1.i":                                     ; preds = %"step!loop!loop.i"
+  %10 = tail call fastcc <8 x float> @"work$gang8_v0$masked"(<8 x float> %"x!loop!loop77.i")
+  %11 = fmul <8 x float> %10, splat (float 2.500000e-01)
+  %12 = fcmp ogt <8 x float> %11, splat (float 2.000000e+01)
+  %13 = xor <8 x i1> %12, splat (i1 true)
+  %14 = and <8 x i1> %3, %13
+  %15 = and <8 x i1> %3, %12
+  %not.71.i = xor <8 x i1> %15, splat (i1 true)
+  %16 = and <8 x i1> %5, %not.71.i
+  %17 = select <8 x i1> %15, <8 x i1> %"!exit.merge_1381.i", <8 x i1> %6
+  %18 = select <8 x i1> %15, <8 x i1> splat (i1 true), <8 x i1> %7
+  %19 = select <8 x i1> %15, <8 x float> %"found!loop!loop78.i", <8 x float> %"!track.then_3.088.i"
+  %20 = select <8 x i1> %15, <8 x float> %11, <8 x float> %"!track.then_3.190.i"
+  %21 = select <8 x i1> %15, <8 x float> %"!track.then_0.092.i", <8 x float> %8
+  %22 = bitcast <8 x i1> %14 to i8
+  %.not72.i = icmp eq i8 %22, 0
+  br i1 %.not72.i, label %"!latch.i", label %"!merge_4.i"
+
+"!merge_4.i":                                     ; preds = %"!merge_1.i"
+  %23 = fcmp ogt <8 x float> %11, splat (float 5.000000e-01)
+  %24 = xor <8 x i1> %23, splat (i1 true)
+  %25 = and <8 x i1> %3, %24
+  %26 = and <8 x i1> %23, %14
+  %27 = bitcast <8 x i1> %26 to i8
+  %.not73.i = icmp eq i8 %27, 0
+  br i1 %.not73.i, label %"!merge_4.!merge_6_crit_edge.i", label %"!then_5.i"
+
+"!merge_4.!merge_6_crit_edge.i":                  ; preds = %"!merge_4.i"
+  %.pre.i = add <8 x i32> %"wave!loop!loop79.i", splat (i32 1)
+  br label %"!merge_6.i"
+
+"!then_5.i":                                      ; preds = %"!merge_4.i"
+  %28 = tail call fastcc <8 x float> @"work$gang8_v0$masked"(<8 x float> %11)
+  %29 = fcmp ogt <8 x float> %11, splat (float 1.000000e+01)
+  %30 = zext <8 x i1> %29 to <8 x i32>
+  %extract_flip.i = or disjoint <8 x i32> %30, splat (i32 -2147483648)
+  %31 = sext <8 x i32> %extract_flip.i to <8 x i64>
+  %extract_ptrs.i = getelementptr [4 x i8], ptr %extract_up.i, <8 x i64> %31
+  %extract.i = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> align 4 %extract_ptrs.i, <8 x i1> %26, <8 x float> zeroinitializer)
+  %32 = fadd <8 x float> %28, %extract.i
+  %33 = and <8 x i1> %.splat63.i, %26
+  br i1 %flag, label %"!then_8.i", label %"!merge_9.i"
+
+"!then_8.i":                                      ; preds = %"!then_5.i"
+  %34 = fcmp ogt <8 x float> %32, splat (float 1.300000e+01)
+  %35 = xor <8 x i1> %34, splat (i1 true)
+  %36 = and <8 x i1> %26, %35
+  %37 = and <8 x i1> %26, %34
+  %38 = bitcast <8 x i1> %37 to i8
+  %.not74.i = icmp eq i8 %38, 0
+  br i1 %.not74.i, label %"!merge_9.i", label %"!then_10.i"
+
+"!then_10.i":                                     ; preds = %"!then_8.i"
+  %39 = fcmp ogt <8 x float> %32, splat (float 1.500000e+01)
+  %40 = select <8 x i1> %39, <8 x i64> splat (i64 -2147483646), <8 x i64> splat (i64 -2147483645)
+  %extract_ptrs66.i = getelementptr [4 x i8], ptr %extract_up.i, <8 x i64> %40
+  %extract67.i = tail call <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr> align 4 %extract_ptrs66.i, <8 x i1> %37, <8 x float> zeroinitializer)
+  %41 = fadd <8 x float> %32, %extract67.i
+  %42 = fcmp ogt <8 x float> %41, splat (float 1.500000e+01)
+  %43 = xor <8 x i1> %42, splat (i1 true)
+  %44 = and <8 x i1> %37, %43
+  %45 = and <8 x i1> %37, %42
+  %46 = fmul <8 x float> %32, splat (float 2.500000e-01)
+  %47 = fadd <8 x float> %"found!loop!loop78.i", splat (float 2.000000e+00)
+  %48 = add <8 x i32> %"wave!loop!loop79.i", splat (i32 1)
+  %49 = select <8 x i1> %45, <8 x float> %46, <8 x float> %"@6294.i"
+  %50 = select <8 x i1> %45, <8 x float> %47, <8 x float> %"@7095.i"
+  %51 = select <8 x i1> %45, <8 x i32> %48, <8 x i32> %"@7896.i"
+  %not.76.i = xor <8 x i1> %44, splat (i1 true)
+  %52 = and <8 x i1> %16, %not.76.i
+  %53 = select <8 x i1> %44, <8 x i1> splat (i1 true), <8 x i1> %17
+  %54 = select <8 x i1> %44, <8 x i1> %"!exit.then_382.i", <8 x i1> %18
+  %55 = select <8 x i1> %44, <8 x float> %"found!loop!loop78.i", <8 x float> %"!track.merge_13.086.i"
+  %56 = select <8 x i1> %44, <8 x float> %"!track.then_3.088.i", <8 x float> %19
+  %57 = select <8 x i1> %44, <8 x float> %"!track.then_3.190.i", <8 x float> %20
+  %58 = select <8 x i1> %44, <8 x float> %"!track.then_0.092.i", <8 x float> %21
+  %59 = or <8 x i1> %25, %45
+  br label %"!merge_9.i"
+
+"!merge_9.i":                                     ; preds = %"!then_10.i", %"!then_8.i", %"!then_5.i"
+  %"@41!join.i" = phi <8 x i1> [ zeroinitializer, %"!then_5.i" ], [ %36, %"!then_10.i" ], [ %36, %"!then_8.i" ]
+  %"@45!join0.i" = phi <8 x i1> [ %25, %"!then_5.i" ], [ %59, %"!then_10.i" ], [ %25, %"!then_8.i" ]
+  %"@6225.i" = phi <8 x float> [ %"@6294.i", %"!then_5.i" ], [ %49, %"!then_10.i" ], [ %"@6294.i", %"!then_8.i" ]
+  %"@7026.i" = phi <8 x float> [ %"@7095.i", %"!then_5.i" ], [ %50, %"!then_10.i" ], [ %"@7095.i", %"!then_8.i" ]
+  %"@7827.i" = phi <8 x i32> [ %"@7896.i", %"!then_5.i" ], [ %51, %"!then_10.i" ], [ %"@7896.i", %"!then_8.i" ]
+  %"@9028.i" = phi <8 x i1> [ %16, %"!then_5.i" ], [ %52, %"!then_10.i" ], [ %16, %"!then_8.i" ]
+  %"@10129.i" = phi <8 x i1> [ %17, %"!then_5.i" ], [ %53, %"!then_10.i" ], [ %17, %"!then_8.i" ]
+  %"@11330.i" = phi <8 x i1> [ %18, %"!then_5.i" ], [ %54, %"!then_10.i" ], [ %18, %"!then_8.i" ]
+  %"@13732.i" = phi <8 x float> [ %"!track.merge_13.086.i", %"!then_5.i" ], [ %55, %"!then_10.i" ], [ %"!track.merge_13.086.i", %"!then_8.i" ]
+  %"@14933.i" = phi <8 x float> [ %19, %"!then_5.i" ], [ %56, %"!then_10.i" ], [ %19, %"!then_8.i" ]
+  %"@16134.i" = phi <8 x float> [ %20, %"!then_5.i" ], [ %57, %"!then_10.i" ], [ %20, %"!then_8.i" ]
+  %"@17435.i" = phi <8 x float> [ %21, %"!then_5.i" ], [ %58, %"!then_10.i" ], [ %21, %"!then_8.i" ]
+  %60 = or <8 x i1> %33, %"@41!join.i"
+  %61 = fadd <8 x float> %32, splat (float -4.000000e+00)
+  %62 = fadd <8 x float> %"found!loop!loop78.i", splat (float 1.000000e+00)
+  %63 = add <8 x i32> %"wave!loop!loop79.i", splat (i32 1)
+  %64 = select <8 x i1> %60, <8 x float> %61, <8 x float> %"@6225.i"
+  %65 = select <8 x i1> %60, <8 x float> %62, <8 x float> %"@7026.i"
+  %66 = select <8 x i1> %60, <8 x i32> %63, <8 x i32> %"@7827.i"
+  %67 = or <8 x i1> %"@41!join.i", %"@45!join0.i"
+  %68 = or <8 x i1> %33, %67
+  br label %"!merge_6.i"
+
+"!merge_6.i":                                     ; preds = %"!merge_9.i", %"!merge_4.!merge_6_crit_edge.i"
+  %.pre-phi.i = phi <8 x i32> [ %.pre.i, %"!merge_4.!merge_6_crit_edge.i" ], [ %63, %"!merge_9.i" ]
+  %"@45!join.i" = phi <8 x i1> [ %25, %"!merge_4.!merge_6_crit_edge.i" ], [ %68, %"!merge_9.i" ]
+  %"@6236.i" = phi <8 x float> [ %"@6294.i", %"!merge_4.!merge_6_crit_edge.i" ], [ %64, %"!merge_9.i" ]
+  %"@7037.i" = phi <8 x float> [ %"@7095.i", %"!merge_4.!merge_6_crit_edge.i" ], [ %65, %"!merge_9.i" ]
+  %"@7838.i" = phi <8 x i32> [ %"@7896.i", %"!merge_4.!merge_6_crit_edge.i" ], [ %66, %"!merge_9.i" ]
+  %"@9039.i" = phi <8 x i1> [ %16, %"!merge_4.!merge_6_crit_edge.i" ], [ %"@9028.i", %"!merge_9.i" ]
+  %"@10140.i" = phi <8 x i1> [ %17, %"!merge_4.!merge_6_crit_edge.i" ], [ %"@10129.i", %"!merge_9.i" ]
+  %"@11341.i" = phi <8 x i1> [ %18, %"!merge_4.!merge_6_crit_edge.i" ], [ %"@11330.i", %"!merge_9.i" ]
+  %"@13743.i" = phi <8 x float> [ %"!track.merge_13.086.i", %"!merge_4.!merge_6_crit_edge.i" ], [ %"@13732.i", %"!merge_9.i" ]
+  %"@14944.i" = phi <8 x float> [ %19, %"!merge_4.!merge_6_crit_edge.i" ], [ %"@14933.i", %"!merge_9.i" ]
+  %"@16145.i" = phi <8 x float> [ %20, %"!merge_4.!merge_6_crit_edge.i" ], [ %"@16134.i", %"!merge_9.i" ]
+  %"@17446.i" = phi <8 x float> [ %21, %"!merge_4.!merge_6_crit_edge.i" ], [ %"@17435.i", %"!merge_9.i" ]
+  %69 = fadd <8 x float> %11, splat (float 3.000000e+00)
+  %70 = fadd <8 x float> %"found!loop!loop78.i", splat (float 5.000000e-01)
+  %71 = select <8 x i1> %25, <8 x float> %69, <8 x float> %"@6236.i"
+  %72 = select <8 x i1> %25, <8 x float> %70, <8 x float> %"@7037.i"
+  %73 = select <8 x i1> %25, <8 x i32> %.pre-phi.i, <8 x i32> %"@7838.i"
+  %74 = select <8 x i1> %"@45!join.i", <8 x float> %72, <8 x float> %"found!loop!loop78.i"
+  %75 = select <8 x i1> %"@45!join.i", <8 x i1> %"!live80.i", <8 x i1> %"@9039.i"
+  %76 = select <8 x i1> %"@45!join.i", <8 x i1> %"!exit.merge_1381.i", <8 x i1> %"@10140.i"
+  %77 = select <8 x i1> %"@45!join.i", <8 x i1> %"!exit.then_382.i", <8 x i1> %"@11341.i"
+  %78 = select <8 x i1> %"@45!join.i", <8 x float> %"!track.merge_13.086.i", <8 x float> %"@13743.i"
+  %79 = select <8 x i1> %"@45!join.i", <8 x float> %"!track.then_3.088.i", <8 x float> %"@14944.i"
+  %80 = select <8 x i1> %"@45!join.i", <8 x float> %"!track.then_3.190.i", <8 x float> %"@16145.i"
+  %81 = select <8 x i1> %"@45!join.i", <8 x float> %"!track.then_0.092.i", <8 x float> %"@17446.i"
+  br label %"!latch.i"
+
+"!latch.i":                                       ; preds = %"!merge_6.i", %"!merge_1.i", %"step!loop!loop.i"
+  %"x!loop!loop!skip.i" = phi <8 x float> [ undef, %"step!loop!loop.i" ], [ undef, %"!merge_1.i" ], [ %71, %"!merge_6.i" ]
+  %"found!loop!loop!skip.i" = phi <8 x float> [ %"found!loop!loop78.i", %"step!loop!loop.i" ], [ %"found!loop!loop78.i", %"!merge_1.i" ], [ %74, %"!merge_6.i" ]
+  %"wave!loop!loop!skip.i" = phi <8 x i32> [ undef, %"step!loop!loop.i" ], [ undef, %"!merge_1.i" ], [ %73, %"!merge_6.i" ]
+  %"@6247.i" = phi <8 x float> [ %"@6294.i", %"step!loop!loop.i" ], [ %"@6294.i", %"!merge_1.i" ], [ %71, %"!merge_6.i" ]
+  %"@7048.i" = phi <8 x float> [ %"@7095.i", %"step!loop!loop.i" ], [ %"@7095.i", %"!merge_1.i" ], [ %72, %"!merge_6.i" ]
+  %"@7849.i" = phi <8 x i32> [ %"@7896.i", %"step!loop!loop.i" ], [ %"@7896.i", %"!merge_1.i" ], [ %73, %"!merge_6.i" ]
+  %"@9050.i" = phi <8 x i1> [ %5, %"step!loop!loop.i" ], [ %16, %"!merge_1.i" ], [ %75, %"!merge_6.i" ]
+  %"@10151.i" = phi <8 x i1> [ %6, %"step!loop!loop.i" ], [ %17, %"!merge_1.i" ], [ %76, %"!merge_6.i" ]
+  %"@11352.i" = phi <8 x i1> [ %7, %"step!loop!loop.i" ], [ %18, %"!merge_1.i" ], [ %77, %"!merge_6.i" ]
+  %"@13754.i" = phi <8 x float> [ %"!track.merge_13.086.i", %"step!loop!loop.i" ], [ %"!track.merge_13.086.i", %"!merge_1.i" ], [ %78, %"!merge_6.i" ]
+  %"@14955.i" = phi <8 x float> [ %"!track.then_3.088.i", %"step!loop!loop.i" ], [ %19, %"!merge_1.i" ], [ %79, %"!merge_6.i" ]
+  %"@16156.i" = phi <8 x float> [ %"!track.then_3.190.i", %"step!loop!loop.i" ], [ %20, %"!merge_1.i" ], [ %80, %"!merge_6.i" ]
+  %"@17457.i" = phi <8 x float> [ %8, %"step!loop!loop.i" ], [ %21, %"!merge_1.i" ], [ %81, %"!merge_6.i" ]
+  %82 = bitcast <8 x i1> %"@9050.i" to i8
+  %.not.i = icmp eq i8 %82, 0
+  br i1 %.not.i, label %"step$gang8_v0.exit", label %"step!loop!loop.i"
+
+"step$gang8_v0.exit":                             ; preds = %"!latch.i"
+  %83 = xor <8 x i1> %"@10151.i", splat (i1 true)
+  %84 = fadd <8 x float> %"@13754.i", splat (float -1.000000e+00)
+  %.not69.i = or <8 x i1> %"@10151.i", %"@11352.i"
+  %85 = and <8 x i1> %"@11352.i", %83
+  %86 = fadd <8 x float> %"@14955.i", %"@16156.i"
+  %87 = select <8 x i1> %85, <8 x float> %86, <8 x float> %84
+  %88 = select <8 x i1> %.not69.i, <8 x float> %87, <8 x float> %"@17457.i"
+  tail call void @bonsai_buffer_mark_dirty(ptr %out_buffer, i32 1)
+  store <8 x float> %88, ptr %out, align 4
+  ret void
+}
+
+; Function Attrs: mustprogress nofree noinline norecurse nosync nounwind willreturn memory(none)
+define internal fastcc noundef <8 x float> @"work$gang8_v0$masked"(<8 x float> noundef %x) unnamed_addr #1 {
+"work$gang8_v0$masked":
+  %0 = fmul <8 x float> %x, splat (float 2.000000e+00)
+  %1 = fadd <8 x float> %0, splat (float 1.000000e+00)
+  ret <8 x float> %1
+}
+
+declare ptr @bonsai_buffer_require(ptr, i32) local_unnamed_addr
+
+declare void @bonsai_buffer_mark_dirty(ptr, i32) local_unnamed_addr
+
+; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(read)
+declare <8 x float> @llvm.masked.gather.v8f32.v8p0(<8 x ptr>, <8 x i1>, <8 x float>) #2
+
+attributes #0 = { mustprogress }
+attributes #1 = { mustprogress nofree noinline norecurse nosync nounwind willreturn memory(none) }
+attributes #2 = { mustprogress nocallback nofree nosync nounwind willreturn memory(read) }

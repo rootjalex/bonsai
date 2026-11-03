@@ -115,6 +115,7 @@ add_bonsai_tests(
     vectorize_packet_any.bonsai
     vectorize_packet_traversal.bonsai
     vectorize_packet_wide.bonsai
+    vectorize_latch_through_uniform_join.bonsai
     vectorize_scale.bonsai
     vectorize_vector_accumulate.bonsai
     vectorize_vector_store.bonsai

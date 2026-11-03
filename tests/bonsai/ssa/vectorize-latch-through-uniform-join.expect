@@ -1,0 +1,450 @@
+type Float = f32
+type Half = f16
+type vec2f = f32x2
+type vec3f = f32x3
+type vec3h = f16x3
+type vec4f = f32x4
+
+func [[export]] run(a : f32[8], max_wave : i32, flag : bool, tab : f32[8], out : mut f32[8]) -> void {
+  let @0 = a[ramp(0, 1, 8)] in
+  let @1 = step$gang8_v0(@0, 0f, 0, max_wave, flag, tab) in
+  let i = ramp(0, 1, 8) in
+  out[ramp(0, 1, 8)] = @1
+  return
+}
+
+func step(x : f32, found : f32, wave : i32, max_wave : i32, flag : bool, tab : f32[8]) -> f32 {
+  x!loop : mut f32
+  found!loop : mut f32
+  wave!loop : mut i32
+  x!loop = x
+  found!loop = found
+  wave!loop = wave
+  while (!((*wave!loop) == max_wave)) {
+    let @1 = work((*x!loop)) in
+    let y = @1 * 0.25f in
+    let @3 = 20f < y in
+    if (@3) {
+      let @4 = (*found!loop) + y in
+      return @4
+    } else {
+      let @5 = 0.5f < y in
+      if (@5) {
+        let @6 = work(y) in
+        let @30 = reinterpret_cast<i32>(10f) in
+        let @31 = reinterpret_cast<i32>(y) in
+        let @32 = @30 < @31 in
+        let @8 = cast<u32>(@32) in
+        let @9 = tab[@8] in
+        let z = @6 + @9 in
+        if (flag) {
+          let @11 = 13f < z in
+          if (@11) {
+            let @33 = reinterpret_cast<i32>(15f) in
+            let @34 = reinterpret_cast<i32>(z) in
+            let @35 = @33 < @34 in
+            let @13 = select(@35, 2u, 3u) in
+            let w = tab[@13] in
+            let @15 = z + w in
+            let @16 = 15f < @15 in
+            if (@16) {
+              let @17 = z * 0.25f in
+              let @18 = (*found!loop) + 2f in
+              let @19 = (*wave!loop) + 1 in
+              x!loop = @17
+              found!loop = @18
+              wave!loop = @19
+              continue
+            } else {
+              let @21 = (*found!loop) - 1f in
+              return @21
+            }
+          }
+        }
+        let @22 = z - 4f in
+        let @23 = (*found!loop) + 1f in
+        let @24 = (*wave!loop) + 1 in
+        x!loop = @22
+        found!loop = @23
+        wave!loop = @24
+      } else {
+        let @26 = y + 3f in
+        let @27 = (*found!loop) + 0.5f in
+        let @28 = (*wave!loop) + 1 in
+        x!loop = @26
+        found!loop = @27
+        wave!loop = @28
+      }
+    }
+  }
+  return (*found!loop)
+}
+
+func step$gang8_v0(x : f32x8, found : f32, wave : i32, max_wave : i32, flag : bool, tab : f32[8]) -> f32x8 {
+  x!loop!loop : mut f32x8
+  found!loop!loop : mut f32x8
+  wave!loop!loop : mut i32x8
+  !live : mut boolx8
+  !exit.merge_13 : mut boolx8
+  !exit.then_3 : mut boolx8
+  !exit.then_0 : mut boolx8
+  !track.merge_13.0 : mut f32x8
+  !track.then_3.0 : mut f32x8
+  !track.then_3.1 : mut f32x8
+  !track.then_0.0 : mut f32x8
+  @62 : mut f32x8
+  @70 : mut f32x8
+  @78 : mut i32x8
+  @90 : mut boolx8
+  @101 : mut boolx8
+  @113 : mut boolx8
+  @126 : mut boolx8
+  @137 : mut f32x8
+  @149 : mut f32x8
+  @161 : mut f32x8
+  @174 : mut f32x8
+  @45!join : mut boolx8
+  @41!join0 : mut boolx8
+  @52!join : mut boolx8
+  @41!join : mut boolx8
+  @45!join0 : mut boolx8
+  @45!join1 : mut boolx8
+  x!loop!latch!skip : mut f32x8
+  found!loop!latch!skip : mut f32x8
+  wave!loop!latch!skip : mut i32x8
+  !live.upd!skip : mut boolx8
+  !exit.merge_13.upd!skip : mut boolx8
+  !exit.then_3.upd!skip : mut boolx8
+  !exit.then_0.upd!skip : mut boolx8
+  !track.merge_13.0.upd!skip : mut f32x8
+  !track.then_3.0.upd!skip : mut f32x8
+  !track.then_3.1.upd!skip : mut f32x8
+  !track.then_0.0.upd!skip : mut f32x8
+  x!loop!loop!skip : mut f32x8
+  found!loop!loop!skip : mut f32x8
+  wave!loop!loop!skip : mut i32x8
+  let @240 = f32x8(found) in
+  let @241 = i32x8(wave) in
+  let @242 = boolx8(true) in
+  let @243 = boolx8(false) in
+  x!loop!loop = x
+  found!loop!loop = @240
+  wave!loop!loop = @241
+  !live = @242
+  !exit.merge_13 = @243
+  !exit.then_3 = @243
+  !exit.then_0 = @243
+  !track.merge_13.0 = undef
+  !track.then_3.0 = undef
+  !track.then_3.1 = undef
+  !track.then_0.0 = undef
+  @62 = undef
+  @70 = undef
+  @78 = undef
+  @90 = undef
+  @101 = undef
+  @113 = undef
+  @126 = undef
+  @137 = undef
+  @149 = undef
+  @161 = undef
+  @174 = undef
+  while (reduce<any>((*!live))) {
+    let @186 = i32x8(max_wave) in
+    let @0 = (*wave!loop!loop) == @186 in
+    let @246 = !@0 in
+    let @32 = (*!live) && @246 in
+    let @33 = (*!live) && @0 in
+    let @87 = select(@33, @243, (*!live)) in
+    let @96 = select(@33, @243, (*@90)) in
+    let @107 = select(@33, (*!exit.merge_13), (*@101)) in
+    let @119 = select(@33, (*!exit.then_3), (*@113)) in
+    let @123 = select(@33, @242, (*!exit.then_0)) in
+    let @132 = select(@33, @242, (*@126)) in
+    let @143 = select(@33, (*!track.merge_13.0), (*@137)) in
+    let @155 = select(@33, (*!track.then_3.0), (*@149)) in
+    let @167 = select(@33, (*!track.then_3.1), (*@161)) in
+    let @171 = select(@33, (*found!loop!loop), (*!track.then_0.0)) in
+    let @180 = select(@33, (*found!loop!loop), (*@174)) in
+    let @58 = reduce<any>(@32) in
+    if (@58) {
+      let @1 = work$gang8_v0$masked((*x!loop!loop), @32) in
+      let @193 = f32x8(0.25f) in
+      let y = @1 * @193 in
+      let @194 = f32x8(20f) in
+      let @3 = @194 < y in
+      let @195 = boolx8(false) in
+      let @196 = boolx8(true) in
+      let @247 = !@3 in
+      let @35 = @32 && @247 in
+      let @36 = @32 && @3 in
+      let @88 = select(@36, @195, @87) in
+      let @94 = select(@36, @195, @96) in
+      let @105 = select(@36, (*!exit.merge_13), @107) in
+      let @111 = select(@36, @196, (*!exit.then_3)) in
+      let @117 = select(@36, @196, @119) in
+      let @124 = select(@36, (*!exit.then_0), @123) in
+      let @130 = select(@36, (*!exit.then_0), @132) in
+      let @141 = select(@36, (*!track.merge_13.0), @143) in
+      let @147 = select(@36, (*found!loop!loop), (*!track.then_3.0)) in
+      let @153 = select(@36, (*found!loop!loop), @155) in
+      let @159 = select(@36, y, (*!track.then_3.1)) in
+      let @165 = select(@36, y, @167) in
+      let @172 = select(@36, (*!track.then_0.0), @171) in
+      let @178 = select(@36, (*!track.then_0.0), @180) in
+      let @59 = reduce<any>(@35) in
+      if (@59) {
+        let @201 = f32x8(0.5f) in
+        let @5 = @201 < y in
+        let @248 = !@5 in
+        let @38 = @35 && @248 in
+        let @39 = @35 && @5 in
+        let @60 = reduce<any>(@39) in
+        if (@60) {
+          let @6 = work$gang8_v0$masked(y, @39) in
+          let @204 = f32x8(10f) in
+          let @7 = @204 < y in
+          let @8 = cast<u32x8>(@7) in
+          let @9 = masked_extract(tab[@8], @39) in
+          let z = @6 + @9 in
+          let @249 = !flag in
+          let @205 = boolx8(@249) in
+          let @47 = @39 && @205 in
+          let @238 = boolx8(false) in
+          if (flag) {
+            let @207 = f32x8(13f) in
+            let @11 = @207 < z in
+            let @209 = boolx8(true) in
+            let @250 = !@11 in
+            let @41 = @39 && @250 in
+            let @42 = @39 && @11 in
+            let @61 = reduce<any>(@42) in
+            if (@61) {
+              let @210 = f32x8(15f) in
+              let @12 = @210 < z in
+              let @211 = u32x8(2u) in
+              let @212 = u32x8(3u) in
+              let @13 = select(@12, @211, @212) in
+              let w = masked_extract(tab[@13], @42) in
+              let @15 = z + w in
+              let @16 = @210 < @15 in
+              let @251 = !@16 in
+              let @44 = @42 && @251 in
+              let @45 = @42 && @16 in
+              let @216 = f32x8(0.25f) in
+              let @17 = z * @216 in
+              let @217 = f32x8(2f) in
+              let @18 = (*found!loop!loop) + @217 in
+              let @218 = i32x8(1) in
+              let @19 = (*wave!loop!loop) + @218 in
+              let @68 = select(@45, @17, (*@62)) in
+              let @76 = select(@45, @18, (*@70)) in
+              let @84 = select(@45, @19, (*@78)) in
+              let @89 = select(@44, @238, @88) in
+              let @92 = select(@44, @238, @94) in
+              let @100 = select(@44, @209, (*!exit.merge_13)) in
+              let @103 = select(@44, @209, @105) in
+              let @112 = select(@44, (*!exit.then_3), @111) in
+              let @115 = select(@44, (*!exit.then_3), @117) in
+              let @125 = select(@44, (*!exit.then_0), @124) in
+              let @128 = select(@44, (*!exit.then_0), @130) in
+              let @136 = select(@44, (*found!loop!loop), (*!track.merge_13.0)) in
+              let @139 = select(@44, (*found!loop!loop), @141) in
+              let @148 = select(@44, (*!track.then_3.0), @147) in
+              let @151 = select(@44, (*!track.then_3.0), @153) in
+              let @160 = select(@44, (*!track.then_3.1), @159) in
+              let @163 = select(@44, (*!track.then_3.1), @165) in
+              let @173 = select(@44, (*!track.then_0.0), @172) in
+              let @176 = select(@44, (*!track.then_0.0), @178) in
+              @45!join1 = @45
+              x!loop!latch!skip = @17
+              found!loop!latch!skip = @18
+              wave!loop!latch!skip = @19
+              !live.upd!skip = @89
+              !exit.merge_13.upd!skip = @100
+              !exit.then_3.upd!skip = @112
+              !exit.then_0.upd!skip = @125
+              !track.merge_13.0.upd!skip = @136
+              !track.then_3.0.upd!skip = @148
+              !track.then_3.1.upd!skip = @160
+              !track.then_0.0.upd!skip = @173
+              @62 = @68
+              @70 = @76
+              @78 = @84
+              @90 = @92
+              @101 = @103
+              @113 = @115
+              @126 = @128
+              @137 = @139
+              @149 = @151
+              @161 = @163
+              @174 = @176
+            } else {
+              @45!join1 = @238
+              x!loop!latch!skip = undef
+              found!loop!latch!skip = undef
+              wave!loop!latch!skip = undef
+              !live.upd!skip = @88
+              !exit.merge_13.upd!skip = (*!exit.merge_13)
+              !exit.then_3.upd!skip = @111
+              !exit.then_0.upd!skip = @124
+              !track.merge_13.0.upd!skip = (*!track.merge_13.0)
+              !track.then_3.0.upd!skip = @147
+              !track.then_3.1.upd!skip = @159
+              !track.then_0.0.upd!skip = @172
+              @90 = @94
+              @101 = @105
+              @113 = @117
+              @126 = @130
+              @137 = @141
+              @149 = @153
+              @161 = @165
+              @174 = @178
+            }
+            @41!join = @41
+            @45!join0 = (*@45!join1)
+          } else {
+            @41!join = @238
+            @45!join0 = @238
+            @90 = @94
+            @101 = @105
+            @113 = @117
+            @126 = @130
+            @137 = @141
+            @149 = @153
+            @161 = @165
+            @174 = @178
+          }
+          let @48 = (*@41!join) || @47 in
+          let @223 = f32x8(4f) in
+          let @22 = z - @223 in
+          let @224 = f32x8(1f) in
+          let @23 = (*found!loop!loop) + @224 in
+          let @225 = i32x8(1) in
+          let @24 = (*wave!loop!loop) + @225 in
+          let @66 = select(@48, @22, (*@62)) in
+          let @74 = select(@48, @23, (*@70)) in
+          let @82 = select(@48, @24, (*@78)) in
+          @45!join = (*@45!join0)
+          @41!join0 = (*@41!join)
+          @52!join = @47
+          @62 = @66
+          @70 = @74
+          @78 = @82
+        } else {
+          @45!join = @195
+          @41!join0 = @195
+          @52!join = @195
+          @90 = @94
+          @101 = @105
+          @113 = @117
+          @126 = @130
+          @137 = @141
+          @149 = @153
+          @161 = @165
+          @174 = @178
+        }
+        let @226 = f32x8(3f) in
+        let @26 = y + @226 in
+        let @27 = (*found!loop!loop) + @201 in
+        let @228 = i32x8(1) in
+        let @28 = (*wave!loop!loop) + @228 in
+        let @64 = select(@38, @26, (*@62)) in
+        let @72 = select(@38, @27, (*@70)) in
+        let @80 = select(@38, @28, (*@78)) in
+        let @49 = @38 || (*@45!join) in
+        let @50 = @49 || (*@41!join0) in
+        let @53 = @50 || (*@52!join) in
+        let @86 = select(@53, @72, (*found!loop!loop)) in
+        let @98 = select(@53, (*!live), (*@90)) in
+        let @109 = select(@53, (*!exit.merge_13), (*@101)) in
+        let @121 = select(@53, (*!exit.then_3), (*@113)) in
+        let @134 = select(@53, (*!exit.then_0), (*@126)) in
+        let @145 = select(@53, (*!track.merge_13.0), (*@137)) in
+        let @157 = select(@53, (*!track.then_3.0), (*@149)) in
+        let @169 = select(@53, (*!track.then_3.1), (*@161)) in
+        let @182 = select(@53, (*!track.then_0.0), (*@174)) in
+        x!loop!loop!skip = @64
+        found!loop!loop!skip = @86
+        wave!loop!loop!skip = @80
+        @62 = @64
+        @70 = @72
+        @78 = @80
+        @90 = @98
+        @101 = @109
+        @113 = @121
+        @126 = @134
+        @137 = @145
+        @149 = @157
+        @161 = @169
+        @174 = @182
+      } else {
+        x!loop!loop!skip = undef
+        found!loop!loop!skip = (*found!loop!loop)
+        wave!loop!loop!skip = undef
+        @90 = @94
+        @101 = @105
+        @113 = @117
+        @126 = @130
+        @137 = @141
+        @149 = @153
+        @161 = @165
+        @174 = @178
+      }
+    } else {
+      x!loop!loop!skip = undef
+      found!loop!loop!skip = (*found!loop!loop)
+      wave!loop!loop!skip = undef
+      @90 = @96
+      @101 = @107
+      @113 = @119
+      @126 = @132
+      @137 = @143
+      @149 = @155
+      @161 = @167
+      @174 = @180
+    }
+    x!loop!loop = (*x!loop!loop!skip)
+    found!loop!loop = (*found!loop!loop!skip)
+    wave!loop!loop = (*wave!loop!loop!skip)
+    !live = (*@90)
+    !exit.merge_13 = (*@101)
+    !exit.then_3 = (*@113)
+    !exit.then_0 = (*@126)
+    !track.merge_13.0 = (*@137)
+    !track.then_3.0 = (*@149)
+    !track.then_3.1 = (*@161)
+    !track.then_0.0 = (*@174)
+  }
+  let @253 = !(*!exit.merge_13) in
+  let @231 = f32x8(1f) in
+  let @21 = (*!track.merge_13.0) - @231 in
+  let @252 = !(*!exit.then_3) in
+  let @56 = @253 && @252 in
+  let @57 = @253 && (*!exit.then_3) in
+  let @4 = (*!track.then_3.0) + (*!track.then_3.1) in
+  let @184 = select(@57, @4, @21) in
+  let @185 = select(@56, (*!track.then_0.0), @184) in
+  return @185
+}
+
+func [[noinline]] work(x : f32) -> f32 {
+  let @0 = x * 2f in
+  let @1 = @0 + 1f in
+  return @1
+}
+
+func [[noinline]] work$gang8_v0$masked(x : f32x8, !mask : boolx8) -> f32x8 {
+  let @2 = f32x8(2f) in
+  let @0 = x * @2 in
+  let @3 = f32x8(1f) in
+  let @1 = @0 + @3 in
+  return @1
+}
+
+
+schedule {
+    run.vectorize(i)
+    step.loopify()
+
+}

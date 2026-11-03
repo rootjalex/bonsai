@@ -1,0 +1,81 @@
+//! flags: -p ssa
+
+// A divergent loop's latch read through a uniform join inside a guarded arm.
+//
+// `step` is a tail recursion the schedule turns into a loop, the shape of
+// apps/pbrt's path step: a round counter every recursive call advances, an
+// early return for the lanes whose work is done (the escaped ray), and a
+// per-lane arm holding a load through the lane's own index -- work a gang
+// must not do with every lane off, so the arm is guarded and skipped when
+// no lane is in it -- with a uniform branch inside (`if have_subsurface`)
+// and the recursion at its end. Inside the uniform branch's arm, another
+// guarded arm recurses or returns early.
+//
+// Linearized, the loop's latch is the arm's guard's landing, and the live
+// flag the latch hands the loop's header is blended source by source along
+// the body: the exits turn their lanes off, the recursion sites keep theirs
+// on. Its last blend lies inside the uniform branch's arm, and the block
+// that leaves for the latch is the branch's join, reached along the
+// branch's other side too, so the value cannot be threaded to the latch by
+// landing arguments: a lane that came along the other side having left the
+// loop earlier in the round reads it there, and needs the blend as it
+// stood before the branch. The join blend merges such an argument through
+// memory -- a store at every source, a load at the latch -- and the
+// promotion pass makes the join's merge of the two sides.
+//
+// Until 11-03 the linearizer carried the value across the join through a
+// slot stored only where the value was defined, undefined at the entry, on
+// the reasoning that no lane on the other side reads it; an escaped lane
+// then read an undefined live flag whenever another lane recursed, and
+// pbrt's vectorized megakernels ran their path loop for ever past the
+// first bounce.
+//
+// What to read for: in `step$gang8_v0` the latch's live flag is a `mut` of
+// the loop's (`@90 : mut boolx8`), written under each exit's mask as the
+// body runs -- before the uniform `if (flag)`, inside its arm, after it --
+// written at the recursion's merge from the header's `!live` for the lanes
+// that recurse (`select(@53, (*!live), (*@90))`), and read back into
+// `!live` at the loop's end. A lane that came round the `if (flag)` arm
+// reads there what the exits before the branch stored for it; `undef` is
+// stored to it once, before the loop.
+import stdlib/numerics;
+
+func [[noinline]] work(x : f32) -> f32 {
+    return x * 2.0 + 1.0;
+}
+
+func step(x : f32, found : f32, wave : i32, max_wave : i32, flag : bool, tab : array[f32, 8]) -> f32 {
+    if wave == max_wave {
+        return found;
+    }
+    y : f32 = work(x) * 0.25;
+    if y > 20.0 {
+        return found + y;
+    }
+    if y > 0.5 {
+        z : f32 = work(y) + tab[select(y > 10.0, 1u, 0u)];
+        if flag {
+            if z > 13.0 {
+                w : f32 = tab[select(z > 15.0, 2u, 3u)];
+                if z + w > 15.0 {
+                    return step(z * 0.25, found + 2.0, wave + 1, max_wave, flag, tab);
+                }
+                return found - 1.0;
+            }
+        }
+        return step(z - 4.0, found + 1.0, wave + 1, max_wave, flag, tab);
+    }
+    return step(y + 3.0, found + 0.5, wave + 1, max_wave, flag, tab);
+}
+
+func [[export]] run(a : array[f32, 8], max_wave : i32, flag : bool, tab : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(a[i], 0.0, 0, max_wave, flag, tab);
+    }
+    return;
+}
+
+schedule {
+    step.loopify();
+    run.vectorize(i);
+}

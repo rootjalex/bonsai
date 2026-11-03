@@ -1321,46 +1321,37 @@ BlockMasks linearize(Function &func, const string &entry_name,
             const shared_ptr<Block> &landing = cfg.block(hop.landing);
             // What each way into the landing would hand the argument. A
             // value threaded past the landing is read beyond it, so its
-            // definition dominates the landing; a block the region leaves
-            // from that the definition dominates hands `v` itself. One it
-            // does not -- a join of a uniform branch of the program's inside
-            // the region, reached as well along a side the definition is not
-            // on (pbrt's path step: `if have_subsurface`, whose else edge
-            // skips the arm whose landing defines the running value) --
-            // needs the merge the join would have made: `v` goes through a
-            // slot, stored where `v` is defined and undefined at the entry
-            // (a lane on the other side never reads it), read at the join,
-            // and the promotion pass makes the merge once the graph is
-            // rewired, as it does for the joins' own blended arguments.
-            // Dominance in the linearized graph, where the code runs: a
-            // folded branch's arms lie in sequence there, so the join below
-            // it has the one way in (the sorted traversal's `!else_48` ->
-            // `!merge_49`, a merge of two arms in the program's graph), while
-            // a kept uniform branch still has two. By the program's graph
-            // every such join would send its value through memory, and the
-            // promotion would hand it back as a parameter threaded round the
-            // loop that nothing reads.
+            // definition dominates the landing, and a block the region
+            // leaves from that the definition dominates hands `v` itself.
+            // One it does not -- a join of a uniform branch of the program's
+            // inside the region, reached as well along a side the definition
+            // is not on (pbrt's path step: `if have_subsurface`, whose else
+            // edge skips the arm in which the latch's live flag was last
+            // blended, and the bounce after the branch is the block that
+            // leaves for the latch) -- cannot be handed `v` at all, and the
+            // landings cannot carry what every lane reads there: a lane that
+            // came along the other side needs the running value as it stood
+            // before the branch, the merge the join would have made, which
+            // the caller makes through memory (blend_through_slot, the store
+            // at every source and the promotion's phi at that very join).
+            // Until 11-03 this case went through a slot of its own, stored
+            // where `v` is defined and undefined at the entry, on the
+            // reasoning that no lane on the other side reads it -- true of
+            // a value of the program's, false of a running value: a lane
+            // whose ray had escaped read an undefined live flag at the
+            // latch whenever another lane bounced, and the gang's path loop
+            // ran on with it for ever (fault 12 of the vectorized
+            // megakernels). Dominance in the linearized graph, where the
+            // code runs: a folded branch's arms lie in sequence there, so
+            // the join below it has the one way in (the sorted traversal's
+            // `!else_48` -> `!merge_49`, a merge of two arms in the
+            // program's graph), while a kept uniform branch still has two.
             map<BlockId, shared_ptr<Value>> from;
-            shared_ptr<Value> slot;
             for (BlockId inside : hop.insides) {
-                if (linear_dom.dominates(at, inside)) {
-                    from[inside] = v;
-                    continue;
+                if (!linear_dom.dominates(at, inside)) {
+                    return nullptr;
                 }
-                if (!slot) {
-                    const Type type = v->get_type();
-                    slot = append(func, entry_block, Ptr_t::make(type),
-                                  Instruction::Op::Alloca, {});
-                    append_store(entry_block, slot, undef_value(type));
-                    append_store(cfg.block(at), slot, v);
-                    slots_made = true;
-                }
-                const shared_ptr<Block> &reader = cfg.block(inside);
-                auto load = std::make_shared<Instruction>(
-                    func.get_unique_name(), v->get_type(), Instruction::Op::Load,
-                    vector<shared_ptr<Value>>{slot}, reader);
-                reader->instrs.push_back(load);
-                from[inside] = std::make_shared<Value>(load);
+                from[inside] = v;
             }
             for (const Gadget &g : gadgets) {
                 if (g.landing == hop.landing) {

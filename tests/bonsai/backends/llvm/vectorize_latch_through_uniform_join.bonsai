@@ -1,0 +1,51 @@
+//! flags: -p ssa -b llvm
+
+// ssa/vectorize-latch-through-uniform-join.bonsai at the LLVM level: a
+// divergent loop's live flag blended inside a uniform branch's guarded arm
+// and read at the latch along the branch's other side too. What to look
+// for: the loop header's live phi takes, from the latch, the value of a
+// phi chain whose phi at the uniform branch's join (`!merge_9`) takes the
+// blend as of the escape along the edges round the arm and the blend as of
+// the arm's exits along the arm's own, and `undef` enters that chain only
+// as the seed at the loop's entry, never from a branch's edge.
+import stdlib/numerics;
+
+func [[noinline]] work(x : f32) -> f32 {
+    return x * 2.0 + 1.0;
+}
+
+func step(x : f32, found : f32, wave : i32, max_wave : i32, flag : bool, tab : array[f32, 8]) -> f32 {
+    if wave == max_wave {
+        return found;
+    }
+    y : f32 = work(x) * 0.25;
+    if y > 20.0 {
+        return found + y;
+    }
+    if y > 0.5 {
+        z : f32 = work(y) + tab[select(y > 10.0, 1u, 0u)];
+        if flag {
+            if z > 13.0 {
+                w : f32 = tab[select(z > 15.0, 2u, 3u)];
+                if z + w > 15.0 {
+                    return step(z * 0.25, found + 2.0, wave + 1, max_wave, flag, tab);
+                }
+                return found - 1.0;
+            }
+        }
+        return step(z - 4.0, found + 1.0, wave + 1, max_wave, flag, tab);
+    }
+    return step(y + 3.0, found + 0.5, wave + 1, max_wave, flag, tab);
+}
+
+func [[export]] run(a : array[f32, 8], max_wave : i32, flag : bool, tab : array[f32, 8], out : mut array[f32, 8]) -> void {
+    parfor i in 0:8 {
+        out[i] = step(a[i], 0.0, 0, max_wave, flag, tab);
+    }
+    return;
+}
+
+schedule {
+    step.loopify();
+    run.vectorize(i);
+}
