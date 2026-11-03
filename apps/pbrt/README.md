@@ -24,8 +24,8 @@ reordering before the material stage) take the second.
 
 To remake the paper's pbrt figures from the current compiler in one go,
 run `apps/benchmark.sh --stages pbrt` from the repository root (the GPU
-sweep, the CPU sweep, the heatmap, then `plots.sh`; ~15 hours, resumable,
-under the sessions' benchmark lock). What the figures are made of --
+sweep, the CPU sweep, the heatmap, then `plots.sh`; about 9.5 hours as
+measured on 11-02, resumable, under the sessions' benchmark lock). What the figures are made of --
 scenes, sides, sample counts, repeats, and where each measurement is
 written (`results/`) -- is `figures.sh`, which both that script and
 `plots.sh` read, so the two cannot drift apart.
