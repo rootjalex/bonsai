@@ -27,9 +27,11 @@
 #   pbrt-plots    apps/pbrt/plots.sh --png: pbrt-gpu-sweep, pbrt-cpu-sweep,
 #                 pbrt-gpu-heatmap (and the profile and depth figures from
 #                 their own tools' last runs) into apps/pbrt/plots/
-#   rtq           apps/rtq/benchmark.sh: the matching CPU schedules against
-#                 Embree and FCPW (rtq-queries-cpu), then the GPU schedules
-#                 against FCPW's GPUScene (rtq-fcpwb-gpu) -> apps/rtq/plots/
+#   rtq           apps/rtq/benchmark.sh --fresh, every schedule of the rtq
+#                 figures at once: the matching CPU schedules against Embree
+#                 and FCPW (rtq-queries-cpu), FCPW's scalar trees
+#                 (rtq-fcpwb-cpu), the GPU schedules against FCPW's GPUScene
+#                 (rtq-fcpwb-gpu), and the mesh table -> apps/rtq/plots/
 #   wosx          apps/wosx/benchmark.sh --gpu and --stars --gpu: WoSX's GPU
 #                 solvers against the GPU schedules -> apps/wosx/plots/
 #                 wosx-gpu-speedup, wosx-stars-gpu-speedup
@@ -49,6 +51,12 @@
 # stage resumes: a table's finished cells are kept and the missing ones
 # measured, so an interrupted run is continued by the same command.
 # BENCHMARK_HOLDER names the holder in the lock (default: the user).
+#
+# While it runs, the compiler sources of this checkout are frozen: the
+# pbrt harnesses rebuild the compiler before each renderer they compile
+# (compare.sh, gpu_compare.sh), so an edit made in this checkout during the
+# run would be built into the middle of a sweep. Compiler work during a
+# run goes in a worktree of its own with its own build directory.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
@@ -160,10 +168,19 @@ fi
 
 #--- the other apps' runners, each taking the lock for itself -------------
 if has rtq; then
-  echo "=== rtq $(date +%T): the matching CPU schedules against Embree and FCPW, then the GPU schedules against FCPW's GPUScene"
-  run env RTQ_HOLDER="$HOLDER" bash apps/rtq/benchmark.sh
-  run env RTQ_HOLDER="$HOLDER" bash apps/rtq/benchmark.sh --schedules fcpwb-gpu,fcpws-gpu
-  echo "=== rtq ends $(date +%T)"
+  # One invocation for all of rtq's figures (rtq-c0, 11-02): each mesh
+  # measured under its five sections in turn (Embree, FCPW's four-wide
+  # tree, FCPW built scalar, FCPW's GPUScene), one fold, one plot --
+  # rtq-queries-cpu, rtq-fcpwb-cpu, rtq-fcpwb-gpu and the mesh table, which
+  # takes node counts from the CPU rows. --fresh, since the runner takes a
+  # log that exists for a finished run (and removes every section's logs
+  # of a mesh, so it goes on the one call); RTQ_SKIP_CMAKE, since the
+  # compiler was built above and compare.sh would otherwise rebuild it
+  # before every cell.
+  echo "=== rtq $(date +%T): every mesh against Embree, FCPW (four-wide, scalar) and FCPW's GPUScene"
+  run env RTQ_HOLDER="$HOLDER" RTQ_SKIP_CMAKE=1 bash apps/rtq/benchmark.sh --fresh \
+      --schedules embree,fcpw4w16,fcpwb,fcpws,fcpwb-gpu,fcpws-gpu
+  echo "=== rtq ends $(date +%T) rc=$?"
 fi
 if has wosx; then
   echo "=== wosx $(date +%T): WoSX's GPU solvers against the GPU schedules, the walk on spheres and the walk on stars"
