@@ -10,11 +10,11 @@
 //
 // The exploration of 11-01 (the user: "what sometimes-optimal schedules can
 // you find across these sweep scenes", from the directives the language
-// has and their compositions, nothing new and no layout change). Not
-// measured: with the foreign call lowered per lane (6488f426) the compiler
-// gets past it and stops on an older fault of the gang's short-vector
-// handling (`Implicit casting of types: f32x3$v16 versus f32x16`,
-// IR/Expr.cpp) -- PLAN.md, "11-01 evening". Kept for the day it compiles.
+// has and their compositions, nothing new and no layout change). Compiles
+// and renders since 11-03, twelve compiler faults later (PLAN.md, "11-02,
+// the vectorized CPU megakernels debugged" and the entries after it): on
+// pbrt-book/book at 16 spp the image matches pbrt's wavefront. Not yet
+// measured under the CPU sweep's protocol; this says so until it is.
 import apps/pbrt/schedules/trees/bvh;
 
 schedule {
