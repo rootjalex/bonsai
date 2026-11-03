@@ -32,6 +32,7 @@ from collections import defaultdict
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter, MultipleLocator
 
 from figure_style import (PBRT_COLOUR, TEXT_WIDTH, TICK_FONT, lean_height, lean_labels,
@@ -60,6 +61,12 @@ def main(argv):
     parser.add_argument("-o", "--out", required=True, help="the figure (.pdf or .png)")
     parser.add_argument("--width", type=float, default=TEXT_WIDTH)
     parser.add_argument("--height", type=float, default=1.75)
+    parser.add_argument("--cpu-order", default="",
+                        help="the CPU schedules in drawing order, comma-separated (the sweep's "
+                             "CPU_SIDES); else the CPU sweep plotter's table order")
+    parser.add_argument("--gpu-order", default="",
+                        help="the GPU schedules in drawing order, comma-separated (the sweep's "
+                             "GPU_SIDES); else the GPU sweep plotter's table order")
     args = parser.parse_args(argv)
 
     rows = [row for path in args.csv for row in read_rows(path)]
@@ -90,9 +97,16 @@ def main(argv):
                 with open(note) as f:
                     pbrt_note = [line.rstrip("\n") for line in f]
 
-    # The bars: the sweep figures' sides that have rows, in their order.
+    # The bars: the sweep figures' sides that have rows, in the sweep's
+    # drawing order where given, else the plotters' table order.
+    def ordered(sides, order):
+        if not order:
+            return sides
+        by_side = {side: entry for entry in sides for side in [entry[0]]}
+        return [by_side[s] for s in order.split(",") if s in by_side]
     groups = []  # (group name, [(schedule, label, colour, least seconds)])
-    for name, sides in (("CPU", CPU_SIDES), ("GPU", GPU_SIDES)):
+    for name, sides in (("CPU", ordered(CPU_SIDES, args.cpu_order)),
+                        ("GPU", ordered(GPU_SIDES, args.gpu_order))):
         bars = [(side, label, colour, min(compiler[side]))
                 for side, label, colour in sides if side in compiler]
         if bars:
@@ -122,11 +136,18 @@ def main(argv):
     # thread of ours on one schedule -- and the .txt says so).
     if pbrt:
         reference = min(pbrt)
+        jobs = None
+        for line in pbrt_note or []:
+            if line.startswith("jobs"):
+                jobs = line.split()[1]
         ax.axhline(reference, color=PBRT_COLOUR, linestyle=(0, (4, 3)), linewidth=0.8, zorder=1)
-        ax.text(x - gap - 0.4, reference, " pbrt-v4", ha="right", va="bottom",
-                fontsize=TICK_FONT, color=PBRT_COLOUR)
+        # Named in a legend, in the room above the CPU bars, rather than
+        # along the line, where the GPU bars stand.
+        ax.legend(handles=[Line2D([], [], color=PBRT_COLOUR, linestyle=(0, (4, 3)), linewidth=0.8,
+                                  label=f"pbrt-v4{f', {jobs} jobs' if jobs else ''}")],
+                  frameon=False, loc="upper left", fontsize=TICK_FONT)
         top = max(top, reference)
-    step = 60.0 if top > 150 else 30.0
+    step = 120.0 if top > 480 else 60.0 if top > 150 else 30.0
     ax.set_ylim(0, top * 1.08)
     ax.yaxis.set_major_locator(MultipleLocator(step))
     ax.yaxis.set_major_formatter(FuncFormatter(minutes_label))

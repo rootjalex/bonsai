@@ -159,10 +159,15 @@ if (( WITH_PBRT )); then
     jobs=$(nproc)
     pbrt_commit=$(git -C "$PBRT_SOURCE" log -1 --format=%h 2>/dev/null || echo unknown)
     echo "[$(date +%T)] pbrt-v4: configuring a clean build from $PBRT_BUILD's cache${env_dir:+ in $env_dir}"
+    # conda's activation reads variables it has not set, so the strict
+    # mode is off while it runs (the first run of 11-03 died here, before
+    # cmake, with no log to show for it).
     (
       if [[ -n "$env_dir" && -f ~/miniconda3/etc/profile.d/conda.sh ]]; then
+        set +u
         source ~/miniconda3/etc/profile.d/conda.sh
         conda activate "$env_dir"
+        set -u
       fi
       cmake -S "$PBRT_SOURCE" -B "$build" -C "$build/init.cmake" > "$OUT/logs/pbrt-v4.configure.log" 2>&1
     ) || { echo "  the configure failed; see $OUT/logs/pbrt-v4.configure.log" >&2; exit 1; }
@@ -170,8 +175,10 @@ if (( WITH_PBRT )); then
     echo "[$(date +%T)] pbrt-v4: building with $jobs jobs"
     (
       if [[ -n "$env_dir" && -f ~/miniconda3/etc/profile.d/conda.sh ]]; then
+        set +u
         source ~/miniconda3/etc/profile.d/conda.sh
         conda activate "$env_dir"
+        set -u
       fi
       /usr/bin/time -f '%e %U %S' -o "$build/time.txt" cmake --build "$build" -j"$jobs" > "$OUT/logs/pbrt-v4.build.log" 2>&1
     ) || { echo "  the build failed; see $OUT/logs/pbrt-v4.build.log" >&2; exit 1; }

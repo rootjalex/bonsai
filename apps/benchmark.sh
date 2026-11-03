@@ -13,9 +13,10 @@
 #     apps/benchmark.sh --dry-run            # print the commands, run nothing
 #     apps/benchmark.sh --stages gather      # only copy the figures into apps/plots
 #
-# A full run takes about 12 h 20 min on the 32-thread host with one RTX
-# 5090 (measured 11-02/03: the pbrt stages 9 h 31 min, rtq 27 min, wosx
-# 2 h 20 min); the durations below are from that run.
+# A full run takes about 13 h 45 min on the 32-thread host with one RTX
+# 5090 (measured 11-02/03: the pbrt sweeps and heatmap 9 h 31 min, the
+# compile times 1 h 25 min, rtq 27 min, wosx 2 h 20 min); the durations
+# below are from those runs.
 #
 # Stages, in order, and what each makes:
 #   pbrt-gpu      apps/pbrt/gpu_compare.sh: pbrt --gpu against the GPU sweep's
@@ -34,7 +35,8 @@
 #                 schedule of the two sweeps, each built once as a
 #                 comparison builds it, and pbrt-v4's own build from a
 #                 clean build directory -> apps/pbrt/results/compile-time/
-#                 compile-times.csv (the user, 11-03)
+#                 compile-times.csv (the user, 11-03; 1 h 25 min: fourteen
+#                 builds of 3 to 10 min on one core, pbrt's a minute)
 #   pbrt-plots    apps/pbrt/plots.sh --png: pbrt-gpu-sweep, pbrt-cpu-sweep,
 #                 pbrt-gpu-heatmap, pbrt-compile-time (and the profile and
 #                 depth figures from their own tools' last runs) into
@@ -119,6 +121,9 @@ LOG="$RESULTS/benchmark-$(date +%m%d-%H%M).log"
 exec > >(tee -a "$LOG") 2>&1
 echo "=== apps/benchmark.sh starts $(date '+%F %T'); stages: $STAGES"
 
+# A stage's ending line reads the status into `rc` first: `$?` inside the
+# line would be the status of its `$(date)` (the stage lines of 11-02/03
+# said rc=0 of a stage whose runner had failed).
 run() {
   echo "+ $*"
   (( DRY )) || "$@"
@@ -202,21 +207,21 @@ if has pbrt-gpu; then
   run bash apps/pbrt/gpu_compare.sh --out "$GPU_SWEEP_OUT" --resume \
       --spp "$SWEEP_SPP" --repeats "$REPEATS" \
       --schedules "$(spaced "$GPU_SIDES")" --scenes "$(spaced "$SWEEP_SCENES")"
-  echo "=== pbrt-gpu ends $(date +%T) rc=$?"
+  rc=$?; echo "=== pbrt-gpu ends $(date +%T) rc=$rc"
 fi
 if has pbrt-cpu; then
   echo "=== pbrt-cpu $(date +%T): the CPU sweep into $CPU_SWEEP_OUT"
   run bash apps/pbrt/cpu_compare.sh --out "$CPU_SWEEP_OUT" --resume \
       --spp "$SWEEP_SPP" --repeats "$REPEATS" \
       --schedules "$(cpu_schedules)" --scenes "$(spaced "$SWEEP_SCENES")"
-  echo "=== pbrt-cpu ends $(date +%T) rc=$?"
+  rc=$?; echo "=== pbrt-cpu ends $(date +%T) rc=$rc"
 fi
 if has pbrt-heatmap; then
   echo "=== pbrt-heatmap $(date +%T): every scene, gpu-optix against pbrt --gpu, into $HEATMAP_OUT"
   REUSE=()
   [[ -d "$GPU_SWEEP_OUT" ]] && REUSE=(--reuse "$GPU_SWEEP_OUT")
   run bash apps/pbrt/heatmap.sh --out "$HEATMAP_OUT" --spp "$HEATMAP_SPP" --repeats "$REPEATS" "${REUSE[@]}"
-  echo "=== pbrt-heatmap ends $(date +%T) rc=$?"
+  rc=$?; echo "=== pbrt-heatmap ends $(date +%T) rc=$rc"
 fi
 if has pbrt-compile; then
   # Every schedule of the two sweeps built once, the compiler's seconds of
@@ -225,13 +230,13 @@ if has pbrt-compile; then
   echo "=== pbrt-compile $(date +%T): the compiler's time on the sweeps' schedules and pbrt's build, into $COMPILE_OUT"
   run bash apps/pbrt/compile_time.sh --out "$COMPILE_OUT" --resume \
       --schedules "$(spaced "$GPU_SIDES") $(cpu_schedules)"
-  echo "=== pbrt-compile ends $(date +%T) rc=$?"
+  rc=$?; echo "=== pbrt-compile ends $(date +%T) rc=$rc"
 fi
 if has pbrt-plots; then
   echo "=== pbrt-plots $(date +%T)"
   run env GPU_TABLES="$GPU_SWEEP_OUT/table.tsv" CPU_CSVS="$CPU_SWEEP_OUT/cpu-results.csv" \
       HEATMAP_TABLE="$HEATMAP_OUT/table.tsv" bash apps/pbrt/plots.sh --png
-  echo "=== pbrt-plots ends $(date +%T) rc=$?"
+  rc=$?; echo "=== pbrt-plots ends $(date +%T) rc=$rc"
 fi
 (( DRY )) || drop_lock
 
@@ -249,7 +254,7 @@ if has rtq; then
   echo "=== rtq $(date +%T): every mesh against Embree, FCPW (four-wide, scalar) and FCPW's GPUScene"
   run env RTQ_HOLDER="$HOLDER" RTQ_SKIP_CMAKE=1 bash apps/rtq/benchmark.sh --fresh \
       --schedules embree,fcpw4w16,fcpwb,fcpws,fcpwb-gpu,fcpws-gpu
-  echo "=== rtq ends $(date +%T) rc=$?"
+  rc=$?; echo "=== rtq ends $(date +%T) rc=$rc"
 fi
 if has wosx; then
   # --fresh, as for rtq: the runner takes a cell's log that exists for a

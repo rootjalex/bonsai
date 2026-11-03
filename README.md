@@ -87,8 +87,8 @@ environment variable `BONSAI_UPDATE_EXPECT=1` when running `ctest`.
 built out of the checkout, in one go: the pbrt GPU and CPU sweeps and the GPU
 heatmap (`apps/pbrt`), the rtq query figures (`apps/rtq`) and the wosx GPU
 figures (`apps/wosx`). `--stages` picks a subset (`--stages pbrt`, `--stages
-"rtq wosx"`), `--dry-run` prints the commands. A full run takes about 12 h
-20 min on the paper's machine (measured 11-02/03; the script's header has
+"rtq wosx"`), `--dry-run` prints the commands. A full run takes about 13 h
+45 min on the paper's machine (measured 11-02/03; the script's header has
 the stages' times). The run is attributed to the
 commit it was built from and refuses uncommitted compiler sources;
 `apps/pbrt/results/provenance.txt` records it. The run ends by gathering
