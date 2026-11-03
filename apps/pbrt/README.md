@@ -22,6 +22,14 @@ reordering before the material stage) take the second.
 
 ## Scripts
 
+To remake the paper's pbrt figures from the current compiler in one go,
+run `apps/benchmark.sh --stages pbrt` from the repository root (the GPU
+sweep, the CPU sweep, the heatmap, then `plots.sh`; ~15 hours, resumable,
+under the sessions' benchmark lock). What the figures are made of --
+scenes, sides, sample counts, repeats, and where each measurement is
+written (`results/`) -- is `figures.sh`, which both that script and
+`plots.sh` read, so the two cannot drift apart.
+
 Run from the repository root, inside the `bonsai` conda environment. Each
 takes `PBRT=<path to a built pbrt>` (default `~/projects/pbrt-v4/build/pbrt`)
 and `BONSAI_BUILD_DIR=<compiler build directory>` (default `build`). A build

@@ -59,6 +59,10 @@
 set -euo pipefail
 PREFIX=$(cd "$(dirname "$0")" && pwd)
 OUT="$PREFIX/plots"
+# What the figures are made of -- the sweep scenes, the sides, the sample
+# counts, the repeats, and where apps/benchmark.sh writes each measurement
+# -- is in figures.sh, shared with the script that measures them.
+source "$PREFIX/figures.sh"
 # The CPU sweep of 10-30 (11:13-17:12, scratch/run_six_scenes.sh
 # --then-cpu): cpu_compare.sh's nine sides on the six scenes at 16 and 128
 # spp, three repeats, under the compiler at caa9eb9b (a gang's 32-bit
@@ -86,7 +90,10 @@ OUT="$PREFIX/plots"
 # against the figure's own reference. A later file's row replaces an
 # earlier one's for the same (scene, spp, side): these three sides draw
 # from the -v2 tables, everything else from the first two.
-CPU_CSVS="${CPU_CSVS:-$PREFIX/cpu-compare-out-six/cpu-results.csv $PREFIX/cpu-compare-out-two/cpu-results.csv $PREFIX/cpu-compare-out-six-v2/cpu-results.csv $PREFIX/cpu-compare-out-two-v2/cpu-results.csv}"
+# Since 11-02 the default is apps/benchmark.sh's CPU sweep (figures.sh);
+# the tables of 10-30 and 11-01 named above are those of the figure before
+# the compiler fixes of 11-02, kept on disk and in this file's history.
+CPU_CSVS="${CPU_CSVS:-$CPU_SWEEP_OUT/cpu-results.csv}"
 # The GPU sweep of 10-30 morning (09:37-11:13, scratch/run_six_scenes.sh):
 # the paper figure's eight sides on the six scenes at 16 and 128 spp (the
 # user's set of 10-30: killeroo-gold, book, sanmiguel-courtyard, ganesha,
@@ -142,13 +149,15 @@ CPU_CSVS="${CPU_CSVS:-$PREFIX/cpu-compare-out-six/cpu-results.csv $PREFIX/cpu-co
 # 2% (every kernel time within 1%); the later table's rows are the ones
 # drawn for those three, as the plotter takes them. All 160 cells of the two
 # runs match pbrt's image but fused-shadow's two on plume.
-GPU_TABLES="${GPU_TABLES:-$PREFIX/gpu-compare-out-six/table.tsv $PREFIX/gpu-compare-out-two/table.tsv $PREFIX/gpu-compare-out-plume/table.tsv $PREFIX/gpu-compare-out-wf3/table.tsv $PREFIX/gpu-compare-out-wf3b/table.tsv $PREFIX/gpu-compare-out-wf3c/table.tsv $PREFIX/gpu-compare-out-explore3/table.tsv $PREFIX/gpu-compare-out-explore4/table.tsv}"
+# Since 11-02 the default is apps/benchmark.sh's GPU sweep (figures.sh);
+# the tables named above are the figure's before the compiler fixes of
+# 11-02, kept on disk and in this file's history.
+GPU_TABLES="${GPU_TABLES:-$GPU_SWEEP_OUT/table.tsv}"
 # The sweeps' scenes, in the figures' order (the user, 10-29: pbrt --gpu's
 # time at 128 spp, ascending), keyed by path under the scene set; both
 # sweep figures draw these and only these from their tables (the
 # plotters' --scenes). A scene whose CPU sweep has not run yet is left out
-# of the CPU figure with a note.
-SWEEP_SCENES="${SWEEP_SCENES:-killeroos/killeroo-gold,pbrt-book/book,sanmiguel/sanmiguel-courtyard,ganesha/ganesha,sssdragon/dragon_10,smoke-plume/plume,bistro/bistro_vespa,transparent-machines/frame542}"
+# of the CPU figure with a note. Set in figures.sh (SWEEP_SCENES).
 # Where each sweep's speedup axis ends (the user, 10-30: a linear axis, cut
 # on the GPU sweep, never a log axis for speedups; 11-01 morning: cut at
 # 4x rather than 6x, "it looks better"; 11-01 afternoon: 5x, once the SER
@@ -169,7 +178,8 @@ CPU_YMAX="${CPU_YMAX:-10}"
 CUT_FLAGS="--leaders --rotate-cut-labels"
 # The heatmap of the same night (00:45-02:22), the gpu-optix renderer
 # reused from the sweep; compare-out-heatmap11/ is 10-27's under 39c67ab9.
-HEATMAP_TABLE="${HEATMAP_TABLE:-$PREFIX/compare-out-heatmap12/table.tsv}"
+# Since 11-02 the default is apps/benchmark.sh's heatmap (figures.sh).
+HEATMAP_TABLE="${HEATMAP_TABLE:-$HEATMAP_OUT/table.tsv}"
 # The GPU sweep's sides, in drawing order (plot_gpu_wavefront.py's SIDES
 # names them). The user's rule of 11-01: every schedule that is the best on
 # at least one cell, the matching one among them, the rest filled to
@@ -190,7 +200,7 @@ HEATMAP_TABLE="${HEATMAP_TABLE:-$PREFIX/compare-out-heatmap12/table.tsv}"
 # for mk-ser-flat); their rows stay in the tables and the .txt's
 # comparisons. The 10-30 choice (five wavefronts, three megakernels) is in
 # plots.sh's history. A side with no timed rows is left out.
-GPU_SIDES="${GPU_SIDES:-gpu-optix,gpu-optix-fused-route,gpu-optix-bounce,gpu-optix-mega-flat-samples,gpu-optix-mega-ser-flat-samples,gpu-optix-mega-ser-ray-flat-samples,gpu-optix-mega-ser-ray-flat}"
+# Set in figures.sh (GPU_SIDES).
 # The CPU sweep's sides, in drawing order (plot_cpu_wavefront.py's SIDES
 # names them; the user's rules of 11-01: every schedule best on at least
 # one cell, both of pbrt's integrators matched, the megakernel match the
@@ -204,7 +214,7 @@ GPU_SIDES="${GPU_SIDES:-gpu-optix,gpu-optix-fused-route,gpu-optix-bounce,gpu-opt
 # the per-thread scalar one, the samples-outer order, the 4,096-pixel
 # chunk, the megakernel's sample-outer, waves, chunk and collapsed
 # variants) stay in the CSVs and the .txt's comparisons.
-CPU_SIDES="${CPU_SIDES:-wavefront-frame,wavefront-thread-packet,wavefront-thread-packet-chunk256,wavefront-thread-packet-fused,wavefront-thread-packet-sort,scalar,scalar-tiled,pbrt-volpath}"
+# Set in figures.sh (CPU_SIDES).
 # The profile figure's launches (the user, 10-28): profile_kernels.sh's
 # reports under profile-out-e (02:22-02:28 the same night, on the sweep's
 # renderers) -- the wavefront's trace kernel and the two flat megakernels

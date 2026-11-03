@@ -81,6 +81,17 @@ cmake -S . -B build -DLLVM_DIR=/Users/ajroot/projects/bonsai/deps/llvm-install/l
 Just run `ctest --test-dir build`! To regenerate `.expect` files, set the
 environment variable `BONSAI_UPDATE_EXPECT=1` when running `ctest`.
 
+# Benchmarks
+
+`bash apps/benchmark.sh` remakes every figure of the paper from the compiler
+built out of the checkout, in one go: the pbrt GPU and CPU sweeps and the GPU
+heatmap (`apps/pbrt`), the rtq query figures (`apps/rtq`) and the wosx GPU
+figures (`apps/wosx`). `--stages` picks a subset (`--stages pbrt`, `--stages
+"rtq wosx"`), `--dry-run` prints the commands. The run is attributed to the
+commit it was built from and refuses uncommitted compiler sources;
+`apps/pbrt/results/provenance.txt` records it. `apps/benchmarks.md` says
+which schedule file each bar of each figure is.
+
 ### Acknowledgements
 
 A significant portion of the code in this repository is modeled after, or
