@@ -20954,3 +20954,116 @@ measured durations in place of the estimates (5bf63af7).
 10, the four tests, the two goldens); the main checkout built from them
 and its suite passes 1998 of 1998, the two CUDA tests included. The
 megakernel compiles under this compiler are the next entry.
+
+## 11-03 morning: fault 12 -- the gang's path loop never ended past the first bounce; the three megakernels render; the figures gathered into apps/plots; a compile-time figure
+
+**The three schedules compile** under the fixed compiler (packet-media-
+scalar 3 min 39 s to a 3.8 MB object, the two per-lane ones 3 min 21 s
+and 3 min 30 s; the vectorizer with the fixed-point resolver takes 9.7 s
+of the packet compile against 58 s for sink and 19 s for inlining, so the
+compile-time question of the previous entry is closed), and their first
+image check found **fault 12**, a run-time one: on pbrt-book/book at 16
+spp the packet renderer ran on every core for 82 minutes where pbrt's
+wavefront took 21 s. The driver's `--maxdepth` split it: depth 1 ends in
+0.87 s and matches pbrt, depth 2 and above never ends; perlane-pixels the
+same, perlane-media-scalar not ending at depth 1 either. A profile showed
+no spinning loop but the whole path pipeline busy: the loop iterated,
+with real traversals and shading, for ever. Two probes at the top of the
+loop body -- an exit for a round counter past the limit, then for a
+counter of two -- changed nothing, so the runaway lanes never reached
+the top with an advanced counter. A temporary foreign function printing
+each active lane's pixel, sample, round counter and depth from the top of
+the body showed them: lanes whose round counter was a float's bit pattern
+near 994 million, whose state never changed round to round, and which at
+one sample per pixel were always sample 15, the gang's last lane, dead
+from the start. Lanes that had left the loop were live again with
+undefined state.
+
+Reading the linearized loop (BONSAI_DUMP_LINEARIZE, the function
+`vol_path_step$gang16...`, 6,000 lines; block_args.py in my scratchpad
+prints a block's parameters and what each way in hands them) found the
+plumbing of the round counter and of the live flag right, except for one
+value: the recursion merge's `!live.upd!skip2`, the running blend of the
+latch's live flag, received along the arm path -- the bounce's block,
+which is also the join of the uniform `if have_subsurface` -- a
+parameter `@10034` seeded `(bool)undef` at the loop's entry and copied
+round the loop unchanged, where the bypass paths handed it the real
+chain of the exits' blends (`@10021` to `@10033`). So whenever any lane
+bounced, every lane that had left the loop that round got an undefined
+live flag at the latch; when no lane bounced -- the round every lane
+exits in -- the bypass handed the right chain, which is why depth 1
+ended. `@10034` was a promoted slot: fault 10's fix of the day before,
+in thread(), routed a value an `inside` block was not dominated by
+through a slot stored where the value was defined and undefined at the
+entry, on the reasoning that no lane on the other side of the uniform
+branch reads it. True of a value of the program's; false of a running
+value every lane reads at the landing, which along the other side must
+be the blend as it stood before the branch -- the merge the join would
+have made. The reproducer took nine tries, because the shape needs it
+all: a loopified tail recursion with a round counter and an escape, a
+guarded arm (a load through the lane's own index) whose landing is the
+latch, inside it the uniform branch with a guarded inner arm that
+recurses or returns early, and the recursion right after the uniform
+join (rc9: with the flag off, the two lanes that escape in round zero
+come out as garbage; rc1-rc8, each lacking one piece, pass -- the join
+blend's own dominance check falls back to the memory merge there).
+
+**The fix:** thread() refuses the case, as its contract always said
+("when there is no such value to hand, nothing: the landings cannot
+carry `v`, and the caller merges through memory"), and the join blend's
+fallback, blend_through_slot -- a store at every source, a load at the
+join -- lets the promotion pass put the phi at the uniform join, with the
+pre-branch blend along the else edge. The slot code in thread() is gone.
+Tests at the three levels, vectorize-latch-through-uniform-join
+(ssa, backends/llvm, correctness/cpp): the IR golden shows the latch's
+live flag as the loop's `mut` written under every exit's mask and read
+back at the loop's end, the LLVM golden the phi at the join with `undef`
+only at the loop's entry, the execution test the gang against one lane at
+a time under both flag settings and four round limits. The worktree's
+suite: only its three CUDA tests fail; the main checkout's, after the
+cherry-pick, 2004 of 2004. Commits: 905f6940 in the worktree, dbcd8bba
+on ajr/ssa. All three megakernels then render book at 16 spp and match
+pbrt's wavefront at depth 2 and 5 (packet 1.9 s, the per-lane ones
+4.7-5.0 s, pbrt --wavefront 20 s: not a measurement, one render under
+other load); the three images are identical to the pixel count, as the
+schedules differ only in traversal and gang. The schedule headers say so
+(d8c0a0e5). A cleanliness item left: when the join blend falls back to
+memory, the selects and `!skip` landing arguments of the threading it
+abandoned stay as dead code (the pre-existing behaviour, in every such
+join).
+
+**The reproducer's plots, the user (09:15): "I'd like them placed in
+apps/plots by the benchmark script (no need for versioning, this should
+always be a fresh run)".** apps/benchmark.sh ends by gathering each
+figure's .pdf, .png and .txt, the tables' .tex and the run's provenance
+from the three apps' plots directories into apps/plots (a full run
+empties it first, a run of some stages replaces what it remade,
+`--stages gather` copies alone); README, apps/benchmarks.md, .gitignore
+(c990774b). The user's question of 10:00, whether apps/plots is up to
+date with the current compiler: measured under 014d544c, with four
+compiler commits since (the three fault fixes and this one), which touch
+the vectorizer the CPU sweep and rtq go through; pbrt-gpu-profile and
+pbrt-gpu-depth are drawn from their tools' last runs, not remeasured by
+the script; and the rtq table has the two disturbed Embree cells.
+
+**A compile-time figure, the user (10:50): "how long it takes to compile
+each CPU and GPU schedule used in the sweeps, part of the reproducibility
+benchmark, clean, just 'Compile time' on the y axis".** compare.sh prints
+the compiler's and the driver's seconds of a renderer build;
+apps/pbrt/compile_time.sh builds each schedule's renderer REPEATS times
+exactly as a comparison builds it (the machine checked idle first, as
+the sweeps check it) into results/compile-time/compile-times.csv, one row
+per build, resumable; plot_compile_time.py draws one bar per schedule,
+the CPU sweep's then the GPU sweep's, under the sweep figures' labels and
+in their colours, the least of the builds, the y axis in minutes, with a
+.txt of every build's seconds and the driver's; plots.sh draws it as
+pbrt-compile-time, apps/benchmark.sh runs it as the stage pbrt-compile
+between the heatmap and the plots, and gathers it (51d0d453). A trial of
+one build: wavefront-frame 182 s for the compiler, 10 s for the driver.
+Two defects on the way to the run: the script's `pbrt` expansion matched
+the word inside `pbrt-compile` and `pbrt-plots`, so the first launch set
+out on the whole pbrt set (killed by pid in its first compiles, the
+expansion a token loop now, 5566a8d7), and the new stage takes no lock
+(only the three measuring stages did; this run's lock written by hand,
+the stage's take_lock to add once the script stops executing). The run
+is on; its numbers follow.
