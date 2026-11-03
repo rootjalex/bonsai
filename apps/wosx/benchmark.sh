@@ -149,7 +149,8 @@ done
 # packets of 32, 16, 8 and 4 lanes threaded) -- or the GPU table's: the matching
 # schedule, its variants, and the launches through OptiX (the plain
 # ray-generation launch, the same with the threads reordered by position
-# before every step, and the persistent claim under that reordering); or
+# before every step, and the persistent claim under that reordering), and
+# the per-point deferral the figure draws (defer-block); or
 # the walk on stars' tables, on WoSX's default trees alone, its GPU table
 # the walk on spheres' schedules on that walk with the per-point deferral.
 if (( STARS && GPU )); then
@@ -161,7 +162,7 @@ elif (( STARS )); then
   OUT="${OUT:-apps/wosx/results/stars-logs}"
   CSV="${CSV:-apps/wosx/results/wosx-stars-results.csv}"
 elif (( GPU )); then
-  SCHEDULES="${SCHEDULES:-fcpwb-gpu,fcpwb-gpu-parallel,fcpwb-gpu-reorder,fcpwb-gpu-256k,fcpwb-gpu-reorder-256k,fcpwb-gpu-parallel-reorder-blk64,fcpwb-gpu-optix,fcpwb-gpu-optix-ser,fcpwb-gpu-optix-ser-persistent}"
+  SCHEDULES="${SCHEDULES:-fcpwb-gpu,fcpwb-gpu-parallel,fcpwb-gpu-reorder,fcpwb-gpu-256k,fcpwb-gpu-reorder-256k,fcpwb-gpu-parallel-reorder-blk64,fcpwb-gpu-optix,fcpwb-gpu-optix-ser,fcpwb-gpu-optix-ser-persistent,fcpwb-gpu-defer-block}"
   OUT="${OUT:-apps/wosx/results/gpu-logs}"
   CSV="${CSV:-apps/wosx/results/wosx-gpu-results.csv}"
 else
