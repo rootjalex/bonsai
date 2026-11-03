@@ -32,9 +32,10 @@
 #                 and FCPW (rtq-queries-cpu), FCPW's scalar trees
 #                 (rtq-fcpwb-cpu), the GPU schedules against FCPW's GPUScene
 #                 (rtq-fcpwb-gpu), and the mesh table -> apps/rtq/plots/
-#   wosx          apps/wosx/benchmark.sh --gpu and --stars --gpu: WoSX's GPU
-#                 solvers against the GPU schedules -> apps/wosx/plots/
-#                 wosx-gpu-speedup, wosx-stars-gpu-speedup
+#   wosx          apps/wosx/benchmark.sh --fresh --gpu and --fresh --stars
+#                 --gpu: WoSX's GPU solvers against the GPU schedules, every
+#                 cell measured again -> apps/wosx/plots/wosx-gpu-speedup,
+#                 wosx-stars-gpu-speedup
 #
 # What the figures are made of -- scenes, sides, sample counts, repeats --
 # lives in apps/pbrt/figures.sh, which plots.sh reads too. The rtq and wosx
@@ -45,7 +46,8 @@
 # protocol of /tmp/benchmark.lock): the script refuses to start on another's
 # lock, on a running harness, on a process holding the GPU, or on
 # uncommitted compiler sources -- a run is attributed to the commit it was
-# built from, and `results/provenance.txt` records it. It holds the lock
+# built from, and `results/provenance.txt` records it, as does the head of
+# the run's log, since the next run writes provenance.txt afresh. It holds the lock
 # through the pbrt stages, removed on exit however the script ends, and
 # hands the machine to the rtq and wosx runners for theirs. Every pbrt
 # stage resumes: a table's finished cells are kept and the missing ones
@@ -123,7 +125,7 @@ run cmake --build "${BONSAI_BUILD_DIR:-build}" -j"$(nproc)"
     echo "gpu sides   $GPU_SIDES"
     echo "cpu sides   $CPU_SIDES"
     echo "host        $(hostname); $(nproc) threads; $(nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null)"
-  } > "$RESULTS/provenance.txt"
+  } | tee "$RESULTS/provenance.txt"
 }
 
 #--- the pbrt stages, under our lock ---------------------------------------
@@ -183,9 +185,12 @@ if has rtq; then
   echo "=== rtq ends $(date +%T) rc=$?"
 fi
 if has wosx; then
+  # --fresh, as for rtq: the runner takes a cell's log that exists for a
+  # finished run and would fold the old logs into new tables and figures
+  # without measuring anything (the 11-03 03:29 run did just that).
   echo "=== wosx $(date +%T): WoSX's GPU solvers against the GPU schedules, the walk on spheres and the walk on stars"
-  run bash apps/wosx/benchmark.sh --gpu
-  run bash apps/wosx/benchmark.sh --stars --gpu
+  run bash apps/wosx/benchmark.sh --fresh --gpu
+  run bash apps/wosx/benchmark.sh --fresh --stars --gpu
   echo "=== wosx ends $(date +%T)"
 fi
 echo "=== apps/benchmark.sh ends $(date '+%F %T'); log $LOG"
