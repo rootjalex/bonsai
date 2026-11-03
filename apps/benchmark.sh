@@ -12,18 +12,23 @@
 #     apps/benchmark.sh --stages "rtq wosx"  # the other two apps' runners
 #     apps/benchmark.sh --dry-run            # print the commands, run nothing
 #
+# A full run takes about 12 h 20 min on the 32-thread host with one RTX
+# 5090 (measured 11-02/03: the pbrt stages 9 h 31 min, rtq 27 min, wosx
+# 2 h 20 min); the durations below are from that run.
+#
 # Stages, in order, and what each makes:
 #   pbrt-gpu      apps/pbrt/gpu_compare.sh: pbrt --gpu against the GPU sweep's
 #                 schedules on the sweep scenes at the sweep's sample counts
-#                 -> apps/pbrt/results/gpu-sweep/table.tsv (~2 h)
+#                 -> apps/pbrt/results/gpu-sweep/table.tsv (1 h 29 min)
 #   pbrt-cpu      apps/pbrt/cpu_compare.sh: pbrt's CPU wavefront and CPU
 #                 integrator against the CPU sweep's schedules, same scenes
 #                 and counts -> apps/pbrt/results/cpu-sweep/cpu-results.csv
-#                 (~8 h on every core)
+#                 (6 h 23 min on every core)
 #   pbrt-heatmap  apps/pbrt/heatmap.sh: the matching GPU wavefront (gpu-optix)
 #                 against pbrt --gpu on every scene the converter takes, at
 #                 the heatmap's counts, the renderer reused from the GPU sweep
-#                 -> apps/pbrt/results/heatmap/table.tsv (up to its 5 h cutoff)
+#                 -> apps/pbrt/results/heatmap/table.tsv (1 h 39 min, under
+#                 its 5 h cutoff)
 #   pbrt-plots    apps/pbrt/plots.sh --png: pbrt-gpu-sweep, pbrt-cpu-sweep,
 #                 pbrt-gpu-heatmap (and the profile and depth figures from
 #                 their own tools' last runs) into apps/pbrt/plots/
@@ -32,10 +37,12 @@
 #                 and FCPW (rtq-queries-cpu), FCPW's scalar trees
 #                 (rtq-fcpwb-cpu), the GPU schedules against FCPW's GPUScene
 #                 (rtq-fcpwb-gpu), and the mesh table -> apps/rtq/plots/
+#                 (27 min)
 #   wosx          apps/wosx/benchmark.sh --fresh --gpu and --fresh --stars
 #                 --gpu: WoSX's GPU solvers against the GPU schedules, every
 #                 cell measured again -> apps/wosx/plots/wosx-gpu-speedup,
-#                 wosx-stars-gpu-speedup
+#                 wosx-stars-gpu-speedup (47 min the spheres' ten schedules,
+#                 1 h 34 min the stars' ten)
 #
 # What the figures are made of -- scenes, sides, sample counts, repeats --
 # lives in apps/pbrt/figures.sh, which plots.sh reads too. The rtq and wosx
