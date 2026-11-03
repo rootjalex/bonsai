@@ -21067,3 +21067,40 @@ expansion a token loop now, 5566a8d7), and the new stage takes no lock
 (only the three measuring stages did; this run's lock written by hand,
 the stage's take_lock to add once the script stops executing). The run
 is on; its numbers follow.
+
+**The compile times (13:58).** The user stopped the three-builds plan
+("you don't need to build them three times each, that's silly; just
+once; and put a dashed line on the PBRT system compile time, I know
+that's not an exact comparison"), and the six GPU schedules the run had
+built three times by then bear it out: the three builds of a schedule
+agree to a third of a percent (gpu-optix 386.8, 384.5, 384.5 s). One
+build each from then on, and pbrt-v4 after the schedules: a clean build
+directory configured from the reference build's own cache (the entries
+of its CMakeCache.txt as an initial cache: the same compilers in the
+pbrt conda environment, CUDA 12.4, OptiX 7.7, sm_89, Release), `cmake
+--build` with a job per core. The compiler alone, one thread, seconds:
+CPU -- wavefront-frame 182, wavefront-thread-packet 272, its chunk256
+274, its fused 207, its sort 282, scalar 162, scalar-tiled 163; GPU --
+gpu-optix 385, gpu-optix-fused-route 218, gpu-optix-bounce 604,
+gpu-optix-mega-flat-samples 497, gpu-optix-mega-ser-flat-samples 498,
+gpu-optix-mega-ser-ray-flat-samples 520, gpu-optix-mega-ser-ray-flat
+517; the driver's clang 9.4 s on a CPU schedule, 11.7 to 19 s on a GPU
+one. pbrt-v4: 55.3 s of wall over 32 jobs, 839.6 s of CPU, for the
+whole renderer -- its CPU integrators, its GPU wavefront, the PTX and
+its bundled dependencies (OpenEXR found installed). So one schedule of
+ours costs the compiler 2.7 to 10 min on one thread, against the 14
+CPU-minutes pbrt's build spends in 55 s of wall; the figure draws the
+wall time as the dashed line, named with its job count, and the .txt
+has both. The GPU schedules cost two to three times the CPU ones: the
+PTX and OptiX modules through NVPTX on top of the host code, and
+wf-bounce, one launch per bounce, the most. The stage takes 1 h 25 min,
+a full run about 13 h 45 min (the header, the READMEs). Three more
+defects of the scripts came out in the running: the stage took no lock
+(rtq-c0 saw it; it does now), conda's activation under the harness's
+strict mode killed pbrt's configure before cmake ran (the strict mode
+is off around it), and every stage's ending line read `rc=$?` after its
+`$(date)`, the date's status -- every "rc=0" of 11-02/03 was that; the
+status is read first now. rtq-c0's check in the gap: under the four
+compiler commits since 014d544c the six plotted rtq schedules' LLVM is
+byte-identical to the table's compiler's, so the rtq figures stand
+without a rerun. The figure: apps/plots/pbrt-compile-time.pdf.
