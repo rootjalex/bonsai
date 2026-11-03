@@ -8223,6 +8223,25 @@ tree, u32[96]/f32[96] for the four-wide, u32[64]/f32[64] for the binary),
 the per-node distance arrays (f32[8], f32[4], f32[2]) and the pointer slots
 for the answer records. Nothing of rtq's moved.
 
+**And against dbcd8bba (2026-11-03, 13:54).** Four compiler commits since
+014d544c, all of them f9's megakernel faults 9 to 12 in SSA/Linearize.cpp
+and the loop pass: 0a72252a (the loop pass counts a call continuation's
+results among a divergent loop's own definitions), 80c9b18a (a widened block
+argument's reads are retyped only where that declaration is in scope),
+163646a8 (the linearizer resolves names to definitions once, by a fixed point
+over the function's declarations) and dbcd8bba (the linearizer no longer
+carries a threaded value across a uniform join inside a guarded region
+through a slot of its own). The vectorized and GPU rtq schedules go through
+both passes, so any of the four might have moved their code. The same
+recheck (scratch/ssa-check-dbcd8bba/run.sh, under build/compiler linked
+10:43:57, six seconds after dbcd8bba's commit and with no source newer than
+it, in the gap f9 named after their compile-time stage's 'done', under a
+lock of my own, 13:54:01-13:54:07): every LLVM module byte-identical to the
+10-31 dumps, and the final SSA identical too -- 10-31's for five schedules,
+the 014d544c text (that is, the a4d805c7 text) for fcpw4w16. Nothing of
+rtq's moved. The tables measured 11-03 under 014d544c therefore stand for
+this compiler as well.
+
 ### Where the 5% goes: the two Embree cells under the hardware counters (2026-11-01)
 
 The user, 00:10: "please do profile to see where that 5% goes. Don't try
