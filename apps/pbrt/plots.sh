@@ -34,6 +34,11 @@
 #                              reordering at depth caps 4, 16, 64, 256
 #                              (the depth sweep of 10-30, depth-out/;
 #                              plot_gpu_depth.py; 10-31)
+#   plots/pbrt-compile-time.pdf how long the compiler takes on each schedule
+#                              of the two sweeps, a bar per schedule in the
+#                              sweeps' colours, the least of the benchmark's
+#                              repeats, from compile_time.sh's CSV
+#                              (plot_compile_time.py; the user, 11-03)
 #   plots/scene_statistics.txt every scene of the figures described -- its
 #                              triangles, meshes, instances, materials and
 #                              their kinds, textures, lights, resolution,
@@ -233,10 +238,14 @@ PROFILE_SIDES="${PROFILE_SIDES:-gpu-optix,gpu-optix-mega-flat,gpu-optix-mega-ser
 DEPTH_TABLE="${DEPTH_TABLE:-$PREFIX/depth-out/frame542-depth.tsv}"
 DEPTH_STATS="${DEPTH_STATS:-$PREFIX/depth-out/frame542-s128.pbrt.stats}"
 DEPTH_LOG="${DEPTH_LOG:-$PREFIX/depth-out/post_confirm_gpu.log}"
+# The compile times of the sweeps' schedules (compile_time.sh, the
+# pbrt-compile stage of apps/benchmark.sh).
+COMPILE_TABLE="${COMPILE_TABLE:-$COMPILE_OUT/compile-times.csv}"
+
 png=0
 [[ "${1:-}" == "--png" ]] && png=1
 
-for f in $CPU_CSVS $GPU_TABLES $HEATMAP_TABLE $DEPTH_TABLE $DEPTH_STATS $DEPTH_LOG; do
+for f in $CPU_CSVS $GPU_TABLES $HEATMAP_TABLE $DEPTH_TABLE $DEPTH_STATS $DEPTH_LOG $COMPILE_TABLE; do
   [[ -f "$f" ]] || { echo "plots.sh: no $f" >&2; exit 1; }
 done
 [[ -d "$PROFILES" ]] || { echo "plots.sh: no $PROFILES (profile_kernels.sh writes it)" >&2; exit 1; }
@@ -261,5 +270,6 @@ for ext in "${formats[@]}"; do
   python3 "$PREFIX/plot_gpu_heatmap.py" "$OUT/pbrt-gpu-heatmap.$ext" "$HEATMAP_TABLE" --sort geometry
   python3 "$PREFIX/plot_gpu_profile.py" "${cells[@]}" --sides "$PROFILE_SIDES" --profiles "$PROFILES" -o "$OUT/pbrt-gpu-profile.$ext"
   python3 "$PREFIX/plot_gpu_depth.py" "$DEPTH_TABLE" --stats "$DEPTH_STATS" --log "$DEPTH_LOG" -o "$OUT/pbrt-gpu-depth.$ext"
+  python3 "$PREFIX/plot_compile_time.py" $COMPILE_TABLE -o "$OUT/pbrt-compile-time.$ext"
 done
 ls -la "$OUT"

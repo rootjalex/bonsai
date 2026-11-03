@@ -33,6 +33,7 @@
 : "${GPU_SWEEP_OUT:=$RESULTS/gpu-sweep}"
 : "${CPU_SWEEP_OUT:=$RESULTS/cpu-sweep}"
 : "${HEATMAP_OUT:=$RESULTS/heatmap}"
+: "${COMPILE_OUT:=$RESULTS/compile-time}"
 
 # A comma-separated list as the harnesses take it, space-separated.
 spaced() { echo "$1" | tr ',' ' '; }

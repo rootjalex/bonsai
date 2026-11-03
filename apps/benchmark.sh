@@ -30,9 +30,14 @@
 #                 the heatmap's counts, the renderer reused from the GPU sweep
 #                 -> apps/pbrt/results/heatmap/table.tsv (1 h 39 min, under
 #                 its 5 h cutoff)
+#   pbrt-compile  apps/pbrt/compile_time.sh: the compiler's time on every
+#                 schedule of the two sweeps, each built REPEATS times as a
+#                 comparison builds it -> apps/pbrt/results/compile-time/
+#                 compile-times.csv (the user, 11-03)
 #   pbrt-plots    apps/pbrt/plots.sh --png: pbrt-gpu-sweep, pbrt-cpu-sweep,
-#                 pbrt-gpu-heatmap (and the profile and depth figures from
-#                 their own tools' last runs) into apps/pbrt/plots/
+#                 pbrt-gpu-heatmap, pbrt-compile-time (and the profile and
+#                 depth figures from their own tools' last runs) into
+#                 apps/pbrt/plots/
 #   rtq           apps/rtq/benchmark.sh --fresh, every schedule of the rtq
 #                 figures at once: the matching CPU schedules against Embree
 #                 and FCPW (rtq-queries-cpu), FCPW's scalar trees
@@ -82,7 +87,7 @@ if [[ -f ~/miniconda3/etc/profile.d/conda.sh ]]; then
 fi
 source apps/pbrt/figures.sh
 
-DEFAULT_STAGES="pbrt-gpu pbrt-cpu pbrt-heatmap pbrt-plots rtq wosx"
+DEFAULT_STAGES="pbrt-gpu pbrt-cpu pbrt-heatmap pbrt-compile pbrt-plots rtq wosx"
 STAGES="$DEFAULT_STAGES"
 DRY=0
 while [[ $# -gt 0 ]]; do
@@ -94,7 +99,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 # `pbrt` names its four stages.
-STAGES=$(echo "$STAGES" | sed 's/\bpbrt\b/pbrt-gpu pbrt-cpu pbrt-heatmap pbrt-plots/')
+STAGES=$(echo "$STAGES" | sed 's/\bpbrt\b/pbrt-gpu pbrt-cpu pbrt-heatmap pbrt-compile pbrt-plots/')
 HOLDER="${BENCHMARK_HOLDER:-$USER}"
 LOCK=/tmp/benchmark.lock
 HARNESS='^(/bin/)?bash apps/(pbrt|wosx|rtq)/(gpu_compare|heatmap|cpu_compare|compare|benchmark)\.sh'
@@ -121,7 +126,7 @@ gather_plots() {  # full | part
   mkdir -p "$PLOTS"
   [[ "$1" == full ]] && rm -f "$PLOTS"/*
   local f
-  for f in apps/pbrt/plots/{pbrt-gpu-sweep,pbrt-cpu-sweep,pbrt-gpu-heatmap,pbrt-gpu-profile,pbrt-gpu-depth,scene_statistics}.* \
+  for f in apps/pbrt/plots/{pbrt-gpu-sweep,pbrt-cpu-sweep,pbrt-gpu-heatmap,pbrt-gpu-profile,pbrt-gpu-depth,pbrt-compile-time,scene_statistics}.* \
            apps/rtq/plots/{rtq-queries-cpu,rtq-fcpwb-cpu,rtq-fcpwb-gpu,rtq-firsthit,rtq-anyhit,rtq-closestpoint,rtq-meshes}.* \
            apps/wosx/plots/{wosx-gpu-speedup,wosx-stars-gpu-speedup,wosx-meshes,wosx-stars-meshes}.* \
            "$RESULTS/provenance.txt"; do
@@ -201,6 +206,15 @@ if has pbrt-heatmap; then
   [[ -d "$GPU_SWEEP_OUT" ]] && REUSE=(--reuse "$GPU_SWEEP_OUT")
   run bash apps/pbrt/heatmap.sh --out "$HEATMAP_OUT" --spp "$HEATMAP_SPP" --repeats "$REPEATS" "${REUSE[@]}"
   echo "=== pbrt-heatmap ends $(date +%T) rc=$?"
+fi
+if has pbrt-compile; then
+  # Every schedule of the two sweeps built REPEATS times, the compiler's
+  # seconds of each build kept (compare.sh prints them); the machine is
+  # quiet here, between the heatmap and the plots.
+  echo "=== pbrt-compile $(date +%T): the compiler's time on the sweeps' schedules, into $COMPILE_OUT"
+  run bash apps/pbrt/compile_time.sh --out "$COMPILE_OUT" --repeats "$REPEATS" --resume \
+      --schedules "$(spaced "$GPU_SIDES") $(cpu_schedules)"
+  echo "=== pbrt-compile ends $(date +%T) rc=$?"
 fi
 if has pbrt-plots; then
   echo "=== pbrt-plots $(date +%T)"

@@ -318,10 +318,19 @@ build_renderer() {
   nanovdb_include=$(echo "$shim_out" | sed -n 's/^NANOVDB_INCLUDE=//p')
   local -a link_flags
   mapfile -t link_flags < <(echo "$shim_out" | grep -v '^NANOVDB_INCLUDE=')
+  # The two builds are timed for compile_time.sh (the figure pbrt-compile-
+  # time): the compiler's wall seconds, which are the schedule's -- parsing,
+  # scheduling, the SSA passes, LLVM's optimization and the object, and for
+  # a GPU schedule its PTX and OptiX modules -- and the driver's, the same
+  # host code for every schedule.
+  local t0 t1
+  t0=$(date +%s.%N)
   "./$BONSAI_BUILD_DIR/compiler" -p ssa --no-heap --ffp-contract "${gpu_flags[@]}" \
       "${link_flags[@]}" \
       -i $PREFIX/render.bonsai -i "$PREFIX/schedules/$SCHEDULE.bonsai" \
       -b cpp -o $PREFIX/render
+  t1=$(date +%s.%N)
+  echo "compiler seconds: $(awk -v a="$t0" -v b="$t1" 'BEGIN { printf "%.2f", b - a }')"
   # A schedule on the RT cores: the generated header includes
   # runtime/bonsai_optix.h, which declares the acceleration structure's build
   # against the OptiX SDK's headers and CUDA's -- the same ones the compiler's
@@ -341,10 +350,13 @@ build_renderer() {
   # -march=native as pbrt's own build has it: the driver is host code, and
   # runtime/bonsai_parallel.h's sort of a sorted queue takes its vectorized
   # form only when the translation unit is compiled for the host's vectors.
+  t0=$(date +%s.%N)
   "$BONSAI_CXX" -g -std=c++20 -O3 -march=native -I. -I$PREFIX $(bash $PREFIX/scene_schema.sh) \
       $PREFIX/render_hook.cpp \
       -DBONSAI_SHIM_CHECK "$nanovdb_include" $PREFIX/nanovdb_shim.cpp \
       $PREFIX/render.o "${TBB_FLAGS[@]}" "${optix_flags[@]}" -o "$out"
+  t1=$(date +%s.%N)
+  echo "driver seconds: $(awk -v a="$t0" -v b="$t1" 'BEGIN { printf "%.2f", b - a }')"
   rm -f $PREFIX/render.o
   rm -rf "$out.dSYM"
 }

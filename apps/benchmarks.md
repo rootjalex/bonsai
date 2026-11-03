@@ -42,6 +42,15 @@ Every CPU schedule imports apps/pbrt/schedules/trees/bvh.bonsai.
 gpu-optix (the match of pbrt --gpu's wavefront) against pbrt --gpu on every
 scene the converter takes, at 16, 64 and 128 spp.
 
+## pbrt compile time (`apps/pbrt/plots/pbrt-compile-time.pdf`)
+
+One bar per schedule of the two sweeps above, the CPU sweep's then the GPU
+sweep's, under the sweeps' labels and in their colours: the compiler's
+wall seconds on render.bonsai with that schedule, the least of the
+benchmark's repeats, measured by apps/pbrt/compile_time.sh (the
+`pbrt-compile` stage of apps/benchmark.sh) exactly as a comparison builds
+the renderer. The .txt has every build's seconds and the driver's.
+
 ## rtq (`apps/rtq/plots/`; apps/rtq/plot.py, run by apps/rtq/benchmark.sh)
 
 rtq-firsthit, rtq-anyhit, rtq-closestpoint, rtq-queries-cpu:

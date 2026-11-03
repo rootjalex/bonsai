@@ -24,8 +24,9 @@ reordering before the material stage) take the second.
 
 To remake the paper's pbrt figures from the current compiler in one go,
 run `apps/benchmark.sh --stages pbrt` from the repository root (the GPU
-sweep, the CPU sweep, the heatmap, then `plots.sh`; about 9.5 hours as
-measured on 11-02, resumable, under the sessions' benchmark lock). What the figures are made of --
+sweep, the CPU sweep, the heatmap, the compile times of the sweeps'
+schedules, then `plots.sh`; about 9.5 hours as measured on 11-02 before
+the compile-time stage, resumable, under the sessions' benchmark lock). What the figures are made of --
 scenes, sides, sample counts, repeats, and where each measurement is
 written (`results/`) -- is `figures.sh`, which both that script and
 `plots.sh` read, so the two cannot drift apart.
@@ -119,6 +120,14 @@ before it.
   drawn at the end; rerun the same command to finish an interrupted run.
   `--reuse` is `gpu_compare.sh`'s: a heatmap after a sweep under the same
   compiler skips its one compile.
+- `compile_time.sh --out DIR [--schedules "..."] [--repeats N] [--resume]`:
+  how long the compiler takes on each schedule of the two sweeps (the
+  figure `pbrt-compile-time`, the user's ask of 11-03): each renderer
+  built `--repeats` times exactly as a comparison builds it, `compare.sh`'s
+  `compiler seconds` and `driver seconds` kept, one CSV row per build in
+  `DIR/compile-times.csv`; `--resume` skips a schedule with its rows. The
+  figure is the least of each schedule's compiler seconds
+  (`plot_compile_time.py`, drawn by `plots.sh`).
 - `cpu_compare.sh [--spp "N ..."] [--repeats N] [--schedules "..."]
   [--scenes "..."] [--out DIR] [--resume]`: the CPU comparison -- pbrt's
   CPU wavefront against every CPU schedule, on the scenes given (the
