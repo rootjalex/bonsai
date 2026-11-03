@@ -99,7 +99,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 # `pbrt` names its four stages.
-STAGES=$(echo "$STAGES" | sed 's/\bpbrt\b/pbrt-gpu pbrt-cpu pbrt-heatmap pbrt-compile pbrt-plots/')
+# `pbrt` alone names its five stages; a stage token is matched whole (a
+# word-boundary match took the `pbrt` of `pbrt-compile` too, 11-03).
+expanded=""
+for stage in $STAGES; do
+  if [[ "$stage" == pbrt ]]; then
+    expanded+=" pbrt-gpu pbrt-cpu pbrt-heatmap pbrt-compile pbrt-plots"
+  else
+    expanded+=" $stage"
+  fi
+done
+STAGES="${expanded# }"
 HOLDER="${BENCHMARK_HOLDER:-$USER}"
 LOCK=/tmp/benchmark.lock
 HARNESS='^(/bin/)?bash apps/(pbrt|wosx|rtq)/(gpu_compare|heatmap|cpu_compare|compare|benchmark)\.sh'
