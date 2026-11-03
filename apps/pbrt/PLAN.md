@@ -20808,3 +20808,65 @@ call-result IR golden (its first blessing carried the second attempt's
 bypass defect); commit in the worktree, one commit per fix, and bring
 them onto ajr/ssa once the rerun is over and the checkout's sources may
 move; then the three megakernels.
+
+## 11-03 01:40: the fixed point built and passing; the landing route's one wrong question; three commits in the worktree
+
+The CPU sweep ended 01:18 (rc 0; 112 cells, every image matching pbrt,
+none redone by the idle guard; the heatmap stage runs since). The
+worktree compiler with the fixed point built first time; the suite:
+1998 tests, 7 failing. Two are the worktree's lack of CUDA. One was the
+call-result IR golden, whose first blessing carried the second
+resolver's bypass defect: against the new output only the `@` numbering
+differs, re-blessed. Two are vectorize-packet-wide at the IR and LLVM
+levels: the IR drops one instruction, a `select(c, 0, 0)` -- a blend of
+the constant zero with itself that the name rule emitted where the
+fixed point sees one value -- and LLVM, merging the same two blocks,
+keeps the other one's name (`!merge_15` for `!par_body_5_next_children`);
+nothing else moves in either, re-blessed. (A false alarm on the way: run
+by hand, the compiler emits AVX-512 gathers and 64-byte allocas for this
+host, 213 lines against the golden; the runner pins the LLVM target for
+the backends directory, tests/bonsai/CMakeLists.txt, and under it main's
+compiler and the golden agree.)
+
+The seventh, vectorize-sorted-traversal, was the fault 10 route asking
+the wrong graph. The output gained six parameters threaded round the
+whole traversal loop that nothing reads -- shown as `mut` slots by the
+structured printer, duplicating the landing chain's values
+(`shapes_index!top!latch!skip` twice on every jump into `!merge_17`).
+Traced, they are the slots the landing route makes for a value a landing
+is handed from a block its definition "does not dominate", promoted back
+to values by the pass's own promotion: six values, each defined in the
+one block that precedes the leaving block in the linearized code
+(`!else_48` -> `!merge_49`, `!visit_done` -> `!visit!latch`, a guard ->
+the loop exit under it). The route tested dominance in the program's
+graph, where `!merge_49` merges two arms; in the linearized graph, where
+the code runs and the value is read, the arms lie in sequence and the
+join has the one way in. Fault 10's own shape -- a kept uniform branch,
+`if have_subsurface`, whose else edge skips the defining arm -- has two
+ways in under both graphs and still takes the slot. The test is now
+`linear_dom.dominates(at, inside)`, the same tree the join blends
+already consult; the sorted traversal is byte-identical to its golden
+again, and the suite is 1996 of 1998 with the two CUDA tests.
+
+Three commits on the worktree's branch ajr/megakernel-faults, off
+57d9c42a (main's compiler sources are those; its later commits are
+scripts and this file): 75804d36 the loop pass's rule for a call
+continuation's results (SSA/UniformizeLoops.cpp); 909b619c the widened
+argument's scoped reads, fault 9 (SSA/Vectorize.cpp); 68fbf0bc the fixed
+point and the landing route, faults 11 and 10, with the four tests and
+the two re-blessed goldens (SSA/Linearize.cpp). To be cherry-picked onto
+ajr/ssa once apps/benchmark.sh ends (the harness builds the compiler out
+of this checkout before every renderer it compiles, the heatmap's
+included). Not yet measured: the fixed point's compile time on a
+megakernel (BONSAI_TIME_PASSES; rounds x declared arguments x edges x
+dominator depth, with string-keyed maps on the way), to be read off the
+first megakernel compile after the run and tightened if it shows.
+
+**Next (the user, 11-02 20:50 and 21:00):** when the script ends, its
+duration per stage and in total, with the rtq and wosx stages' times
+from their last runs since this run is `--stages pbrt` (their figures
+stand from 10-30 under that day's compiler, which the user noticed; a
+`--stages "rtq wosx"` run of about an hour closes the gap, proposed);
+then the vectorized megakernels: the fixed compiler on the three
+schedules, an image against pbrt on a scene, every remaining fault
+root-caused with tests at every level.
