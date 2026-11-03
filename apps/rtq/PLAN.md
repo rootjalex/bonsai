@@ -8207,6 +8207,22 @@ commit's build, in the half-hour window f9 gave under its hold,
 final SSA identical to 10-31 for five schedules and to the 1f5c68b1 dump for
 fcpw4w16. Nothing of rtq's moved, not even in text.
 
+**And against 014d544c (2026-11-02, 16:54).** f9's commit (IR/Stmt.cpp: a
+scalar accumulated into a vector place is broadcast by Accumulate::make,
+and CodeGen_LLVM refuses one unbroadcast; SSA/PromoteAllocas.cpp: a `mut`
+local declared in a block that heads a loop -- a loopified traversal's body
+-- is a value instead of a memory slot), which f9 expected to change every
+loopified traversal's SSA text. The same recheck
+(scratch/ssa-check-014d544c/run.sh, under build/compiler linked 16:49, this
+commit's build, under a lock of my own, 16:54:02-16:54:09): every LLVM
+module byte-identical to the 10-31 dumps, and the final SSA identical too
+-- 10-31's for five schedules, the a4d805c7 text for fcpw4w16. So the new
+case promoted nothing in rtq's programs: the slots in their final SSA are
+the same as before, the traversal stacks (u64[572]/f32[572] for Embree's
+tree, u32[96]/f32[96] for the four-wide, u32[64]/f32[64] for the binary),
+the per-node distance arrays (f32[8], f32[4], f32[2]) and the pointer slots
+for the answer records. Nothing of rtq's moved.
+
 ### Where the 5% goes: the two Embree cells under the hardware counters (2026-11-01)
 
 The user, 00:10: "please do profile to see where that 5% goes. Don't try
