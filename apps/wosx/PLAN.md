@@ -3205,6 +3205,30 @@ byte-identical in final SSA, LLVM module and header against 1ab9281e's
 outputs. Both changes give a lowering to shapes that stopped the compiler
 before, and every wosx schedule compiled before. The tables stand.
 
+The compiler commit of 15:57 on 11-02 (a4d805c7: what a divergent loop's
+code after it reads of the loop, and the join that threads a blended name
+on), checked the same way at 15:59-16:01 under the peer's hold, the binary's
+checksum the same before and after: sixty-two of the sixty-three schedule
+files byte-identical in final SSA, LLVM module and header against
+1f5c68b1's outputs. The one that moved is
+fcpwb-packet-defer-sort-fine-perlane-threads, the sorted drain whose
+traversal runs per lane, and it moved in the way the commit describes: a
+divergent loop is one whose lanes leave on different iterations, and a
+value a lane carries out of it and reads afterwards -- here the per-lane
+tree walk's node offset and its step count -- is now handed on under a
+name of its own, so the loop's exit tracks one more value and selects it
+once more, and the read after the loop names that copy where it named the
+tracked value before:
+
+    before:  after_loop: use(track_1)
+    after:   after_loop: use(offset_out)      offset_out = select(left_now, offset, track_7)
+
+twenty-five structural lines of SSA, the same values. Its LLVM module
+(3,734 lines either way) differs in value numbering alone, and its object
+code, lowered by the compiler's own LLVM 23 and disassembled, is identical
+instruction for instruction (text 25,997 bytes either way). The schedule is
+drawn in no figure and has no rows in the current table. The tables stand.
+
 ### Next
 
 - The refill for the compacting block, as the user's plan (above): a
