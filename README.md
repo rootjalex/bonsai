@@ -90,7 +90,9 @@ the pbrt GPU and CPU sweeps, the GPU heatmap and the compile times
 pbrt-compile-time), the rtq query figures (`apps/rtq`: rtq-queries-cpu,
 rtq-fcpwb-gpu) and the wosx GPU figures (`apps/wosx`: wosx-gpu-speedup,
 wosx-stars-gpu-speedup). `--stages` picks a subset (`--stages pbrt`,
-`--stages "rtq wosx"`), `--dry-run` prints the commands. A full run takes
+`--stages "rtq wosx"`), `--fresh` measures every cell again (the last
+run's pbrt results set aside under a dated name; without it an
+interrupted run resumes), `--dry-run` prints the commands. A full run takes
 about 13 h on the paper's machine (the script's header has the stages'
 times). The run is attributed to the commit it was built from and refuses
 uncommitted compiler sources; `apps/pbrt/results/provenance.txt` records

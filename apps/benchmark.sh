@@ -16,6 +16,8 @@
 #     apps/benchmark.sh --stages "pbrt-gpu pbrt-cpu pbrt-heatmap pbrt-plots"
 #     apps/benchmark.sh --stages pbrt        # the five pbrt stages
 #     apps/benchmark.sh --stages "rtq wosx"  # the other two apps' runners
+#     apps/benchmark.sh --fresh              # measure every cell again: each pbrt stage's
+#                                            # results set aside first under a dated name
 #     apps/benchmark.sh --dry-run            # print the commands, run nothing
 #     apps/benchmark.sh --stages gather      # only copy the figures into apps/plots
 #
@@ -85,7 +87,15 @@
 # hands the machine to the rtq and wosx runners for theirs. Every pbrt
 # stage resumes: a table's finished cells are kept and the missing ones
 # measured, so an interrupted run is continued by the same command.
-# BENCHMARK_HOLDER names the holder in the lock (default: the user).
+# --fresh measures every cell again: before the pbrt stages each one's
+# results directory is set aside under a dated name
+# (results/<stage>.before-<date>, the convention of the rtq and wosx
+# tables), the old tables kept for comparison; the rtq and wosx runners
+# are called with their own --fresh in every run, since their logs do not
+# resume cleanly across an older run's (a log that exists passes for a
+# finished cell). To continue an interrupted fresh run, repeat the command
+# without --fresh. BENCHMARK_HOLDER names the holder in the lock (default:
+# the user).
 #
 # While it runs, the compiler sources of this checkout are frozen: the
 # pbrt harnesses rebuild the compiler before each renderer they compile
@@ -104,9 +114,11 @@ source apps/pbrt/figures.sh
 DEFAULT_STAGES="pbrt-gpu pbrt-cpu pbrt-heatmap pbrt-compile pbrt-plots rtq wosx"
 STAGES="$DEFAULT_STAGES"
 DRY=0
+FRESH=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --stages) STAGES="$2"; shift 2 ;;
+    --fresh) FRESH=1; shift ;;
     --dry-run) DRY=1; shift ;;
     -h|--help) sed -n '2,52p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "benchmark.sh: unknown option $1" >&2; exit 2 ;;
@@ -213,6 +225,22 @@ has() { [[ " $STAGES " == *" $1 "* ]]; }
 
 if has pbrt-gpu || has pbrt-cpu || has pbrt-heatmap || has pbrt-compile; then
   (( DRY )) || take_lock "the pbrt stages ($(echo "$STAGES" | tr ' ' '\n' | grep pbrt- | grep -v plots | tr '\n' ' '))"
+fi
+# --fresh: a stage's results of an earlier run set aside under a dated
+# name, so that the stage measures every cell again (its --resume finds
+# nothing) and the old table stays for comparison.
+set_aside() {  # set_aside DIR
+  [[ -d "$1" ]] || return 0
+  local aside="$1.before-$(date +%F)" n=1
+  while [[ -e "$aside" ]]; do aside="$1.before-$(date +%F)-$n"; n=$((n + 1)); done
+  echo "+ mv $1 $aside"
+  (( DRY )) || mv "$1" "$aside"
+}
+if (( FRESH )); then
+  has pbrt-gpu && set_aside "$GPU_SWEEP_OUT"
+  has pbrt-cpu && set_aside "$CPU_SWEEP_OUT"
+  has pbrt-heatmap && set_aside "$HEATMAP_OUT"
+  has pbrt-compile && set_aside "$COMPILE_OUT"
 fi
 if has pbrt-gpu; then
   echo "=== pbrt-gpu $(date +%T): the GPU sweep into $GPU_SWEEP_OUT"
