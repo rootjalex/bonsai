@@ -61,7 +61,8 @@ def main(argv):
     parser.add_argument("csv", nargs="+", help="compile_time.sh's CSV(s)")
     parser.add_argument("-o", "--out", required=True, help="the figure (.pdf or .png)")
     parser.add_argument("--width", type=float, default=TEXT_WIDTH)
-    parser.add_argument("--height", type=float, default=1.75)
+    parser.add_argument("--height", type=float, default=2.0,
+                        help="inches; 1.75 of axes and labels, and the legend's row above")
     parser.add_argument("--cpu-order", default="",
                         help="the CPU schedules in drawing order, comma-separated (the sweep's "
                              "CPU_SIDES); else the CPU sweep plotter's table order")
@@ -159,15 +160,13 @@ def main(argv):
     for seconds, style, _ in lines:
         ax.axhline(seconds, color=PBRT_COLOUR, linestyle=style, linewidth=0.9, zorder=1)
     if lines:
-        # Named in a legend at the left, in the room above the CPU bars,
-        # rather than along the lines, where the GPU bars stand; below the
-        # highest line when that runs through the upper half.
-        highest = max(seconds for seconds, _, _ in lines) / ylim_top
-        anchor = highest - 0.03 if highest > 0.5 else 1.0
+        # Named in a legend above the axes, one row, as the sweep figures
+        # place theirs (the user, 11-03: inside the axes it was unreadable
+        # among the lines and bars).
         ax.legend(handles=[Line2D([], [], color=PBRT_COLOUR, linestyle=style, linewidth=0.9, label=label)
                            for _, style, label in lines],
-                  frameon=False, loc="upper left", bbox_to_anchor=(0.0, anchor), borderaxespad=0.2,
-                  fontsize=TICK_FONT)
+                  ncol=len(lines), frameon=False, loc="lower center", bbox_to_anchor=(0.5, 1.02),
+                  borderaxespad=0.0, columnspacing=1.0, handletextpad=0.5)
     ax.yaxis.set_major_locator(MultipleLocator(step))
     ax.yaxis.set_major_formatter(FuncFormatter(minutes_label))
     ax.set_ylabel("Time (min)")
