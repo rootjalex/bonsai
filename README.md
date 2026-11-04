@@ -83,19 +83,21 @@ environment variable `BONSAI_UPDATE_EXPECT=1` when running `ctest`.
 
 # Benchmarks
 
-`bash apps/benchmark.sh` remakes every figure of the paper from the compiler
-built out of the checkout, in one go: the pbrt GPU and CPU sweeps and the GPU
-heatmap (`apps/pbrt`), the rtq query figures (`apps/rtq`) and the wosx GPU
-figures (`apps/wosx`). `--stages` picks a subset (`--stages pbrt`, `--stages
-"rtq wosx"`), `--dry-run` prints the commands. A full run takes about 13 h
-45 min on the paper's machine (measured 11-02/03; the script's header has
-the stages' times). The run is attributed to the
-commit it was built from and refuses uncommitted compiler sources;
-`apps/pbrt/results/provenance.txt` records it. The run ends by gathering
-the figures -- each one's .pdf, .png and the .txt that reads it, the
-tables' .tex -- and that provenance into `apps/plots`, the last run's in
-one place (`--stages gather` only gathers). `apps/benchmarks.md` says
-which schedule file each bar of each figure is.
+`bash apps/benchmark.sh` remakes the paper's eight figures from the
+compiler built out of the checkout, in one go, and measures nothing else:
+the pbrt GPU and CPU sweeps, the GPU heatmap and the compile times
+(`apps/pbrt`: pbrt-gpu-sweep, pbrt-cpu-sweep, pbrt-gpu-heatmap,
+pbrt-compile-time), the rtq query figures (`apps/rtq`: rtq-queries-cpu,
+rtq-fcpwb-gpu) and the wosx GPU figures (`apps/wosx`: wosx-gpu-speedup,
+wosx-stars-gpu-speedup). `--stages` picks a subset (`--stages pbrt`,
+`--stages "rtq wosx"`), `--dry-run` prints the commands. A full run takes
+about 13 h on the paper's machine (the script's header has the stages'
+times). The run is attributed to the commit it was built from and refuses
+uncommitted compiler sources; `apps/pbrt/results/provenance.txt` records
+it. The run ends by gathering the eight figures -- each one's .pdf, .png
+and the .txt that reads it -- and that provenance into `apps/plots`, the
+last run's in one place (`--stages gather` only gathers).
+`apps/benchmarks.md` says which schedule file each bar of each figure is.
 
 ### Acknowledgements
 

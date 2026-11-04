@@ -1,21 +1,29 @@
 #!/usr/bin/env bash
 # apps/benchmark.sh: the paper's benchmarks, end to end, from the compiler
-# built out of this checkout -- the pbrt GPU and CPU sweeps and the GPU
-# heatmap (apps/pbrt), the rtq query figures (apps/rtq) and the wosx GPU
-# figures (apps/wosx) -- so that every figure can be remade in one go under
-# one compiler, for reproducibility. Run from the repository root, inside
-# the `bonsai` conda environment:
+# built out of this checkout -- eight figures, each as its .pdf, its .png
+# and the .txt that reads it, and nothing else measured or drawn on the way
+# (the user, 11-03: these and no other figure):
+#
+#     pbrt-gpu-sweep  pbrt-cpu-sweep  pbrt-gpu-heatmap  pbrt-compile-time   (apps/pbrt)
+#     rtq-queries-cpu  rtq-fcpwb-gpu                                         (apps/rtq)
+#     wosx-gpu-speedup  wosx-stars-gpu-speedup                               (apps/wosx)
+#
+# so that every figure can be remade in one go under one compiler, for
+# reproducibility. Run from the repository root, inside the `bonsai` conda
+# environment:
 #
 #     apps/benchmark.sh                      # everything, in the order below
 #     apps/benchmark.sh --stages "pbrt-gpu pbrt-cpu pbrt-heatmap pbrt-plots"
-#     apps/benchmark.sh --stages pbrt        # the four pbrt stages
+#     apps/benchmark.sh --stages pbrt        # the five pbrt stages
 #     apps/benchmark.sh --stages "rtq wosx"  # the other two apps' runners
 #     apps/benchmark.sh --dry-run            # print the commands, run nothing
 #     apps/benchmark.sh --stages gather      # only copy the figures into apps/plots
 #
-# A full run takes about 13 h 45 min on the 32-thread host with one RTX
-# 5090 (measured 11-02/03: the pbrt sweeps and heatmap 9 h 31 min, the
-# compile times 1 h 25 min, rtq 27 min, wosx 2 h 20 min); the durations
+# A full run takes about 13 h on the 32-thread host with one RTX 5090: the
+# pbrt sweeps and heatmap 9 h 31 min and the compile times 1 h 25 min as
+# measured 11-02/03; rtq about 12 min and wosx about 1 h 55 min, the same
+# day's runs (27 min, 2 h 20 min) less the sections and schedules the
+# figures do not draw, left out since (the user, 11-03). The durations
 # below are from those runs.
 #
 # Stages, in order, and what each makes:
@@ -37,27 +45,30 @@
 #                 clean build directory -> apps/pbrt/results/compile-time/
 #                 compile-times.csv (the user, 11-03; 1 h 25 min: fourteen
 #                 builds of 3 to 10 min on one core, pbrt's a minute)
-#   pbrt-plots    apps/pbrt/plots.sh --png: pbrt-gpu-sweep, pbrt-cpu-sweep,
-#                 pbrt-gpu-heatmap, pbrt-compile-time (and the profile and
-#                 depth figures from their own tools' last runs) into
-#                 apps/pbrt/plots/
-#   rtq           apps/rtq/benchmark.sh --fresh, every schedule of the rtq
-#                 figures at once: the matching CPU schedules against Embree
-#                 and FCPW (rtq-queries-cpu), FCPW's scalar trees
-#                 (rtq-fcpwb-cpu), the GPU schedules against FCPW's GPUScene
-#                 (rtq-fcpwb-gpu), and the mesh table -> apps/rtq/plots/
-#                 (27 min)
+#   pbrt-plots    apps/pbrt/plots.sh --png, FIGURES naming the four pbrt
+#                 figures above (the compile-time figure once its stage has
+#                 run) into apps/pbrt/plots/; the profile, depth and
+#                 scene-statistics figures that tool also draws are not the
+#                 reproduction's
+#   rtq           apps/rtq/benchmark.sh --fresh --schedules embree,fcpw4w16,
+#                 fcpwb-gpu,fcpws-gpu: the matching CPU schedules against
+#                 Embree and FCPW (rtq-queries-cpu) and the GPU schedules
+#                 against FCPW's GPUScene (rtq-fcpwb-gpu) on the thirteen
+#                 meshes -> apps/rtq/plots/ (about 12 min: 11-03's 27 min
+#                 less the 14 min of the scalar-tree section, which fed
+#                 rtq-fcpwb-cpu alone)
 #   wosx          apps/wosx/benchmark.sh --fresh --gpu and --fresh --stars
-#                 --gpu: WoSX's GPU solvers against the GPU schedules, every
-#                 cell measured again -> apps/wosx/plots/wosx-gpu-speedup,
-#                 wosx-stars-gpu-speedup (47 min the spheres' ten schedules,
-#                 1 h 34 min the stars' ten)
-#   the end       the paper's figures of the stages above -- each figure's
-#                 .pdf, .png and the .txt that reads it, the tables' .tex --
-#                 and the run's provenance copied from the apps' plots
-#                 directories into apps/plots: one place, the last run's
-#                 (a full run empties it first; `--stages gather` copies
-#                 alone, measuring nothing)
+#                 --gpu, each with --schedules the eight its figure draws
+#                 (plot.py's GPU_DEFAULT_SCHEDULES, STARS_GPU_DEFAULT_SCHEDULES):
+#                 WoSX's GPU solvers against those schedules, every cell
+#                 measured again -> apps/wosx/plots/wosx-gpu-speedup,
+#                 wosx-stars-gpu-speedup (about 38 min and 1 h 15 min: 11-03's
+#                 47 min and 1 h 34 min were over ten schedules each)
+#   the end       the eight figures -- each one's .pdf, .png and the .txt
+#                 that reads it -- and the run's provenance copied from the
+#                 apps' plots directories into apps/plots: one place, the
+#                 last run's (a full run empties it first; `--stages gather`
+#                 copies alone, measuring nothing)
 #
 # What the figures are made of -- scenes, sides, sample counts, repeats --
 # lives in apps/pbrt/figures.sh, which plots.sh reads too. The rtq and wosx
@@ -132,19 +143,20 @@ run() {
 #--- the paper's figures in one place --------------------------------------
 # Each app's plotting step writes its figures beside its results
 # (apps/pbrt/plots, apps/rtq/plots, apps/wosx/plots). The run ends by
-# copying the paper's -- the figure, its .png, the .txt that reads it, the
-# tables' .tex -- and the run's provenance into apps/plots, so that the last
-# run's figures are in one place (the user, 11-03). No versions: a full run
-# empties the directory first, a run of some stages replaces what it remade
-# and leaves the rest. `--stages gather` does this copy and nothing else.
+# copying the eight figures of the header -- each one's .pdf, .png and the
+# .txt that reads it -- and the run's provenance into apps/plots, so that
+# the last run's figures are in one place (the user, 11-03). No versions: a
+# full run empties the directory first, a run of some stages replaces what
+# it remade and leaves the rest. `--stages gather` does this copy and
+# nothing else.
 PLOTS=apps/plots
 gather_plots() {  # full | part
   mkdir -p "$PLOTS"
   [[ "$1" == full ]] && rm -f "$PLOTS"/*
   local f
-  for f in apps/pbrt/plots/{pbrt-gpu-sweep,pbrt-cpu-sweep,pbrt-gpu-heatmap,pbrt-gpu-profile,pbrt-gpu-depth,pbrt-compile-time,scene_statistics}.* \
-           apps/rtq/plots/{rtq-queries-cpu,rtq-fcpwb-cpu,rtq-fcpwb-gpu,rtq-firsthit,rtq-anyhit,rtq-closestpoint,rtq-meshes}.* \
-           apps/wosx/plots/{wosx-gpu-speedup,wosx-stars-gpu-speedup,wosx-meshes,wosx-stars-meshes}.* \
+  for f in apps/pbrt/plots/{pbrt-gpu-sweep,pbrt-cpu-sweep,pbrt-gpu-heatmap,pbrt-compile-time}.{pdf,png,txt} \
+           apps/rtq/plots/{rtq-queries-cpu,rtq-fcpwb-gpu}.{pdf,png,txt} \
+           apps/wosx/plots/{wosx-gpu-speedup,wosx-stars-gpu-speedup}.{pdf,png,txt} \
            "$RESULTS/provenance.txt"; do
     [[ -f "$f" ]] && cp -f "$f" "$PLOTS/"
   done
@@ -234,7 +246,16 @@ if has pbrt-compile; then
 fi
 if has pbrt-plots; then
   echo "=== pbrt-plots $(date +%T)"
-  run env GPU_TABLES="$GPU_SWEEP_OUT/table.tsv" CPU_CSVS="$CPU_SWEEP_OUT/cpu-results.csv" \
+  # The reproduction's four pbrt figures and no other (plots.sh's FIGURES);
+  # the compile-time figure once its stage has run, since a run of the
+  # sweeps alone has no table for it.
+  PBRT_FIGURES="pbrt-gpu-sweep pbrt-cpu-sweep pbrt-gpu-heatmap"
+  if [[ -f "$COMPILE_OUT/compile-times.csv" ]]; then
+    PBRT_FIGURES+=" pbrt-compile-time"
+  else
+    echo "  pbrt-compile-time left out: no $COMPILE_OUT/compile-times.csv (the pbrt-compile stage writes it)"
+  fi
+  run env FIGURES="$PBRT_FIGURES" GPU_TABLES="$GPU_SWEEP_OUT/table.tsv" CPU_CSVS="$CPU_SWEEP_OUT/cpu-results.csv" \
       HEATMAP_TABLE="$HEATMAP_OUT/table.tsv" bash apps/pbrt/plots.sh --png
   rc=$?; echo "=== pbrt-plots ends $(date +%T) rc=$rc"
 fi
@@ -242,27 +263,46 @@ fi
 
 #--- the other apps' runners, each taking the lock for itself -------------
 if has rtq; then
-  # One invocation for all of rtq's figures (rtq-c0, 11-02): each mesh
-  # measured under its four sections in turn (Embree, FCPW's four-wide
-  # tree, FCPW built scalar, FCPW's GPUScene), one fold, one plot --
-  # rtq-queries-cpu, rtq-fcpwb-cpu, rtq-fcpwb-gpu and the mesh table, which
-  # takes node counts from the CPU rows. --fresh, since the runner takes a
-  # log that exists for a finished run (and removes every section's logs
-  # of a mesh, so it goes on the one call); RTQ_SKIP_CMAKE, since the
-  # compiler was built above and compare.sh would otherwise rebuild it
-  # before every cell.
-  echo "=== rtq $(date +%T): every mesh against Embree, FCPW (four-wide, scalar) and FCPW's GPUScene"
+  # One invocation for the two rtq figures (rtq-c0, 11-02: one fold, one
+  # plot): each mesh measured under three sections in turn -- Embree and
+  # FCPW's four-wide tree (rtq-queries-cpu; plot.py's --embree and --fcpw
+  # defaults) and FCPW's GPUScene (rtq-fcpwb-gpu; its SCALAR_FIGURES). The
+  # section over FCPW's scalar CPU trees (fcpwb, fcpws) fed rtq-fcpwb-cpu
+  # alone, half the stage's time, and is left out (the user, 11-03); its
+  # rows stay in the CSV with their own dates, tocsv.sh carrying over what
+  # a run did not measure. --fresh, since the runner takes a log that
+  # exists for a finished run (and removes every section's logs of a mesh,
+  # so it goes on the one call); RTQ_SKIP_CMAKE, since the compiler was
+  # built above and compare.sh would otherwise rebuild it before every
+  # cell.
+  echo "=== rtq $(date +%T): every mesh against Embree, FCPW's four-wide tree and FCPW's GPUScene"
   run env RTQ_HOLDER="$HOLDER" RTQ_SKIP_CMAKE=1 bash apps/rtq/benchmark.sh --fresh \
-      --schedules embree,fcpw4w16,fcpwb,fcpws,fcpwb-gpu,fcpws-gpu
+      --schedules embree,fcpw4w16,fcpwb-gpu,fcpws-gpu
   rc=$?; echo "=== rtq ends $(date +%T) rc=$rc"
 fi
 if has wosx; then
+  # The schedules each wosx figure draws, from the plotter's own lists (one
+  # source: plot.py's GPU_DEFAULT_SCHEDULES and STARS_GPU_DEFAULT_SCHEDULES).
+  # The runner's defaults hold two more each -- the launch through OptiX
+  # without reordering and the persistent claim under the reordering --
+  # that fed the .txt's step-by-step readings and no bar, a fifth of the
+  # stage's time, left out since (the user, 11-03).
+  wosx_schedules() {  # wosx_schedules --gpu | --stars
+    python3 - "$1" <<'EOF'
+import sys
+sys.path.insert(0, "apps/wosx")
+import plot
+print(",".join(plot.STARS_GPU_DEFAULT_SCHEDULES if sys.argv[1] == "--stars" else plot.GPU_DEFAULT_SCHEDULES))
+EOF
+  }
+  WOSX_SPHERES=$(wosx_schedules --gpu) && [[ -n "$WOSX_SPHERES" ]] || { echo "benchmark.sh: apps/wosx/plot.py's GPU_DEFAULT_SCHEDULES could not be read" >&2; exit 1; }
+  WOSX_STARS=$(wosx_schedules --stars) && [[ -n "$WOSX_STARS" ]] || { echo "benchmark.sh: apps/wosx/plot.py's STARS_GPU_DEFAULT_SCHEDULES could not be read" >&2; exit 1; }
   # --fresh, as for rtq: the runner takes a cell's log that exists for a
   # finished run and would fold the old logs into new tables and figures
   # without measuring anything (the 11-03 03:29 run did just that).
-  echo "=== wosx $(date +%T): WoSX's GPU solvers against the GPU schedules, the walk on spheres and the walk on stars"
-  run bash apps/wosx/benchmark.sh --fresh --gpu
-  run bash apps/wosx/benchmark.sh --fresh --stars --gpu
+  echo "=== wosx $(date +%T): WoSX's GPU solvers against the figures' GPU schedules, the walk on spheres and the walk on stars"
+  run bash apps/wosx/benchmark.sh --fresh --gpu --schedules "$WOSX_SPHERES"
+  run bash apps/wosx/benchmark.sh --fresh --stars --gpu --schedules "$WOSX_STARS"
   echo "=== wosx ends $(date +%T)"
 fi
 if (( DRY )); then

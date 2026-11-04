@@ -25,11 +25,13 @@ reordering before the material stage) take the second.
 To remake the paper's pbrt figures from the current compiler in one go,
 run `apps/benchmark.sh --stages pbrt` from the repository root (the GPU
 sweep, the CPU sweep, the heatmap, the compile times of the sweeps'
-schedules, then `plots.sh`; about 11 hours as measured on 11-02/03,
-resumable, under the sessions' benchmark lock). What the figures are made of --
-scenes, sides, sample counts, repeats, and where each measurement is
-written (`results/`) -- is `figures.sh`, which both that script and
-`plots.sh` read, so the two cannot drift apart.
+schedules, then `plots.sh` drawing the four figures those make --
+pbrt-gpu-sweep, pbrt-cpu-sweep, pbrt-gpu-heatmap, pbrt-compile-time -- and
+no other; about 11 hours as measured on 11-02/03, resumable, under the
+sessions' benchmark lock). What the figures are made of -- scenes, sides,
+sample counts, repeats, and where each measurement is written
+(`results/`) -- is `figures.sh`, which both that script and `plots.sh`
+read, so the two cannot drift apart.
 
 Run from the repository root, inside the `bonsai` conda environment. Each
 takes `PBRT=<path to a built pbrt>` (default `~/projects/pbrt-v4/build/pbrt`)
@@ -209,8 +211,11 @@ before it.
   checked with.
 - `plots.sh [--png]`: every figure of this directory, drawn into `plots/`
   under its one fixed name from the runs that are the current
-  measurements (the user, 10-24: no guessing what is what). `plots/` holds
-  exactly these and is not committed:
+  measurements (the user, 10-24: no guessing what is what); `FIGURES="..."`
+  names a subset by these stems, and only a named figure's inputs are
+  checked (apps/benchmark.sh names the paper's four, the sweeps, the
+  heatmap and the compile times; the user, 11-03). `plots/` holds exactly
+  these and is not committed:
   - `pbrt-cpu-sweep.pdf`: the CPU schedules over pbrt's CPU wavefront on
     the paper's scenes x 16/128 spp (plot_cpu_wavefront.py from
     cpu-compare-out-six, 10-30's run under caa9eb9b for the six, and

@@ -21104,3 +21104,33 @@ status is read first now. rtq-c0's check in the gap: under the four
 compiler commits since 014d544c the six plotted rtq schedules' LLVM is
 byte-identical to the table's compiler's, so the rtq figures stand
 without a rerun. The figure: apps/plots/pbrt-compile-time.pdf.
+
+**The reproduction cut to the paper's eight figures (11-03, evening).**
+The user, on seeing apps/plots: the benchmark script is to reproduce
+rtq-queries-cpu, rtq-fcpwb-gpu, pbrt-gpu-heatmap, pbrt-gpu-sweep,
+pbrt-cpu-sweep, wosx-gpu-speedup, wosx-stars-gpu-speedup and
+pbrt-compile-time -- each with its .png and .txt -- and waste no time on
+other benchmarks or other figures. What the stages measured beyond those,
+read off the 11-03 runs' logs: rtq's section over FCPW's scalar CPU trees
+(fcpwb, fcpws), 14 of the stage's 27 minutes, which fed rtq-fcpwb-cpu
+alone; wosx's two schedules a figure that are not bars (the launch
+through OptiX without reordering and the persistent claim under the
+reordering, which fed the .txt's step readings), a fifth of 47 min and of
+1 h 34 min; and the plots stage drawing the profile, depth and
+scene-statistics figures from their own tools' old runs. Left out now:
+the rtq stage passes --schedules embree,fcpw4w16,fcpwb-gpu,fcpws-gpu (the
+scalar rows stay in the CSV with their own dates; tocsv.sh carries over
+what a run did not measure); the wosx stage passes each runner the eight
+schedules its figure draws, read from plot.py's own lists so there is one
+source (its --fresh removes every schedule's logs of a mesh, so the two
+undrawn schedules' rows leave the current CSV on the next run; the
+before- files keep them); plots.sh gained FIGURES, the stems to draw, and
+checks only a named figure's inputs, so the stage no longer needs
+profile-out-e or depth-out, which a fresh checkout does not have (it
+would have refused to draw anything without them); the gathering copies
+the eight figures' .pdf, .png and .txt and the provenance, nothing else.
+The meshes the plotters leave out (rtq's lte-orb, wosx's landscape) are
+still measured: six minutes in all, and dropping them would fold their
+old logs under a new commit stamp in wosx's table. A full run is now
+about 13 h: the pbrt stages 9 h 31 min and 1 h 25 min as measured, rtq
+about 12 min and wosx about 1 h 55 min by the logs' per-cell times.

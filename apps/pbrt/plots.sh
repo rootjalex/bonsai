@@ -6,6 +6,14 @@
 # committed (.gitignore); this script is how every figure is redrawn.
 #
 #   bash apps/pbrt/plots.sh [--png]
+#   FIGURES="pbrt-cpu-sweep pbrt-gpu-sweep" bash apps/pbrt/plots.sh [--png]
+#
+# FIGURES names the figures to draw, by the stems below (default: every
+# one); only a named figure's inputs are checked, so a run of the sweeps
+# alone draws the sweeps' figures without the profile's reports or the
+# depth sweep's table. apps/benchmark.sh names the paper's four --
+# pbrt-gpu-sweep, pbrt-cpu-sweep, pbrt-gpu-heatmap, pbrt-compile-time (the
+# user, 11-03: the reproduction makes those and no other figure).
 #
 #   plots/pbrt-cpu-sweep.pdf   the CPU schedules' speedup over pbrt's CPU
 #                              wavefront, six scenes x 16/128 spp (the
@@ -245,31 +253,65 @@ COMPILE_TABLE="${COMPILE_TABLE:-$COMPILE_OUT/compile-times.csv}"
 png=0
 [[ "${1:-}" == "--png" ]] && png=1
 
-for f in $CPU_CSVS $GPU_TABLES $HEATMAP_TABLE $DEPTH_TABLE $DEPTH_STATS $DEPTH_LOG $COMPILE_TABLE; do
-  [[ -f "$f" ]] || { echo "plots.sh: no $f" >&2; exit 1; }
+# Which figures to draw (the stems of the header; default every one), and
+# the inputs each is drawn from, checked only for the figures named.
+ALL_FIGURES="pbrt-cpu-sweep pbrt-gpu-sweep pbrt-gpu-heatmap pbrt-gpu-profile pbrt-gpu-depth pbrt-compile-time scene_statistics"
+FIGURES="${FIGURES:-$ALL_FIGURES}"
+for f in $FIGURES; do
+  [[ " $ALL_FIGURES " == *" $f "* ]] || { echo "plots.sh: no figure named $f (one of: $ALL_FIGURES)" >&2; exit 1; }
 done
-[[ -d "$PROFILES" ]] || { echo "plots.sh: no $PROFILES (profile_kernels.sh writes it)" >&2; exit 1; }
+wants() { [[ " $FIGURES " == *" $1 "* ]]; }
+needs() {  # needs FIGURE FILE...: a named figure's inputs must exist
+  local figure="$1" f; shift
+  wants "$figure" || return 0
+  for f in "$@"; do
+    [[ -f "$f" ]] || { echo "plots.sh: $figure needs $f" >&2; exit 1; }
+  done
+}
+needs pbrt-cpu-sweep $CPU_CSVS
+needs pbrt-gpu-sweep $GPU_TABLES
+needs pbrt-gpu-heatmap $HEATMAP_TABLE
+needs scene_statistics $HEATMAP_TABLE $GPU_TABLES
+needs pbrt-gpu-depth $DEPTH_TABLE $DEPTH_STATS $DEPTH_LOG
+needs pbrt-compile-time $COMPILE_TABLE
+if wants pbrt-gpu-profile && [[ ! -d "$PROFILES" ]]; then
+  echo "plots.sh: pbrt-gpu-profile needs $PROFILES (profile_kernels.sh writes it)" >&2; exit 1
+fi
 cells=()
 for c in $PROFILE_CELLS; do cells+=(--cell "$c"); done
 mkdir -p "$OUT"
 
 # The scenes described: the sweep's (the GPU tables') first, then the
 # heatmap's, from pbrt's .stats beside each table's pbrt image.
-python3 "$PREFIX/scene_statistics.py" $HEATMAP_TABLE --sweep $GPU_TABLES -o "$OUT/scene_statistics.txt"
+if wants scene_statistics; then
+  python3 "$PREFIX/scene_statistics.py" $HEATMAP_TABLE --sweep $GPU_TABLES -o "$OUT/scene_statistics.txt"
+fi
 
 formats=(pdf)
 (( png )) && formats+=(png)
 for ext in "${formats[@]}"; do
-  python3 "$PREFIX/plot_cpu_wavefront.py" $CPU_CSVS --sides "$CPU_SIDES" --scenes "$SWEEP_SCENES" --ymax "$CPU_YMAX" $CUT_FLAGS -o "$OUT/pbrt-cpu-sweep.$ext"
+  if wants pbrt-cpu-sweep; then
+    python3 "$PREFIX/plot_cpu_wavefront.py" $CPU_CSVS --sides "$CPU_SIDES" --scenes "$SWEEP_SCENES" --ymax "$CPU_YMAX" $CUT_FLAGS -o "$OUT/pbrt-cpu-sweep.$ext"
+  fi
   # The paper's four GPU sides (10-24) and the three megakernel shapes of
   # 10-27 (the user: the GPU figures other than the heatmap gain them):
   # seven, within the ramp's nine; the exploration sides the tables also
   # hold (wf-b128, wf-b512, wf-fused, wf-sort36, mk-ser-ray) are drawn by
   # naming them in GPU_SIDES.
-  python3 "$PREFIX/plot_gpu_wavefront.py" $GPU_TABLES --sides "$GPU_SIDES" --scenes "$SWEEP_SCENES" --ymax "$GPU_YMAX" $CUT_FLAGS -o "$OUT/pbrt-gpu-sweep.$ext"
-  python3 "$PREFIX/plot_gpu_heatmap.py" "$OUT/pbrt-gpu-heatmap.$ext" "$HEATMAP_TABLE" --sort geometry
-  python3 "$PREFIX/plot_gpu_profile.py" "${cells[@]}" --sides "$PROFILE_SIDES" --profiles "$PROFILES" -o "$OUT/pbrt-gpu-profile.$ext"
-  python3 "$PREFIX/plot_gpu_depth.py" "$DEPTH_TABLE" --stats "$DEPTH_STATS" --log "$DEPTH_LOG" -o "$OUT/pbrt-gpu-depth.$ext"
-  python3 "$PREFIX/plot_compile_time.py" $COMPILE_TABLE --cpu-order "$CPU_SIDES" --gpu-order "$GPU_SIDES" -o "$OUT/pbrt-compile-time.$ext"
+  if wants pbrt-gpu-sweep; then
+    python3 "$PREFIX/plot_gpu_wavefront.py" $GPU_TABLES --sides "$GPU_SIDES" --scenes "$SWEEP_SCENES" --ymax "$GPU_YMAX" $CUT_FLAGS -o "$OUT/pbrt-gpu-sweep.$ext"
+  fi
+  if wants pbrt-gpu-heatmap; then
+    python3 "$PREFIX/plot_gpu_heatmap.py" "$OUT/pbrt-gpu-heatmap.$ext" "$HEATMAP_TABLE" --sort geometry
+  fi
+  if wants pbrt-gpu-profile; then
+    python3 "$PREFIX/plot_gpu_profile.py" "${cells[@]}" --sides "$PROFILE_SIDES" --profiles "$PROFILES" -o "$OUT/pbrt-gpu-profile.$ext"
+  fi
+  if wants pbrt-gpu-depth; then
+    python3 "$PREFIX/plot_gpu_depth.py" "$DEPTH_TABLE" --stats "$DEPTH_STATS" --log "$DEPTH_LOG" -o "$OUT/pbrt-gpu-depth.$ext"
+  fi
+  if wants pbrt-compile-time; then
+    python3 "$PREFIX/plot_compile_time.py" $COMPILE_TABLE --cpu-order "$CPU_SIDES" --gpu-order "$GPU_SIDES" -o "$OUT/pbrt-compile-time.$ext"
+  fi
 done
 ls -la "$OUT"

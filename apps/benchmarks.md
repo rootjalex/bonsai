@@ -3,10 +3,11 @@
 Where each schedule of the paper's figures lives (11-01): a bar's label, then
 the schedule file. pbrt's own renderers and the other references are not
 schedules of ours. Each app's `plots/<figure>.txt` says what every bar
-measured, and `apps/benchmark.sh` remakes every figure from the current
-compiler in one go and gathers them, with the run's provenance, into
-`apps/plots` (apps/pbrt/figures.sh holds the pbrt figures' scenes, sides,
-sample counts and repeats).
+measured, and `apps/benchmark.sh` remakes the eight figures below from the
+current compiler in one go, measuring nothing else, and gathers them (each
+one's .pdf, .png and .txt) with the run's provenance into `apps/plots`
+(apps/pbrt/figures.sh holds the pbrt figures' scenes, sides, sample counts
+and repeats).
 
 ## pbrt GPU sweep (`apps/pbrt/plots/pbrt-gpu-sweep.pdf`; figures.sh GPU_SIDES)
 
@@ -54,22 +55,25 @@ clock, dotted its CPU time, what one thread would have taken (both as
 measured, neither an exact comparison, as the .txt says). The .txt has
 every build's seconds, the driver's and pbrt's.
 
-## rtq (`apps/rtq/plots/`; apps/rtq/plot.py, run by apps/rtq/benchmark.sh)
+## rtq (`apps/rtq/plots/rtq-queries-cpu.pdf`, `rtq-fcpwb-gpu.pdf`; apps/rtq/plot.py, run by apps/rtq/benchmark.sh)
 
-rtq-firsthit, rtq-anyhit, rtq-closestpoint, rtq-queries-cpu:
+rtq-queries-cpu (the three CPU queries over Embree and FCPW):
 
 | bar | schedule |
 |---|---|
 | bonsai (Embree) | apps/rtq/schedules/embree.bonsai (Embree 4's schedule and layout, matched) |
 | bonsai (FCPW) | apps/rtq/schedules/fcpw4w16.bonsai (FCPW's 4-wide, 16-leaf tree, matched) |
-| tuned (--tuned) | apps/rtq/schedules/tuned.bonsai, apps/rtq/schedules/fcpw4w16t.bonsai |
-
-rtq-fcpwb-cpu: fcpwb = apps/rtq/schedules/fcpwb.bonsai (FCPW's binary BVH,
-its scalar build, matched); fcpws = apps/rtq/schedules/fcpws.bonsai (FCPW's
-cone hierarchy, silhouettes).
 
 rtq-fcpwb-gpu: fcpwb-gpu = apps/rtq/schedules/fcpwb-gpu.bonsai (against
 FCPW's GPUScene); fcpws-gpu = apps/rtq/schedules/fcpws-gpu.bonsai.
+
+The runner draws more when run by hand -- rtq-fcpwb-cpu (fcpwb =
+apps/rtq/schedules/fcpwb.bonsai, FCPW's binary BVH in its scalar build;
+fcpws = apps/rtq/schedules/fcpws.bonsai, FCPW's cone hierarchy), the
+one-query figures rtq-firsthit, rtq-anyhit and rtq-closestpoint, the tuned
+schedules' gain (--tuned: tuned.bonsai, fcpw4w16t.bonsai) and the mesh
+table -- but apps/benchmark.sh measures the two figures above and gathers
+those alone (the user, 11-03).
 
 Layouts under apps/rtq/schedules/layouts/, trees under
 apps/rtq/schedules/trees/.
