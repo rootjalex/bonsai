@@ -12,10 +12,13 @@ The rows are compile_time.sh's, one per build; a bar is a schedule's
 The bars stand in the sweep figures' order and colours
 (plot_cpu_wavefront.py's and plot_gpu_wavefront.py's SIDES, through
 figure_style.SCHEDULE_COLOURS), under the sweep figures' labels, so a bar
-here is the bar of the same colour there. The y axis is the compile time,
-its ticks in minutes. A dashed line marks pbrt-v4's own build time, the
-row compile_time.sh adds for it (the user, 11-03: "not an exact
-comparison", and the .txt says what it is).
+here is the bar of the same colour there. The y axis is the time in
+minutes, the unit in its label and the ticks plain numbers (the user,
+11-03). A dashed line marks pbrt-v4's own build time, the row
+compile_time.sh adds for it, as measured: the wall seconds of its parallel
+build, not scaled to our one thread (the user, 11-03: "not an exact
+comparison" and no normalization; the .txt says what it is and gives its
+CPU seconds too).
 
 The .txt beside the figure has every drawn schedule's file, its compiler
 seconds over the builds and the driver's, the machine and the compiler's
@@ -49,10 +52,8 @@ def read_rows(path):
 
 
 def minutes_label(seconds, _pos=None):
-    if seconds == 0:
-        return "0"
-    minutes = seconds / 60.0
-    return f"{minutes:g} min"
+    """A tick in minutes, the unit left to the axis label."""
+    return f"{seconds / 60.0:g}"
 
 
 def main(argv):
@@ -151,7 +152,7 @@ def main(argv):
     ax.set_ylim(0, top * 1.08)
     ax.yaxis.set_major_locator(MultipleLocator(step))
     ax.yaxis.set_major_formatter(FuncFormatter(minutes_label))
-    ax.set_ylabel("Compile time")
+    ax.set_ylabel("Time (min)")
     ax.set_xticks(positions)
     xmin, xmax = -0.6, x - gap - 0.4
     ax.set_xlim(xmin, xmax)
@@ -203,11 +204,12 @@ def main(argv):
         f"({slowest[1] / fastest[1]:.1f}x);",
     ]
     if pbrt:
-        notes.append(f"the dashed line is pbrt-v4's own build, {min(pbrt):.0f} s of wall time"
-                     f"{f' at {pbrt_commit}' if pbrt_commit else ''}: the whole renderer, its CPU integrators, "
-                     "its GPU wavefront and its bundled dependencies, from a clean build directory configured "
-                     "as the reference build is, with a job per core -- not an exact comparison with one "
-                     "thread of our compiler on one schedule, and marked so by the dashing;")
+        notes.append(f"the dashed line is pbrt-v4's own build, {min(pbrt):.0f} s of wall time as measured, "
+                     f"not scaled{f' (pbrt at {pbrt_commit})' if pbrt_commit else ''}: the whole renderer, its "
+                     "CPU integrators, its GPU wavefront and its bundled dependencies, from a clean build "
+                     "directory configured as the reference build is, with a job per core, so its CPU seconds "
+                     "below are what one thread would have taken -- not an exact comparison with one thread "
+                     "of our compiler on one schedule, and marked so by the dashing;")
         if pbrt_note:
             notes.extend(f"  {line}" for line in pbrt_note)
     noisy = [s for s in drawn if disturbed[s]]
