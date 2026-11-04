@@ -27,8 +27,9 @@
 # its rows already, so a stopped run is continued by the same command, as
 # the sweeps are.
 #
-# Then pbrt itself, the reference the figure's dashed line stands for (the
-# user, 11-03: "not an exact comparison", and so marked): pbrt-v4 built
+# Then pbrt itself, the reference the figure's two lines stand for, dashed
+# its wall clock and dotted its CPU time (the user, 11-03: "not an exact
+# comparison", and so marked): pbrt-v4 built
 # from a clean build directory as a user builds it -- configured from the
 # reference build's own cache (--pbrt-build, the directory of compare.sh's
 # PBRT binary: the same compilers, OptiX path, shader model and options),

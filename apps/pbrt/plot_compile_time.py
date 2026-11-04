@@ -14,11 +14,11 @@ The bars stand in the sweep figures' order and colours
 figure_style.SCHEDULE_COLOURS), under the sweep figures' labels, so a bar
 here is the bar of the same colour there. The y axis is the time in
 minutes, the unit in its label and the ticks plain numbers (the user,
-11-03). A dashed line marks pbrt-v4's own build time, the row
-compile_time.sh adds for it, as measured: the wall seconds of its parallel
-build, not scaled to our one thread (the user, 11-03: "not an exact
-comparison" and no normalization; the .txt says what it is and gives its
-CPU seconds too).
+11-03). Two lines mark pbrt-v4's own build, the row compile_time.sh adds
+for it and its pbrt-build.txt: dashed, the wall clock of its parallel
+build; dotted, its CPU time, what one thread would have taken. Both as
+measured, neither scaled (the user, 11-03: "not an exact comparison" and
+no normalization; the .txt says what they are).
 
 The .txt beside the figure has every drawn schedule's file, its compiler
 seconds over the builds and the driver's, the machine and the compiler's
@@ -91,12 +91,17 @@ def main(argv):
         commits.add(row["commit"])
         hosts.add(row["host"])
     pbrt_note = None
+    pbrt_build = {}  # pbrt-build.txt's lines by their first word: jobs, wall, cpu, ...
     if pbrt:
         for path in args.csv:
             note = os.path.join(os.path.dirname(path), "pbrt-build.txt")
             if os.path.exists(note):
                 with open(note) as f:
                     pbrt_note = [line.rstrip("\n") for line in f]
+                for line in pbrt_note:
+                    words = line.split(None, 1)
+                    if len(words) == 2:
+                        pbrt_build[words[0]] = words[1]
 
     # The bars: the sweep figures' sides that have rows, in the sweep's
     # drawing order where given, else the plotters' table order.
@@ -132,24 +137,37 @@ def main(argv):
         centres.append((name, (start + x - 1.0) / 2.0))
         x += gap
     top = max(seconds for _, bars in groups for _, _, _, seconds in bars)
-    # pbrt-v4's own build, the dashed line (the user, 11-03: not an exact
-    # comparison -- a parallel build of the whole renderer against one
-    # thread of ours on one schedule -- and the .txt says so).
+    # pbrt-v4's own build, two lines, both as measured (the user, 11-03:
+    # not an exact comparison -- a parallel build of the whole renderer
+    # against one thread of ours on one schedule -- and no normalization;
+    # the .txt says so): dashed, the wall clock of the build over its jobs,
+    # the row's seconds; dotted, its CPU time, pbrt-build.txt's cpu line,
+    # what one thread would have taken.
+    lines = []  # (seconds, line style, legend label)
+    pbrt_cpu = None
     if pbrt:
-        reference = min(pbrt)
-        jobs = None
-        for line in pbrt_note or []:
-            if line.startswith("jobs"):
-                jobs = line.split()[1]
-        ax.axhline(reference, color=PBRT_COLOUR, linestyle=(0, (4, 3)), linewidth=0.8, zorder=1)
-        # Named in a legend, in the room above the CPU bars, rather than
-        # along the line, where the GPU bars stand.
-        ax.legend(handles=[Line2D([], [], color=PBRT_COLOUR, linestyle=(0, (4, 3)), linewidth=0.8,
-                                  label=f"pbrt-v4{f', {jobs} jobs' if jobs else ''}")],
-                  frameon=False, loc="upper left", fontsize=TICK_FONT)
-        top = max(top, reference)
+        jobs = pbrt_build.get("jobs", "").split()
+        lines.append((min(pbrt), (0, (4, 3)), f"pbrt-v4 wall clock{f', {jobs[0]} jobs' if jobs else ''}"))
+        cpu = pbrt_build.get("cpu", "").split()
+        if cpu:
+            pbrt_cpu = float(cpu[0])
+            lines.append((pbrt_cpu, (0, (1, 1.8)), "pbrt-v4 CPU time"))
+        top = max([top] + [seconds for seconds, _, _ in lines])
     step = 120.0 if top > 480 else 60.0 if top > 150 else 30.0
-    ax.set_ylim(0, top * 1.08)
+    ylim_top = top * 1.08
+    ax.set_ylim(0, ylim_top)
+    for seconds, style, _ in lines:
+        ax.axhline(seconds, color=PBRT_COLOUR, linestyle=style, linewidth=0.9, zorder=1)
+    if lines:
+        # Named in a legend at the left, in the room above the CPU bars,
+        # rather than along the lines, where the GPU bars stand; below the
+        # highest line when that runs through the upper half.
+        highest = max(seconds for seconds, _, _ in lines) / ylim_top
+        anchor = highest - 0.03 if highest > 0.5 else 1.0
+        ax.legend(handles=[Line2D([], [], color=PBRT_COLOUR, linestyle=style, linewidth=0.9, label=label)
+                           for _, style, label in lines],
+                  frameon=False, loc="upper left", bbox_to_anchor=(0.0, anchor), borderaxespad=0.2,
+                  fontsize=TICK_FONT)
     ax.yaxis.set_major_locator(MultipleLocator(step))
     ax.yaxis.set_major_formatter(FuncFormatter(minutes_label))
     ax.set_ylabel("Time (min)")
@@ -204,12 +222,14 @@ def main(argv):
         f"({slowest[1] / fastest[1]:.1f}x);",
     ]
     if pbrt:
-        notes.append(f"the dashed line is pbrt-v4's own build, {min(pbrt):.0f} s of wall time as measured, "
-                     f"not scaled{f' (pbrt at {pbrt_commit})' if pbrt_commit else ''}: the whole renderer, its "
+        notes.append(f"the dashed line is the wall clock of pbrt-v4's own build, {min(pbrt):.0f} s"
+                     f"{f' (pbrt at {pbrt_commit})' if pbrt_commit else ''}: the whole renderer, its "
                      "CPU integrators, its GPU wavefront and its bundled dependencies, from a clean build "
-                     "directory configured as the reference build is, with a job per core, so its CPU seconds "
-                     "below are what one thread would have taken -- not an exact comparison with one thread "
-                     "of our compiler on one schedule, and marked so by the dashing;")
+                     "directory configured as the reference build is, with a job per core"
+                     + (f"; the dotted line is that build's CPU time, {pbrt_cpu:.0f} s, what one thread "
+                        "would have taken" if pbrt_cpu is not None else "")
+                     + " -- both as measured, neither scaled, and neither an exact comparison with one "
+                     "thread of our compiler on one schedule;")
         if pbrt_note:
             notes.extend(f"  {line}" for line in pbrt_note)
     noisy = [s for s in drawn if disturbed[s]]

@@ -125,9 +125,12 @@ before it.
   figure `pbrt-compile-time`, the user's ask of 11-03): each renderer
   built `--repeats` times exactly as a comparison builds it, `compare.sh`'s
   `compiler seconds` and `driver seconds` kept, one CSV row per build in
-  `DIR/compile-times.csv`; `--resume` skips a schedule with its rows. The
-  figure is the least of each schedule's compiler seconds
-  (`plot_compile_time.py`, drawn by `plots.sh`).
+  `DIR/compile-times.csv`; `--resume` skips a schedule with its rows. Then
+  pbrt-v4's own clean build is timed, a job per core, its wall clock the
+  row `pbrt-v4` and its CPU seconds in `DIR/pbrt-build.txt` (`--no-pbrt`,
+  `--pbrt-only`). The figure is the least of each schedule's compiler
+  seconds, with pbrt's wall clock a dashed line and its CPU time a dotted
+  one (`plot_compile_time.py`, drawn by `plots.sh`).
 - `cpu_compare.sh [--spp "N ..."] [--repeats N] [--schedules "..."]
   [--scenes "..."] [--out DIR] [--resume]`: the CPU comparison -- pbrt's
   CPU wavefront against every CPU schedule, on the scenes given (the
