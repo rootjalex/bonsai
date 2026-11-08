@@ -1,0 +1,126 @@
+import stdlib/ray;
+
+// Implementation code for the WoSt primer [1].
+// [1] https://github.com/GeometryCollective/wost-simple/blob/main/code/WoStLaplace2D.cpp
+
+// TODO(cgyurgyik): They use f64, but casting every literal is annoying.
+element vec2 = vector[f32, 2];
+element polyline = array[vec2];
+
+func clamp<T>(input: T, lo: T, hi: T) -> T {
+    return max(min(input, hi), lo);
+}
+
+func length(u: vec2) {
+    return sqrt(norm(u));
+}
+
+// returns the closest point to x on a segment with endpoints a and b.
+func closest_point(x: vec2, a: vec2, b: vec2) -> vec2 {
+    u: vec2 = b - a;
+
+    t1: f32 = dot(x - a, u);
+    t2: f32 = dot(u, u);
+    t: f32 = clamp[[f32]](t1 / t2, 0.0, 1.0);
+    return (1.0 - t) * a + (t * b);
+}
+
+// returns true if the point b on the polyline abc is a silhoutte relative to x
+func is_silhouette( x: vec2, a: vec2, b: vec2, c: vec2) -> bool {
+    return (cross(b-a, x-a) * cross(c-b, x-b)) < 0;
+}
+
+// returns the time t at which the ray x+tv intersects segment ab,
+// or infinity if there is no intersection.
+func ray_intersection( x: vec2, v: vec2, a: vec2, b: vec2) {
+    u: vec2 = b - a;
+    w: vec2 = x - a;
+    d: f32 = cross(v, u);
+    s: f32 = cross(v, w) / d;
+    t: f32 = cross(u, w) / d;
+    if (t > 0.0 && 0.0 <= s && s <= 1.0) {
+        return t;
+    }
+    return inf;
+}
+
+// returns distance from x to closest point on the given polylines P
+//    d: mut f32 = inf;
+//    forall i : [0:len(P):1] {
+//        forall j : [0:len(P[i])-1:1] {
+//            y: vec2 = closest_point(x, P[i][j], P[i][j+1]);
+//            d = min(d, length(x - y));
+//        }
+//    }
+func distance_polylines(x: vec2, P: array[polyline]) -> f32 {
+    // [[unimplemented]]
+    return 0.0;
+}
+
+// returns distance from x to closest silhouette point on the given polylines P
+//    d: mut f32 = inf;
+//    forall i : [0:len(P):1] {
+//        forall j : [0:len(P[i])-1:1] {
+//            if (is_silhouette(x, P[i][j-1], P[i][j], P[i][j+1])) {
+//              d = min(d, length(x - P[i][j]));
+//            }
+//        }
+//    }
+func silhoutte_distance_polylines(x: vec2, P: array[polyline]) -> f32 {
+    // [[unimplemented]]
+    return 0.0;
+}
+
+// finds the first intersection y of the ray x+tv with the given polylines P,
+// restricted to a ball of radius r around x.  The flag onBoundary indicates
+// whether the first hit is on a boundary segment (rather than the sphere), and
+// if so sets n to the normal at the hit point.
+func intersect_polylines(x: vec2, v: vec2, r: f32, P: array[polyline], n: mut vec2, on_boundary: mut bool) -> vec2 {
+    // [[unimplemented]]
+    t_min: mut f32 = r;
+    n = {0.0, 0.0};
+    on_boundary = false;
+    return n;
+}
+
+
+// solves a Laplace equation Delta u = 0 at x0, where the Dirichlet and Neumann
+// boundaries are each given by a collection of polylines, the Neumann
+// boundary conditions are all zero, and the Dirichlet boundary conditions
+// are given by a function g that can be evaluated at any point in space
+func solve(x0: vec2, 
+           boundary_dirichlet: array[polyline],
+           boundary_neumann: array[polyline],
+           g: Fn(vec2) -> f32) -> f32 { 
+  eps: f32 = 0.0001;      // stopping tolerance
+  r_min: f32 = 0.0001;    // minimum step size
+  n_walks: i32 = 65536;   // number of Monte Carlo samples
+  max_steps: i32 = 65536; // maximum walk length
+  sum: mut f32 = 0.0;
+  // [[unimplemented]]
+  return 0.0;
+}
+
+// these routines are not used by WoSt itself, but are rather used to check
+// whether a given evaluation point is actually inside the domain
+func signed_angle(x: vec2, P: array[polyline]) -> f32 {
+    // [[unimplemented]]
+    return 0.0;
+}
+
+// Returns true if the point x is contained in the region bounded by the Dirichlet
+// and Neumann curves.  We assume these curves form a collection of closed polygons,
+// and are given in a consistent counter-clockwise winding order.
+func inside_domain(x: vec2, 
+                   boundary_dirichlet: array[polyline],
+                   boundary_neumann: array[polyline]) -> bool {
+    // [[unimplemented]]
+    return false;
+}
+
+func main() -> i32 {
+    // boundary_dirichlet: array[polyline] = {};
+    // boundary_neumann: array[polyline] = {};
+
+    return 0;
+}
