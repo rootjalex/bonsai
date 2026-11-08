@@ -1,6 +1,7 @@
 add_bonsai_tests(
     LABELS correctness llvm
     FILES
+    append.bonsai
     bitwise.bonsai
     collapse.bonsai
     dce.bonsai
